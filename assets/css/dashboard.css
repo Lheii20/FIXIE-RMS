@@ -1,0 +1,49 @@
+.nav-pills .nav-link { 
+    color: #64748b; 
+    border-radius: 2px !important; /* Sharp corners */
+    padding: 0.4rem 1rem !important; /* Compact padding */
+    transition: all 0.2s ease; 
+    font-weight: 600; 
+    font-size: 0.8rem !important;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border: 1px solid transparent;
+}
+.nav-pills .nav-link.active { 
+    background-color: #3d7393; /* Match primary color */
+    border-color: #2c566e;
+    box-shadow: 0 1px 2px rgba(61, 115, 147, 0.15); 
+    color: #fff; 
+}
+.nav-pills .nav-link:hover:not(.active) { 
+    background-color: #eff3f5; 
+    border-color: #d8e0e5;
+    color: #1e293b; 
+}
+.chart-container { 
+    position: relative; 
+    height: 250px; /* Slightly shorter for compactness */
+    width: 100%; 
+}
+.tab-content > .tab-pane { 
+    transition: opacity 0.2s ease; 
+}
+.modal-xl-custom { 
+    max-width: 90%; 
+}
+#documentViewerFrame { 
+    background: #eff3f5 url('../images/loading-spinner.svg') center center no-repeat; 
+}
+
+table.dataTable thead th {
+    vertical-align: middle !important;
+    white-space: nowrap !important;
+    padding: 0.5rem 0.75rem !important; /* Tighter headers */
+    background-color: #f8fafc !important; /* Soft header background */
+    color: #475569 !important;
+}
+
+/* Indicators (Softer, less glaring colors) */
+.indicator-safe { border-left: 3px solid #059669 !important; }
+.indicator-warning { border-left: 3px solid #d97706 !important; }
+.indicator-danger { border-left: 3px solid #dc2626 !important; }
