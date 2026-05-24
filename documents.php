@@ -26,7 +26,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         die("Security Validation Failed.");
     }
     
-    // HANDLER: EDIT RETENTION POLICY
     if ($_POST['action'] === 'edit_policy') {
         if (!in_array($role, ['Admin', 'GM'])) {
             header("Location: documents.php?error=" . urlencode("Only the Admin and General Manager can edit Retention Policies."));
@@ -45,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if (function_exists('log_audit_action')) {
                 log_audit_action($conn, $_SESSION['user_id'], 'UPDATE_POLICY', "Updated Policy ID: $policy_id to $years Years ($action_after).");
             }
-            header("Location: documents.php?success=" . urlencode("Retention Policy updated successfully. System will auto-adjust related records."));
+            header("Location: documents.php?success=" . urlencode("Retention Policy updated successfully."));
             exit();
         } else {
             header("Location: documents.php?error=" . urlencode("Failed to update policy."));
@@ -54,10 +53,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 
     if ($is_top_mgmt) {
-        // HANDLER: CREATE FOLDER
         if ($_POST['action'] === 'create_folder') {
             $parent = trim($_POST['parent_category']);
-            
             if ($parent === 'NEW_PARENT_FOLDER') {
                 if ($role !== 'Admin') {
                     header("Location: documents.php?error=" . urlencode("Only the System Administrator can create Main Folders."));
@@ -73,7 +70,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if (!empty($parent)) {
                 $stmt_create = $conn->prepare("INSERT INTO document_categories (parent_category, sub_category, assigned_to_role, policy_id) VALUES (?, ?, ?, ?)");
                 $stmt_create->bind_param("sssi", $parent, $sub, $roles_assigned, $folder_policy);
-                
                 if ($stmt_create->execute()) {
                     header("Location: documents.php?success=" . urlencode("Folder configuration updated successfully."));
                     exit();
@@ -87,7 +83,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
         }
         
-        // HANDLER: DELETE FOLDER
         if ($_POST['action'] === 'delete_folder') {
             $delete_type = $_POST['delete_type'];
             $parent_name = $_POST['parent_name'];
@@ -95,24 +90,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             
             if ($delete_type === 'parent') {
                 if ($role !== 'Admin') {
-                    header("Location: documents.php?error=" . urlencode("Only the System Administrator can delete Main Folders."));
+                    header("Location: documents.php?error=" . urlencode("Only the Admin can delete Main Folders."));
                     exit();
                 }
-                
                 $stmt_subs = $conn->prepare("SELECT sub_category FROM document_categories WHERE parent_category = ? AND sub_category != ''");
                 $stmt_subs->bind_param("s", $parent_name);
                 $stmt_subs->execute();
                 $res_subs = $stmt_subs->get_result();
-                
                 $total_files = 0;
                 while($sub_row = $res_subs->fetch_assoc()) {
-                    $cat = $sub_row['sub_category'];
                     $chk = $conn->prepare("SELECT COUNT(*) as total FROM documents WHERE category = ?");
-                    $chk->bind_param("s", $cat);
+                    $chk->bind_param("s", $sub_row['sub_category']);
                     $chk->execute();
                     $total_files += $chk->get_result()->fetch_assoc()['total'];
                 }
-                
                 if ($total_files == 0) {
                     $del = $conn->prepare("DELETE FROM document_categories WHERE parent_category = ?");
                     $del->bind_param("s", $parent_name);
@@ -120,16 +111,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     header("Location: documents.php?success=" . urlencode("Main Folder deleted successfully."));
                     exit();
                 } else {
-                    header("Location: documents.php?error=" . urlencode("Cannot delete Main Folder. Make sure ALL Sub-folders inside it are completely empty."));
+                    header("Location: documents.php?error=" . urlencode("Cannot delete Main Folder. Make sure ALL Sub-folders are empty."));
                     exit();
                 }
-            } 
-            elseif ($delete_type === 'sub') {
+            } elseif ($delete_type === 'sub') {
                 $chk = $conn->prepare("SELECT COUNT(*) as total FROM documents WHERE category = ?");
                 $chk->bind_param("s", $sub_name);
                 $chk->execute();
                 $total_files = $chk->get_result()->fetch_assoc()['total'];
-                
                 if ($total_files == 0) {
                     $del = $conn->prepare("DELETE FROM document_categories WHERE sub_category = ? AND parent_category = ?");
                     $del->bind_param("ss", $sub_name, $parent_name);
@@ -146,25 +135,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 }
 
 // ==========================================
-// DYNAMIC ROLE-BASED FOLDER STRUCTURE MULA SA DATABASE
+// STRICT DEDUPLICATION FOLDER FETCHING
 // ==========================================
 $parent_folders = [];
 $role_assigned_folders = [];
 
-$cat_query = $conn->query("SELECT parent_category, sub_category, assigned_to_role, policy_id FROM document_categories ORDER BY parent_category ASC, id ASC");
+$cat_query = $conn->query("SELECT TRIM(parent_category) as p_cat, TRIM(sub_category) as s_cat, assigned_to_role FROM document_categories ORDER BY parent_category ASC, id ASC");
 if ($cat_query) {
     while ($row = $cat_query->fetch_assoc()) {
-        if (!isset($parent_folders[$row['parent_category']])) {
-            $parent_folders[$row['parent_category']] = [];
+        $p_cat = $row['p_cat'];
+        $s_cat = $row['s_cat'];
+        
+        if($p_cat === '') continue;
+
+        $p_key = $p_cat;
+        foreach(array_keys($parent_folders) as $ext_p) {
+            if(strcasecmp($ext_p, $p_cat) == 0) { $p_key = $ext_p; break; }
         }
-        if ($row['sub_category'] !== '') {
-            $parent_folders[$row['parent_category']][] = $row['sub_category'];
+        if(!isset($parent_folders[$p_key])) { $parent_folders[$p_key] = []; }
+
+        if ($s_cat !== '') {
+            $s_exists = false;
+            foreach($parent_folders[$p_key] as $ext_s) {
+                if(strcasecmp($ext_s, $s_cat) == 0) { $s_exists = true; break; }
+            }
+            if(!$s_exists) { $parent_folders[$p_key][] = $s_cat; }
         }
-        if (!empty($row['assigned_to_role']) && $row['sub_category'] !== '') {
+
+        if (!empty($row['assigned_to_role']) && $s_cat !== '') {
             $assigned_roles_array = explode(',', $row['assigned_to_role']);
             foreach ($assigned_roles_array as $r) {
                 $r = trim($r);
-                $role_assigned_folders[$r][] = $row['sub_category'];
+                if(!isset($role_assigned_folders[$r])) $role_assigned_folders[$r] = [];
+                
+                $s_exists_role = false;
+                foreach($role_assigned_folders[$r] as $ext_sr) {
+                    if(strcasecmp($ext_sr, $s_cat) == 0) { $s_exists_role = true; break; }
+                }
+                if(!$s_exists_role) $role_assigned_folders[$r][] = $s_cat;
             }
         }
     }
@@ -173,10 +181,24 @@ if ($cat_query) {
 if ($is_top_mgmt) {
     $user_categories = [];
     foreach ($parent_folders as $subs) {
-        $user_categories = array_merge($user_categories, $subs);
+        foreach($subs as $sub) {
+            $s_exists = false;
+            foreach($user_categories as $ext_u) {
+                if(strcasecmp($ext_u, $sub) == 0) { $s_exists = true; break; }
+            }
+            if(!$s_exists) $user_categories[] = $sub;
+        }
     }
 } else {
-    $user_categories = $role_assigned_folders[$role] ?? [];
+    $raw_roles = $role_assigned_folders[$role] ?? [];
+    $user_categories = [];
+    foreach($raw_roles as $sub) {
+        $s_exists = false;
+        foreach($user_categories as $ext_u) {
+            if(strcasecmp($ext_u, $sub) == 0) { $s_exists = true; break; }
+        }
+        if(!$s_exists) $user_categories[] = $sub;
+    }
 }
 
 // ==========================================
@@ -188,18 +210,51 @@ $parent_filter = $_GET['parent'] ?? '';
 $doc_status = $_GET['doc_status'] ?? ''; 
 $view_filter = $_GET['view_filter'] ?? ''; 
 $view_disposition = isset($_GET['disposition']) && $_GET['disposition'] == '1';
+$view_archives = isset($_GET['view_archives']) && $_GET['view_archives'] == '1';
 
 if ($is_top_mgmt && empty($parent_filter) && !empty($type_filter)) {
     foreach($parent_folders as $p => $subs) {
-        if(in_array($type_filter, $subs)) { 
-            $parent_filter = $p; 
-            break; 
+        foreach($subs as $s) {
+            if(strcasecmp($s, $type_filter) == 0) { $parent_filter = $p; break 2; }
         }
     }
 }
 
 // ==========================================
-// DYNAMIC CONTEXTUAL FILTER LOGIC 
+// DYNAMIC UI TITLES & BACK URL
+// ==========================================
+$page_title = "Official Records";
+$page_subtitle = "Automated Departmental File Management";
+$show_back_btn = false;
+$back_url = "documents.php";
+
+if ($view_disposition) {
+    $page_title = "Ready for Disposition";
+    $page_subtitle = "These documents have reached the end of their legal retention period.";
+    $show_back_btn = true;
+} elseif ($view_archives) {
+    $page_title = "Archived Official Records";
+    $page_subtitle = "Historical and inactive documents. Search or restore if needed.";
+    $show_back_btn = true;
+} elseif (!empty($type_filter)) {
+    $page_title = htmlspecialchars($type_filter);
+    $page_subtitle = "Viewing files inside " . htmlspecialchars($type_filter);
+    $show_back_btn = true;
+    if (!empty($parent_filter)) {
+        $back_url = "?parent=" . urlencode($parent_filter);
+    }
+} elseif (!empty($parent_filter)) {
+    $page_title = htmlspecialchars($parent_filter);
+    $page_subtitle = "Viewing sub-folders inside " . htmlspecialchars($parent_filter);
+    $show_back_btn = true;
+}
+
+if (!empty($search)) {
+    $page_subtitle .= " (Search Results)";
+}
+
+// ==========================================
+// DROPDOWN FILTER LOGIC WITH STRICT OVERRIDE
 // ==========================================
 $dropdown_items = [];
 $current_filter_label = "Filter Options";
@@ -237,23 +292,78 @@ if ($is_top_mgmt && empty($parent_filter) && empty($type_filter)) {
     }
 }
 
+// Preserve archive mode and disposition mode on filters
+if ($view_archives) {
+    foreach ($dropdown_items as &$item) {
+        $separator = (strpos($item['url'], '?') !== false) ? '&' : '?';
+        $item['url'] .= $separator . 'view_archives=1';
+    }
+} elseif ($view_disposition) {
+    foreach ($dropdown_items as &$item) {
+        $separator = (strpos($item['url'], '?') !== false) ? '&' : '?';
+        $item['url'] .= $separator . 'disposition=1';
+    }
+}
+
+// FORCE FIX: Replace any duplicate Procurement & Logistics to "Technical & Service Records"
+$unique_dropdown = [];
+$proc_log_found = false;
+
+foreach($dropdown_items as $item) {
+    $lbl = strtolower(trim($item['label']));
+    if (strpos($lbl, 'procurement') !== false && strpos($lbl, 'logistics') !== false) {
+        if (!$proc_log_found) {
+            $proc_log_found = true;
+            $unique_dropdown[$lbl] = $item;
+        } else {
+            $item['label'] = 'Technical & Service Records';
+            $item['url'] = str_replace(urlencode($item['label']), urlencode('Technical & Service Records'), $item['url']);
+            $unique_dropdown['technical & service records'] = $item;
+        }
+    } else {
+        $unique_dropdown[$lbl] = $item;
+    }
+}
+$dropdown_items = array_values($unique_dropdown);
+
 // ==========================================
-// DISPOSITION QUERY
+// DISPOSITION & REGULAR QUERY CONDITIONS
 // ==========================================
 if ($view_disposition && $is_top_mgmt) {
-    $disp_query = $conn->query("
+    $disp_where = ["d.disposition_status = 'Ready for Disposition'"];
+    $disp_params = [];
+    $disp_types = "";
+
+    if (!empty($search)) {
+        $disp_where[] = "(d.file_name LIKE ? OR d.category LIKE ?)";
+        $disp_params[] = "%$search%";
+        $disp_params[] = "%$search%";
+        $disp_types .= "ss";
+    }
+    
+    if (!empty($view_filter)) {
+        $disp_where[] = "d.category = ?";
+        $disp_params[] = $view_filter;
+        $disp_types .= "s";
+    }
+
+    $disp_where_clause = implode(" AND ", $disp_where);
+    
+    $disp_query_sql = "
         SELECT d.*, p.policy_name, p.action_after_retention, u.full_name 
         FROM documents d 
         JOIN retention_policies p ON d.policy_id = p.policy_id 
         LEFT JOIN users u ON d.uploaded_by = u.user_id 
-        WHERE d.disposition_status = 'Ready for Disposition'
+        WHERE $disp_where_clause
         ORDER BY d.uploaded_at ASC
-    ");
+    ";
+    
+    $disp_stmt = $conn->prepare($disp_query_sql);
+    if(!empty($disp_params)) $disp_stmt->bind_param($disp_types, ...$disp_params);
+    $disp_stmt->execute();
+    $disp_query = $disp_stmt->get_result();
 }
 
-// ==========================================
-// REGULAR QUERY CONDITIONS BUILDER
-// ==========================================
 $where_conditions = ["d.status = 'Active'"];
 $archived_conditions = ["d.status = 'Archived'"];
 $params = [];
@@ -316,9 +426,6 @@ if (!empty($search)) {
 $whereClause = "WHERE " . implode(" AND ", $where_conditions);
 $archivedWhereClause = "WHERE " . implode(" AND ", $archived_conditions);
 
-// ==========================================
-// DATABASE FETCH EXECUTION
-// ==========================================
 $query_active = "
     SELECT d.*, p.po_number, p.client_name, p.amount, p.status as po_status, u.full_name, rp.policy_name
     FROM documents d 
@@ -332,13 +439,14 @@ if(!empty($params)) $stmt->bind_param($types, ...$params);
 $stmt->execute();
 $active_docs = $stmt->get_result();
 
+$archivedLimit = $view_archives ? "LIMIT 200" : "LIMIT 50";
 $query_archived = "
     SELECT d.*, p.po_number, p.client_name, p.amount, p.status as po_status, u.full_name 
     FROM documents d 
     LEFT JOIN purchase_orders p ON d.po_id = p.po_id 
     LEFT JOIN users u ON d.uploaded_by = u.user_id 
     $archivedWhereClause 
-    ORDER BY d.uploaded_at DESC LIMIT 50";
+    ORDER BY d.uploaded_at DESC $archivedLimit";
 $stmt_archived = $conn->prepare($query_archived);
 if(!empty($params)) $stmt_archived->bind_param($types, ...$params);
 $stmt_archived->execute();
@@ -349,7 +457,6 @@ $db_counts = [];
 while ($r = $counts_query->fetch_assoc()) {
     $db_counts[$r['category']] = $r['cnt'];
 }
-
 function getSubFolderCount($sub, $db_counts) { return $db_counts[$sub] ?? 0; }
 function getParentFolderCount($parent, $parent_folders, $db_counts) {
     $count = 0;
@@ -358,7 +465,7 @@ function getParentFolderCount($parent, $parent_folders, $db_counts) {
 }
 
 $restricted_upload_folders = ['Purchase orders', 'Purchase requests'];
-$hide_upload_button = in_array($type_filter, $restricted_upload_folders);
+$hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $view_archives || $view_disposition;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -368,172 +475,119 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders);
     <link href="assets/css/style.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <style>
-        /* NEW MODERN SLEEK UI CSS */
-        .folder-card {
-            border: 1px solid #e2e8f0;
-            border-radius: 10px;
-            transition: all 0.2s ease;
-            background: #fff;
-            cursor: pointer;
-        }
-        .folder-card:hover {
-            border-color: #cbd5e1;
-            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
-            transform: translateY(-2px);
-        }
-        .folder-icon-box {
-            width: 44px; height: 44px;
-            border-radius: 8px;
-            display: flex; align-items: center; justify-content: center;
-        }
-        .file-icon-md {
-            width: 40px; height: 40px;
-            display: flex; align-items: center; justify-content: center;
-            border-radius: 8px; font-size: 1.2rem;
-        }
-        .file-thumb-md {
-            width: 40px; height: 40px;
-            object-fit: cover; border-radius: 8px; border: 1px solid #e2e8f0;
-        }
+        .folder-card { border: 1px solid #e2e8f0; border-radius: 10px; transition: all 0.2s ease; background: #fff; cursor: pointer; }
+        .folder-card:hover { border-color: #cbd5e1; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); transform: translateY(-2px); }
+        .folder-icon-box { width: 44px; height: 44px; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+        .file-icon-md { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 8px; font-size: 1.2rem; }
+        .file-thumb-md { width: 40px; height: 40px; object-fit: cover; border-radius: 8px; border: 1px solid #e2e8f0; }
         .clickable-row td { transition: background-color 0.2s ease; vertical-align: middle; }
         .clickable-row:hover td { background-color: #f8fafc !important; cursor: pointer; }
-        .sleek-search {
-            background: #fff;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 4px;
-        }
+        .sleek-search { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 4px; }
         .sleek-search .form-control { border: none; box-shadow: none; background: transparent; }
         .sleek-search .form-control:focus { box-shadow: none; }
         .sleek-search .input-group-text { border: none; background: transparent; }
+        
+        /* STICKY TOP PANEL */
+        .sticky-header-panel {
+            position: sticky; top: 0; z-index: 1020;
+            background-color: #f8f9fa; padding: 1.5rem 1rem 1rem 1rem;
+            margin: -1.5rem -1rem 1.5rem -1rem; border-bottom: 1px solid #e2e8f0;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.03);
+        }
+
+        /* STICKY TABLE HEADERS FOR DOCUMENTS LIST */
+        .table-scrollable {
+            max-height: 65vh;
+            overflow-y: auto;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .table-scrollable table { margin-bottom: 0; }
+        .table-scrollable thead th {
+            position: sticky;
+            top: 0;
+            background-color: #f8f9fa !important;
+            z-index: 10;
+            box-shadow: inset 0 -1px 0 #e2e8f0, 0 1px 0 #e2e8f0;
+        }
+        .table-scrollable::-webkit-scrollbar { width: 6px; height: 6px; }
+        .table-scrollable::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; }
+        .table-scrollable::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .table-scrollable::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* ACTION MENU DROPDOWN */
+        .action-dropdown .dropdown-toggle::after { display: none; }
     </style>
 </head>
-<body>
+<body style="background-color: #f8f9fa;">
     <?php include 'sidebar.php'; ?>
     <div class="main-content fade-in">
         
-        <div class="d-flex justify-content-between align-items-end border-bottom pb-4 mb-4">
-            <div>
-                <h3 class="fw-bold mb-1" style="letter-spacing: -0.5px;">Official Records</h3>
-                <p class="text-muted mb-0 small">Automated Departmental File Management</p>
-            </div>
-            
-            <div class="d-flex gap-2 align-items-center">
-                <?php if(!empty($user_categories) && !$hide_upload_button): ?>
-                <button class="btn btn-primary fw-medium px-3 text-nowrap" data-bs-toggle="modal" data-bs-target="#uploadModal" style="border-radius: 8px;">
-                    <i class="fas fa-upload me-2"></i> Upload Record
-                </button>
-                <?php endif; ?>
-
-                <div class="dropdown">
-                    <button class="btn btn-light border text-secondary" style="border-radius: 8px; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center;" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="More Options">
-                        <i class="fas fa-ellipsis-v"></i>
+        <div class="sticky-header-panel">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="d-flex align-items-center gap-3">
+                    <?php if($show_back_btn): ?>
+                        <a href="<?php echo $back_url; ?>" class="btn btn-sm btn-white bg-white border shadow-sm" style="border-radius: 8px; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center;" title="Back">
+                            <i class="fas fa-arrow-left text-secondary"></i>
+                        </a>
+                    <?php endif; ?>
+                    <div>
+                        <h3 class="fw-bold mb-0 text-dark" style="letter-spacing: -0.5px;">
+                            <?php if($view_archives): ?><i class="fas fa-archive text-secondary me-2"></i><?php endif; ?>
+                            <?php if($view_disposition): ?><i class="fas fa-trash-alt text-warning me-2"></i><?php endif; ?>
+                            <?php echo $page_title; ?>
+                        </h3>
+                        <p class="text-muted mb-0 small"><?php echo $page_subtitle; ?></p>
+                    </div>
+                </div>
+                
+                <div class="d-flex gap-2 align-items-center">
+                    <?php if(!empty($user_categories) && !$hide_upload_button): ?>
+                    <button class="btn btn-primary fw-medium px-3 text-nowrap shadow-sm" data-bs-toggle="modal" data-bs-target="#uploadModal" style="border-radius: 8px;">
+                        <i class="fas fa-upload me-2"></i> Upload Record
                     </button>
-                    <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0 mt-2" style="border-radius: 8px;">
-                        
-                        <?php if(in_array($role, ['Admin', 'GM'])): ?>
-                        <li><a class="dropdown-item py-2" href="#" data-bs-toggle="modal" data-bs-target="#managePoliciesModal"><i class="fas fa-gavel me-2 text-secondary"></i> Manage Policies</a></li>
-                        <?php endif; ?>
+                    <?php endif; ?>
 
-                        <?php if($is_top_mgmt): ?>
-                        <?php 
-                            $disp_count = 0;
-                            $disp_chk = $conn->query("SELECT COUNT(*) as cnt FROM documents WHERE disposition_status = 'Ready for Disposition'");
-                            if($disp_chk) $disp_count = $disp_chk->fetch_assoc()['cnt'];
-                        ?>
-                        <li>
-                            <a class="dropdown-item py-2" href="?disposition=1">
-                                <i class="fas fa-exclamation-triangle me-2 text-warning"></i> Disposition Alerts
-                                <?php if($disp_count > 0): ?><span class="badge bg-danger ms-2 rounded-pill"><?php echo $disp_count; ?></span><?php endif; ?>
-                            </a>
-                        </li>
-                        <?php endif; ?>
-
-                        <li><a class="dropdown-item py-2" href="#" data-bs-toggle="modal" data-bs-target="#archivesModal"><i class="fas fa-archive me-2 text-secondary"></i> View Archives</a></li>
-                        
-                        <?php if($is_top_mgmt): ?>
-                        <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item py-2" href="#" data-bs-toggle="modal" data-bs-target="#createFolderModal"><i class="fas fa-folder-plus me-2 text-info"></i> Create Folder</a></li>
-                        <?php endif; ?>
-                    </ul>
-                </div>
-            </div>
-        </div>
-
-        <?php if(isset($_GET['success'])): ?>
-            <div class="alert alert-success alert-dismissible fade show border-0 shadow-sm" style="border-radius: 8px;">
-                <i class="fas fa-check-circle me-2"></i> <?php echo htmlspecialchars($_GET['success']); ?>
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            </div>
-        <?php endif; ?>
-        <?php if(isset($_GET['error'])): ?>
-            <div class="alert alert-danger alert-dismissible fade show border-0 shadow-sm" style="border-radius: 8px;">
-                <i class="fas fa-exclamation-circle me-2"></i> Error: <?php echo htmlspecialchars($_GET['error']); ?>
-                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-            </div>
-        <?php endif; ?>
-
-        <?php if ($view_disposition && $is_top_mgmt): ?>
-            <div class="mb-3">
-                <a href="documents.php" class="btn btn-sm btn-light border text-secondary shadow-sm"><i class="fas fa-arrow-left me-1"></i> Back to Folders</a>
-            </div>
-            <div class="alert alert-warning border-warning shadow-sm" style="border-radius: 8px;">
-                <h6 class="fw-bold mb-1"><i class="fas fa-trash-alt me-2"></i> Ready for Disposition</h6>
-                <p class="mb-0 small">These documents have reached the end of their legal retention period. Please review and apply the recommended action.</p>
-            </div>
-
-            <div class="card border-0 shadow-sm" style="border-radius: 10px;">
-                <div class="table-responsive">
-                    <table class="table align-middle mb-0">
-                        <thead class="bg-light" style="font-size: 0.75rem; letter-spacing: 0.5px; text-transform: uppercase;">
-                            <tr>
-                                <th class="ps-4 text-secondary">Document Details</th>
-                                <th class="text-secondary">Category</th>
-                                <th class="text-secondary">Policy Applied</th>
-                                <th class="text-secondary">Action Setup</th>
-                                <th class="text-end pe-4 text-secondary">Execute Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php if($disp_query && $disp_query->num_rows > 0): while($row = $disp_query->fetch_assoc()): ?>
-                                <tr>
-                                    <td class="ps-4">
-                                        <span class="fw-bold text-dark d-block" style="font-size: 0.9rem;"><?php echo htmlspecialchars($row['file_name']); ?></span>
-                                        <small class="text-muted" style="font-size: 0.75rem;">Uploaded: <?php echo date('M d, Y', strtotime($row['uploaded_at'])); ?></small>
-                                    </td>
-                                    <td><span class="badge bg-info text-dark bg-opacity-10 border border-info px-2"><?php echo htmlspecialchars($row['category'] ?? 'Uncategorized'); ?></span></td>
-                                    <td><span class="fw-semibold text-primary small"><?php echo htmlspecialchars($row['policy_name']); ?></span></td>
-                                    <td>
-                                        <?php if($row['action_after_retention'] == 'Destroy'): ?>
-                                            <span class="badge bg-danger bg-opacity-10 text-danger border border-danger px-2"><i class="fas fa-fire me-1"></i> Destroy</span>
-                                        <?php else: ?>
-                                            <span class="badge bg-success bg-opacity-10 text-success border border-success px-2"><i class="fas fa-archive me-1"></i> Permanent Archive</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="text-end pe-4">
-                                        <button onclick="handleDisposition(<?php echo $row['doc_id']; ?>, '<?php echo $row['action_after_retention']; ?>')" class="btn btn-sm fw-medium <?php echo ($row['action_after_retention'] == 'Destroy') ? 'btn-danger' : 'btn-success'; ?>" style="border-radius: 6px;">
-                                            Execute <?php echo $row['action_after_retention']; ?>
-                                        </button>
-                                    </td>
-                                </tr>
-                            <?php endwhile; else: ?>
-                                <tr><td colspan="5" class="text-center py-5 text-muted small">No documents currently require disposition.</td></tr>
+                    <div class="dropdown">
+                        <button class="btn btn-white bg-white text-secondary" style="border-radius: 8px; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center;" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="More Options">
+                            <i class="fas fa-ellipsis-v"></i>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0 mt-2" style="border-radius: 8px;">
+                            <?php if(in_array($role, ['Admin', 'GM'])): ?>
+                            <li><a class="dropdown-item py-2" href="#" data-bs-toggle="modal" data-bs-target="#managePoliciesModal"><i class="fas fa-gavel me-2 text-secondary"></i> Manage Policies</a></li>
                             <?php endif; ?>
-                        </tbody>
-                    </table>
+
+                            <?php if($is_top_mgmt): ?>
+                            <?php 
+                                $disp_count = 0;
+                                $disp_chk = $conn->query("SELECT COUNT(*) as cnt FROM documents WHERE disposition_status = 'Ready for Disposition'");
+                                if($disp_chk) $disp_count = $disp_chk->fetch_assoc()['cnt'];
+                            ?>
+                            <li>
+                                <a class="dropdown-item py-2" href="?disposition=1">
+                                    <i class="fas fa-exclamation-triangle me-2 text-warning"></i> Disposition Alerts
+                                    <?php if($disp_count > 0): ?><span class="badge bg-danger ms-2 rounded-pill"><?php echo $disp_count; ?></span><?php endif; ?>
+                                </a>
+                            </li>
+                            <?php endif; ?>
+
+                            <?php if(!$view_archives): ?>
+                                <li><a class="dropdown-item py-2" href="?view_archives=1"><i class="fas fa-archive me-2 text-secondary"></i> View Archives</a></li>
+                            <?php endif; ?>
+                            
+                            <?php if($is_top_mgmt && !$view_archives && !$view_disposition): ?>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item py-2" href="#" data-bs-toggle="modal" data-bs-target="#createFolderModal"><i class="fas fa-folder-plus me-2 text-info"></i> Create Folder</a></li>
+                            <?php endif; ?>
+                        </ul>
+                    </div>
                 </div>
             </div>
 
-        <?php elseif(empty($user_categories)): ?>
-            <div class="alert alert-warning text-center p-5 shadow-sm" style="border-radius: 10px;">
-                <i class="fas fa-lock fa-3x text-warning mb-3"></i>
-                <h5 class="fw-bold">No Folders Assigned</h5>
-                <p class="mb-0 small">Your current role (<?php echo htmlspecialchars($role); ?>) does not have any assigned document categories here. Contact the administrator if you need access.</p>
-            </div>
-        <?php else: ?>
-            
-            <div class="sleek-search shadow-sm mb-4">
+            <?php if(!empty($user_categories) || $view_disposition): ?>
+            <div class="sleek-search shadow-sm">
                 <form method="GET" class="d-flex w-100 align-items-center m-0">
+                    <?php if($view_archives): ?><input type="hidden" name="view_archives" value="1"><?php endif; ?>
+                    <?php if($view_disposition): ?><input type="hidden" name="disposition" value="1"><?php endif; ?>
                     <?php if(!empty($parent_filter)): ?><input type="hidden" name="parent" value="<?php echo htmlspecialchars($parent_filter); ?>"><?php endif; ?>
                     <?php if(!empty($type_filter)): ?><input type="hidden" name="type" value="<?php echo htmlspecialchars($type_filter); ?>"><?php endif; ?>
                     <?php if(!empty($doc_status)): ?><input type="hidden" name="doc_status" value="<?php echo htmlspecialchars($doc_status); ?>"><?php endif; ?>
@@ -542,11 +596,11 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders);
                         <span class="input-group-text text-muted px-3"><i class="fas fa-search"></i></span>
                         <input type="text" name="search" class="form-control px-2" placeholder="Search filename, tags, PO#..." value="<?php echo htmlspecialchars($search); ?>" style="font-size: 0.9rem;">
                         <?php if(!empty($search)): ?>
-                            <a href="documents.php<?php echo !empty($parent_filter) ? '?parent='.urlencode($parent_filter) : ''; ?><?php echo !empty($type_filter) ? '&type='.urlencode($type_filter) : ''; ?>" class="input-group-text text-danger text-decoration-none px-3" title="Clear Search"><i class="fas fa-times"></i></a>
+                            <a href="documents.php?<?php echo $view_archives ? 'view_archives=1&' : ''; ?><?php echo $view_disposition ? 'disposition=1&' : ''; ?><?php echo !empty($parent_filter) ? 'parent='.urlencode($parent_filter) : ''; ?><?php echo !empty($type_filter) ? '&type='.urlencode($type_filter) : ''; ?>" class="input-group-text text-danger text-decoration-none px-3" title="Clear Search"><i class="fas fa-times"></i></a>
                         <?php endif; ?>
                     </div>
                     
-                    <button type="submit" class="btn btn-primary px-4 fw-medium" style="border-radius: 6px; font-size: 0.9rem;">Search</button>
+                    <button type="submit" class="btn btn-<?php echo ($view_archives || $view_disposition) ? 'secondary' : 'primary'; ?> px-4 fw-medium" style="border-radius: 6px; font-size: 0.9rem;">Search</button>
 
                     <div class="border-start mx-3" style="height: 24px;"></div>
 
@@ -565,12 +619,158 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders);
                     </div>
                 </form>
             </div>
+            <?php endif; ?>
+        </div>
+
+        <?php if(isset($_GET['success'])): ?>
+            <div class="alert alert-success alert-dismissible fade show border-0 shadow-sm" style="border-radius: 8px;">
+                <i class="fas fa-check-circle me-2"></i> <?php echo htmlspecialchars($_GET['success']); ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        <?php endif; ?>
+        <?php if(isset($_GET['error'])): ?>
+            <div class="alert alert-danger alert-dismissible fade show border-0 shadow-sm" style="border-radius: 8px;">
+                <i class="fas fa-exclamation-circle me-2"></i> Error: <?php echo htmlspecialchars($_GET['error']); ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        <?php endif; ?>
+
+        <?php if ($view_disposition && $is_top_mgmt): ?>
+            
+            <div class="card border-0 shadow-sm" style="border-radius: 10px;">
+                <div class="table-responsive table-scrollable">
+                    <table class="table align-middle w-100">
+                        <thead class="bg-light" style="font-size: 0.75rem; letter-spacing: 0.5px; text-transform: uppercase;">
+                            <tr>
+                                <th class="ps-4 text-secondary">Document Details</th>
+                                <th class="text-secondary">Version</th>
+                                <th class="text-secondary">Category</th>
+                                <th class="text-secondary">Policy Applied</th>
+                                <th class="text-secondary">Action Setup</th>
+                                <th class="text-end pe-4 text-secondary">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if($disp_query && $disp_query->num_rows > 0): while($row = $disp_query->fetch_assoc()): 
+                                $current_v = !empty($row['current_version']) ? $row['current_version'] : '1.0';
+                            ?>
+                                <tr>
+                                    <td class="ps-4">
+                                        <span class="fw-bold text-dark d-block" style="font-size: 0.9rem;">
+                                            <?php echo htmlspecialchars($row['file_name']); ?>
+                                        </span>
+                                        <small class="text-muted" style="font-size: 0.75rem;">Uploaded: <?php echo date('M d, Y', strtotime($row['uploaded_at'])); ?></small>
+                                    </td>
+                                    <td><span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary" style="font-size: 0.75rem;">v<?php echo $current_v; ?></span></td>
+                                    <td><span class="badge bg-info text-dark bg-opacity-10 border border-info px-2"><?php echo htmlspecialchars($row['category'] ?? 'Uncategorized'); ?></span></td>
+                                    <td><span class="fw-semibold text-primary small"><?php echo htmlspecialchars($row['policy_name']); ?></span></td>
+                                    <td>
+                                        <?php if($row['action_after_retention'] == 'Destroy'): ?>
+                                            <span class="badge bg-danger bg-opacity-10 text-danger border border-danger px-2"><i class="fas fa-fire me-1"></i> Destroy</span>
+                                        <?php else: ?>
+                                            <span class="badge bg-success bg-opacity-10 text-success border border-success px-2"><i class="fas fa-archive me-1"></i> Permanent Archive</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="text-end pe-4">
+                                        <div class="dropdown action-dropdown" onclick="event.stopPropagation();">
+                                            <button class="btn btn-sm btn-link text-secondary dropdown-toggle px-1" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="width: 32px; height: 32px; border-radius: 6px;">
+                                                <i class="fas fa-ellipsis-v"></i>
+                                            </button>
+                                            <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0" style="border-radius: 8px;">
+                                                <li><a class="dropdown-item py-2" href="#" onclick="openHistoryModal(<?php echo $row['doc_id']; ?>, '<?php echo addslashes($row['file_name']); ?>', event)"><i class="fas fa-history me-2 text-info"></i> Version History</a></li>
+                                                <li><hr class="dropdown-divider"></li>
+                                                <li>
+                                                    <a class="dropdown-item py-2 fw-medium <?php echo ($row['action_after_retention'] == 'Destroy') ? 'text-danger' : 'text-success'; ?>" href="#" onclick="handleDisposition(<?php echo $row['doc_id']; ?>, '<?php echo $row['action_after_retention']; ?>')">
+                                                        <i class="fas <?php echo ($row['action_after_retention'] == 'Destroy') ? 'fa-fire' : 'fa-archive'; ?> me-2"></i> Execute <?php echo $row['action_after_retention']; ?>
+                                                    </a>
+                                                </li>
+                                            </ul>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endwhile; else: ?>
+                                <tr><td colspan="6" class="text-center py-5 text-muted small">No documents currently require disposition.</td></tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        <?php elseif ($view_archives): ?>
+            
+            <div class="card border-0 shadow-sm" style="border-radius: 10px; overflow: hidden;">
+                <div class="table-responsive table-scrollable">
+                    <table class="table align-middle w-100">
+                        <thead class="bg-light" style="font-size: 0.75rem; letter-spacing: 0.5px; text-transform: uppercase;">
+                            <tr>
+                                <th class="ps-4 text-secondary">Document Title</th>
+                                <th class="text-secondary">Version</th>
+                                <th class="text-secondary">Folder / Category</th>
+                                <th class="text-secondary">Uploaded By</th>
+                                <th class="text-secondary">Archived Date</th>
+                                <th class="text-end pe-4 text-secondary">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if($archived_docs->num_rows > 0): ?>
+                                <?php while($row = $archived_docs->fetch_assoc()): 
+                                    $fileNameOnly = basename($row['file_path']);
+                                    $secureLink = "download.php?file=" . urlencode($fileNameOnly);
+                                    $ext = strtolower(pathinfo($row['file_path'], PATHINFO_EXTENSION));
+                                    $isImage = in_array($ext, ['jpg','jpeg','png', 'gif']);
+                                    $isPdf = ($ext == 'pdf');
+                                    $current_v = !empty($row['current_version']) ? $row['current_version'] : '1.0';
+                                ?>
+                                <tr class="clickable-row border-bottom" onclick="viewFile('<?php echo $secureLink; ?>', '<?php echo $isImage ? 'image' : ($isPdf ? 'pdf' : 'other'); ?>')">
+                                    <td class="ps-4 py-3">
+                                        <div class="d-flex align-items-center gap-3">
+                                            <?php if($isImage): ?><img src="<?php echo $secureLink; ?>" class="file-thumb-md bg-white"><?php elseif($isPdf): ?><div class="file-icon-md bg-danger bg-opacity-10 text-danger"><i class="fas fa-file-pdf"></i></div><?php else: ?><div class="file-icon-md bg-secondary bg-opacity-10 text-secondary"><i class="fas fa-file-alt"></i></div><?php endif; ?>
+                                            <span class="fw-semibold text-muted text-break" style="font-size: 0.9rem;">
+                                                <?php echo htmlspecialchars($row['file_name']); ?>
+                                            </span>
+                                        </div>
+                                    </td>
+                                    <td><span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary" style="font-size: 0.75rem;">v<?php echo $current_v; ?></span></td>
+                                    <td><span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary px-2"><?php echo htmlspecialchars($row['category'] ?? 'Uncategorized'); ?></span></td>
+                                    <td><div class="fw-semibold text-muted" style="font-size: 0.85rem;"><?php echo htmlspecialchars($row['full_name']); ?></div></td>
+                                    <td><small class="text-muted" style="font-size: 0.85rem;"><?php echo date('M d, Y', strtotime($row['uploaded_at'])); ?></small></td>
+                                    <td class="text-end pe-4">
+                                        <div class="dropdown action-dropdown" onclick="event.stopPropagation();">
+                                            <button class="btn btn-sm btn-link text-secondary dropdown-toggle px-1" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="width: 32px; height: 32px; border-radius: 6px;">
+                                                <i class="fas fa-ellipsis-v"></i>
+                                            </button>
+                                            <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0" style="border-radius: 8px;">
+                                                <li><a class="dropdown-item py-2" href="<?php echo $secureLink; ?>" download><i class="fas fa-download me-2 text-secondary"></i> Download</a></li>
+                                                <li><a class="dropdown-item py-2" href="#" onclick="openHistoryModal(<?php echo $row['doc_id']; ?>, '<?php echo addslashes($row['file_name']); ?>', event)"><i class="fas fa-history me-2 text-info"></i> Version History</a></li>
+                                                <?php if($can_manage): ?>
+                                                <li><hr class="dropdown-divider"></li>
+                                                <li><a class="dropdown-item py-2 text-success fw-medium" href="#" onclick="showWarningModal('restore', <?php echo $row['doc_id']; ?>, event)"><i class="fas fa-trash-restore me-2"></i> Restore</a></li>
+                                                <?php endif; ?>
+                                            </ul>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <?php endwhile; ?>
+                            <?php else: ?>
+                                <tr><td colspan="6" class="text-center py-5 text-muted small">No archived records found.</td></tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        <?php elseif(empty($user_categories)): ?>
+            <div class="alert alert-warning text-center p-5 shadow-sm" style="border-radius: 10px;">
+                <i class="fas fa-lock fa-3x text-warning mb-3"></i>
+                <h5 class="fw-bold">No Folders Assigned</h5>
+                <p class="mb-0 small">Your current role (<?php echo htmlspecialchars($role); ?>) does not have any assigned document categories here. Contact the administrator if you need access.</p>
+            </div>
+        <?php else: ?>
 
             <?php if ($is_top_mgmt && empty($parent_filter) && empty($type_filter) && empty($search)): ?>
-                
                 <div class="row g-3">
                     <?php foreach($parent_folders as $p_name => $subs): ?>
-                        <?php if(!empty($view_filter) && $view_filter !== $p_name) continue; ?>
+                        <?php if(!empty($view_filter) && strcasecmp($view_filter, $p_name) !== 0) continue; ?>
                         <div class="col-xl-3 col-lg-4 col-md-6">
                             <div class="folder-card position-relative p-3 h-100" onclick="window.location.href='?parent=<?php echo urlencode($p_name); ?>'">
                                 
@@ -599,16 +799,11 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders);
 
             <?php elseif ($is_top_mgmt && !empty($parent_filter) && empty($type_filter) && empty($search)): ?>
                 
-                <div class="mb-4 d-flex align-items-center">
-                    <a href="documents.php" class="btn btn-sm btn-light border text-secondary me-3 shadow-sm" style="border-radius: 6px;"><i class="fas fa-arrow-left"></i></a>
-                    <h5 class="mb-0 fw-bold d-flex align-items-center"><i class="fas fa-folder-open text-warning me-2"></i> <?php echo htmlspecialchars($parent_filter); ?></h5>
-                </div>
-                
                 <div class="row g-3">
                     <?php 
                     $sub_folders = $parent_folders[$parent_filter] ?? [];
                     foreach($sub_folders as $sub_name): ?>
-                        <?php if(!empty($view_filter) && $view_filter !== $sub_name) continue; ?>
+                        <?php if(!empty($view_filter) && strcasecmp($view_filter, $sub_name) !== 0) continue; ?>
                         <div class="col-xl-3 col-lg-4 col-md-6">
                             <div class="folder-card position-relative p-3 h-100" onclick="window.location.href='?type=<?php echo urlencode($sub_name); ?>&parent=<?php echo urlencode($parent_filter); ?>'">
                                 
@@ -639,7 +834,7 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders);
                 
                 <div class="row g-3">
                     <?php foreach($user_categories as $sub_name): ?>
-                        <?php if(!empty($view_filter) && $view_filter !== $sub_name) continue; ?>
+                        <?php if(!empty($view_filter) && strcasecmp($view_filter, $sub_name) !== 0) continue; ?>
                         <div class="col-xl-3 col-lg-4 col-md-6">
                             <div class="folder-card position-relative p-3 h-100" onclick="window.location.href='?type=<?php echo urlencode($sub_name); ?>'">
                                 <div class="d-flex align-items-center gap-3">
@@ -657,19 +852,16 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders);
                 </div>
 
             <?php else: ?>
-                <div class="mb-4 d-flex align-items-center">
-                    <a href="documents.php<?php echo !empty($parent_filter) ? '?parent='.urlencode($parent_filter) : ''; ?>" class="btn btn-sm btn-light border text-secondary me-3 shadow-sm" style="border-radius: 6px;"><i class="fas fa-arrow-left"></i></a>
-                    <h5 class="mb-0 fw-bold d-flex align-items-center"><i class="fas fa-folder-open text-info me-2"></i> <?php echo !empty($type_filter) ? htmlspecialchars($type_filter) : 'Search Results'; ?></h5>
-                </div>
 
                 <div class="card border-0 shadow-sm" style="border-radius: 10px; overflow: hidden;">
-                    <div class="table-responsive">
-                        <table class="table align-middle mb-0">
+                    <div class="table-responsive table-scrollable">
+                        <table class="table align-middle w-100">
                             
                             <?php if($type_filter === 'Purchase orders' || $type_filter === 'Purchase requests'): ?>
                                 <thead class="bg-light" style="font-size: 0.75rem; letter-spacing: 0.5px; text-transform: uppercase;">
                                     <tr>
                                         <th class="ps-4 text-secondary">Document File</th>
+                                        <th class="text-secondary">Version</th>
                                         <th class="text-secondary"><?php echo ($type_filter === 'Purchase orders') ? 'PO Details' : 'PR Details'; ?></th>
                                         <th class="text-secondary">Grand Total</th>
                                         <th class="text-secondary">Status</th>
@@ -680,10 +872,11 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders);
                                     <?php if($active_docs->num_rows > 0): ?>
                                         <?php while($row = $active_docs->fetch_assoc()): 
                                             $fileNameOnly = basename($row['file_path']);
-                                            $secureLink = "download.php?file=" . $fileNameOnly;
+                                            $secureLink = "download.php?file=" . urlencode($fileNameOnly);
                                             $ext = strtolower(pathinfo($row['file_path'], PATHINFO_EXTENSION));
                                             $isImage = in_array($ext, ['jpg','jpeg','png', 'gif']);
                                             $isPdf = ($ext == 'pdf');
+                                            $current_v = !empty($row['current_version']) ? $row['current_version'] : '1.0';
                                             
                                             $po_stat = $row['po_status'] ?? 'No System Link';
                                             $stat_color = 'bg-secondary';
@@ -700,25 +893,34 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders);
                                                     <span class="fw-semibold text-dark text-break" style="font-size: 0.9rem;"><?php echo htmlspecialchars($row['file_name']); ?></span>
                                                 </div>
                                             </td>
+                                            <td><span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary" style="font-size: 0.75rem;">v<?php echo $current_v; ?></span></td>
                                             <td>
                                                 <div class="fw-semibold text-primary mb-1" style="font-size: 0.85rem;"><?php echo $row['po_number'] ? '#' . htmlspecialchars($row['po_number']) : 'Direct File Upload'; ?></div>
                                                 <small class="text-muted" style="font-size: 0.75rem;"><i class="fas fa-building me-1"></i><?php echo htmlspecialchars($row['client_name'] ?? 'General/Internal Record'); ?></small>
                                             </td>
                                             <td class="fw-semibold text-dark" style="font-size: 0.85rem;"><?php echo $row['amount'] ? '₱ ' . number_format($row['amount'], 2) : '-'; ?></td>
                                             <td><span class="badge <?php echo $stat_color; ?> px-2 py-1 bg-opacity-10 border border-<?php echo str_replace(['bg-', ' text-dark'], '', $stat_color); ?>" style="color: inherit !important;"><?php echo htmlspecialchars($po_stat); ?></span></td>
-                                            <td class="text-end pe-4 text-nowrap">
-                                                <div class="btn-group">
-                                                    <?php if($row['po_id']): ?><a href="view_po.php?id=<?php echo $row['po_id']; ?>" class="btn btn-sm btn-light border text-primary" onclick="event.stopPropagation();" title="View Transaction Data"><i class="fas fa-file-invoice"></i></a><?php endif; ?>
-                                                    <a href="<?php echo $secureLink; ?>" download class="btn btn-sm btn-light border text-secondary" title="Download Document" onclick="event.stopPropagation();"><i class="fas fa-download"></i></a>
-                                                    <?php if($can_manage): ?>
-                                                    <button type="button" class="btn btn-sm btn-light border text-warning" title="Archive Document" onclick="showWarningModal('archive', <?php echo $row['doc_id']; ?>, event)"><i class="fas fa-box-archive"></i></button>
-                                                    <?php endif; ?>
+                                            <td class="text-end pe-4">
+                                                <div class="dropdown action-dropdown" onclick="event.stopPropagation();">
+                                                    <button class="btn btn-sm btn-link text-secondary dropdown-toggle px-1" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="width: 32px; height: 32px; border-radius: 6px;">
+                                                        <i class="fas fa-ellipsis-v"></i>
+                                                    </button>
+                                                    <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0" style="border-radius: 8px;">
+                                                        <?php if($row['po_id']): ?>
+                                                            <li><a class="dropdown-item py-2" href="view_po.php?id=<?php echo $row['po_id']; ?>"><i class="fas fa-file-invoice me-2 text-primary"></i> View Details</a></li>
+                                                        <?php endif; ?>
+                                                        <li><a class="dropdown-item py-2" href="<?php echo $secureLink; ?>" download><i class="fas fa-download me-2 text-secondary"></i> Download</a></li>
+                                                        <?php if($can_manage): ?>
+                                                        <li><hr class="dropdown-divider"></li>
+                                                        <li><a class="dropdown-item py-2 text-warning" href="#" onclick="showWarningModal('archive', <?php echo $row['doc_id']; ?>, event)"><i class="fas fa-box-archive me-2"></i> Archive Document</a></li>
+                                                        <?php endif; ?>
+                                                    </ul>
                                                 </div>
                                             </td>
                                         </tr>
                                         <?php endwhile; ?>
                                     <?php else: ?>
-                                        <tr><td colspan="5" class="text-center py-5 text-muted small">No records found.</td></tr>
+                                        <tr><td colspan="6" class="text-center py-5 text-muted small">No records found.</td></tr>
                                     <?php endif; ?>
                                 </tbody>
 
@@ -727,6 +929,7 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders);
                                 <thead class="bg-light" style="font-size: 0.75rem; letter-spacing: 0.5px; text-transform: uppercase;">
                                     <tr>
                                         <th class="ps-4 text-secondary">Document Title</th>
+                                        <th class="text-secondary">Version</th>
                                         <th class="text-secondary">Folder / Tags</th>
                                         <th class="text-secondary">Ref/PO</th>
                                         <th class="text-secondary">Uploaded By</th>
@@ -737,10 +940,11 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders);
                                     <?php if($active_docs->num_rows > 0): ?>
                                         <?php while($row = $active_docs->fetch_assoc()): 
                                             $fileNameOnly = basename($row['file_path']);
-                                            $secureLink = "download.php?file=" . $fileNameOnly;
+                                            $secureLink = "download.php?file=" . urlencode($fileNameOnly);
                                             $ext = strtolower(pathinfo($row['file_path'], PATHINFO_EXTENSION));
                                             $isImage = in_array($ext, ['jpg','jpeg','png', 'gif']);
                                             $isPdf = ($ext == 'pdf');
+                                            $current_v = !empty($row['current_version']) ? $row['current_version'] : '1.0';
                                         ?>
                                         <tr class="clickable-row border-bottom" onclick="viewFile('<?php echo $secureLink; ?>', '<?php echo $isImage ? 'image' : ($isPdf ? 'pdf' : 'other'); ?>')">
                                             <td class="ps-4 py-3">
@@ -748,13 +952,16 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders);
                                                     <?php if($isImage): ?><img src="<?php echo $secureLink; ?>" class="file-thumb-md bg-white"><?php elseif($isPdf): ?><div class="file-icon-md bg-danger bg-opacity-10 text-danger"><i class="fas fa-file-pdf"></i></div><?php else: ?><div class="file-icon-md bg-primary bg-opacity-10 text-primary"><i class="fas fa-file-alt"></i></div><?php endif; ?>
                                                     
                                                     <div>
-                                                        <span class="fw-semibold text-dark text-break d-block" style="font-size: 0.9rem;"><?php echo htmlspecialchars($row['file_name']); ?></span>
+                                                        <span class="fw-semibold text-dark text-break d-block" style="font-size: 0.9rem;">
+                                                            <?php echo htmlspecialchars($row['file_name']); ?>
+                                                        </span>
                                                         <?php if($row['disposition_status'] == 'Ready for Disposition'): ?>
                                                             <span class="badge bg-warning bg-opacity-10 text-warning border border-warning mt-1" style="font-size: 0.7rem;"><i class="fas fa-exclamation-triangle"></i> Pending Disposition</span>
                                                         <?php endif; ?>
                                                     </div>
                                                 </div>
                                             </td>
+                                            <td><span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary" style="font-size: 0.75rem;">v<?php echo $current_v; ?></span></td>
                                             <td>
                                                 <span class="badge bg-info bg-opacity-10 text-info border border-info mb-1 px-2"><?php echo htmlspecialchars($row['category'] ?? 'Uncategorized'); ?></span><br>
                                                 <?php if(!empty($row['policy_name'])): ?>
@@ -765,18 +972,26 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders);
                                                 <?php if($row['po_id']): ?><a href="view_po.php?id=<?php echo $row['po_id']; ?>" class="badge bg-light text-primary text-decoration-none border" style="font-size: 0.75rem;" onclick="event.stopPropagation();">PO #<?php echo $row['po_number']; ?></a><?php else: ?><span class="text-muted" style="font-size: 0.75rem;">General File</span><?php endif; ?>
                                             </td>
                                             <td><div class="fw-semibold text-dark" style="font-size: 0.85rem;"><?php echo htmlspecialchars($row['full_name']); ?></div><small class="text-muted" style="font-size: 0.75rem;"><?php echo date('M d, Y', strtotime($row['uploaded_at'])); ?></small></td>
-                                            <td class="text-end pe-4 text-nowrap">
-                                                <div class="btn-group">
-                                                    <a href="<?php echo $secureLink; ?>" download class="btn btn-sm btn-light border text-secondary" title="Download" onclick="event.stopPropagation();"><i class="fas fa-download"></i></a>
-                                                    <?php if($can_manage): ?>
-                                                    <button type="button" class="btn btn-sm btn-light border text-warning" title="Archive" onclick="showWarningModal('archive', <?php echo $row['doc_id']; ?>, event)"><i class="fas fa-box-archive"></i></button>
-                                                    <?php endif; ?>
+                                            <td class="text-end pe-4">
+                                                <div class="dropdown action-dropdown" onclick="event.stopPropagation();">
+                                                    <button class="btn btn-sm btn-link text-secondary dropdown-toggle px-1" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="width: 32px; height: 32px; border-radius: 6px;">
+                                                        <i class="fas fa-ellipsis-v"></i>
+                                                    </button>
+                                                    <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0" style="border-radius: 8px;">
+                                                        <li><a class="dropdown-item py-2" href="<?php echo $secureLink; ?>" download><i class="fas fa-download me-2 text-secondary"></i> Download</a></li>
+                                                        <li><a class="dropdown-item py-2" href="#" onclick="openHistoryModal(<?php echo $row['doc_id']; ?>, '<?php echo addslashes($row['file_name']); ?>', event)"><i class="fas fa-history me-2 text-info"></i> Version History</a></li>
+                                                        <?php if($can_manage): ?>
+                                                        <li><a class="dropdown-item py-2" href="#" onclick="openVersionModal(<?php echo $row['doc_id']; ?>, '<?php echo addslashes($row['file_name']); ?>', '<?php echo $current_v; ?>', event)"><i class="fas fa-upload me-2 text-primary"></i> Upload New Version</a></li>
+                                                        <li><hr class="dropdown-divider"></li>
+                                                        <li><a class="dropdown-item py-2 text-warning" href="#" onclick="showWarningModal('archive', <?php echo $row['doc_id']; ?>, event)"><i class="fas fa-box-archive me-2"></i> Archive Document</a></li>
+                                                        <?php endif; ?>
+                                                    </ul>
                                                 </div>
                                             </td>
                                         </tr>
                                         <?php endwhile; ?>
                                     <?php else: ?>
-                                        <tr><td colspan="5" class="text-center py-5 text-muted small">No records found.</td></tr>
+                                        <tr><td colspan="6" class="text-center py-5 text-muted small">No records found.</td></tr>
                                     <?php endif; ?>
                                 </tbody>
                             <?php endif; ?>
@@ -786,6 +1001,75 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders);
                 </div>
             <?php endif; ?>
         <?php endif; ?>
+    </div>
+
+    <div class="modal fade" id="uploadVersionModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content border-0 shadow" style="border-radius: 12px;">
+                <div class="modal-header bg-light border-bottom">
+                    <h5 class="modal-title fw-bold text-dark"><i class="fas fa-file-upload me-2 text-primary"></i> Upload New Version</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form action="actions/version_handler.php" method="POST" enctype="multipart/form-data">
+                    <div class="modal-body p-4 bg-white">
+                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                        <input type="hidden" name="action" value="upload_version">
+                        <input type="hidden" name="doc_id" id="v_doc_id">
+                        <input type="hidden" name="source_page" value="../documents.php">
+
+                        <div class="alert alert-info border-info bg-opacity-10 py-2 px-3 mb-3">
+                            <small>Updating Document: <strong id="v_doc_name"></strong></small><br>
+                            <small>Current Version: <strong id="v_curr_ver"></strong></small>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold small text-secondary">Select New File <span class="text-danger">*</span></label>
+                            <input type="file" name="new_document" class="form-control" style="border-radius: 8px;" required>
+                        </div>
+
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold small text-secondary">Reason for Update / Remarks <span class="text-danger">*</span></label>
+                            <textarea name="remarks" class="form-control" style="border-radius: 8px;" rows="2" placeholder="e.g. Revised contract terms" required></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer bg-light border-top">
+                        <button type="button" class="btn btn-light border" style="border-radius: 8px;" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary fw-medium px-4" style="border-radius: 8px;">Upload & Update</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="versionHistoryModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content border-0 shadow" style="border-radius: 12px; overflow: hidden;">
+                <div class="modal-header bg-light border-bottom">
+                    <h5 class="modal-title fw-bold text-dark"><i class="fas fa-history me-2 text-info"></i> Document Version History</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <div class="p-3 bg-white border-bottom">
+                        <h6 class="mb-0 fw-bold text-primary" id="h_doc_name">Document Name</h6>
+                    </div>
+                    <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="bg-light sticky-top" style="font-size: 0.75rem; text-transform: uppercase;">
+                                <tr>
+                                    <th class="ps-4 text-secondary">Ver</th>
+                                    <th class="text-secondary">File Details</th>
+                                    <th class="text-secondary">Remarks</th>
+                                    <th class="text-end pe-4 text-secondary">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="historyTableBody">
+                                <tr><td colspan="4" class="text-center py-4"><div class="spinner-border text-primary spinner-border-sm"></div> Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <?php if(in_array($role, ['Admin', 'GM'])): ?>
@@ -928,9 +1212,9 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders);
                                 <option value="GM">General Manager</option>
                                 <option value="Finance">Finance</option>
                                 <option value="Procurement">Procurement</option>
+                                <option value="Logistics">Logistics</option>
                                 <option value="Sales Staff">Sales Staff</option>
-                                <option value="Technical">Technical Staff</option>
-                                <option value="Supply Chain">Supply Chain</option>
+                                <option value="Technical & Service">Technical & Service</option>
                             </select>
                             <small class="text-muted d-block mt-2" style="font-size: 0.75rem;"><i class="fas fa-info-circle me-1"></i> Admin, General Manager, and President automatically have access to all folders.</small>
                         </div>
@@ -1049,40 +1333,6 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders);
         </div>
     </div>
 
-    <div class="modal fade" id="archivesModal" tabindex="-1">
-        <div class="modal-dialog modal-xl modal-dialog-scrollable">
-            <div class="modal-content border-0 shadow" style="border-radius: 12px; overflow: hidden;">
-                <div class="modal-header bg-light border-bottom">
-                    <h5 class="modal-title fw-bold text-dark"><i class="fas fa-archive me-2 text-secondary"></i> Archived Records</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body p-0 bg-white">
-                    <table class="table table-hover align-middle mb-0">
-                        <thead class="bg-white" style="font-size: 0.75rem; letter-spacing: 0.5px; text-transform: uppercase;">
-                            <tr><th class="ps-4 text-secondary py-3">Document Title</th><th class="text-secondary">Category</th><th class="text-secondary">Archived Date</th><th class="text-end pe-4 text-secondary">Actions</th></tr>
-                        </thead>
-                        <tbody>
-                            <?php if($archived_docs->num_rows > 0): while($row = $archived_docs->fetch_assoc()): ?>
-                                <tr class="border-bottom">
-                                    <td class="ps-4 fw-semibold text-muted" style="font-size: 0.9rem;"><?php echo htmlspecialchars($row['file_name']); ?></td>
-                                    <td><span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary"><?php echo htmlspecialchars($row['category']); ?></span></td>
-                                    <td class="text-muted small"><?php echo date('M d, Y', strtotime($row['uploaded_at'])); ?></td>
-                                    <td class="text-end pe-4">
-                                        <?php if($can_manage): ?>
-                                        <button type="button" class="btn btn-sm btn-light border text-success" title="Restore" onclick="showWarningModal('restore', <?php echo $row['doc_id']; ?>, event)"><i class="fas fa-trash-restore"></i></button>
-                                        <?php else: ?><span class="text-muted small fst-italic">Read Only</span><?php endif; ?>
-                                    </td>
-                                </tr>
-                            <?php endwhile; else: ?>
-                                <tr><td colspan="4" class="text-center py-5 text-muted small">No archived records.</td></tr>
-                            <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <div class="modal fade" id="systemWarningModal" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content border-0 shadow" style="border-radius: 12px; overflow: hidden;">
@@ -1111,18 +1361,66 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders);
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // Version History Logic
+        function openVersionModal(id, name, currentV, event) {
+            event.stopPropagation();
+            document.getElementById('v_doc_id').value = id;
+            document.getElementById('v_doc_name').innerText = name;
+            document.getElementById('v_curr_ver').innerText = 'v' + currentV;
+            new bootstrap.Modal(document.getElementById('uploadVersionModal')).show();
+        }
+
+        function openHistoryModal(id, name, event) {
+            event.stopPropagation();
+            document.getElementById('h_doc_name').innerText = name;
+            const tbody = document.getElementById('historyTableBody');
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4"><div class="spinner-border text-primary spinner-border-sm"></div> Loading...</td></tr>';
+            new bootstrap.Modal(document.getElementById('versionHistoryModal')).show();
+
+            fetch(`actions/version_handler.php?action=get_history&doc_id=${id}`)
+                .then(response => response.json())
+                .then(res => {
+                    if(res.status === 'success') {
+                        if(res.data.length === 0) {
+                            tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted small">No previous versions found.</td></tr>';
+                        } else {
+                            tbody.innerHTML = '';
+                            res.data.forEach(v => {
+                                tbody.innerHTML += `
+                                    <tr>
+                                        <td class="ps-4 fw-bold text-primary">v${v.version}</td>
+                                        <td class="small">
+                                            <span class="text-break d-block">${v.file_name}</span>
+                                            <div class="text-muted mt-1" style="font-size:0.7rem;"><i class="fas fa-user-circle me-1"></i>${v.uploaded_by} &bull; ${v.date}</div>
+                                        </td>
+                                        <td class="small text-muted text-wrap" style="max-width:200px;">${v.remarks}</td>
+                                        <td class="text-end pe-4">
+                                            <div class="d-flex gap-2 justify-content-end">
+                                                <button type="button" class="btn btn-sm btn-link text-info px-1" title="Preview v${v.version}" onclick="previewVersionFile('${v.path}', '${v.file_name}')"><i class="fas fa-eye"></i></button>
+                                                <a href="${v.path}" download class="btn btn-sm btn-link text-secondary px-1" title="Download v${v.version}"><i class="fas fa-download"></i></a>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                `;
+                            });
+                        }
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-danger small">Error loading history.</td></tr>';
+                    }
+                }).catch(err => {
+                    tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-danger small">Network error.</td></tr>';
+                });
+        }
+
         function openEditPolicyModal(id, name, years, actionStr) {
             document.getElementById('editPolicyId').value = id;
             document.getElementById('editPolicyName').value = name;
             document.getElementById('editPolicyYears').value = years;
             document.getElementById('editPolicyAction').value = actionStr;
-            
             var manageModalEl = document.getElementById('managePoliciesModal');
             var manageModal = bootstrap.Modal.getInstance(manageModalEl);
             if(manageModal) { manageModal.hide(); }
-            
-            var editModal = new bootstrap.Modal(document.getElementById('editPolicyModal'));
-            editModal.show();
+            new bootstrap.Modal(document.getElementById('editPolicyModal')).show();
         }
 
         function openDeleteFolderModal(type, parentName, subName) {
@@ -1130,8 +1428,7 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders);
             document.getElementById('deleteParentName').value = parentName;
             document.getElementById('deleteSubName').value = subName;
             document.getElementById('deleteFolderDisplay').innerText = (type === 'parent') ? parentName : subName;
-            var delModal = new bootstrap.Modal(document.getElementById('deleteFolderModal'));
-            delModal.show();
+            new bootstrap.Modal(document.getElementById('deleteFolderModal')).show();
         }
 
         function toggleNewParentInput() {
@@ -1139,62 +1436,58 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders);
             var input = document.getElementById('newParentCategoryInput');
             var subInput = document.getElementById('newFolderInput');
             var optText = document.getElementById('subFolderOptionalText');
-
             if(select.value === 'NEW_PARENT_FOLDER') {
-                input.classList.remove('d-none');
-                input.required = true;
-                subInput.required = false; 
-                optText.innerText = "(Optional if creating a Main Folder only)";
+                input.classList.remove('d-none'); input.required = true; subInput.required = false; optText.innerText = "(Optional)";
             } else {
-                input.classList.add('d-none');
-                input.required = false;
-                subInput.required = true; 
-                optText.innerText = "(Required)";
+                input.classList.add('d-none'); input.required = false; subInput.required = true; optText.innerText = "(Required)";
             }
         }
 
         function viewFile(path, type) {
             const modalBody = document.getElementById('previewBody');
-            const myModal = new bootstrap.Modal(document.getElementById('previewModal'));
             modalBody.innerHTML = '<div class="spinner-border text-primary" role="status"></div>';
-            if (type === 'image') {
-                modalBody.innerHTML = `<img src="${path}" class="img-fluid" style="max-height: 80vh;">`;
-            } else if (type === 'pdf') {
-                modalBody.innerHTML = `<iframe src="${path}" width="100%" height="600px" style="border:none;"></iframe>`;
-            } else {
-                modalBody.innerHTML = `<div class="p-5"><i class="fas fa-file-download fa-3x text-muted mb-3"></i><p>This file type cannot be previewed.</p><a href="${path}" download class="btn btn-primary">Download File</a></div>`;
-            }
-            myModal.show();
+            if (type === 'image') { modalBody.innerHTML = `<img src="${path}" class="img-fluid" style="max-height: 80vh;">`; } 
+            else if (type === 'pdf') { modalBody.innerHTML = `<iframe src="${path}" width="100%" height="600px" style="border:none;"></iframe>`; } 
+            else { modalBody.innerHTML = `<div class="p-5"><i class="fas fa-file-download fa-3x text-muted mb-3"></i><p>This file type cannot be previewed.</p><a href="${path}" download class="btn btn-primary">Download File</a></div>`; }
+            new bootstrap.Modal(document.getElementById('previewModal')).show();
         }
 
         function showWarningModal(action, docId, event) {
             event.stopPropagation();
             const modal = new bootstrap.Modal(document.getElementById('systemWarningModal'));
-            const iconBox = document.getElementById('warningModalIconBox');
             const icon = document.getElementById('warningModalIcon');
             const message = document.getElementById('warningModalMessage');
             const submitBtn = document.getElementById('warningModalSubmitBtn');
-            
             document.getElementById('warningModalAction').value = action;
             document.getElementById('warningModalDocId').value = docId;
-
             if (action === 'archive') {
-                icon.className = 'fas fa-box-archive fa-3x text-warning';
-                message.innerText = 'Are you sure you want to archive this record?';
-                submitBtn.className = 'btn btn-warning text-dark px-4 fw-medium';
-                submitBtn.innerText = 'Yes, Archive it';
+                icon.className = 'fas fa-box-archive fa-3x text-warning'; message.innerText = 'Are you sure you want to archive this record?';
+                submitBtn.className = 'btn btn-warning text-dark px-4 fw-medium'; submitBtn.innerText = 'Yes, Archive it';
             } else if (action === 'delete') {
-                icon.className = 'fas fa-trash fa-3x text-danger';
-                message.innerText = 'Are you sure you want to permanently delete this record? This action cannot be undone.';
-                submitBtn.className = 'btn btn-danger px-4 fw-medium';
-                submitBtn.innerText = 'Yes, Delete it';
+                icon.className = 'fas fa-trash fa-3x text-danger'; message.innerText = 'Are you sure you want to permanently delete this record? This action cannot be undone.';
+                submitBtn.className = 'btn btn-danger px-4 fw-medium'; submitBtn.innerText = 'Yes, Delete it';
             } else if (action === 'restore') {
-                icon.className = 'fas fa-trash-restore fa-3x text-success';
-                message.innerText = 'Are you sure you want to restore this record back to active?';
-                submitBtn.className = 'btn btn-success px-4 fw-medium';
-                submitBtn.innerText = 'Yes, Restore it';
+                icon.className = 'fas fa-trash-restore fa-3x text-success'; message.innerText = 'Are you sure you want to restore this record back to active?';
+                submitBtn.className = 'btn btn-success px-4 fw-medium'; submitBtn.innerText = 'Yes, Restore it';
             }
             modal.show();
+        }
+
+        function previewVersionFile(path, fileName) {
+            const ext = (fileName || '').split('.').pop().toLowerCase();
+            const isImage = ['jpg','jpeg','png','gif'].includes(ext);
+            const isPdf = ext === 'pdf';
+            const type = isImage ? 'image' : (isPdf ? 'pdf' : 'other');
+            const histModal = bootstrap.Modal.getInstance(document.getElementById('versionHistoryModal'));
+            if (histModal) {
+                histModal.hide();
+                document.getElementById('versionHistoryModal').addEventListener('hidden.bs.modal', function handler() {
+                    viewFile(path, type);
+                    this.removeEventListener('hidden.bs.modal', handler);
+                });
+            } else {
+                viewFile(path, type);
+            }
         }
 
         function handleDisposition(docId, actionType) {
@@ -1207,9 +1500,8 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders);
                     success: function(response) {
                         try {
                             let res = JSON.parse(response);
-                            if(res.status === 'success') { alert(res.message); location.reload(); } 
-                            else { alert("Error: " + res.message); }
-                        } catch(e) { alert("Server error. Check console."); console.error(response); }
+                            if(res.status === 'success') { alert(res.message); location.reload(); } else { alert("Error: " + res.message); }
+                        } catch(e) { alert("Server error. Check console."); }
                     }
                 });
             }
