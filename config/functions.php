@@ -23,12 +23,15 @@ function log_audit_action($conn, $user_id, $action, $description) {
         $stmt->bind_param("iisss", $next_id, $user_id, $action, $description, $ip);
         
         // Kung mag-fail pa rin (halimbawa: naka-lock ang auto-increment setup ng MariaDB mo)
-        if (!$stmt->execute()) {
-            // STEP 3: Fallback sa normal insert na walang log_id
-            $stmt2 = $conn->prepare("INSERT INTO audit_logs (user_id, action_type, description, ip_address) VALUES (?, ?, ?, ?)");
-            if ($stmt2) {
-                $stmt2->bind_param("isss", $user_id, $action, $description, $ip);
-                $stmt2->execute();
+        if ($stmt->execute()) {
+            return $next_id;
+        }
+
+        $stmt2 = $conn->prepare("INSERT INTO audit_logs (user_id, action_type, description, ip_address) VALUES (?, ?, ?, ?)");
+        if ($stmt2) {
+            $stmt2->bind_param("isss", $user_id, $action, $description, $ip);
+            if ($stmt2->execute()) {
+                return $stmt2->insert_id;
             }
         }
     } else {
@@ -36,9 +39,47 @@ function log_audit_action($conn, $user_id, $action, $description) {
         $stmt2 = $conn->prepare("INSERT INTO audit_logs (user_id, action_type, description, ip_address) VALUES (?, ?, ?, ?)");
         if ($stmt2) {
             $stmt2->bind_param("isss", $user_id, $action, $description, $ip);
-            $stmt2->execute();
+            if ($stmt2->execute()) {
+                return $stmt2->insert_id;
+            }
         }
     }
+
+    return false;
+}
+
+function ensure_document_audit_trail_table_exists($conn) {
+    $conn->query("CREATE TABLE IF NOT EXISTS document_audit_trail (
+        trail_id INT AUTO_INCREMENT PRIMARY KEY,
+        audit_log_id INT DEFAULT NULL,
+        doc_id INT NOT NULL,
+        user_id INT NOT NULL,
+        action_type VARCHAR(50) NOT NULL,
+        description TEXT,
+        ip_address VARCHAR(45) DEFAULT NULL,
+        source_page VARCHAR(191) DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX (doc_id),
+        INDEX (user_id),
+        INDEX (audit_log_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+}
+
+function log_document_action($conn, $user_id, $action, $doc_id = null, $description = '', $source_page = null) {
+    $source_page = $source_page ?? ($_SERVER['REQUEST_URI'] ?? null);
+    $audit_log_id = log_audit_action($conn, $user_id, $action, $description);
+    $ip = $_SERVER['REMOTE_ADDR'] ?? 'UNKNOWN';
+
+    if ($doc_id !== null) {
+        ensure_document_audit_trail_table_exists($conn);
+        $stmt = $conn->prepare("INSERT INTO document_audit_trail (audit_log_id, doc_id, user_id, action_type, description, ip_address, source_page) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        if ($stmt) {
+            $stmt->bind_param("iiissss", $audit_log_id, $doc_id, $user_id, $action, $description, $ip, $source_page);
+            $stmt->execute();
+        }
+    }
+
+    return $audit_log_id;
 }
 
 function get_user_by_username($conn, $username) {

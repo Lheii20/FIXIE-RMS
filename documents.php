@@ -4,8 +4,62 @@ require 'config/db_connect.php';
 if(!isset($_SESSION['user_id'])) header("Location: index.php");
 
 $role = $_SESSION['role'];
+$is_admin = ($role === 'Admin');
 $is_top_mgmt = in_array($role, ['GM', 'President', 'Admin']);
 $can_manage = $is_top_mgmt; 
+
+function folderRoleMatches($assigned_roles, $role) {
+    if (empty($assigned_roles)) return false;
+    $roles = array_map('trim', explode(',', $assigned_roles));
+    foreach ($roles as $assigned_role) {
+        if (strcasecmp($assigned_role, $role) === 0) return true;
+    }
+    return false;
+}
+
+function getAssignedParentFoldersForRole($conn, $role) {
+    $parents = [];
+    $stmt = $conn->prepare("SELECT parent_category, assigned_to_role FROM document_categories WHERE sub_category != '' AND assigned_to_role IS NOT NULL AND assigned_to_role != '' ORDER BY parent_category ASC");
+    if (!$stmt) return $parents;
+    $stmt->execute();
+    $res = $stmt->get_result();
+    while ($row = $res->fetch_assoc()) {
+        if (folderRoleMatches($row['assigned_to_role'], $role)) {
+            $parent = trim($row['parent_category']);
+            if ($parent !== '') {
+                $exists = false;
+                foreach ($parents as $existing) {
+                    if (strcasecmp($existing, $parent) === 0) { $exists = true; break; }
+                }
+                if (!$exists) $parents[] = $parent;
+            }
+        }
+    }
+    return $parents;
+}
+
+function parentFolderExists($conn, $parent) {
+    $stmt = $conn->prepare("SELECT id FROM document_categories WHERE parent_category = ? LIMIT 1");
+    $stmt->bind_param("s", $parent);
+    $stmt->execute();
+    return $stmt->get_result()->num_rows > 0;
+}
+
+function subFolderExists($conn, $parent, $sub) {
+    $stmt = $conn->prepare("SELECT id FROM document_categories WHERE parent_category = ? AND sub_category = ? LIMIT 1");
+    $stmt->bind_param("ss", $parent, $sub);
+    $stmt->execute();
+    return $stmt->get_result()->num_rows > 0;
+}
+
+function redirectDocumentsWithMessage($type, $message, $parent = '') {
+    $url = "documents.php?" . $type . "=" . urlencode($message);
+    if ($parent !== '') {
+        $url = "documents.php?parent=" . urlencode($parent) . "&" . $type . "=" . urlencode($message);
+    }
+    header("Location: " . $url);
+    exit();
+}
 
 // ==========================================
 // KUNIN ANG MGA RETENTION POLICIES
@@ -52,37 +106,76 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     }
 
-    if ($is_top_mgmt) {
-        if ($_POST['action'] === 'create_folder') {
-            $parent = trim($_POST['parent_category']);
-            if ($parent === 'NEW_PARENT_FOLDER') {
-                if ($role !== 'Admin') {
-                    header("Location: documents.php?error=" . urlencode("Only the System Administrator can create Main Folders."));
-                    exit();
-                }
-                $parent = trim($_POST['new_parent_category']);
+    if ($_POST['action'] === 'create_folder') {
+        $parent = trim($_POST['parent_category'] ?? '');
+        $sub = trim($_POST['new_folder_name'] ?? '');
+        $folder_policy = !empty($_POST['folder_policy']) ? intval($_POST['folder_policy']) : null;
+        $is_new_parent = ($parent === 'NEW_PARENT_FOLDER');
+
+        if ($is_new_parent) {
+            if (!$is_admin) {
+                redirectDocumentsWithMessage("error", "Only the System Administrator can create Parent Folders.");
             }
-            
-            $sub = trim($_POST['new_folder_name'] ?? '');
-            $roles_assigned = isset($_POST['assigned_roles']) ? implode(',', $_POST['assigned_roles']) : '';
-            $folder_policy = !empty($_POST['folder_policy']) ? intval($_POST['folder_policy']) : null;
-            
-            if (!empty($parent)) {
-                $stmt_create = $conn->prepare("INSERT INTO document_categories (parent_category, sub_category, assigned_to_role, policy_id) VALUES (?, ?, ?, ?)");
-                $stmt_create->bind_param("sssi", $parent, $sub, $roles_assigned, $folder_policy);
-                if ($stmt_create->execute()) {
-                    header("Location: documents.php?success=" . urlencode("Folder configuration updated successfully."));
-                    exit();
-                } else {
-                    header("Location: documents.php?error=" . urlencode("Failed to update folder."));
-                    exit();
+
+            $parent = trim($_POST['new_parent_category'] ?? '');
+            if ($parent === '') {
+                redirectDocumentsWithMessage("error", "Parent Folder name cannot be empty.");
+            }
+            if (parentFolderExists($conn, $parent)) {
+                redirectDocumentsWithMessage("error", "Parent Folder already exists.");
+            }
+
+            $roles_assigned = isset($_POST['assigned_roles']) ? implode(',', array_map('trim', $_POST['assigned_roles'])) : '';
+            if ($sub === '') {
+                $roles_assigned = '';
+                $folder_policy = null;
+            }
+        } else {
+            if ($parent === '') {
+                redirectDocumentsWithMessage("error", "Please select a Parent Folder.");
+            }
+            if (!parentFolderExists($conn, $parent)) {
+                redirectDocumentsWithMessage("error", "Selected Parent Folder does not exist.");
+            }
+            if ($sub === '') {
+                redirectDocumentsWithMessage("error", "Sub-folder name is required.", $parent);
+            }
+            if (subFolderExists($conn, $parent, $sub)) {
+                redirectDocumentsWithMessage("error", "Sub-folder already exists in this Parent Folder.", $parent);
+            }
+            if (!$is_top_mgmt) {
+                $assigned_parents = getAssignedParentFoldersForRole($conn, $role);
+                $is_allowed_parent = false;
+                foreach ($assigned_parents as $assigned_parent) {
+                    if (strcasecmp($assigned_parent, $parent) === 0) { $is_allowed_parent = true; break; }
                 }
+                if (!$is_allowed_parent) {
+                    redirectDocumentsWithMessage("error", "You can only create sub-folders inside your assigned Parent Folders.");
+                }
+                $roles_assigned = $role;
             } else {
-                header("Location: documents.php?error=" . urlencode("Parent Folder name cannot be empty."));
-                exit();
+                $roles_assigned = isset($_POST['assigned_roles']) ? implode(',', array_map('trim', $_POST['assigned_roles'])) : '';
+            }
+            if ($folder_policy === null) {
+                redirectDocumentsWithMessage("error", "Retention Policy is required when creating a sub-folder.", $parent);
             }
         }
-        
+
+        if ($sub !== '' && $roles_assigned === '') {
+            redirectDocumentsWithMessage("error", "Please assign at least one role for this sub-folder.", $parent);
+        }
+
+        $stmt_create = $conn->prepare("INSERT INTO document_categories (parent_category, sub_category, assigned_to_role, policy_id) VALUES (?, ?, ?, ?)");
+        $stmt_create->bind_param("sssi", $parent, $sub, $roles_assigned, $folder_policy);
+        if ($stmt_create->execute()) {
+            $message = ($sub === '') ? "Parent Folder created successfully." : "Sub-folder created successfully.";
+            redirectDocumentsWithMessage("success", $message, ($sub === '' ? '' : $parent));
+        }
+
+        redirectDocumentsWithMessage("error", "Failed to create folder.", $parent);
+    }
+
+    if ($is_top_mgmt) {
         if ($_POST['action'] === 'delete_folder') {
             $delete_type = $_POST['delete_type'];
             $parent_name = $_POST['parent_name'];
@@ -201,6 +294,18 @@ if ($is_top_mgmt) {
     }
 }
 
+$assigned_parent_folders = $is_top_mgmt ? array_keys($parent_folders) : getAssignedParentFoldersForRole($conn, $role);
+$create_parent_options = [];
+foreach ($assigned_parent_folders as $assigned_parent) {
+    if ($assigned_parent === '') continue;
+    $exists = false;
+    foreach ($create_parent_options as $existing_parent) {
+        if (strcasecmp($existing_parent, $assigned_parent) === 0) { $exists = true; break; }
+    }
+    if (!$exists) $create_parent_options[] = $assigned_parent;
+}
+$can_create_folder = ($is_admin || !empty($create_parent_options));
+
 // ==========================================
 // PARAMETERS & FILTERS
 // ==========================================
@@ -211,6 +316,7 @@ $doc_status = $_GET['doc_status'] ?? '';
 $view_filter = $_GET['view_filter'] ?? ''; 
 $view_disposition = isset($_GET['disposition']) && $_GET['disposition'] == '1';
 $view_archives = isset($_GET['view_archives']) && $_GET['view_archives'] == '1';
+$can_show_create_folder = $can_create_folder && !$view_archives && !$view_disposition && empty($type_filter);
 
 if ($is_top_mgmt && empty($parent_filter) && !empty($type_filter)) {
     foreach($parent_folders as $p => $subs) {
@@ -251,6 +357,37 @@ if ($view_disposition) {
 
 if (!empty($search)) {
     $page_subtitle .= " (Search Results)";
+}
+
+// Build breadcrumbs with parent/child relationships
+$breadcrumbs = [];
+$breadcrumbs[] = ['label' => 'Official Records', 'url' => 'documents.php', 'active' => empty($view_archives) && empty($view_disposition) && empty($parent_filter) && empty($type_filter)];
+
+if ($view_archives) {
+    $breadcrumbs[] = ['label' => 'Archived', 'url' => 'documents.php?archived=1', 'active' => empty($parent_filter) && empty($type_filter)];
+} elseif ($view_disposition) {
+    $breadcrumbs[] = ['label' => 'Ready for Disposition', 'url' => 'documents.php?disposition=1', 'active' => empty($parent_filter) && empty($type_filter)];
+}
+
+if (!empty($parent_filter)) {
+    // FIXED BREADCRUMB PARAMETER
+    $parent_url = $view_archives ? 'documents.php?archived=1' : 'documents.php';
+    $breadcrumbs[] = ['label' => htmlspecialchars($parent_filter), 'url' => $parent_url . ($view_archives ? '&parent=' : '?parent=') . urlencode($parent_filter), 'active' => empty($type_filter)];
+}
+
+if (!empty($type_filter)) {
+    // Build URL to maintain parent context
+    $type_url_params = [];
+    if ($view_archives) $type_url_params[] = 'archived=1';
+    if (!empty($parent_filter)) $type_url_params[] = 'parent=' . urlencode($parent_filter);
+    $type_url_params[] = 'type=' . urlencode($type_filter);
+    $type_url = 'documents.php?' . implode('&', $type_url_params);
+    $breadcrumbs[] = ['label' => htmlspecialchars($type_filter), 'url' => $type_url, 'active' => true];
+}
+
+// If no specific filter is active, first breadcrumb is active
+if (empty($view_archives) && empty($view_disposition) && empty($parent_filter) && empty($type_filter)) {
+    $breadcrumbs[0]['active'] = true;
 }
 
 // ==========================================
@@ -486,6 +623,34 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
         .sleek-search .form-control { border: none; box-shadow: none; background: transparent; }
         .sleek-search .form-control:focus { box-shadow: none; }
         .sleek-search .input-group-text { border: none; background: transparent; }
+        .page-location-path { font-size: 0.9rem; color: #6c757d; letter-spacing: 0.2px; }
+        .page-location-path i { font-size: 0.85rem; }
+        .breadcrumb-item { display: inline-flex; align-items: center; position: relative; }
+        .breadcrumb-item a { 
+            color: #0d6efd; 
+            text-decoration: none; 
+            transition: all 0.2s ease;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-weight: 500;
+            background: transparent;
+        }
+        .breadcrumb-item a:hover { 
+            color: #0b5ed7; 
+            background-color: #e7f1ff;
+        }
+        .breadcrumb-item.active span {
+            color: #212529;
+            font-weight: 600;
+            padding: 6px 12px;
+            border-radius: 6px;
+            background-color: #e9ecef;
+        }
+        .breadcrumb-separator { 
+            margin: 0 4px; 
+            color: #adb5bd;
+            font-weight: 300;
+        }
         
         /* STICKY TOP PANEL */
         .sticky-header-panel {
@@ -513,9 +678,19 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
         .table-scrollable::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; }
         .table-scrollable::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         .table-scrollable::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-
-        /* ACTION MENU DROPDOWN */
-        .action-dropdown .dropdown-toggle::after { display: none; }
+        .confirm-modal .modal-dialog { max-width: 420px; }
+        .confirm-modal .modal-content { border-radius: 10px; overflow: hidden; }
+        .confirm-modal .modal-header { min-height: 42px; padding: 0.75rem 0.9rem 0; }
+        .confirm-modal .modal-body { padding: 0.25rem 1.25rem 1rem; }
+        .confirm-modal .modal-footer { padding: 0.8rem 1rem; gap: 0.5rem; }
+        .confirm-modal .confirm-icon {
+            width: 44px; height: 44px; border-radius: 50%;
+            display: inline-flex; align-items: center; justify-content: center;
+            background: #f8fafc; font-size: 1.15rem;
+        }
+        .confirm-modal h5 { font-size: 1rem; }
+        .confirm-modal p { font-size: 0.82rem; line-height: 1.45; }
+        .confirm-modal .btn { border-radius: 7px; padding: 0.45rem 0.9rem; font-size: 0.86rem; }
     </style>
 </head>
 <body style="background-color: #f8f9fa;">
@@ -548,12 +723,12 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
                     <?php endif; ?>
 
                     <div class="dropdown">
-                        <button class="btn btn-white bg-white text-secondary" style="border-radius: 8px; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center;" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="More Options">
+                        <button class="btn-dots dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="More Options">
                             <i class="fas fa-ellipsis-v"></i>
                         </button>
-                        <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0 mt-2" style="border-radius: 8px;">
+                        <ul class="dropdown-menu dropdown-menu-end shadow-sm mt-2">
                             <?php if(in_array($role, ['Admin', 'GM'])): ?>
-                            <li><a class="dropdown-item py-2" href="#" data-bs-toggle="modal" data-bs-target="#managePoliciesModal"><i class="fas fa-gavel me-2 text-secondary"></i> Manage Policies</a></li>
+                            <li><a class="dropdown-item py-2" href="#" data-bs-toggle="modal" data-bs-target="#managePoliciesModal"><i class="fas fa-gavel text-secondary"></i> Manage Policies</a></li>
                             <?php endif; ?>
 
                             <?php if($is_top_mgmt): ?>
@@ -564,23 +739,37 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
                             ?>
                             <li>
                                 <a class="dropdown-item py-2" href="?disposition=1">
-                                    <i class="fas fa-exclamation-triangle me-2 text-warning"></i> Disposition Alerts
+                                    <i class="fas fa-exclamation-triangle text-warning"></i> Disposition Alerts
                                     <?php if($disp_count > 0): ?><span class="badge bg-danger ms-2 rounded-pill"><?php echo $disp_count; ?></span><?php endif; ?>
                                 </a>
                             </li>
                             <?php endif; ?>
 
                             <?php if(!$view_archives): ?>
-                                <li><a class="dropdown-item py-2" href="?view_archives=1"><i class="fas fa-archive me-2 text-secondary"></i> View Archives</a></li>
+                                <li><a class="dropdown-item py-2" href="?view_archives=1"><i class="fas fa-archive text-secondary"></i> View Archives</a></li>
                             <?php endif; ?>
                             
-                            <?php if($is_top_mgmt && !$view_archives && !$view_disposition): ?>
+                            <?php if($can_show_create_folder): ?>
                             <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item py-2" href="#" data-bs-toggle="modal" data-bs-target="#createFolderModal"><i class="fas fa-folder-plus me-2 text-info"></i> Create Folder</a></li>
+                            <li><a class="dropdown-item py-2" href="#" data-bs-toggle="modal" data-bs-target="#createFolderModal"><i class="fas fa-folder-plus text-info"></i> <?php echo $is_admin ? 'Create Folder' : 'Create Sub-folder'; ?></a></li>
                             <?php endif; ?>
                         </ul>
                     </div>
                 </div>
+            </div>
+
+            <div class="page-location-path mb-3 d-flex align-items-center gap-1">
+                <i class="fas fa-map-marker-alt me-2" style="color: #0d6efd;"></i>
+                <?php foreach($breadcrumbs as $index => $crumb): ?>
+                    <?php if($index > 0): ?><span class="breadcrumb-separator">›</span><?php endif; ?>
+                    <span class="breadcrumb-item <?php echo $crumb['active'] ? 'active' : ''; ?>">
+                        <?php if($crumb['active']): ?>
+                            <span><?php echo $crumb['label']; ?></span>
+                        <?php else: ?>
+                            <a href="<?php echo $crumb['url']; ?>"><?php echo $crumb['label']; ?></a>
+                        <?php endif; ?>
+                    </span>
+                <?php endforeach; ?>
             </div>
 
             <?php if(!empty($user_categories) || $view_disposition): ?>
@@ -609,7 +798,7 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
                             <i class="fas fa-filter text-muted"></i>
                             <span class="d-none d-md-inline fw-medium text-secondary text-truncate" style="max-width: 150px;"><?php echo htmlspecialchars($current_filter_label); ?></span>
                         </button>
-                        <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0 mt-2" style="max-height: 300px; overflow-y: auto; border-radius: 8px;">
+                        <ul class="dropdown-menu dropdown-menu-end shadow-sm mt-2" style="max-height: 300px; overflow-y: auto;">
                             <?php foreach($dropdown_items as $item): ?>
                                 <li>
                                     <a class="dropdown-item py-2 small <?php echo $item['active'] ? 'active' : ''; ?>" href="<?php echo $item['url']; ?>"><?php echo htmlspecialchars($item['label']); ?></a>
@@ -672,16 +861,16 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
                                         <?php endif; ?>
                                     </td>
                                     <td class="text-end pe-4">
-                                        <div class="dropdown action-dropdown" onclick="event.stopPropagation();">
-                                            <button class="btn btn-sm btn-link text-secondary dropdown-toggle px-1" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="width: 32px; height: 32px; border-radius: 6px;">
+                                        <div class="dropdown action-dropdown">
+                                            <button class="btn-dots dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-boundary="window" data-bs-popper-config='{"strategy":"fixed"}'>
                                                 <i class="fas fa-ellipsis-v"></i>
                                             </button>
-                                            <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0" style="border-radius: 8px;">
-                                                <li><a class="dropdown-item py-2" href="#" onclick="openHistoryModal(<?php echo $row['doc_id']; ?>, '<?php echo addslashes($row['file_name']); ?>', event)"><i class="fas fa-history me-2 text-info"></i> Version History</a></li>
+                                            <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                                                <li><a class="dropdown-item py-2" href="#" onclick="openHistoryModal(<?php echo $row['doc_id']; ?>, '<?php echo addslashes($row['file_name']); ?>', event)"><i class="fas fa-history text-info"></i> Version History</a></li>
                                                 <li><hr class="dropdown-divider"></li>
                                                 <li>
                                                     <a class="dropdown-item py-2 fw-medium <?php echo ($row['action_after_retention'] == 'Destroy') ? 'text-danger' : 'text-success'; ?>" href="#" onclick="handleDisposition(<?php echo $row['doc_id']; ?>, '<?php echo $row['action_after_retention']; ?>')">
-                                                        <i class="fas <?php echo ($row['action_after_retention'] == 'Destroy') ? 'fa-fire' : 'fa-archive'; ?> me-2"></i> Execute <?php echo $row['action_after_retention']; ?>
+                                                        <i class="fas <?php echo ($row['action_after_retention'] == 'Destroy') ? 'fa-fire' : 'fa-archive'; ?>"></i> Execute <?php echo $row['action_after_retention']; ?>
                                                     </a>
                                                 </li>
                                             </ul>
@@ -715,13 +904,13 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
                             <?php if($archived_docs->num_rows > 0): ?>
                                 <?php while($row = $archived_docs->fetch_assoc()): 
                                     $fileNameOnly = basename($row['file_path']);
-                                    $secureLink = "download.php?file=" . urlencode($fileNameOnly);
+                                    $secureLink = "download.php?file=" . urlencode($fileNameOnly) . "&doc_id=" . intval($row['doc_id']);
                                     $ext = strtolower(pathinfo($row['file_path'], PATHINFO_EXTENSION));
                                     $isImage = in_array($ext, ['jpg','jpeg','png', 'gif']);
                                     $isPdf = ($ext == 'pdf');
                                     $current_v = !empty($row['current_version']) ? $row['current_version'] : '1.0';
                                 ?>
-                                <tr class="clickable-row border-bottom" onclick="viewFile('<?php echo $secureLink; ?>', '<?php echo $isImage ? 'image' : ($isPdf ? 'pdf' : 'other'); ?>')">
+                                <tr class="clickable-row border-bottom" onclick="if(!event.target.closest('.dropdown, button, a')){ viewFile('<?php echo $secureLink; ?>', '<?php echo $isImage ? 'image' : ($isPdf ? 'pdf' : 'other'); ?>'); }">
                                     <td class="ps-4 py-3">
                                         <div class="d-flex align-items-center gap-3">
                                             <?php if($isImage): ?><img src="<?php echo $secureLink; ?>" class="file-thumb-md bg-white"><?php elseif($isPdf): ?><div class="file-icon-md bg-danger bg-opacity-10 text-danger"><i class="fas fa-file-pdf"></i></div><?php else: ?><div class="file-icon-md bg-secondary bg-opacity-10 text-secondary"><i class="fas fa-file-alt"></i></div><?php endif; ?>
@@ -735,16 +924,16 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
                                     <td><div class="fw-semibold text-muted" style="font-size: 0.85rem;"><?php echo htmlspecialchars($row['full_name']); ?></div></td>
                                     <td><small class="text-muted" style="font-size: 0.85rem;"><?php echo date('M d, Y', strtotime($row['uploaded_at'])); ?></small></td>
                                     <td class="text-end pe-4">
-                                        <div class="dropdown action-dropdown" onclick="event.stopPropagation();">
-                                            <button class="btn btn-sm btn-link text-secondary dropdown-toggle px-1" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="width: 32px; height: 32px; border-radius: 6px;">
+                                        <div class="dropdown action-dropdown">
+                                            <button class="btn-dots dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-boundary="window" data-bs-popper-config='{"strategy":"fixed"}'>
                                                 <i class="fas fa-ellipsis-v"></i>
                                             </button>
-                                            <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0" style="border-radius: 8px;">
-                                                <li><a class="dropdown-item py-2" href="<?php echo $secureLink; ?>" download><i class="fas fa-download me-2 text-secondary"></i> Download</a></li>
-                                                <li><a class="dropdown-item py-2" href="#" onclick="openHistoryModal(<?php echo $row['doc_id']; ?>, '<?php echo addslashes($row['file_name']); ?>', event)"><i class="fas fa-history me-2 text-info"></i> Version History</a></li>
+                                            <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                                                <li><a class="dropdown-item py-2" href="<?php echo $secureLink; ?>" download><i class="fas fa-download text-secondary"></i> Download</a></li>
+                                                <li><a class="dropdown-item py-2" href="#" onclick="openHistoryModal(<?php echo $row['doc_id']; ?>, '<?php echo addslashes($row['file_name']); ?>', event)"><i class="fas fa-history text-info"></i> Version History</a></li>
                                                 <?php if($can_manage): ?>
                                                 <li><hr class="dropdown-divider"></li>
-                                                <li><a class="dropdown-item py-2 text-success fw-medium" href="#" onclick="showWarningModal('restore', <?php echo $row['doc_id']; ?>, event)"><i class="fas fa-trash-restore me-2"></i> Restore</a></li>
+                                                <li><a class="dropdown-item py-2 text-success fw-medium" href="#" onclick="showWarningModal('restore', <?php echo $row['doc_id']; ?>, event)"><i class="fas fa-trash-restore"></i> Restore</a></li>
                                                 <?php endif; ?>
                                             </ul>
                                         </div>
@@ -772,13 +961,13 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
                     <?php foreach($parent_folders as $p_name => $subs): ?>
                         <?php if(!empty($view_filter) && strcasecmp($view_filter, $p_name) !== 0) continue; ?>
                         <div class="col-xl-3 col-lg-4 col-md-6">
-                            <div class="folder-card position-relative p-3 h-100" onclick="window.location.href='?parent=<?php echo urlencode($p_name); ?>'">
+                            <div class="folder-card position-relative p-3 h-100" onclick="if(!event.target.closest('.dropdown')){ window.location.href='?parent=<?php echo urlencode($p_name); ?>'; }">
                                 
                                 <?php if ($role === 'Admin'): ?>
-                                <div class="dropdown position-absolute top-0 end-0 mt-2 me-2" onclick="event.stopPropagation();">
-                                    <button class="btn btn-sm btn-link text-muted p-0 border-0" type="button" data-bs-toggle="dropdown"><i class="fas fa-ellipsis-v"></i></button>
-                                    <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0" style="border-radius: 8px;">
-                                        <li><a class="dropdown-item text-danger small fw-bold py-2" href="#" onclick="event.stopPropagation(); openDeleteFolderModal('parent', '<?php echo addslashes($p_name); ?>', ''); return false;"><i class="fas fa-trash-alt me-2"></i> Delete Main Folder</a></li>
+                                <div class="dropdown position-absolute top-0 end-0 mt-2 me-2">
+                                    <button class="btn-dots dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="fas fa-ellipsis-v"></i></button>
+                                    <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                                        <li><a class="dropdown-item text-danger small fw-bold py-2" href="#" onclick="event.preventDefault(); openDeleteFolderModal('parent', '<?php echo addslashes($p_name); ?>', '');"><i class="fas fa-trash-alt"></i> Delete Main Folder</a></li>
                                     </ul>
                                 </div>
                                 <?php endif; ?>
@@ -805,13 +994,13 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
                     foreach($sub_folders as $sub_name): ?>
                         <?php if(!empty($view_filter) && strcasecmp($view_filter, $sub_name) !== 0) continue; ?>
                         <div class="col-xl-3 col-lg-4 col-md-6">
-                            <div class="folder-card position-relative p-3 h-100" onclick="window.location.href='?type=<?php echo urlencode($sub_name); ?>&parent=<?php echo urlencode($parent_filter); ?>'">
+                            <div class="folder-card position-relative p-3 h-100" onclick="if(!event.target.closest('.dropdown')){ window.location.href='?type=<?php echo urlencode($sub_name); ?>&parent=<?php echo urlencode($parent_filter); ?>'; }">
                                 
                                 <?php if ($can_manage): ?>
-                                <div class="dropdown position-absolute top-0 end-0 mt-2 me-2" onclick="event.stopPropagation();">
-                                    <button class="btn btn-sm btn-link text-muted p-0 border-0" type="button" data-bs-toggle="dropdown"><i class="fas fa-ellipsis-v"></i></button>
-                                    <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0" style="border-radius: 8px;">
-                                        <li><a class="dropdown-item text-danger small fw-bold py-2" href="#" onclick="event.stopPropagation(); openDeleteFolderModal('sub', '<?php echo addslashes($parent_filter); ?>', '<?php echo addslashes($sub_name); ?>'); return false;"><i class="fas fa-trash-alt me-2"></i> Delete Sub-folder</a></li>
+                                <div class="dropdown position-absolute top-0 end-0 mt-2 me-2">
+                                    <button class="btn-dots dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="fas fa-ellipsis-v"></i></button>
+                                    <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                                        <li><a class="dropdown-item text-danger small fw-bold py-2" href="#" onclick="event.preventDefault(); openDeleteFolderModal('sub', '<?php echo addslashes($parent_filter); ?>', '<?php echo addslashes($sub_name); ?>');"><i class="fas fa-trash-alt"></i> Delete Sub-folder</a></li>
                                     </ul>
                                 </div>
                                 <?php endif; ?>
@@ -836,7 +1025,7 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
                     <?php foreach($user_categories as $sub_name): ?>
                         <?php if(!empty($view_filter) && strcasecmp($view_filter, $sub_name) !== 0) continue; ?>
                         <div class="col-xl-3 col-lg-4 col-md-6">
-                            <div class="folder-card position-relative p-3 h-100" onclick="window.location.href='?type=<?php echo urlencode($sub_name); ?>'">
+                            <div class="folder-card position-relative p-3 h-100" onclick="if(!event.target.closest('.dropdown')){ window.location.href='?type=<?php echo urlencode($sub_name); ?>'; }">
                                 <div class="d-flex align-items-center gap-3">
                                     <div class="folder-icon-box bg-warning bg-opacity-10 text-warning">
                                         <i class="fas fa-folder fs-4"></i>
@@ -872,7 +1061,7 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
                                     <?php if($active_docs->num_rows > 0): ?>
                                         <?php while($row = $active_docs->fetch_assoc()): 
                                             $fileNameOnly = basename($row['file_path']);
-                                            $secureLink = "download.php?file=" . urlencode($fileNameOnly);
+                                            $secureLink = "download.php?file=" . urlencode($fileNameOnly) . "&doc_id=" . intval($row['doc_id']);
                                             $ext = strtolower(pathinfo($row['file_path'], PATHINFO_EXTENSION));
                                             $isImage = in_array($ext, ['jpg','jpeg','png', 'gif']);
                                             $isPdf = ($ext == 'pdf');
@@ -886,7 +1075,7 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
                                             elseif(in_array($po_stat, ['Collected', 'Delivered'])) $stat_color = 'bg-success';
                                             elseif(in_array($po_stat, ['Rejected', 'Invalid'])) $stat_color = 'bg-danger';
                                         ?>
-                                        <tr class="clickable-row border-bottom" onclick="viewFile('<?php echo $secureLink; ?>', '<?php echo $isImage ? 'image' : ($isPdf ? 'pdf' : 'other'); ?>')">
+                                        <tr class="clickable-row border-bottom" onclick="if(!event.target.closest('.dropdown, a, button')) { viewFile('<?php echo $secureLink; ?>', '<?php echo $isImage ? 'image' : ($isPdf ? 'pdf' : 'other'); ?>'); }">
                                             <td class="ps-4 py-3">
                                                 <div class="d-flex align-items-center gap-3">
                                                     <?php if($isImage): ?><img src="<?php echo $secureLink; ?>" class="file-thumb-md bg-white"><?php elseif($isPdf): ?><div class="file-icon-md bg-danger bg-opacity-10 text-danger"><i class="fas fa-file-pdf"></i></div><?php else: ?><div class="file-icon-md bg-primary bg-opacity-10 text-primary"><i class="fas fa-file-alt"></i></div><?php endif; ?>
@@ -901,18 +1090,18 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
                                             <td class="fw-semibold text-dark" style="font-size: 0.85rem;"><?php echo $row['amount'] ? '₱ ' . number_format($row['amount'], 2) : '-'; ?></td>
                                             <td><span class="badge <?php echo $stat_color; ?> px-2 py-1 bg-opacity-10 border border-<?php echo str_replace(['bg-', ' text-dark'], '', $stat_color); ?>" style="color: inherit !important;"><?php echo htmlspecialchars($po_stat); ?></span></td>
                                             <td class="text-end pe-4">
-                                                <div class="dropdown action-dropdown" onclick="event.stopPropagation();">
-                                                    <button class="btn btn-sm btn-link text-secondary dropdown-toggle px-1" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="width: 32px; height: 32px; border-radius: 6px;">
+                                                <div class="dropdown action-dropdown">
+                                                    <button class="btn-dots dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-boundary="window" data-bs-popper-config='{"strategy":"fixed"}'>
                                                         <i class="fas fa-ellipsis-v"></i>
                                                     </button>
-                                                    <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0" style="border-radius: 8px;">
+                                                    <ul class="dropdown-menu dropdown-menu-end shadow-sm">
                                                         <?php if($row['po_id']): ?>
-                                                            <li><a class="dropdown-item py-2" href="view_po.php?id=<?php echo $row['po_id']; ?>"><i class="fas fa-file-invoice me-2 text-primary"></i> View Details</a></li>
+                                                            <li><a class="dropdown-item py-2" href="view_po.php?id=<?php echo $row['po_id']; ?>"><i class="fas fa-file-invoice text-primary"></i> View Details</a></li>
                                                         <?php endif; ?>
-                                                        <li><a class="dropdown-item py-2" href="<?php echo $secureLink; ?>" download><i class="fas fa-download me-2 text-secondary"></i> Download</a></li>
+                                                        <li><a class="dropdown-item py-2" href="<?php echo $secureLink; ?>" download><i class="fas fa-download text-secondary"></i> Download</a></li>
                                                         <?php if($can_manage): ?>
                                                         <li><hr class="dropdown-divider"></li>
-                                                        <li><a class="dropdown-item py-2 text-warning" href="#" onclick="showWarningModal('archive', <?php echo $row['doc_id']; ?>, event)"><i class="fas fa-box-archive me-2"></i> Archive Document</a></li>
+                                                        <li><a class="dropdown-item py-2 text-warning" href="#" onclick="showWarningModal('archive', <?php echo $row['doc_id']; ?>, event)"><i class="fas fa-box-archive"></i> Archive Document</a></li>
                                                         <?php endif; ?>
                                                     </ul>
                                                 </div>
@@ -940,13 +1129,13 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
                                     <?php if($active_docs->num_rows > 0): ?>
                                         <?php while($row = $active_docs->fetch_assoc()): 
                                             $fileNameOnly = basename($row['file_path']);
-                                            $secureLink = "download.php?file=" . urlencode($fileNameOnly);
+                                            $secureLink = "download.php?file=" . urlencode($fileNameOnly) . "&doc_id=" . intval($row['doc_id']);
                                             $ext = strtolower(pathinfo($row['file_path'], PATHINFO_EXTENSION));
                                             $isImage = in_array($ext, ['jpg','jpeg','png', 'gif']);
                                             $isPdf = ($ext == 'pdf');
                                             $current_v = !empty($row['current_version']) ? $row['current_version'] : '1.0';
                                         ?>
-                                        <tr class="clickable-row border-bottom" onclick="viewFile('<?php echo $secureLink; ?>', '<?php echo $isImage ? 'image' : ($isPdf ? 'pdf' : 'other'); ?>')">
+                                        <tr class="clickable-row border-bottom" onclick="if(!event.target.closest('.dropdown, a, button')) { viewFile('<?php echo $secureLink; ?>', '<?php echo $isImage ? 'image' : ($isPdf ? 'pdf' : 'other'); ?>'); }">
                                             <td class="ps-4 py-3">
                                                 <div class="d-flex align-items-center gap-3">
                                                     <?php if($isImage): ?><img src="<?php echo $secureLink; ?>" class="file-thumb-md bg-white"><?php elseif($isPdf): ?><div class="file-icon-md bg-danger bg-opacity-10 text-danger"><i class="fas fa-file-pdf"></i></div><?php else: ?><div class="file-icon-md bg-primary bg-opacity-10 text-primary"><i class="fas fa-file-alt"></i></div><?php endif; ?>
@@ -969,21 +1158,21 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
                                                 <?php endif; ?>
                                             </td>
                                             <td>
-                                                <?php if($row['po_id']): ?><a href="view_po.php?id=<?php echo $row['po_id']; ?>" class="badge bg-light text-primary text-decoration-none border" style="font-size: 0.75rem;" onclick="event.stopPropagation();">PO #<?php echo $row['po_number']; ?></a><?php else: ?><span class="text-muted" style="font-size: 0.75rem;">General File</span><?php endif; ?>
+                                                <?php if($row['po_id']): ?><a href="view_po.php?id=<?php echo $row['po_id']; ?>" class="badge bg-light text-primary text-decoration-none border" style="font-size: 0.75rem;">PO #<?php echo $row['po_number']; ?></a><?php else: ?><span class="text-muted" style="font-size: 0.75rem;">General File</span><?php endif; ?>
                                             </td>
                                             <td><div class="fw-semibold text-dark" style="font-size: 0.85rem;"><?php echo htmlspecialchars($row['full_name']); ?></div><small class="text-muted" style="font-size: 0.75rem;"><?php echo date('M d, Y', strtotime($row['uploaded_at'])); ?></small></td>
                                             <td class="text-end pe-4">
-                                                <div class="dropdown action-dropdown" onclick="event.stopPropagation();">
-                                                    <button class="btn btn-sm btn-link text-secondary dropdown-toggle px-1" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="width: 32px; height: 32px; border-radius: 6px;">
+                                                <div class="dropdown action-dropdown">
+                                                    <button class="btn-dots dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-boundary="window" data-bs-popper-config='{"strategy":"fixed"}'>
                                                         <i class="fas fa-ellipsis-v"></i>
                                                     </button>
-                                                    <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0" style="border-radius: 8px;">
-                                                        <li><a class="dropdown-item py-2" href="<?php echo $secureLink; ?>" download><i class="fas fa-download me-2 text-secondary"></i> Download</a></li>
-                                                        <li><a class="dropdown-item py-2" href="#" onclick="openHistoryModal(<?php echo $row['doc_id']; ?>, '<?php echo addslashes($row['file_name']); ?>', event)"><i class="fas fa-history me-2 text-info"></i> Version History</a></li>
+                                                    <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                                                        <li><a class="dropdown-item py-2" href="<?php echo $secureLink; ?>" download><i class="fas fa-download text-secondary"></i> Download</a></li>
+                                                        <li><a class="dropdown-item py-2" href="#" onclick="openHistoryModal(<?php echo $row['doc_id']; ?>, '<?php echo addslashes($row['file_name']); ?>', event)"><i class="fas fa-history text-info"></i> Version History</a></li>
                                                         <?php if($can_manage): ?>
-                                                        <li><a class="dropdown-item py-2" href="#" onclick="openVersionModal(<?php echo $row['doc_id']; ?>, '<?php echo addslashes($row['file_name']); ?>', '<?php echo $current_v; ?>', event)"><i class="fas fa-upload me-2 text-primary"></i> Upload New Version</a></li>
+                                                        <li><a class="dropdown-item py-2" href="#" onclick="openVersionModal(<?php echo $row['doc_id']; ?>, '<?php echo addslashes($row['file_name']); ?>', '<?php echo $current_v; ?>', event)"><i class="fas fa-upload text-primary"></i> Upload New Version</a></li>
                                                         <li><hr class="dropdown-divider"></li>
-                                                        <li><a class="dropdown-item py-2 text-warning" href="#" onclick="showWarningModal('archive', <?php echo $row['doc_id']; ?>, event)"><i class="fas fa-box-archive me-2"></i> Archive Document</a></li>
+                                                        <li><a class="dropdown-item py-2 text-warning" href="#" onclick="showWarningModal('archive', <?php echo $row['doc_id']; ?>, event)"><i class="fas fa-box-archive"></i> Archive Document</a></li>
                                                         <?php endif; ?>
                                                     </ul>
                                                 </div>
@@ -1158,12 +1347,12 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
     </div>
     <?php endif; ?>
 
-    <?php if($is_top_mgmt): ?>
+    <?php if($can_show_create_folder): ?>
     <div class="modal fade" id="createFolderModal" tabindex="-1">
         <div class="modal-dialog">
             <div class="modal-content border-0 shadow" style="border-radius: 12px; overflow: hidden;">
                 <div class="modal-header bg-light border-bottom">
-                    <h5 class="modal-title fw-bold text-dark"><i class="fas fa-folder-plus me-2 text-info"></i> Create New Folder</h5>
+                    <h5 class="modal-title fw-bold text-dark"><i class="fas fa-folder-plus me-2 text-info"></i> <?php echo $is_admin ? 'Create New Folder' : 'Create Sub-folder'; ?></h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <form action="documents.php" method="POST">
@@ -1175,14 +1364,17 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
                             <label class="form-label fw-semibold small text-secondary">Parent Department / Record Type</label>
                             <select name="parent_category" class="form-select mb-2" id="parentCategorySelect" style="border-radius: 8px;" onchange="toggleNewParentInput()" required>
                                 <option value="" disabled selected>-- Select Parent Folder --</option>
-                                <?php foreach(array_keys($parent_folders) as $p): ?>
+                                <?php foreach($create_parent_options as $p): ?>
                                     <option value="<?php echo htmlspecialchars($p); ?>"><?php echo htmlspecialchars($p); ?></option>
                                 <?php endforeach; ?>
-                                <?php if ($_SESSION['role'] === 'Admin'): ?>
+                                <?php if ($is_admin): ?>
                                 <option value="NEW_PARENT_FOLDER" class="fw-bold text-primary">+ Create New Parent Folder</option>
                                 <?php endif; ?>
                             </select>
                             <input type="text" name="new_parent_category" id="newParentCategoryInput" class="form-control d-none mt-2 border-primary" style="border-radius: 8px;" placeholder="Enter New Parent Folder Name">
+                            <?php if(!$is_admin): ?>
+                                <small class="text-muted d-block mt-2" style="font-size: 0.75rem;"><i class="fas fa-lock me-1"></i>You can only add sub-folders to parent folders assigned to your role.</small>
+                            <?php endif; ?>
                         </div>
                         
                         <div class="mb-3">
@@ -1190,9 +1382,9 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
                             <input type="text" name="new_folder_name" id="newFolderInput" class="form-control" style="border-radius: 8px;" placeholder="e.g. Audit Reports 2026" required>
                         </div>
 
-                        <div class="mb-3 p-3 bg-info bg-opacity-10 border border-info rounded" style="border-radius: 8px;">
+                        <div class="mb-3 p-3 bg-info bg-opacity-10 border border-info rounded" id="folderPolicyWrapper" style="border-radius: 8px;">
                             <label class="form-label fw-semibold small text-info"><i class="fas fa-shield-alt me-1"></i> Default Retention Policy</label>
-                            <select name="folder_policy" class="form-select border-info" style="border-radius: 8px;" required>
+                            <select name="folder_policy" id="folderPolicySelect" class="form-select border-info" style="border-radius: 8px;" required>
                                 <option value="" disabled selected>-- Select Auto-Retention Rule --</option>
                                 <?php foreach($policies as $pol): ?>
                                     <option value="<?php echo $pol['policy_id']; ?>">
@@ -1204,7 +1396,8 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
                             <small class="text-info mt-2 d-block" style="font-size: 0.75rem;">All files uploaded to this folder will automatically follow this retention rule.</small>
                         </div>
                         
-                        <div class="mb-2">
+                        <?php if($is_top_mgmt): ?>
+                        <div class="mb-2" id="assignedRolesWrapper">
                             <label class="form-label fw-semibold small text-secondary">Assign to User Roles <small class="text-muted fw-normal">(Hold Ctrl/Cmd for multiple)</small></label>
                             <select name="assigned_roles[]" class="form-select" style="border-radius: 8px;" multiple size="6" required>
                                 <option value="Admin">Admin</option>
@@ -1218,37 +1411,42 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
                             </select>
                             <small class="text-muted d-block mt-2" style="font-size: 0.75rem;"><i class="fas fa-info-circle me-1"></i> Admin, General Manager, and President automatically have access to all folders.</small>
                         </div>
+                        <?php else: ?>
+                            <input type="hidden" name="assigned_roles[]" value="<?php echo htmlspecialchars($role); ?>">
+                        <?php endif; ?>
                     </div>
                     <div class="modal-footer bg-light border-top">
                         <button type="button" class="btn btn-light border" style="border-radius: 8px;" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-info text-white fw-medium px-4" style="border-radius: 8px;">Create Folder</button>
+                        <button type="submit" class="btn btn-info text-white fw-medium px-4" style="border-radius: 8px;"><?php echo $is_admin ? 'Create Folder' : 'Create Sub-folder'; ?></button>
                     </div>
                 </form>
             </div>
         </div>
     </div>
+    <?php endif; ?>
     
-    <div class="modal fade" id="deleteFolderModal" tabindex="-1">
+    <?php if($is_top_mgmt): ?>
+    <div class="modal fade confirm-modal" id="deleteFolderModal" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content border-0 shadow" style="border-radius: 12px;">
-                <div class="modal-header bg-danger text-white border-0">
-                    <h5 class="modal-title fw-bold"><i class="fas fa-exclamation-triangle me-2"></i> Delete Folder</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            <div class="modal-content border-0 shadow-sm">
+                <div class="modal-header border-0">
+                    <h5 class="modal-title fw-bold d-none">Delete Folder</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
-                <div class="modal-body text-center p-4">
-                    <div class="mb-3"><i class="fas fa-folder-minus fa-3x text-danger"></i></div>
+                <div class="modal-body text-center">
+                    <div class="confirm-icon text-danger mb-3"><i class="fas fa-folder-minus"></i></div>
                     <h5 class="mb-2 fw-bold text-dark">Are you sure?</h5>
-                    <p class="text-muted small">You are about to permanently delete the folder <strong id="deleteFolderDisplay"></strong>.<br>This action cannot be undone.</p>
+                    <p class="text-muted mb-0">You are about to permanently delete <strong id="deleteFolderDisplay"></strong>. This action cannot be undone.</p>
                 </div>
-                <div class="modal-footer justify-content-center bg-light border-top">
-                    <button type="button" class="btn btn-light border px-4" style="border-radius: 8px;" data-bs-dismiss="modal">Cancel</button>
+                <div class="modal-footer justify-content-end bg-light border-top">
+                    <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
                     <form action="documents.php" method="POST" style="margin: 0;">
                         <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                         <input type="hidden" name="action" value="delete_folder">
                         <input type="hidden" name="delete_type" id="deleteType">
                         <input type="hidden" name="parent_name" id="deleteParentName">
                         <input type="hidden" name="sub_name" id="deleteSubName">
-                        <button type="submit" class="btn btn-danger px-4 fw-medium" style="border-radius: 8px;">Yes, Delete Folder</button>
+                        <button type="submit" class="btn btn-danger fw-medium">Delete Folder</button>
                     </form>
                 </div>
             </div>
@@ -1333,25 +1531,25 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
         </div>
     </div>
 
-    <div class="modal fade" id="systemWarningModal" tabindex="-1">
+    <div class="modal fade confirm-modal" id="systemWarningModal" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content border-0 shadow" style="border-radius: 12px; overflow: hidden;">
+            <div class="modal-content border-0 shadow-sm">
                 <div class="modal-header border-0 pb-0" id="warningModalHeader">
                     <h5 class="modal-title fw-bold" id="warningModalTitle" style="display: none;">Warning</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
-                <div class="modal-body text-center p-4 pt-2">
-                    <div class="mb-3" id="warningModalIconBox"><i id="warningModalIcon" class="fas fa-exclamation-triangle fa-3x"></i></div>
+                <div class="modal-body text-center">
+                    <div class="confirm-icon mb-3" id="warningModalIconBox"><i id="warningModalIcon" class="fas fa-exclamation-triangle"></i></div>
                     <h5 class="fw-bold text-dark mb-2">Are you sure?</h5>
                     <p id="warningModalMessage" class="mb-0 text-muted small"></p>
                 </div>
-                <div class="modal-footer justify-content-center bg-light border-top">
-                    <button type="button" class="btn btn-light border px-4" style="border-radius: 8px;" data-bs-dismiss="modal">Cancel</button>
+                <div class="modal-footer justify-content-end bg-light border-top">
+                    <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
                     <form id="warningModalForm" action="actions/upload_handler.php" method="POST" style="margin: 0;">
                         <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                         <input type="hidden" name="action" id="warningModalAction" value="">
                         <input type="hidden" name="doc_id" id="warningModalDocId" value="">
-                        <button type="submit" id="warningModalSubmitBtn" class="btn px-4 fw-medium" style="border-radius: 8px;">Confirm</button>
+                        <button type="submit" id="warningModalSubmitBtn" class="btn fw-medium">Confirm</button>
                     </form>
                 </div>
             </div>
@@ -1361,9 +1559,20 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // UX Enhancement: Close open dropdowns kapag nag-scroll sa table
+        document.querySelectorAll('.table-scrollable').forEach(table => {
+            table.addEventListener('scroll', function() {
+                var dropdowns = document.querySelectorAll('.table-scrollable .dropdown-toggle[aria-expanded="true"]');
+                dropdowns.forEach(function(dropdown) {
+                    var inst = bootstrap.Dropdown.getInstance(dropdown);
+                    if (inst) inst.hide();
+                });
+            });
+        });
+
         // Version History Logic
         function openVersionModal(id, name, currentV, event) {
-            event.stopPropagation();
+            if(event) event.preventDefault();
             document.getElementById('v_doc_id').value = id;
             document.getElementById('v_doc_name').innerText = name;
             document.getElementById('v_curr_ver').innerText = 'v' + currentV;
@@ -1371,7 +1580,7 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
         }
 
         function openHistoryModal(id, name, event) {
-            event.stopPropagation();
+            if(event) event.preventDefault();
             document.getElementById('h_doc_name').innerText = name;
             const tbody = document.getElementById('historyTableBody');
             tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4"><div class="spinner-border text-primary spinner-border-sm"></div> Loading...</td></tr>';
@@ -1436,10 +1645,28 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
             var input = document.getElementById('newParentCategoryInput');
             var subInput = document.getElementById('newFolderInput');
             var optText = document.getElementById('subFolderOptionalText');
+            var policySelect = document.getElementById('folderPolicySelect');
+            var policyWrapper = document.getElementById('folderPolicyWrapper');
+            var rolesWrapper = document.getElementById('assignedRolesWrapper');
+            var roleSelect = document.querySelector('#assignedRolesWrapper select');
             if(select.value === 'NEW_PARENT_FOLDER') {
-                input.classList.remove('d-none'); input.required = true; subInput.required = false; optText.innerText = "(Optional)";
+                input.classList.remove('d-none');
+                input.required = true;
+                subInput.required = false;
+                if(policySelect) policySelect.required = false;
+                if(roleSelect) roleSelect.required = false;
+                if(policyWrapper) policyWrapper.classList.add('d-none');
+                if(rolesWrapper) rolesWrapper.classList.add('d-none');
+                optText.innerText = "(Optional)";
             } else {
-                input.classList.add('d-none'); input.required = false; subInput.required = true; optText.innerText = "(Required)";
+                input.classList.add('d-none');
+                input.required = false;
+                subInput.required = true;
+                if(policySelect) policySelect.required = true;
+                if(roleSelect) roleSelect.required = true;
+                if(policyWrapper) policyWrapper.classList.remove('d-none');
+                if(rolesWrapper) rolesWrapper.classList.remove('d-none');
+                optText.innerText = "(Required)";
             }
         }
 
@@ -1453,22 +1680,25 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
         }
 
         function showWarningModal(action, docId, event) {
-            event.stopPropagation();
+            if(event) event.preventDefault();
             const modal = new bootstrap.Modal(document.getElementById('systemWarningModal'));
             const icon = document.getElementById('warningModalIcon');
             const message = document.getElementById('warningModalMessage');
             const submitBtn = document.getElementById('warningModalSubmitBtn');
+            const form = document.getElementById('warningModalForm');
+            form.dataset.mode = 'document';
+            form.action = 'actions/upload_handler.php';
             document.getElementById('warningModalAction').value = action;
             document.getElementById('warningModalDocId').value = docId;
             if (action === 'archive') {
-                icon.className = 'fas fa-box-archive fa-3x text-warning'; message.innerText = 'Are you sure you want to archive this record?';
-                submitBtn.className = 'btn btn-warning text-dark px-4 fw-medium'; submitBtn.innerText = 'Yes, Archive it';
+                icon.className = 'fas fa-box-archive text-warning'; message.innerText = 'Archive this record? You can restore it later from archives.';
+                submitBtn.className = 'btn btn-warning text-dark fw-medium'; submitBtn.innerText = 'Archive';
             } else if (action === 'delete') {
-                icon.className = 'fas fa-trash fa-3x text-danger'; message.innerText = 'Are you sure you want to permanently delete this record? This action cannot be undone.';
-                submitBtn.className = 'btn btn-danger px-4 fw-medium'; submitBtn.innerText = 'Yes, Delete it';
+                icon.className = 'fas fa-trash text-danger'; message.innerText = 'Permanently delete this record? This action cannot be undone.';
+                submitBtn.className = 'btn btn-danger fw-medium'; submitBtn.innerText = 'Delete';
             } else if (action === 'restore') {
-                icon.className = 'fas fa-trash-restore fa-3x text-success'; message.innerText = 'Are you sure you want to restore this record back to active?';
-                submitBtn.className = 'btn btn-success px-4 fw-medium'; submitBtn.innerText = 'Yes, Restore it';
+                icon.className = 'fas fa-trash-restore text-success'; message.innerText = 'Restore this record back to active files?';
+                submitBtn.className = 'btn btn-success fw-medium'; submitBtn.innerText = 'Restore';
             }
             modal.show();
         }
@@ -1491,21 +1721,66 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
         }
 
         function handleDisposition(docId, actionType) {
-            let confirmMsg = actionType === 'Destroy' ? "Are you sure you want to PERMANENTLY DESTROY and delete this record from the server?" : "Are you sure you want to move this record to PERMANENT ARCHIVES?";
-            if(confirm(confirmMsg)) {
-                $.ajax({
-                    url: 'actions/disposition_handler.php',
-                    type: 'POST',
-                    data: { doc_id: docId, action: actionType },
-                    success: function(response) {
-                        try {
-                            let res = JSON.parse(response);
-                            if(res.status === 'success') { alert(res.message); location.reload(); } else { alert("Error: " + res.message); }
-                        } catch(e) { alert("Server error. Check console."); }
-                    }
-                });
+            const modal = new bootstrap.Modal(document.getElementById('systemWarningModal'));
+            const icon = document.getElementById('warningModalIcon');
+            const message = document.getElementById('warningModalMessage');
+            const submitBtn = document.getElementById('warningModalSubmitBtn');
+            const form = document.getElementById('warningModalForm');
+
+            form.dataset.mode = 'disposition';
+            form.dataset.dispositionAction = actionType;
+            document.getElementById('warningModalDocId').value = docId;
+            document.getElementById('warningModalAction').value = actionType;
+
+            if (actionType === 'Destroy') {
+                icon.className = 'fas fa-fire text-danger';
+                message.innerText = 'Permanently destroy this record from the server? This action cannot be undone.';
+                submitBtn.className = 'btn btn-danger fw-medium';
+                submitBtn.innerText = 'Destroy';
+            } else {
+                icon.className = 'fas fa-archive text-success';
+                message.innerText = 'Move this record to permanent archives?';
+                submitBtn.className = 'btn btn-success fw-medium';
+                submitBtn.innerText = 'Archive';
             }
+            modal.show();
         }
+
+        document.getElementById('warningModalForm').addEventListener('submit', function(event) {
+            if (this.dataset.mode !== 'disposition') return;
+
+            event.preventDefault();
+            const submitBtn = document.getElementById('warningModalSubmitBtn');
+            submitBtn.disabled = true;
+            submitBtn.innerText = 'Processing...';
+
+            $.ajax({
+                url: 'actions/disposition_handler.php',
+                type: 'POST',
+                data: {
+                    doc_id: document.getElementById('warningModalDocId').value,
+                    action: this.dataset.dispositionAction
+                },
+                success: function(response) {
+                    try {
+                        let res = JSON.parse(response);
+                        if(res.status === 'success') {
+                            location.reload();
+                        } else {
+                            alert("Error: " + res.message);
+                            submitBtn.disabled = false;
+                        }
+                    } catch(e) {
+                        alert("Server error. Please try again.");
+                        submitBtn.disabled = false;
+                    }
+                },
+                error: function() {
+                    alert("Network error. Please try again.");
+                    submitBtn.disabled = false;
+                }
+            });
+        });
     </script>
 </body>
 </html>

@@ -52,8 +52,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['document'])) {
         $stmt->bind_param("isssisss", $po_id, $document_title, $targetFilePath, $fileHash, $_SESSION['user_id'], $category, $tags, $expiry_date);
         
         if ($stmt->execute()) {
+            $doc_id = $stmt->insert_id;
             $desc = "Indexed and uploaded Official Record: " . $document_title . " [" . $category . "]";
-            log_audit_action($conn, $_SESSION['user_id'], 'UPLOAD_RECORD', $desc);
+            log_document_action($conn, $_SESSION['user_id'], 'UPLOAD_RECORD', $doc_id, $desc, $_SERVER['REQUEST_URI'] ?? null);
             
             header("Location: ../documents.php?success=Record successfully indexed and saved to repository.");
         } else {

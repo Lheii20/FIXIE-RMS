@@ -5,6 +5,29 @@ require '../config/functions.php';
 
 if (!isset($_SESSION['user_id'])) { die("Unauthorized access."); }
 
+function uploadFolderRoleMatches($assigned_roles, $role) {
+    if (empty($assigned_roles)) return false;
+    $roles = array_map('trim', explode(',', $assigned_roles));
+    foreach ($roles as $assigned_role) {
+        if (strcasecmp($assigned_role, $role) === 0) return true;
+    }
+    return false;
+}
+
+function userCanUseOfficialFolder($conn, $category, $role) {
+    if (in_array($role, ['Admin', 'GM', 'President'])) return true;
+    if (empty($category)) return false;
+
+    $stmt = $conn->prepare("SELECT assigned_to_role FROM document_categories WHERE sub_category = ? LIMIT 1");
+    $stmt->bind_param("s", $category);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    if ($row = $res->fetch_assoc()) {
+        return uploadFolderRoleMatches($row['assigned_to_role'], $role);
+    }
+    return false;
+}
+
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     
     // Strict CSRF Enforcement 
@@ -49,7 +72,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $stmt->bind_param("i", $doc_id);
             
             if ($stmt->execute()) {
-                if (function_exists('log_audit_action')) {
+                if (function_exists('log_document_action')) {
+                    log_document_action($conn, $user_id, 'ARCHIVE_FILE', $doc_id, "Archived Document ID: $doc_id", $redirectUrl);
+                } else {
                     log_audit_action($conn, $user_id, 'ARCHIVE_FILE', "Archived Document ID: $doc_id");
                 }
                 header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "success=Archived");
@@ -75,7 +100,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $stmt->bind_param("i", $doc_id);
             
             if ($stmt->execute()) {
-                if (function_exists('log_audit_action')) {
+                if (function_exists('log_document_action')) {
+                    log_document_action($conn, $user_id, 'RESTORE_FILE', $doc_id, "Restored Document ID: $doc_id", $redirectUrl);
+                } else {
                     log_audit_action($conn, $user_id, 'RESTORE_FILE', "Restored Document ID: $doc_id");
                 }
                 header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "success=Restored");
@@ -117,7 +144,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $del->execute();
             
             $desc = "Permanently deleted file: " . $file['file_name'];
-            if (function_exists('log_audit_action')) {
+            if (function_exists('log_document_action')) {
+                log_document_action($conn, $user_id, 'DELETE_FILE', $doc_id, $desc, $redirectUrl);
+            } else {
                 log_audit_action($conn, $user_id, 'DELETE_FILE', $desc);
             }
         }
@@ -198,6 +227,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $doc_type = $_POST['doc_type'] ?? 'General'; 
         
         $category = $_POST['category'] ?? null;
+        if (!empty($category) && !userCanUseOfficialFolder($conn, $category, $_SESSION['role'])) {
+            header("Location: ../documents.php?error=" . urlencode("You can only upload records to folders assigned to your role."));
+            exit();
+        }
         
         // SYSTEM AUTOMATION: Query ang database upang kunin ang Policy ID batay sa Category na pinili
         $policy_id = null;
@@ -273,9 +306,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
             
             if($stmt->execute()) {
+                $doc_id = $stmt->insert_id;
                 $ref = $po_id ? "PO ID: $po_id" : "Folder: $category";
                 $logMsg = "Uploaded $doc_type ($finalFileName) to $ref. Auto-applied Policy ID: $policy_id";
-                if (function_exists('log_audit_action')) {
+                if (function_exists('log_document_action')) {
+                    log_document_action($conn, $user_id, 'UPLOAD', $doc_id, $logMsg, $redirectUrl);
+                } else {
                     log_audit_action($conn, $user_id, 'UPLOAD', $logMsg);
                 }
                 header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "success=UploadSuccess");

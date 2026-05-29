@@ -14,7 +14,11 @@ if(isset($_SESSION['user_id']) && isset($_POST['action']) && isset($_POST['desc'
     if(!isset($_SESSION['last_ajax_desc']) || $_SESSION['last_ajax_desc'] !== $desc || ($current_time - ($_SESSION['last_ajax_time'] ?? 0)) > 2) {
         
         // I-save sa audit trail
-        log_audit_action($conn, $_SESSION['user_id'], $action, $desc);
+        if (isset($_POST['doc_id']) && ctype_digit($_POST['doc_id'])) {
+            log_document_action($conn, $_SESSION['user_id'], $action, intval($_POST['doc_id']), $desc, $_SERVER['REQUEST_URI'] ?? null);
+        } else {
+            log_audit_action($conn, $_SESSION['user_id'], $action, $desc);
+        }
         
         // I-update ang huling activity
         $_SESSION['last_ajax_desc'] = $desc;

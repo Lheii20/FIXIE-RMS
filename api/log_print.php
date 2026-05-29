@@ -15,8 +15,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     
     $desc = "Printed document: " . $doc_name;
     
-    // I-log sa database gamit ang existing function sa functions.php
-    log_audit_action($conn, $user_id, 'PRINT_DOC', $desc);
+    if (isset($_POST['doc_id']) && ctype_digit($_POST['doc_id'])) {
+        log_document_action($conn, $user_id, 'PRINT_DOC', intval($_POST['doc_id']), $desc, $_SERVER['REQUEST_URI'] ?? null);
+    } else {
+        log_audit_action($conn, $user_id, 'PRINT_DOC', $desc);
+    }
     
     echo json_encode(['status' => 'success']);
 }

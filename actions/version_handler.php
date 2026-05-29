@@ -1,6 +1,7 @@
 <?php
 session_start();
 require '../config/db_connect.php';
+require '../config/functions.php';
 
 // Function para sa Audit Log (kung existing sa inyo)
 if (!function_exists('log_audit_action')) {
@@ -110,7 +111,11 @@ if ($action === 'upload_version') {
             $upd->bind_param("sssii", $new_file_name, $db_path, $new_version_num, $user_id, $doc_id);
             
             if ($upd->execute()) {
-                log_audit_action($conn, $user_id, 'UPDATE_VERSION', "Uploaded v$new_version_num for Doc ID: $doc_id");
+                if (function_exists('log_document_action')) {
+                    log_document_action($conn, $user_id, 'UPDATE_VERSION', $doc_id, "Uploaded v$new_version_num for Doc ID: $doc_id", $source_page);
+                } else {
+                    log_audit_action($conn, $user_id, 'UPDATE_VERSION', "Uploaded v$new_version_num for Doc ID: $doc_id");
+                }
                 header("Location: $source_page?success=" . urlencode("Version updated to v$new_version_num successfully."));
                 exit();
             }

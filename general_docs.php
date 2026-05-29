@@ -8,6 +8,7 @@ if(!isset($_SESSION['user_id'])) {
 
 $role = $_SESSION['role'];
 $can_manage = in_array($role, ['GM', 'President', 'Admin']);
+$can_manage_folders = ($role === 'Admin');
 
 // ==========================================
 // FORM HANDLER: CREATE & DELETE COMPANY FOLDER
@@ -17,9 +18,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         die("Security Validation Failed.");
     }
     
-    if ($_POST['action'] === 'create_folder' && $can_manage) {
+    if ($_POST['action'] === 'create_folder') {
+        if (!$can_manage_folders) {
+            header("Location: general_docs.php?error=" . urlencode("Only the System Administrator can create Company Folders."));
+            exit();
+        }
+
         $new_folder = trim($_POST['new_folder_name']);
         if (!empty($new_folder)) {
+            $dup = $conn->prepare("SELECT id FROM company_folders WHERE LOWER(folder_name) = LOWER(?) LIMIT 1");
+            $dup->bind_param("s", $new_folder);
+            $dup->execute();
+            if ($dup->get_result()->num_rows > 0) {
+                header("Location: general_docs.php?error=" . urlencode("Folder already exists."));
+                exit();
+            }
+
             $stmt_create = $conn->prepare("INSERT INTO company_folders (folder_name) VALUES (?)");
             $stmt_create->bind_param("s", $new_folder);
             if ($stmt_create->execute()) {
@@ -30,6 +44,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 exit();
             }
         }
+        header("Location: general_docs.php?error=" . urlencode("Folder name cannot be empty."));
+        exit();
     }
     
     if ($_POST['action'] === 'delete_folder') {
@@ -173,6 +189,23 @@ if (!empty($search)) {
     $page_subtitle .= " (Search Results)";
 }
 
+// Build breadcrumbs with parent/child relationships
+$breadcrumbs = [];
+$breadcrumbs[] = ['label' => 'Company Files', 'url' => 'general_docs.php', 'active' => empty($view_archives) && $type_filter === 'All'];
+
+if ($view_archives) {
+    $breadcrumbs[] = ['label' => 'Archived', 'url' => 'general_docs.php?view_archives=1', 'active' => $type_filter === 'All'];
+}
+
+if ($type_filter !== 'All') {
+    $breadcrumbs[] = ['label' => htmlspecialchars($type_filter), 'url' => 'general_docs.php' . ($view_archives ? '?view_archives=1&type=' : '?type=') . urlencode($type_filter), 'active' => true];
+}
+
+// If no specific filter is active, first breadcrumb is active
+if (empty($view_archives) && $type_filter === 'All') {
+    $breadcrumbs[0]['active'] = true;
+}
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -193,6 +226,34 @@ if (!empty($search)) {
         .sleek-search .form-control { border: none; box-shadow: none; background: transparent; }
         .sleek-search .form-control:focus { box-shadow: none; }
         .sleek-search .input-group-text { border: none; background: transparent; }
+        .page-location-path { font-size: 0.9rem; color: #6c757d; letter-spacing: 0.2px; }
+        .page-location-path i { font-size: 0.85rem; }
+        .breadcrumb-item { display: inline-flex; align-items: center; position: relative; }
+        .breadcrumb-item a { 
+            color: #0d6efd; 
+            text-decoration: none; 
+            transition: all 0.2s ease;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-weight: 500;
+            background: transparent;
+        }
+        .breadcrumb-item a:hover { 
+            color: #0b5ed7; 
+            background-color: #e7f1ff;
+        }
+        .breadcrumb-item.active span {
+            color: #212529;
+            font-weight: 600;
+            padding: 6px 12px;
+            border-radius: 6px;
+            background-color: #e9ecef;
+        }
+        .breadcrumb-separator { 
+            margin: 0 4px; 
+            color: #adb5bd;
+            font-weight: 300;
+        }
         
         /* STICKY TOP PANEL */
         .sticky-header-panel {
@@ -220,9 +281,19 @@ if (!empty($search)) {
         .table-scrollable::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; }
         .table-scrollable::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         .table-scrollable::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-
-        /* ACTION MENU DROPDOWN */
-        .action-dropdown .dropdown-toggle::after { display: none; }
+        .confirm-modal .modal-dialog { max-width: 420px; }
+        .confirm-modal .modal-content { border-radius: 10px; overflow: hidden; }
+        .confirm-modal .modal-header { min-height: 42px; padding: 0.75rem 0.9rem 0; }
+        .confirm-modal .modal-body { padding: 0.25rem 1.25rem 1rem; }
+        .confirm-modal .modal-footer { padding: 0.8rem 1rem; gap: 0.5rem; }
+        .confirm-modal .confirm-icon {
+            width: 44px; height: 44px; border-radius: 50%;
+            display: inline-flex; align-items: center; justify-content: center;
+            background: #f8fafc; font-size: 1.15rem;
+        }
+        .confirm-modal h5 { font-size: 1rem; }
+        .confirm-modal p { font-size: 0.82rem; line-height: 1.45; }
+        .confirm-modal .btn { border-radius: 7px; padding: 0.45rem 0.9rem; font-size: 0.86rem; }
     </style>
 </head>
 <body style="background-color: #f8f9fa;">
@@ -254,21 +325,35 @@ if (!empty($search)) {
                     <?php endif; ?>
 
                     <div class="dropdown">
-                        <button class="btn btn-white bg-white text-secondary" style="border-radius: 8px; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center;" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="More Options">
+                        <button class="btn-dots dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="More Options">
                             <i class="fas fa-ellipsis-v"></i>
                         </button>
-                        <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0 mt-2" style="border-radius: 8px;">
+                        <ul class="dropdown-menu dropdown-menu-end shadow-sm mt-2">
                             <?php if(!$view_archives): ?>
-                                <li><a class="dropdown-item py-2" href="?view_archives=1"><i class="fas fa-archive me-2 text-secondary"></i> View Archives</a></li>
+                                <li><a class="dropdown-item" href="?view_archives=1"><i class="fas fa-archive text-secondary"></i> View Archives</a></li>
                             <?php endif; ?>
                             
-                            <?php if($can_manage && !$view_archives): ?>
+                            <?php if($can_manage_folders && !$view_archives): ?>
                             <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item py-2" href="#" data-bs-toggle="modal" data-bs-target="#createFolderModal"><i class="fas fa-folder-plus me-2 text-info"></i> Create Folder</a></li>
+                            <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#createFolderModal"><i class="fas fa-folder-plus text-info"></i> Create Folder</a></li>
                             <?php endif; ?>
                         </ul>
                     </div>
                 </div>
+            </div>
+
+            <div class="page-location-path mb-3 d-flex align-items-center gap-1">
+                <i class="fas fa-map-marker-alt me-2" style="color: #0d6efd;"></i>
+                <?php foreach($breadcrumbs as $index => $crumb): ?>
+                    <?php if($index > 0): ?><span class="breadcrumb-separator">›</span><?php endif; ?>
+                    <span class="breadcrumb-item <?php echo $crumb['active'] ? 'active' : ''; ?>">
+                        <?php if($crumb['active']): ?>
+                            <span><?php echo $crumb['label']; ?></span>
+                        <?php else: ?>
+                            <a href="<?php echo $crumb['url']; ?>"><?php echo $crumb['label']; ?></a>
+                        <?php endif; ?>
+                    </span>
+                <?php endforeach; ?>
             </div>
 
             <div class="sleek-search shadow-sm">
@@ -298,24 +383,24 @@ if (!empty($search)) {
                                 <?php echo $type_filter == 'All' ? 'All Categories' : htmlspecialchars($type_filter); ?>
                             </span>
                         </button>
-                        <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0 mt-2" style="max-height: 300px; overflow-y: auto; border-radius: 8px;">
+                        <ul class="dropdown-menu dropdown-menu-end shadow-sm mt-2" style="max-height: 300px; overflow-y: auto;">
                             <?php if ($type_filter != 'All'): ?>
                                 <li><h6 class="dropdown-header px-3 text-uppercase fw-bold text-primary mb-1" style="font-size:0.7rem;">Current Folder</h6></li>
                                 <li><span class="dropdown-item py-2 small active fw-semibold d-flex align-items-center gap-2"><i class="fas fa-folder-open text-primary" style="font-size:0.8rem;"></i><?php echo htmlspecialchars($type_filter); ?></span></li>
                                 <li><hr class="dropdown-divider my-1"></li>
-                                <li><a class="dropdown-item py-2 small text-secondary" href="?<?php echo $view_archives ? 'view_archives=1' : ''; ?>"><i class="fas fa-th-large me-2" style="font-size:0.8rem;"></i>All Categories</a></li>
+                                <li><a class="dropdown-item py-2 small text-secondary" href="?<?php echo $view_archives ? 'view_archives=1' : ''; ?>"><i class="fas fa-th-large" style="font-size:0.8rem;"></i>All Categories</a></li>
                                 <?php if(count($general_categories) > 1): ?>
                                 <li><hr class="dropdown-divider my-1"></li>
                                 <li><h6 class="dropdown-header px-3 text-uppercase fw-bold text-muted mb-1" style="font-size:0.7rem;">Switch Folder</h6></li>
                                 <?php foreach($general_categories as $t): if($t === $type_filter) continue; ?>
-                                    <li><a class="dropdown-item py-2 small" href="?<?php echo $view_archives ? 'view_archives=1&' : ''; ?>search=<?php echo urlencode($search); ?>&type=<?php echo urlencode($t); ?>"><?php echo htmlspecialchars($t); ?></a></li>
+                                    <li><a class="dropdown-item" href="?<?php echo $view_archives ? 'view_archives=1&' : ''; ?>search=<?php echo urlencode($search); ?>&type=<?php echo urlencode($t); ?>"><?php echo htmlspecialchars($t); ?></a></li>
                                 <?php endforeach; ?>
                                 <?php endif; ?>
                             <?php else: ?>
                                 <li><h6 class="dropdown-header px-3 text-uppercase fw-bold text-primary mb-1" style="font-size:0.7rem;">Filter Categories</h6></li>
-                                <li><a class="dropdown-item py-2 small <?php echo $type_filter=='All'?'active':''; ?>" href="?<?php echo $view_archives ? 'view_archives=1&' : ''; ?>search=<?php echo urlencode($search); ?>&type=All"><i class="fas fa-th-large me-2" style="font-size:0.8rem;"></i>All Categories</a></li>
+                                <li><a class="dropdown-item <?php echo $type_filter=='All'?'active':''; ?>" href="?<?php echo $view_archives ? 'view_archives=1&' : ''; ?>search=<?php echo urlencode($search); ?>&type=All"><i class="fas fa-th-large"></i>All Categories</a></li>
                                 <?php foreach($general_categories as $t): ?>
-                                    <li><a class="dropdown-item py-2 small <?php echo $type_filter==$t?'active':''; ?>" href="?<?php echo $view_archives ? 'view_archives=1&' : ''; ?>search=<?php echo urlencode($search); ?>&type=<?php echo urlencode($t); ?>"><?php echo htmlspecialchars($t); ?></a></li>
+                                    <li><a class="dropdown-item <?php echo $type_filter==$t?'active':''; ?>" href="?<?php echo $view_archives ? 'view_archives=1&' : ''; ?>search=<?php echo urlencode($search); ?>&type=<?php echo urlencode($t); ?>"><?php echo htmlspecialchars($t); ?></a></li>
                                 <?php endforeach; ?>
                             <?php endif; ?>
                         </ul>
@@ -356,13 +441,13 @@ if (!empty($search)) {
                             <?php if($archived_docs->num_rows > 0): ?>
                                 <?php while($row = $archived_docs->fetch_assoc()): 
                                     $fileNameOnly = basename($row['file_path'] ?? $row['file_name']);
-                                    $secureLink = "download.php?file=" . urlencode($fileNameOnly);
+                                    $secureLink = "download.php?file=" . urlencode($fileNameOnly) . "&doc_id=" . intval($row['doc_id']);
                                     $ext = strtolower(pathinfo($row['file_name'], PATHINFO_EXTENSION));
                                     $isImage = in_array($ext, ['jpg','jpeg','png', 'gif']);
                                     $isPdf = ($ext == 'pdf');
                                     $current_v = !empty($row['current_version']) ? $row['current_version'] : '1.0';
                                 ?>
-                                <tr class="clickable-row border-bottom" onclick="viewFile('<?php echo $secureLink; ?>', '<?php echo $isImage ? 'image' : ($isPdf ? 'pdf' : 'other'); ?>')">
+                                <tr class="clickable-row border-bottom" onclick="if(!event.target.closest('.dropdown, a, button')) { viewFile('<?php echo $secureLink; ?>', '<?php echo $isImage ? 'image' : ($isPdf ? 'pdf' : 'other'); ?>'); }">
                                     <td class="ps-4 py-3">
                                         <div class="d-flex align-items-center gap-3">
                                             <?php if($isImage): ?><img src="<?php echo $secureLink; ?>" class="file-thumb-md bg-white"><?php elseif($isPdf): ?><div class="file-icon-md bg-danger bg-opacity-10 text-danger"><i class="fas fa-file-pdf"></i></div><?php else: ?><div class="file-icon-md bg-secondary bg-opacity-10 text-secondary"><i class="fas fa-file-alt"></i></div><?php endif; ?>
@@ -375,16 +460,16 @@ if (!empty($search)) {
                                     <td><span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary px-2"><?php echo htmlspecialchars($row['doc_type']); ?></span></td>
                                     <td class="text-muted small text-nowrap"><?php echo date('M d, Y', strtotime($row['uploaded_at'])); ?></td>
                                     <td class="text-end pe-4">
-                                        <div class="dropdown action-dropdown" onclick="event.stopPropagation();">
-                                            <button class="btn btn-sm btn-link text-secondary dropdown-toggle px-1" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="width: 32px; height: 32px; border-radius: 6px;">
+                                        <div class="dropdown action-dropdown">
+                                            <button class="btn-dots dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-boundary="window" data-bs-popper-config='{"strategy":"fixed"}'>
                                                 <i class="fas fa-ellipsis-v"></i>
                                             </button>
-                                            <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0" style="border-radius: 8px;">
-                                                <li><a class="dropdown-item py-2" href="<?php echo $secureLink; ?>" download><i class="fas fa-download me-2 text-secondary"></i> Download</a></li>
-                                                <li><a class="dropdown-item py-2" href="#" onclick="openHistoryModal(<?php echo $row['doc_id']; ?>, '<?php echo addslashes($row['file_name']); ?>', event)"><i class="fas fa-history me-2 text-info"></i> Version History</a></li>
+                                            <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                                                <li><a class="dropdown-item" href="<?php echo $secureLink; ?>" download><i class="fas fa-download text-secondary"></i> Download</a></li>
+                                                <li><a class="dropdown-item" href="#" onclick="openHistoryModal(<?php echo $row['doc_id']; ?>, '<?php echo addslashes($row['file_name']); ?>', event)"><i class="fas fa-history text-info"></i> Version History</a></li>
                                                 <?php if($can_manage): ?>
                                                 <li><hr class="dropdown-divider"></li>
-                                                <li><a class="dropdown-item py-2 text-success fw-medium" href="#" onclick="showWarningModal('restore', <?php echo $row['doc_id']; ?>, event)"><i class="fas fa-trash-restore me-2"></i> Restore</a></li>
+                                                <li><a class="dropdown-item text-success fw-medium" href="#" onclick="showWarningModal('restore', <?php echo $row['doc_id']; ?>, event)"><i class="fas fa-trash-restore"></i> Restore</a></li>
                                                 <?php endif; ?>
                                             </ul>
                                         </div>
@@ -403,17 +488,17 @@ if (!empty($search)) {
             <div class="row g-3">
                 <?php foreach($general_categories as $cat_name): ?>
                 <div class="col-xl-3 col-lg-4 col-md-6">
-                    <div class="folder-card position-relative p-3 h-100" onclick="window.location.href='?type=<?php echo urlencode($cat_name); ?>'">
+                    <div class="folder-card position-relative p-3 h-100" onclick="if(!event.target.closest('.dropdown')) { window.location.href='?type=<?php echo urlencode($cat_name); ?>'; }">
                         
                         <?php if ($role === 'Admin'): ?>
-                        <div class="dropdown position-absolute top-0 end-0 mt-2 me-2" onclick="event.stopPropagation();">
-                            <button class="btn btn-sm btn-link text-muted p-0 border-0" type="button" data-bs-toggle="dropdown">
+                        <div class="dropdown position-absolute top-0 end-0 mt-2 me-2">
+                            <button class="btn-dots dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
                                 <i class="fas fa-ellipsis-v"></i>
                             </button>
-                            <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0" style="border-radius: 8px;">
+                            <ul class="dropdown-menu dropdown-menu-end shadow-sm">
                                 <li>
-                                    <a class="dropdown-item text-danger fw-bold small py-2" href="#" onclick="event.stopPropagation(); openDeleteFolderModal('<?php echo addslashes($cat_name); ?>'); return false;">
-                                        <i class="fas fa-trash-alt me-2"></i> Delete Folder
+                                    <a class="dropdown-item text-danger fw-bold small py-2" href="#" onclick="event.preventDefault(); openDeleteFolderModal('<?php echo addslashes($cat_name); ?>');">
+                                        <i class="fas fa-trash-alt"></i> Delete Folder
                                     </a>
                                 </li>
                             </ul>
@@ -452,13 +537,13 @@ if (!empty($search)) {
                             <?php if($docs->num_rows > 0): ?>
                                 <?php while($row = $docs->fetch_assoc()): 
                                     $fileNameOnly = basename($row['file_path']);
-                                    $secureLink = "download.php?file=" . urlencode($fileNameOnly);
+                                    $secureLink = "download.php?file=" . urlencode($fileNameOnly) . "&doc_id=" . intval($row['doc_id']);
                                     $ext = strtolower(pathinfo($row['file_name'], PATHINFO_EXTENSION));
                                     $isImage = in_array($ext, ['jpg','jpeg','png', 'gif']);
                                     $isPdf = ($ext == 'pdf');
                                     $current_v = !empty($row['current_version']) ? $row['current_version'] : '1.0';
                                 ?>
-                                <tr class="clickable-row border-bottom" onclick="viewFile('<?php echo $secureLink; ?>', '<?php echo $isImage ? 'image' : ($isPdf ? 'pdf' : 'other'); ?>')">
+                                <tr class="clickable-row border-bottom" onclick="if(!event.target.closest('.dropdown, a, button')) { viewFile('<?php echo $secureLink; ?>', '<?php echo $isImage ? 'image' : ($isPdf ? 'pdf' : 'other'); ?>'); }">
                                     <td class="ps-4 py-3">
                                         <div class="d-flex align-items-center gap-3">
                                             <?php if($isImage): ?>
@@ -486,18 +571,18 @@ if (!empty($search)) {
                                     </td>
                                     <td class="text-muted text-nowrap" style="font-size: 0.85rem;"><?php echo date('M d, Y h:i A', strtotime($row['uploaded_at'])); ?></td>
                                     <td class="text-end pe-4">
-                                        <div class="dropdown action-dropdown" onclick="event.stopPropagation();">
-                                            <button class="btn btn-sm btn-link text-secondary dropdown-toggle px-1" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="width: 32px; height: 32px; border-radius: 6px;">
+                                        <div class="dropdown action-dropdown">
+                                            <button class="btn-dots dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-boundary="window" data-bs-popper-config='{"strategy":"fixed"}'>
                                                 <i class="fas fa-ellipsis-v"></i>
                                             </button>
-                                            <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0" style="border-radius: 8px;">
-                                                <li><a class="dropdown-item py-2" href="<?php echo $secureLink; ?>" download><i class="fas fa-download me-2 text-secondary"></i> Download</a></li>
-                                                <li><a class="dropdown-item py-2" href="#" onclick="openHistoryModal(<?php echo $row['doc_id']; ?>, '<?php echo addslashes($row['file_name']); ?>', event)"><i class="fas fa-history me-2 text-info"></i> Version History</a></li>
+                                            <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                                                <li><a class="dropdown-item" href="<?php echo $secureLink; ?>" download><i class="fas fa-download text-secondary"></i> Download</a></li>
+                                                <li><a class="dropdown-item" href="#" onclick="openHistoryModal(<?php echo $row['doc_id']; ?>, '<?php echo addslashes($row['file_name']); ?>', event)"><i class="fas fa-history text-info"></i> Version History</a></li>
                                                 <?php if($can_manage): ?>
-                                                <li><a class="dropdown-item py-2" href="#" onclick="openVersionModal(<?php echo $row['doc_id']; ?>, '<?php echo addslashes($row['file_name']); ?>', '<?php echo $current_v; ?>', event)"><i class="fas fa-upload me-2 text-primary"></i> Upload New Version</a></li>
+                                                <li><a class="dropdown-item" href="#" onclick="openVersionModal(<?php echo $row['doc_id']; ?>, '<?php echo addslashes($row['file_name']); ?>', '<?php echo $current_v; ?>', event)"><i class="fas fa-upload text-primary"></i> Upload New Version</a></li>
                                                 <li><hr class="dropdown-divider"></li>
-                                                <li><a class="dropdown-item py-2 text-warning" href="#" onclick="showWarningModal('archive', <?php echo $row['doc_id']; ?>, event)"><i class="fas fa-box-archive me-2"></i> Archive Document</a></li>
-                                                <li><a class="dropdown-item py-2 text-danger" href="#" onclick="showWarningModal('delete', <?php echo $row['doc_id']; ?>, event)"><i class="fas fa-trash me-2"></i> Delete Document</a></li>
+                                                <li><a class="dropdown-item text-warning" href="#" onclick="showWarningModal('archive', <?php echo $row['doc_id']; ?>, event)"><i class="fas fa-box-archive"></i> Archive Document</a></li>
+                                                <li><a class="dropdown-item text-danger" href="#" onclick="showWarningModal('delete', <?php echo $row['doc_id']; ?>, event)"><i class="fas fa-trash"></i> Delete Document</a></li>
                                                 <?php endif; ?>
                                             </ul>
                                         </div>
@@ -583,7 +668,7 @@ if (!empty($search)) {
         </div>
     </div>
 
-    <?php if($can_manage && !$view_archives): ?>
+    <?php if($can_manage_folders && !$view_archives): ?>
     <div class="modal fade" id="createFolderModal" tabindex="-1">
         <div class="modal-dialog">
             <div class="modal-content border-0 shadow" style="border-radius: 12px; overflow: hidden;">
@@ -654,25 +739,25 @@ if (!empty($search)) {
     <?php endif; ?>
 
     <?php if ($role === 'Admin'): ?>
-    <div class="modal fade" id="deleteFolderModal" tabindex="-1">
+    <div class="modal fade confirm-modal" id="deleteFolderModal" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content border-0 shadow" style="border-radius: 12px;">
+            <div class="modal-content border-0 shadow-sm">
                 <div class="modal-header border-0 pb-0">
                     <h5 class="modal-title fw-bold" style="display: none;"><i class="fas fa-exclamation-triangle me-2"></i> Delete Folder</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
-                <div class="modal-body text-center p-4 pt-2">
-                    <div class="mb-3"><i class="fas fa-folder-minus fa-3x text-danger"></i></div>
+                <div class="modal-body text-center">
+                    <div class="confirm-icon text-danger mb-3"><i class="fas fa-folder-minus"></i></div>
                     <h5 class="mb-2 fw-bold text-dark">Are you sure?</h5>
-                    <p class="text-muted small">You are about to permanently delete the folder <strong id="deleteFolderDisplay"></strong>.<br>This action cannot be undone.</p>
+                    <p class="text-muted mb-0">You are about to permanently delete <strong id="deleteFolderDisplay"></strong>. This action cannot be undone.</p>
                 </div>
-                <div class="modal-footer justify-content-center bg-light border-top">
-                    <button type="button" class="btn btn-light border px-4" style="border-radius: 8px;" data-bs-dismiss="modal">Cancel</button>
+                <div class="modal-footer justify-content-end bg-light border-top">
+                    <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
                     <form action="general_docs.php" method="POST" style="margin: 0;">
                         <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                         <input type="hidden" name="action" value="delete_folder">
                         <input type="hidden" name="folder_name" id="deleteFolderName">
-                        <button type="submit" class="btn btn-danger px-4 fw-medium" style="border-radius: 8px;">Yes, Delete Folder</button>
+                        <button type="submit" class="btn btn-danger fw-medium">Delete Folder</button>
                     </form>
                 </div>
             </div>
@@ -692,25 +777,25 @@ if (!empty($search)) {
         </div>
     </div>
 
-    <div class="modal fade" id="systemWarningModal" tabindex="-1">
+    <div class="modal fade confirm-modal" id="systemWarningModal" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content border-0 shadow" style="border-radius: 12px;">
+            <div class="modal-content border-0 shadow-sm">
                 <div class="modal-header border-0 pb-0" id="warningModalHeader">
                     <h5 class="modal-title fw-bold" id="warningModalTitle" style="display: none;">Warning</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
-                <div class="modal-body text-center p-4 pt-2">
-                    <div class="mb-3" id="warningModalIconBox"><i id="warningModalIcon" class="fas fa-exclamation-triangle fa-3x"></i></div>
+                <div class="modal-body text-center">
+                    <div class="confirm-icon mb-3" id="warningModalIconBox"><i id="warningModalIcon" class="fas fa-exclamation-triangle"></i></div>
                     <h5 class="fw-bold text-dark mb-2">Are you sure?</h5>
                     <p id="warningModalMessage" class="mb-0 text-muted small"></p>
                 </div>
-                <div class="modal-footer justify-content-center bg-light border-top">
-                    <button type="button" class="btn btn-light border px-4" style="border-radius: 8px;" data-bs-dismiss="modal">Cancel</button>
+                <div class="modal-footer justify-content-end bg-light border-top">
+                    <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
                     <form id="warningModalForm" action="actions/upload_handler.php" method="POST" style="margin: 0;">
                         <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                         <input type="hidden" name="action" id="warningModalAction" value="">
                         <input type="hidden" name="doc_id" id="warningModalDocId" value="">
-                        <button type="submit" id="warningModalSubmitBtn" class="btn px-4 fw-medium" style="border-radius: 8px;">Confirm</button>
+                        <button type="submit" id="warningModalSubmitBtn" class="btn fw-medium">Confirm</button>
                     </form>
                 </div>
             </div>
@@ -721,6 +806,17 @@ if (!empty($search)) {
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     
     <script>
+        // UX Enhancement: Close open dropdowns kapag nag-scroll sa table
+        document.querySelectorAll('.table-scrollable').forEach(table => {
+            table.addEventListener('scroll', function() {
+                var dropdowns = document.querySelectorAll('.table-scrollable .dropdown-toggle[aria-expanded="true"]');
+                dropdowns.forEach(function(dropdown) {
+                    var inst = bootstrap.Dropdown.getInstance(dropdown);
+                    if (inst) inst.hide();
+                });
+            });
+        });
+
         function previewVersionFile(path, fileName) {
             const ext = (fileName || '').split('.').pop().toLowerCase();
             const isImage = ['jpg','jpeg','png','gif'].includes(ext);
@@ -739,7 +835,7 @@ if (!empty($search)) {
         }
 
         function openVersionModal(id, name, currentV, event) {
-            event.stopPropagation();
+            if(event) event.preventDefault();
             document.getElementById('v_doc_id').value = id;
             document.getElementById('v_doc_name').innerText = name;
             document.getElementById('v_curr_ver').innerText = 'v' + currentV;
@@ -747,7 +843,7 @@ if (!empty($search)) {
         }
 
         function openHistoryModal(id, name, event) {
-            event.stopPropagation();
+            if(event) event.preventDefault();
             document.getElementById('h_doc_name').innerText = name;
             const tbody = document.getElementById('historyTableBody');
             tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4"><div class="spinner-border text-primary spinner-border-sm"></div> Loading...</td></tr>';
@@ -810,7 +906,7 @@ if (!empty($search)) {
         }
 
         function showWarningModal(action, docId, event) {
-            event.stopPropagation();
+            if(event) event.preventDefault();
             const modal = new bootstrap.Modal(document.getElementById('systemWarningModal'));
             const icon = document.getElementById('warningModalIcon');
             const message = document.getElementById('warningModalMessage');
@@ -820,20 +916,20 @@ if (!empty($search)) {
             document.getElementById('warningModalDocId').value = docId;
 
             if (action === 'archive') {
-                icon.className = 'fas fa-box-archive fa-3x text-warning';
-                message.innerText = 'Are you sure you want to archive this file?';
-                submitBtn.className = 'btn btn-warning text-dark px-4 fw-medium';
-                submitBtn.innerText = 'Yes, Archive it';
+                icon.className = 'fas fa-box-archive text-warning';
+                message.innerText = 'Archive this file? You can restore it later from archives.';
+                submitBtn.className = 'btn btn-warning text-dark fw-medium';
+                submitBtn.innerText = 'Archive';
             } else if (action === 'delete') {
-                icon.className = 'fas fa-trash fa-3x text-danger';
-                message.innerText = 'Are you sure you want to permanently delete this file? This action cannot be undone.';
-                submitBtn.className = 'btn btn-danger px-4 fw-medium';
-                submitBtn.innerText = 'Yes, Delete it';
+                icon.className = 'fas fa-trash text-danger';
+                message.innerText = 'Permanently delete this file? This action cannot be undone.';
+                submitBtn.className = 'btn btn-danger fw-medium';
+                submitBtn.innerText = 'Delete';
             } else if (action === 'restore') {
-                icon.className = 'fas fa-trash-restore fa-3x text-success';
-                message.innerText = 'Are you sure you want to restore this file back to active?';
-                submitBtn.className = 'btn btn-success px-4 fw-medium';
-                submitBtn.innerText = 'Yes, Restore it';
+                icon.className = 'fas fa-trash-restore text-success';
+                message.innerText = 'Restore this file back to active files?';
+                submitBtn.className = 'btn btn-success fw-medium';
+                submitBtn.innerText = 'Restore';
             }
             modal.show();
         }

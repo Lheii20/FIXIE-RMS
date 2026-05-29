@@ -275,7 +275,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $stmt->bind_param("i", $doc_id);
             
             if ($stmt->execute()) {
-                log_audit_action($conn, $user_id, 'ARCHIVE_FILE', "Archived document ID: $doc_id");
+                if (function_exists('log_document_action')) {
+                    log_document_action($conn, $user_id, 'ARCHIVE_FILE', $doc_id, "Archived document ID: $doc_id", $redirectUrl);
+                } else {
+                    log_audit_action($conn, $user_id, 'ARCHIVE_FILE', "Archived document ID: $doc_id");
+                }
                 header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "success=Archived");
             } else {
                 throw new Exception("Execute failed");
@@ -298,7 +302,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $stmt->bind_param("i", $doc_id);
             
             if ($stmt->execute()) {
-                log_audit_action($conn, $user_id, 'RESTORE_FILE', "Restored document ID: $doc_id");
+                if (function_exists('log_document_action')) {
+                    log_document_action($conn, $user_id, 'RESTORE_FILE', $doc_id, "Restored document ID: $doc_id", $redirectUrl);
+                } else {
+                    log_audit_action($conn, $user_id, 'RESTORE_FILE', "Restored document ID: $doc_id");
+                }
                 header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "success=Restored");
             } else {
                 throw new Exception("Execute failed");
@@ -337,7 +345,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $del->execute();
             
             $desc = "Deleted file: " . $file['file_name'];
-            log_audit_action($conn, $user_id, 'DELETE_FILE', $desc);
+            if (function_exists('log_document_action')) {
+                log_document_action($conn, $user_id, 'DELETE_FILE', $doc_id, $desc, $redirectUrl);
+            } else {
+                log_audit_action($conn, $user_id, 'DELETE_FILE', $desc);
+            }
         }
         
         header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "success=Deleted");

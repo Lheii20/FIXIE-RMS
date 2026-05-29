@@ -24,6 +24,11 @@ if (!file_exists($filepath)) {
     exit("File not found.");
 }
 
+if ($type !== 'avatar' && isset($_SESSION['user_id']) && isset($_GET['doc_id']) && ctype_digit($_GET['doc_id'])) {
+    require_once 'config/functions.php';
+    log_document_action($conn, $_SESSION['user_id'], 'DOWNLOAD_DOC', intval($_GET['doc_id']), "Downloaded document: $file", $_SERVER['REQUEST_URI'] ?? null);
+}
+
 $finfo = finfo_open(FILEINFO_MIME_TYPE);
 $mimeType = finfo_file($finfo, $filepath);
 finfo_close($finfo);

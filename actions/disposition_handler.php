@@ -1,6 +1,7 @@
 <?php
 session_start();
 require_once '../config/db_connect.php';
+require_once '../config/functions.php';
 
 // Security: Siguraduhing nakalog-in at may tamang role bago makapag-dispose ng records
 if (!isset($_SESSION['user_id']) || empty($_SESSION['role'])) {
@@ -40,7 +41,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['doc_id']) && isset($_
             $updateStmt->execute();
             
             // 3. I-log sa Chain of Custody (audit_logs table) kung naka-set up ang logging mo
-            if (function_exists('log_audit_action')) {
+            if (function_exists('log_document_action')) {
+                log_document_action($conn, $user_id, 'DESTROY_RECORD', $doc_id, "Legally destroyed expired record: " . $doc['file_name'], $_SERVER['REQUEST_URI'] ?? null);
+            } else {
                 log_audit_action($conn, $user_id, 'DESTROY_RECORD', "Legally destroyed expired record: " . $doc['file_name']);
             }
             
@@ -53,7 +56,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['doc_id']) && isset($_
             $updateStmt->execute();
             
             // 3. I-log sa Chain of Custody
-            if (function_exists('log_audit_action')) {
+            if (function_exists('log_document_action')) {
+                log_document_action($conn, $user_id, 'PERMANENT_ARCHIVE', $doc_id, "Moved record to permanent digital archive: " . $doc['file_name'], $_SERVER['REQUEST_URI'] ?? null);
+            } else {
                 log_audit_action($conn, $user_id, 'PERMANENT_ARCHIVE', "Moved record to permanent digital archive: " . $doc['file_name']);
             }
             
