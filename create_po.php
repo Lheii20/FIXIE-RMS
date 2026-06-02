@@ -57,7 +57,8 @@ if (isset($_GET['pr_id'])) {
                 'name' => htmlspecialchars($i['item_name']),
                 'specs' => htmlspecialchars($i['specifications'] ?? ''),
                 'qty' => $i['quantity'],
-                'price' => $i['unit_price']
+                'price' => $i['unit_price'],
+                'origQty' => $i['quantity'] // para sa check logic
             ];
         }
         $pr_items_json = json_encode($items_arr);
@@ -73,9 +74,37 @@ if (isset($_GET['pr_id'])) {
     <link rel="stylesheet" href="assets/css/all.min.css">
     <style>
         .warning-text {
-            font-size: 0.80rem;
+            font-size: 0.85rem;
             letter-spacing: 0.2px;
             opacity: 0.9;
+        }
+        /* Mobile-friendly table card view UX */
+        @media (max-width: 768px) {
+            #itemsTable thead { display: none; }
+            #itemsTable tbody tr { 
+                display: block; 
+                margin-bottom: 1.25rem; 
+                border: 1px solid #dee2e6; 
+                border-radius: 6px; 
+                padding: 0.75rem; 
+                background: #f8fafc;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+            }
+            #itemsTable tbody td { 
+                display: block; 
+                border: none !important; 
+                padding: 0.35rem 0 !important; 
+            }
+            #itemsTable tbody td:last-child {
+                text-align: right !important;
+                margin-top: 0.5rem;
+                border-top: 1px dashed #cbd5e1 !important;
+                padding-top: 0.75rem !important;
+            }
+            .qty-price-container {
+                display: flex;
+                gap: 10px;
+            }
         }
     </style>
 </head>
@@ -138,10 +167,20 @@ if (isset($_GET['pr_id'])) {
 
                     <div class="col-lg-9">
                         <div class="card border-0 shadow-sm h-100">
-                            <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+                            <div class="card-header bg-white d-flex justify-content-between align-items-center py-3 flex-wrap gap-2">
                                 <span class="fw-bold text-dark"><i class="fas fa-boxes me-2 text-primary"></i> Order Items</span>
-                                <button type="button" class="btn btn-sm btn-primary shadow-sm" onclick="addItemRow()">
-                                    <i class="fas fa-plus me-1"></i> Add Item Row
+                                
+                                <div id="dynamicWarnings" class="d-none">
+                                    <span id="warnQty" class="text-danger warning-text fw-bold d-none me-2">
+                                        <i class="fas fa-exclamation-triangle me-1"></i> Quantity Error
+                                    </span>
+                                    <span id="warnBudget" class="text-danger warning-text fw-bold d-none">
+                                        <i class="fas fa-exclamation-triangle me-1"></i> Budget Exceeded (₱ <?php echo number_format($pr_amount_val, 2); ?>)
+                                    </span>
+                                </div>
+
+                                <button type="button" class="btn btn-sm btn-primary shadow-sm ms-auto" onclick="addItemRow()">
+                                    <i class="fas fa-plus me-1"></i> Add Row
                                 </button>
                             </div>
                             <div class="card-body p-0">
@@ -150,11 +189,11 @@ if (isset($_GET['pr_id'])) {
                                         <thead class="bg-light text-secondary small text-uppercase">
                                             <tr>
                                                 <th width="20%">Category & Brand</th>
-                                                <th width="25%">Item Name & Specs</th>
-                                                <th width="10%">Qty</th>
+                                                <th width="30%">Item Name & Specs</th>
+                                                <th width="12%">Qty</th>
                                                 <th width="15%">Unit Price</th>
                                                 <th width="15%">Total</th>
-                                                <th width="5%"></th>
+                                                <th width="8%"></th>
                                             </tr>
                                         </thead>
                                         <tbody id="itemsBody">
@@ -165,16 +204,6 @@ if (isset($_GET['pr_id'])) {
                             <div class="card-footer bg-white text-end p-4">
                                 <h5 class="text-muted mb-1">Total Amount</h5>
                                 <h2 class="fw-bold text-primary m-0" id="displayGrandTotal">₱ 0.00</h2>
-                                
-                                <div id="dynamicWarnings" class="mt-2 d-none">
-                                    <div id="warnQty" class="text-danger warning-text fw-bold d-none">
-                                        <i class="fas fa-exclamation-circle me-1"></i> Note: Quantity exceeds the original PR request.
-                                    </div>
-                                    <div id="warnBudget" class="text-danger warning-text fw-bold d-none">
-                                        <i class="fas fa-exclamation-circle me-1"></i> Note: Total amount exceeds the approved PR budget (₱ <?php echo number_format($pr_amount_val, 2); ?>).
-                                    </div>
-                                </div>
-                                
                             </div>
                         </div>
                     </div>
@@ -194,6 +223,7 @@ if (isset($_GET['pr_id'])) {
         let itemIndex = 0;
         const prefilledItems = <?php echo $pr_items_json; ?>;
         const originalPrAmount = <?php echo json_encode($pr_amount_val); ?>;
+        const draftKey = 'po_draft_' + <?php echo json_encode($pr_id_val ? $pr_id_val : 'new'); ?>;
         
         function addItemRow(data = null) {
             const tbody = document.getElementById('itemsBody');
@@ -206,7 +236,7 @@ if (isset($_GET['pr_id'])) {
             const qty = data ? data.qty : 1;
             const price = data ? parseFloat(data.price).toFixed(2) : '';
             
-            const origQtyAttr = data ? `data-orig-qty="${data.qty}"` : `data-orig-qty="0"`;
+            const origQtyAttr = (data && data.origQty) ? `data-orig-qty="${data.origQty}"` : `data-orig-qty="0"`;
             
             row.innerHTML = `
                 <td class="bg-light">
@@ -220,7 +250,7 @@ if (isset($_GET['pr_id'])) {
                         <option value="06" ${cat == '06' ? 'selected' : ''}>6 - Printers</option>
                     </select>
                     <select name="items[${itemIndex}][brand]" class="form-select form-select-sm text-muted brand-select">
-                        <option value="Generic/Other">Select Brand (Optional)...</option>
+                        <option value="Generic/Other">Select Brand...</option>
                         <option value="Lenovo">Lenovo</option>
                         <option value="HP">HP</option>
                         <option value="Dell">Dell</option>
@@ -247,8 +277,8 @@ if (isset($_GET['pr_id'])) {
                 </td>
                 <td>
                     <div class="input-group input-group-sm">
-                        <span class="input-group-text bg-white">₱</span>
-                        <input type="number" step="0.01" min="0.01" name="items[${itemIndex}][price]" class="form-control price-input" 
+                        <span class="input-group-text bg-white border-end-0">₱</span>
+                        <input type="number" step="0.01" min="0.01" name="items[${itemIndex}][price]" class="form-control border-start-0 price-input" 
                             placeholder="0.00" value="${price}" oninput="calculateRow(this)" onkeypress="return isNumberKey(event)" required>
                     </div>
                 </td>
@@ -322,6 +352,17 @@ if (isset($_GET['pr_id'])) {
             const warnBudget = document.getElementById('warnBudget');
             let showWarnings = false;
 
+            // Inline Validation Highlight para madali makita ang mali
+            document.querySelectorAll('.qty-input').forEach(input => {
+                const origQty = parseInt(input.getAttribute('data-orig-qty')) || 0;
+                const currentQty = parseInt(input.value) || 0;
+                if (origQty > 0 && currentQty > origQty) {
+                    input.classList.add('is-invalid', 'border-danger', 'text-danger');
+                } else {
+                    input.classList.remove('is-invalid', 'border-danger', 'text-danger');
+                }
+            });
+
             if (qtyExceeded) {
                 warnQty.classList.remove('d-none');
                 showWarnings = true;
@@ -346,13 +387,62 @@ if (isset($_GET['pr_id'])) {
         function removeRow(btn) {
             btn.closest('tr').remove();
             calculateGrandTotal();
+            saveDraft();
         }
+
+        // --- UX Auto-Save / Draft Feature ---
+        function saveDraft() {
+            let items = [];
+            document.querySelectorAll('#itemsBody tr').forEach((row) => {
+                let cat = row.querySelector('select[name$="[category]"]').value;
+                let brand = row.querySelector('select[name$="[brand]"]').value;
+                let name = row.querySelector('input[name$="[name]"]').value;
+                let specs = row.querySelector('textarea[name$="[specs]"]').value;
+                let qty = row.querySelector('input[name$="[qty]"]').value;
+                let price = row.querySelector('input[name$="[price]"]').value;
+                let origQty = row.querySelector('input[name$="[qty]"]').getAttribute('data-orig-qty');
+                
+                items.push({ category: cat, brand: brand, name: name, specs: specs, qty: qty, price: price, origQty: origQty });
+            });
+            let draftData = {
+                client_name: document.getElementById('clientName').value,
+                items: items
+            };
+            localStorage.setItem(draftKey, JSON.stringify(draftData));
+        }
+
+        function loadDraft() {
+            let draft = localStorage.getItem(draftKey);
+            if (draft) {
+                try {
+                    draft = JSON.parse(draft);
+                    if(draft.client_name) document.getElementById('clientName').value = draft.client_name;
+                    if (draft.items && draft.items.length > 0) {
+                        draft.items.forEach(item => addItemRow(item));
+                        return true;
+                    }
+                } catch(e) {}
+            }
+            return false;
+        }
+
+        // Mag-save ng draft sa tuwing may i-na-update ang user
+        document.getElementById('poForm').addEventListener('input', saveDraft);
+        document.getElementById('poForm').addEventListener('change', saveDraft);
+
+        // I-clear ang draft kapag naging successful ang pag-submit ng pormal
+        document.getElementById('poForm').addEventListener('submit', function() {
+            localStorage.removeItem(draftKey);
+        });
         
         window.onload = function() {
-            if (prefilledItems.length > 0) {
-                prefilledItems.forEach(item => addItemRow(item));
-            } else {
-                addItemRow();
+            // Load Muna ang Draft, kapag walang draft, kunin ang pre-filled data.
+            if (!loadDraft()) {
+                if (prefilledItems.length > 0) {
+                    prefilledItems.forEach(item => addItemRow(item));
+                } else {
+                    addItemRow();
+                }
             }
         };
     </script>

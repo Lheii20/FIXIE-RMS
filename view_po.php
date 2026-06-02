@@ -163,21 +163,19 @@ $can_upload_files = ($role == 'Procurement');
             <div class="d-flex align-items-center gap-2 text-end">
                 
                 <?php if ($is_approver): ?>
-                    <form action="actions/po_handler.php" method="POST" class="d-inline-flex align-items-center gap-2 m-0 p-0" onsubmit="return confirm('Execute workflow action?');">
-                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                        <input type="hidden" name="po_id" value="<?php echo $po['po_id']; ?>">
-                        
-                        <button type="submit" name="action" value="<?php echo $approve_action; ?>" class="btn btn-sm btn-success px-3 shadow-sm" style="font-weight: 500;">
-                            <i class="fas fa-check-circle me-1"></i> <?php echo $approve_label; ?>
+                    <div class="d-inline-flex align-items-center gap-2 m-0 p-0">
+                        <button type="button" class="btn btn-sm btn-success px-3 shadow-sm" style="font-weight: 500;" 
+                                onclick="openActionModal('<?php echo $approve_action; ?>', '<?php echo $po['po_id']; ?>', 'Confirm approval for PO #<?php echo htmlspecialchars($po['po_number']); ?>?', 'success', '<?php echo htmlspecialchars($approve_label); ?>')">
+                            <i class="fas fa-check-circle me-1"></i> <?php echo htmlspecialchars($approve_label); ?>
                         </button>
 
                         <?php if ($can_reject): ?>
-                            <button type="submit" name="action" value="reject" class="btn btn-sm btn-outline-danger px-3 shadow-sm bg-white" style="font-weight: 500;" onclick="return confirm('Are you sure you want to REJECT this PO?');">
+                            <button type="button" class="btn btn-sm btn-outline-danger px-3 shadow-sm bg-white" style="font-weight: 500;" 
+                                    onclick="openActionModal('reject', '<?php echo $po['po_id']; ?>', 'Are you sure you want to REJECT PO #<?php echo htmlspecialchars($po['po_number']); ?>?', 'danger', 'Reject')">
                                 <i class="fas fa-times-circle me-1"></i> Reject
                             </button>
                         <?php endif; ?>
-                    </form>
-
+                    </div>
                     <div class="vr bg-secondary opacity-25 mx-2" style="width: 2px; height: 30px;"></div>
                 <?php endif; ?>
 
@@ -583,9 +581,42 @@ $can_upload_files = ($role == 'Procurement');
             </div>
         </div>
     </div>
+
+    <div class="modal fade" id="actionModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered" style="max-width: 360px;">
+            <div class="modal-content border-0" style="box-shadow: 0 20px 25px -5px rgba(0,0,0,0.08), 0 10px 10px -5px rgba(0,0,0,0.04); border-radius: var(--border-radius-lg) !important; overflow: hidden;">
+                <form action="actions/po_handler.php" method="POST" id="actionForm">
+                    <button type="button" class="btn-close position-absolute" data-bs-dismiss="modal" aria-label="Close" style="top: 15px; right: 15px; font-size: 0.75rem; z-index: 10; box-shadow: none; outline: none;"></button>
+                    
+                    <div class="modal-body text-center pt-5 pb-4 px-4">
+                        <div id="modalIconContainer" class="d-inline-flex align-items-center justify-content-center mb-3" style="width: 52px; height: 52px; border-radius: 50%;">
+                            <i id="actionModalIcon" class="fs-5"></i>
+                        </div>
+                        
+                        <h6 class="fw-bold text-dark mb-2" id="actionModalMessage" style="letter-spacing: -0.2px; line-height: 1.4;">Confirm Action</h6>
+                        <p class="mb-4 text-muted" style="font-size: 0.78rem; line-height: 1.5;">Please review and confirm if you wish to proceed with this action in the system workflow transaction trail.</p>
+                        
+                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                        <input type="hidden" name="action" id="modalActionInput" value="">
+                        <input type="hidden" name="po_id" id="modalPoIdInput" value="">
+                        
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <button type="button" class="btn btn-light w-100 py-2 border text-uppercase" data-bs-dismiss="modal" style="font-size: 0.75rem !important; font-weight: 600 !important; border-color: #dee2e6 !important; background-color: #fff !important; color: #64748b !important;">Cancel</button>
+                            </div>
+                            <div class="col-6">
+                                <button type="submit" class="btn w-100 py-2 text-uppercase text-white" id="actionModalBtn" style="font-size: 0.75rem !important; font-weight: 600 !important; box-shadow: none !important;">Confirm</button>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
     
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // Existing Scripts...
         function previewSelectedFile(input) {
             const previewContainer = document.getElementById('previewContainer');
             const previewImage = document.getElementById('uploadPreview');
@@ -648,6 +679,38 @@ $can_upload_files = ($role == 'Procurement');
             .then(response => response.json())
             .then(data => { window.print(); })
             .catch(error => { console.error('Error logging print:', error); window.print(); });
+        }
+
+        // --- NEW SCRIPT PARA SA ACTION MODAL ---
+        function openActionModal(action, id, message, type, buttonLabel) {
+            document.getElementById('modalActionInput').value = action;
+            document.getElementById('modalPoIdInput').value = id;
+            document.getElementById('actionModalMessage').innerText = message;
+            
+            let iconContainer = document.getElementById('modalIconContainer');
+            let btn = document.getElementById('actionModalBtn');
+            let icon = document.getElementById('actionModalIcon');
+            
+            btn.innerText = buttonLabel;
+            
+            if(type === 'success') {
+                iconContainer.style.backgroundColor = '#ecfdf5';
+                iconContainer.style.color = '#10b981';
+                icon.className = 'fas fa-check';
+                
+                btn.style.backgroundColor = '#10b981';
+                btn.style.borderColor = '#10b981';
+            } else if (type === 'danger') {
+                iconContainer.style.backgroundColor = '#fef2f2';
+                iconContainer.style.color = '#ef4444';
+                icon.className = 'fas fa-exclamation-triangle';
+                
+                btn.style.backgroundColor = '#ef4444';
+                btn.style.borderColor = '#ef4444';
+            }
+            
+            var myModal = new bootstrap.Modal(document.getElementById('actionModal'));
+            myModal.show();
         }
     </script>
 </body>

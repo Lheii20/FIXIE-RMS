@@ -1,15 +1,13 @@
 <?php require 'dashboard_logic.php'; ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <title>Overview - Fixie DRMS</title>
-    <link href="assets/css/bootstrap.min.css" rel="stylesheet">    
+    <link href="assets/css/bootstrap.min.css" rel="stylesheet">
     <link href="assets/css/style.css" rel="stylesheet">
     <link href="assets/css/dashboard.css" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/all.min.css">    
+    <link rel="stylesheet" href="assets/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
-    
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         .badge-subtle-success { background-color: rgba(25, 135, 84, 0.1); color: #198754; border: 1px solid rgba(25, 135, 84, 0.2); }
@@ -21,85 +19,18 @@
     </style>
 </head>
 <body>
-
     <?php include 'sidebar.php'; ?>
-
     <div class="main-content fade-in">
-        
-        <header class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+                <header class="mb-3 pb-2 border-bottom">
             <div>
                 <h4 class="fw-bold mb-1 text-dark text-uppercase" style="letter-spacing: 0.5px;">System Overview</h4>
                 <p class="text-muted mb-0" style="font-size: 0.8rem;">
                     Welcome back, <span class="fw-semibold text-dark"><?php echo htmlspecialchars($_SESSION['fullname']); ?></span>.
                 </p>
             </div>
-            <div class="d-flex align-items-center gap-2">
-                <span class="text-muted fw-medium border-end pe-3 d-none d-md-inline" style="font-size: 0.8rem;">
-                    <i class="far fa-calendar-alt me-1"></i><?php echo date('M d, Y'); ?>
-                </span>
-                
-                <div class="dropdown px-1">
-                    <button class="btn border-0 shadow-none bg-transparent position-relative d-flex align-items-center justify-content-center" style="width: 35px; height: 35px; padding: 0;" type="button" data-bs-toggle="dropdown">
-                        <i class="fas fa-bell text-muted hover-dark" style="font-size: 1.25rem; transition: 0.2s;"></i>
-                        <?php if($total_unread > 0): ?>
-                            <span class="position-absolute top-0 start-100 translate-middle p-1 bg-danger border border-white rounded-circle" style="margin-top: 8px; margin-left: -10px;"></span>
-                        <?php endif; ?>
-                    </button>
-                    <ul class="dropdown-menu dropdown-menu-end shadow-sm border p-2 rounded-1" style="width: 300px;">
-                        <li><h6 class="dropdown-header text-uppercase small fw-bold text-muted mb-1">Notifications</h6></li>
-                        
-                        <?php if($total_unread > 0) {
-                            while($notif = $bell_notifications->fetch_assoc()): 
-                                $is_retention_alert = (strpos($notif['message'], 'Retention Alert:') === 0);
-                            ?>
-                            <li>
-                                <a class="dropdown-item d-flex gap-2 align-items-start py-2 border-bottom rounded-1 hover-bg <?php echo $is_retention_alert ? 'bg-warning bg-opacity-10' : ''; ?>" href="actions/notif_handler.php?action=view&notif_id=<?php echo $notif['notif_id']; ?>">
-                                    <div class="mt-1">
-                                        <?php if($is_retention_alert): ?>
-                                            <i class="fas fa-exclamation-triangle text-warning" style="font-size: 12px;"></i>
-                                        <?php else: ?>
-                                            <i class="fas fa-square text-primary" style="font-size: 8px;"></i>
-                                        <?php endif; ?>
-                                    </div>
-                                    <div style="white-space: normal;">
-                                        <?php if($is_retention_alert): ?>
-                                            <p class="mb-1 fw-bold text-dark lh-sm" style="font-size: 0.75rem;">Retention Alert</p>
-                                        <?php endif; ?>
-                                        <p class="mb-1 fw-medium text-dark lh-sm" style="font-size: 0.8rem;"><?php echo htmlspecialchars($notif['message']); ?></p>
-                                        <small class="text-muted" style="font-size: 0.7rem;"><?php echo date('M d, g:i A', strtotime($notif['created_at'])); ?></small>
-                                    </div>
-                                </a>
-                            </li>
-                        <?php endwhile; } else { ?>
-                            <li><div class="dropdown-item text-muted small text-center py-2">No new alerts</div></li>
-                        <?php } ?>
-                        <li><a class="dropdown-item text-center small text-primary fw-medium py-1 mt-1 rounded-1" href="notifications.php">View All</a></li>
-                    </ul>
-                </div>
-
-                <div class="dropdown border-start ps-2">
-                    <button class="btn btn-light d-flex align-items-center gap-2 rounded-1" style="padding: 0.25rem 0.5rem;" type="button" data-bs-toggle="dropdown">
-                        <div class="bg-primary text-white rounded-1 d-flex align-items-center justify-content-center fw-bold overflow-hidden" style="width: 24px; height: 24px; font-size: 0.7rem;">
-                            <?php if(!empty($_SESSION['avatar']) && file_exists($_SESSION['avatar'])): ?>
-                                <img src="download.php?file=<?php echo basename($_SESSION['avatar']); ?>&type=avatar" alt="Profile" style="width: 100%; height: 100%; object-fit: cover;">
-                            <?php else: ?>
-                                <?php echo strtoupper(substr($_SESSION['fullname'], 0, 1)); ?>
-                            <?php endif; ?>
-                        </div>
-                        <span class="d-none d-md-inline fw-medium text-dark" style="font-size: 0.8rem;"><?php echo htmlspecialchars($_SESSION['fullname']); ?></span>
-                        <i class="fas fa-chevron-down text-muted" style="font-size: 0.6rem;"></i>
-                    </button>
-                    <ul class="dropdown-menu dropdown-menu-end shadow-sm border p-1 mt-1 rounded-1" style="min-width: 180px;">
-                        <li><a class="dropdown-item rounded-1 py-1 small fw-medium" href="settings.php"><i class="fas fa-cog me-2 text-muted"></i> Account Settings</a></li>
-                        <li><hr class="dropdown-divider my-1"></li>
-                        <li><a class="dropdown-item rounded-1 py-1 small fw-bold text-danger" href="actions/auth.php?logout=true&csrf_token=<?php echo $_SESSION['csrf_token']; ?>"><i class="fas fa-sign-out-alt me-2"></i> Log Out</a></li>
-                    </ul>
-                </div>
-            </div>
         </header>
 
         <div class="row g-2 mb-3 mt-1">
-            
             <?php if ($_SESSION['role'] === 'Admin'): ?>
                 <div class="col-xl-3 col-md-6">
                     <a href="admin_users.php" class="kpi-card text-decoration-none d-block h-100">
@@ -145,7 +76,6 @@
                         <div class="kpi-value fw-bold text-dark"><?php echo $admin_stats['pending_requests']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Pending</span></div>
                     </a>
                 </div>
-
             <?php elseif (in_array($_SESSION['role'], ['GM', 'President'])): ?>
                 <div class="col-xl-3 col-md-6">
                     <a href="documents.php" class="kpi-card text-decoration-none d-block h-100">
@@ -191,7 +121,6 @@
                         <div class="kpi-value fw-bold text-dark"><?php echo $exec_stats['pending_po']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Orders</span></div>
                     </a>
                 </div>
-
             <?php elseif ($_SESSION['role'] === 'Finance'): ?>
                 <div class="col-xl-3 col-md-6">
                     <a href="po_list.php?filter=GM-Approved" class="kpi-card text-decoration-none d-block h-100">
@@ -237,7 +166,6 @@
                         <div class="kpi-value fw-bold text-dark"><?php echo $finance_stats['funded_po']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Ready</span></div>
                     </a>
                 </div>
-
             <?php elseif ($_SESSION['role'] === 'Sales Staff'): ?>
                 <div class="col-xl-3 col-md-6">
                     <a href="pr_list.php" class="kpi-card text-decoration-none d-block h-100">
@@ -283,7 +211,6 @@
                         <div class="kpi-value fw-bold text-dark"><?php echo $sales_stats['rejected']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Declined</span></div>
                     </a>
                 </div>
-
             <?php elseif ($_SESSION['role'] === 'Procurement'): ?>
                 <div class="col-xl-3 col-md-6">
                     <a href="po_list.php" class="kpi-card text-decoration-none d-block h-100">
@@ -329,7 +256,6 @@
                         <div class="kpi-value fw-bold text-dark"><?php echo $proc_stats['delivered']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">POs</span></div>
                     </a>
                 </div>
-
             <?php elseif ($_SESSION['role'] === 'Supply Chain'): ?>
                 <div class="col-xl-3 col-md-6">
                     <a href="po_list.php?filter=Funded" class="kpi-card text-decoration-none d-block h-100">
@@ -375,7 +301,6 @@
                         <div class="kpi-value fw-bold text-dark"><?php echo $sc_stats['supplier_docs']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Files</span></div>
                     </a>
                 </div>
-
             <?php elseif ($_SESSION['role'] === 'Technical'): ?>
                 <div class="col-xl-3 col-md-6">
                     <a href="documents.php?type=Service+tickets" class="kpi-card text-decoration-none d-block h-100">
@@ -421,7 +346,6 @@
                         <div class="kpi-value fw-bold text-dark"><?php echo $tech_stats['total']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Total</span></div>
                     </a>
                 </div>
-
             <?php elseif (in_array($_SESSION['role'], ['Administrative', 'Staff'])): ?>
                 <div class="col-xl-3 col-md-6">
                     <a href="documents.php?type=Leave+forms" class="kpi-card text-decoration-none d-block h-100">
@@ -467,10 +391,9 @@
                         <div class="kpi-value fw-bold text-dark"><?php echo $admin_staff_stats['policies']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Files</span></div>
                     </a>
                 </div>
-
             <?php endif; ?>
-
         </div>
+
         <ul class="nav nav-pills mb-3 border-bottom pb-2" id="dashboardTabs" role="tablist">
             <?php if ($_SESSION['role'] === 'Admin'): ?>
                 <li class="nav-item" role="presentation">
@@ -490,7 +413,6 @@
                         <i class="fas fa-cogs me-2"></i> Department Performance
                     </button>
                 </li>
-
                 <?php if ($can_view_retention): ?>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link ms-1" id="retention-tab" data-bs-toggle="pill" data-bs-target="#retention" type="button" role="tab" aria-selected="false">
@@ -501,7 +423,6 @@
                     </button>
                 </li>
                 <?php endif; ?>
-
             <?php else: ?>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link active" id="workspace-tab" data-bs-toggle="pill" data-bs-target="#workspace" type="button" role="tab" aria-selected="true">
@@ -560,7 +481,6 @@
                         </div>
                     </div>
                 </div>
-
             <?php elseif ($can_view_financials): ?>
                 <div class="tab-pane fade show active" id="financial" role="tabpanel" tabindex="0">
                     <div class="row g-3 mb-3">
@@ -577,7 +497,6 @@
                                 </div>
                             </div>
                         </div>
-
                         <div class="col-lg-4">
                             <div class="card shadow-sm border-0 h-100">
                                 <div class="card-header bg-white border-bottom py-2 d-flex justify-content-between align-items-center">
@@ -617,7 +536,6 @@
                             </div>
                         </div>
                     </div>
-
                     <div class="row g-3">
                         <div class="col-lg-6">
                             <div class="card shadow-sm border-0 h-100">
@@ -631,7 +549,6 @@
                                 </div>
                             </div>
                         </div>
-
                         <div class="col-lg-6">
                             <div class="card shadow-sm border-0 h-100">
                                 <div class="card-header bg-white border-bottom py-2">
@@ -645,7 +562,7 @@
                             </div>
                         </div>
                     </div>
-                </div> 
+                </div>
 
                 <div class="tab-pane fade" id="operations" role="tabpanel" tabindex="0">
                     <div class="row g-3 mb-3">
@@ -662,7 +579,6 @@
                             </div>
                         </div>
                     </div>
-
                     <div class="row g-3">
                         <div class="col-lg-6">
                             <div class="card shadow-sm border-0 h-100">
@@ -676,7 +592,6 @@
                                 </div>
                             </div>
                         </div>
-
                         <div class="col-lg-6">
                             <div class="card shadow-sm border-0 h-100">
                                 <div class="card-header bg-white border-bottom py-2">
@@ -690,14 +605,13 @@
                             </div>
                         </div>
                     </div>
-                </div> 
+                </div>
 
                 <?php if ($can_view_retention): ?>
                 <div class="tab-pane fade <?php echo $active_tab == 'retention' ? 'show active' : ''; ?>" id="retention" role="tabpanel">
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <h6 class="fw-bold mb-0 text-dark"><i class="fas fa-bell text-danger me-2"></i> Document Retention Tracking</h6>
                     </div>
-
                     <div class="card border-0 shadow-sm mb-3 p-2 bg-white">
                         <form method="GET" class="d-flex w-100 gap-2 align-items-center">
                             <input type="hidden" name="tab" value="retention">
@@ -712,7 +626,6 @@
                                     </a>
                                 <?php endif; ?>
                             </div>
-
                             <div class="dropdown flex-shrink-0">
                                 <select name="retention_filter" class="form-select border text-secondary fw-medium rounded-1" onchange="this.form.submit()">
                                     <option value="All" <?php echo $retention_filter == 'All' ? 'selected' : ''; ?>>All Status</option>
@@ -725,7 +638,6 @@
                             <button type="submit" class="btn btn-primary px-3 rounded-1" title="Search"><i class="fas fa-search"></i></button>
                         </form>
                     </div>
-
                     <div class="card shadow-sm border-0">
                         <div class="table-responsive">
                             <table class="table table-hover align-middle mb-0">
@@ -785,7 +697,6 @@
                                                     <button type="button" class="btn btn-sm btn-info text-white shadow-sm" title="View" onclick="viewFile('<?php echo $secureLink; ?>', '<?php echo $fileType; ?>')">
                                                         <i class="fas fa-eye"></i> View
                                                     </button>
-
                                                     <?php if(in_array($_SESSION['role'], ['GM', 'President'])): ?>
                                                         <?php if($row['retention_status'] === 'Expiring'): ?>
                                                             <button class="btn btn-sm btn-primary shadow-sm" onclick="openRenewModal(<?php echo $row['doc_id']; ?>, '<?php echo addslashes($row['file_name']); ?>')" title="Renew">
@@ -868,7 +779,7 @@
                                                         <tr <?php echo (!isset($is_sales_staff) || !$is_sales_staff) ? "style='cursor: pointer;' onclick=\"window.location.href='view_po.php?id={$doc['id']}';\"" : ""; ?>>
                                                             <td class="ps-3 py-2 fw-bold text-primary">#<?php echo htmlspecialchars($doc['number']); ?></td>
                                                             <td class="py-2 text-dark fw-medium"><?php echo htmlspecialchars($doc['client_name']); ?></td>
-                                                            <td class="py-2 fw-medium text-dark">₱<?php echo number_format($doc['amount'], 2); ?></td>
+                                                            <td class="py-2 fw-medium text-dark">₱ <?php echo number_format($doc['amount'], 2); ?></td>
                                                             <td class="py-2">
                                                                 <span class="badge-status status-<?php echo str_replace([' ', '/'], '_', $doc['status']); ?>">
                                                                     <?php echo $doc['status']; ?>
@@ -891,12 +802,10 @@
                                 </div>
                             </div>
                         </div>
-
                     </div>
                 </div>
             <?php endif; ?>
-
-        </div> 
+        </div>
 
         <?php if (!empty($user_categories)): ?>
         <div class="row mt-3 mb-3">
@@ -947,9 +856,9 @@
             </div>
         </div>
         <?php endif; ?>
+    </div>
 
-    </div> 
-
+    <!-- Modals -->
     <div class="modal fade" id="documentViewerModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-xl-custom modal-dialog-centered" style="margin: 1rem auto;">
             <div class="modal-content shadow-lg border-0">
@@ -971,7 +880,7 @@
             </div>
         </div>
     </div>
-
+    
     <div class="modal fade" id="renewModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content border-0 shadow-lg">
@@ -1089,6 +998,7 @@
             const modalBody = document.getElementById('previewBody');
             const myModal = new bootstrap.Modal(document.getElementById('previewModal'));
             modalBody.innerHTML = '<div class="spinner-border text-primary" role="status"></div>';
+            
             if (type === 'image') {
                 modalBody.innerHTML = `<img src="${path}" class="img-fluid" style="max-height: 80vh;">`;
             } else if (type === 'pdf') {

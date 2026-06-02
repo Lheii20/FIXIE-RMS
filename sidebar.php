@@ -3,6 +3,9 @@ $current_page = basename($_SERVER['PHP_SELF']);
 $role = $_SESSION['role'] ?? 'User';
 $user_id = $_SESSION['user_id'] ?? 0;
 
+// ==========================================
+// SYSTEM AUDIT TRAIL & PAGE TRACKING LOGIC
+// ==========================================
 if ($user_id > 0 && isset($conn)) {
     $full_url = $_SERVER['REQUEST_URI'];
     $current_time = time();
@@ -10,7 +13,6 @@ if ($user_id > 0 && isset($conn)) {
     if (!isset($_SESSION['last_url']) || $_SESSION['last_url'] !== $full_url || ($current_time - ($_SESSION['last_log_time'] ?? 0)) > 5) {
         
         $action_type = "PAGE_VIEW";
-        
         $clean_name = ucwords(str_replace(['.php', '_'], ['', ' '], $current_page));
         $desc = "Navigated to " . $clean_name . " Module";
 
@@ -61,330 +63,252 @@ if ($user_id > 0 && isset($conn)) {
 }
 ?>
 
-<script>
-(function() {
-    document.body.classList.add('sidebar-preload');
-    try {
-        var isMobileSidebar = window.matchMedia('(max-width: 768px)').matches;
-        if (!isMobileSidebar && sessionStorage.getItem('fixie_sidebar_route_open') === '1') {
-            document.body.classList.add('sidebar-route-open');
-        }
-        if (localStorage.getItem('fixie_sidebar_intro_seen') !== '1') {
-            document.body.classList.add('sidebar-show-intro');
-        }
-    } catch (e) {}
-})();
-</script>
-
-<button type="button" class="mobile-sidebar-trigger" id="mobileSidebarTrigger" aria-label="Open menu" aria-expanded="false">
-    <i class="fas fa-bars"></i>
-</button>
-
-<div class="sidebar-mobile-backdrop" id="sidebarMobileBackdrop" aria-hidden="true"></div>
-
-<nav class="sidebar pb-3" id="appSidebar">
-    <button type="button" class="sidebar-hover-hint" id="sidebarHoverHint" aria-label="Open menu" aria-expanded="false">
-        <span class="sidebar-hint-grip" aria-hidden="true">
-            <span></span>
-            <span></span>
-            <span></span>
-        </span>
-        <i class="fas fa-chevron-right"></i>
-    </button>
-
-    <div class="sidebar-brand">
-        <div class="sidebar-brand-top">
-            <div class="sidebar-brand-info">
-                <div class="d-flex align-items-center justify-content-center sidebar-logo-wrap" style="width: 45px; height: 45px; flex-shrink: 0;">
-                    <img src="assets/images/fixie_logo.png" alt="Logo" style="width: 100%; height: 100%; object-fit: contain;">
-                </div>
-                <div class="text-white sidebar-brand-text"> 
-                    <h6 class="m-0 fw-bold text-white text-uppercase" style="letter-spacing: 0.5px; line-height: 1.1; font-size: 0.9rem;">
-                        Fixie Computer
-                    </h6>
-                    <span style="font-size: 0.65rem; color: var(--secondary); font-weight: 500; letter-spacing: 0.5px;">VENTURES</span>
-                </div>
+<!-- ==========================================
+     SAAS TOP NAVBAR 
+     ========================================== -->
+<nav class="saas-navbar shadow-sm d-print-none">
+    <div class="saas-nav-container">
+        
+        <!-- Left: Brand -->
+        <a href="dashboard.php" class="saas-brand">
+            <img src="assets/images/fixie_logo.png" alt="Fixie Logo">
+            <div class="saas-brand-text d-none d-md-block">
+                <h6 class="m-0 fw-bold">FIXIE COMPUTER</h6>
+                <span>VENTURES</span>
             </div>
+        </a>
+
+        <!-- Center: Command Palette Trigger -->
+        <div class="saas-search-trigger" onclick="openCommandPalette()">
+            <i class="fas fa-search"></i>
+            <span class="d-none d-sm-inline">Search or jump to...</span>
+            <span class="d-inline d-sm-none">Search...</span>
+            <kbd class="d-none d-md-inline-block">Ctrl K</kbd>
         </div>
-        <div class="sidebar-brand-divider"></div>
-    </div>
 
-    <div class="sidebar-scroll d-flex flex-column gap-0">
-        <small class="sidebar-section-title">Main Overview</small>
-        <a href="dashboard.php" class="nav-link <?php echo $current_page == 'dashboard.php' ? 'active' : ''; ?>">
-            <i class="fas fa-home"></i><span class="nav-label">Dashboard</span>
-        </a>
+        <!-- Right: Modules & Profile -->
+        <div class="saas-nav-menu">
+            
+            <!-- Date Display (Inilipat dito sa Navbar mula sa Dashboard) -->
+            <div class="d-none d-lg-flex align-items-center text-muted fw-medium border-end pe-3 me-2" style="font-size: 0.8rem;">
+                <i class="far fa-calendar-alt me-2 text-primary"></i><?php echo date('M d, Y'); ?>
+            </div>
 
-        <?php if($role == 'Sales Staff'): ?>
-            <small class="sidebar-section-title">Sales & Requests</small>
-            <a href="quotations_list.php" class="nav-link <?php echo ($current_page == 'quotations_list.php' || $current_page == 'create_quotation.php') ? 'active' : ''; ?>">
-                <i class="fas fa-file-invoice-dollar"></i><span class="nav-label">Quotations Tracker</span>
+            <a href="dashboard.php" class="saas-nav-link <?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>">
+                <i class="fas fa-chart-pie me-1 d-none d-lg-inline"></i> Dashboard
             </a>
-            <a href="pr_list.php" class="nav-link <?php echo ($current_page == 'pr_list.php' || $current_page == 'create_pr.php') ? 'active' : ''; ?>">
-                <i class="fas fa-clipboard-list"></i><span class="nav-label">Purchase Requests</span>
-            </a>
-        <?php endif; ?>
 
-        <small class="sidebar-section-title">Record Management</small>
-        <a href="documents.php" class="nav-link <?php echo $current_page == 'documents.php' ? 'active' : ''; ?>">
-            <i class="fas fa-folder-open"></i><span class="nav-label">Official Records</span>
-        </a>
-        <a href="general_docs.php" class="nav-link <?php echo $current_page == 'general_docs.php' ? 'active' : ''; ?>">
-            <i class="fas fa-building"></i><span class="nav-label">Company Files</span>
-        </a>
-
-        <?php if(in_array($role, ['Supply Chain'])): ?>
-           <a href="po_list.php" class="nav-link <?php echo ($current_page == 'po_list.php' || $current_page == 'view_po.php') ? 'active' : ''; ?>">
-            <i class="fas fa-file-invoice"></i><span class="nav-label">Purchase Orders</span>
-        </a>
-        <?php endif; ?>
-
-        <?php 
-        if(in_array($role, ['Procurement', 'GM', 'President', 'Finance'])): 
-        ?>
-        <small class="sidebar-section-title">Procurement Module</small>
-        <a href="pr_list.php" class="nav-link <?php echo ($current_page == 'pr_list.php' || $current_page == 'view_pr.php') ? 'active' : ''; ?>">
-            <i class="fas fa-clipboard-list"></i><span class="nav-label">Purchase Requests</span>
-        </a>
-        
-        <a href="po_list.php" class="nav-link <?php echo ($current_page == 'po_list.php' || $current_page == 'view_po.php') ? 'active' : ''; ?>">
-            <i class="fas fa-file-invoice"></i><span class="nav-label">Purchase Orders</span>
-        </a>
-        
-        <?php if($role == 'Procurement'): ?>
-            <a href="create_po.php" class="nav-link <?php echo $current_page == 'create_po.php' ? 'active' : ''; ?>">
-                <i class="fas fa-plus-square"></i><span class="nav-label">Create PO</span>
-            </a>
-        <?php endif; ?>
-        <?php endif; ?>
-
-        <?php if($role == 'Admin'): ?>
-            <small class="sidebar-section-title">Administration</small>
-            <a href="admin_users.php" class="nav-link <?php echo $current_page == 'admin_users.php' ? 'active' : ''; ?>">
-                <i class="fas fa-users"></i><span class="nav-label">Users Control</span>
-            </a>
-            <a href="audit_logs.php" class="nav-link <?php echo $current_page == 'audit_logs.php' ? 'active' : ''; ?>">
-                <i class="fas fa-history"></i><span class="nav-label">System Audit Trail</span>
-            </a>
-            <a href="admin_requests.php" class="nav-link <?php echo $current_page == 'admin_requests.php' ? 'active' : ''; ?>">
-                <i class="fas fa-user-shield"></i><span class="nav-label">Requests</span>
-            </a>
-        <?php endif; ?>
-
-        <small class="sidebar-section-title">Account</small>
-        <a href="settings.php" class="nav-link <?php echo $current_page == 'settings.php' ? 'active' : ''; ?>">
-            <i class="fas fa-cog"></i><span class="nav-label">Settings</span>
-        </a>
-    </div> 
-    
-    <div class="mt-auto">
-        <div class="p-2 rounded-1 sidebar-user-panel" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05);">
-            <div class="d-flex align-items-center gap-2 mb-2 sidebar-user-row">
-                <div class="bg-white text-primary rounded-1 d-flex align-items-center justify-content-center overflow-hidden" style="width: 36px; height: 36px; flex-shrink: 0;">
-                    <?php if(!empty($_SESSION['avatar']) && file_exists($_SESSION['avatar'])): ?>
-                        <img src="download.php?file=<?php echo basename($_SESSION['avatar']); ?>&type=avatar" alt="Profile" style="width: 100%; height: 100%; object-fit: cover;">
-                    <?php else: ?>
-                        <span class="fw-bold fs-6 text-dark"><?php echo strtoupper(substr($_SESSION['fullname'] ?? 'U', 0, 1)); ?></span>
+            <!-- Dropdown: Operations (Only visible to specific operational roles) -->
+            <?php 
+            $ops_roles = ['Sales Staff', 'Procurement', 'GM', 'President', 'Finance', 'Supply Chain'];
+            if(in_array($role, $ops_roles)): 
+            ?>
+            <div class="saas-nav-item has-dropdown">
+                <a href="#" class="saas-nav-link <?php echo (in_array($current_page, ['pr_list.php', 'create_pr.php', 'view_pr.php', 'po_list.php', 'create_po.php', 'view_po.php', 'quotations_list.php', 'create_quotation.php'])) ? 'active' : ''; ?>">
+                    <i class="fas fa-layer-group me-1 d-none d-lg-inline"></i> Operations <i class="fas fa-chevron-down ms-1" style="font-size:0.6rem;"></i>
+                </a>
+                <div class="saas-dropdown shadow-sm">
+                    <?php if($role == 'Sales Staff'): ?>
+                        <a href="quotations_list.php"><i class="fas fa-file-invoice-dollar"></i> Quotations Tracker</a>
+                    <?php endif; ?>
+                    
+                    <?php if(in_array($role, ['Sales Staff', 'Procurement', 'GM', 'President', 'Finance'])): ?>
+                        <a href="pr_list.php"><i class="fas fa-clipboard-list"></i> Purchase Requests</a>
+                    <?php endif; ?>
+                    
+                    <?php if(in_array($role, ['Procurement', 'GM', 'President', 'Finance', 'Supply Chain'])): ?>
+                        <a href="po_list.php"><i class="fas fa-file-invoice"></i> Purchase Orders</a>
                     <?php endif; ?>
                 </div>
-                <div style="line-height: 1.2; overflow: hidden;" class="sidebar-user-details">
-                    <small class="d-block fw-bold text-white text-truncate" style="max-width: 130px; font-size: 0.75rem;"><?php echo htmlspecialchars($_SESSION['fullname'] ?? 'User'); ?></small>
-                    <small style="color: var(--secondary); font-size: 0.65rem; font-weight: 500; text-transform: uppercase;"><?php echo htmlspecialchars($_SESSION['role'] ?? 'Role'); ?></small>
+            </div>
+            <?php endif; ?>
+
+            <!-- Dropdown: Records -->
+            <div class="saas-nav-item has-dropdown">
+                <a href="#" class="saas-nav-link <?php echo (in_array($current_page, ['documents.php', 'general_docs.php'])) ? 'active' : ''; ?>">
+                    <i class="fas fa-folder-open me-1 d-none d-lg-inline"></i> Records <i class="fas fa-chevron-down ms-1" style="font-size:0.6rem;"></i>
+                </a>
+                <div class="saas-dropdown shadow-sm">
+                    <a href="documents.php"><i class="fas fa-archive"></i> Official Records</a>
+                    <a href="general_docs.php"><i class="fas fa-building"></i> Company Files</a>
                 </div>
             </div>
-            <a href="actions/auth.php?logout=true&csrf_token=<?php echo $_SESSION['csrf_token']; ?>" class="btn btn-sm w-100 text-white rounded-1 sidebar-logout-btn" style="background: rgba(238, 93, 80, 0.1); border: 1px solid rgba(238, 93, 80, 0.2); font-weight: 600; padding: 0.3rem;">
-                <i class="fas fa-sign-out-alt me-1 text-danger"></i><span class="logout-label">Logout</span>
+
+            <!-- Dropdown: Admin -->
+            <?php if($role == 'Admin'): ?>
+            <div class="saas-nav-item has-dropdown">
+                <a href="#" class="saas-nav-link <?php echo (in_array($current_page, ['admin_users.php', 'admin_requests.php', 'audit_logs.php'])) ? 'active' : ''; ?>">
+                    <i class="fas fa-shield-alt me-1 d-none d-lg-inline"></i> Admin <i class="fas fa-chevron-down ms-1" style="font-size:0.6rem;"></i>
+                </a>
+                <div class="saas-dropdown shadow-sm">
+                    <a href="admin_users.php"><i class="fas fa-users"></i> User Management</a>
+                    <a href="admin_requests.php"><i class="fas fa-key"></i> Access Requests</a>
+                    <a href="audit_logs.php"><i class="fas fa-history"></i> System Audit Trail</a>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <!-- Notification -->
+            <a href="notifications.php" class="saas-nav-icon <?php echo ($current_page == 'notifications.php') ? 'active' : ''; ?>" title="Notifications">
+                <i class="fas fa-bell"></i>
             </a>
+
+            <!-- Profile Dropdown -->
+            <div class="saas-nav-item has-dropdown">
+                <div class="saas-profile-trigger">
+                    <?php if(!empty($_SESSION['avatar']) && file_exists($_SESSION['avatar'])): ?>
+                        <img src="download.php?file=<?php echo basename($_SESSION['avatar']); ?>&type=avatar" alt="Profile">
+                    <?php else: ?>
+                        <div class="saas-avatar-placeholder text-primary fw-bold">
+                            <?php echo strtoupper(substr($_SESSION['fullname'] ?? 'U', 0, 1)); ?>
+                        </div>
+                    <?php endif; ?>
+                </div>
+                <div class="saas-dropdown shadow-sm" style="right: 0; left: auto; min-width: 200px;">
+                    <div class="px-3 py-2 border-bottom mb-1 bg-light rounded-top">
+                        <small class="d-block fw-bold text-dark text-truncate"><?php echo htmlspecialchars($_SESSION['fullname'] ?? 'User'); ?></small>
+                        <small class="text-muted" style="font-size: 0.7rem; text-transform: uppercase;"><?php echo htmlspecialchars($_SESSION['role'] ?? 'Role'); ?></small>
+                    </div>
+                    <a href="settings.php"><i class="fas fa-cog"></i> Account Settings</a>
+                    <a href="actions/auth.php?logout=true&csrf_token=<?php echo $_SESSION['csrf_token'] ?? ''; ?>" class="text-danger"><i class="fas fa-sign-out-alt"></i> Logout</a>
+                </div>
+            </div>
         </div>
     </div>
 </nav>
 
+<!-- ==========================================
+     COMMAND PALETTE OVERLAY 
+     ========================================== -->
+<div id="commandPaletteOverlay" class="cp-overlay" style="display: none;">
+    <div class="cp-modal fade-in">
+        <div class="cp-header">
+            <i class="fas fa-search cp-icon"></i>
+            <input type="text" id="cpInput" placeholder="Type a command or search..." autocomplete="off">
+            <kbd class="cp-esc" onclick="closeCommandPalette()">ESC</kbd>
+        </div>
+        <div class="cp-body">
+            <ul id="cpList" class="cp-list">
+                
+                <!-- Universal Links (For Everyone) -->
+                <li data-keywords="dashboard home main index stats analytics">
+                    <a href="dashboard.php">
+                        <div class="cp-item-icon cp-icon-primary"><i class="fas fa-chart-pie"></i></div> 
+                        <div><div class="cp-item-title">Dashboard</div><small class="cp-item-desc">Go to main overview</small></div>
+                    </a>
+                </li>
+                <li data-keywords="files documents records official retention">
+                    <a href="documents.php">
+                        <div class="cp-item-icon cp-icon-secondary"><i class="fas fa-archive"></i></div> 
+                        <div><div class="cp-item-title">Official Records</div><small class="cp-item-desc">Browse company documents</small></div>
+                    </a>
+                </li>
+                <li data-keywords="company files general storage">
+                    <a href="general_docs.php">
+                        <div class="cp-item-icon cp-icon-secondary"><i class="fas fa-folder"></i></div> 
+                        <div><div class="cp-item-title">Company Files</div><small class="cp-item-desc">Access general files</small></div>
+                    </a>
+                </li>
+                <li data-keywords="settings account password profile">
+                    <a href="settings.php">
+                        <div class="cp-item-icon cp-icon-secondary"><i class="fas fa-cog"></i></div> 
+                        <div><div class="cp-item-title">Settings</div><small class="cp-item-desc">Manage your account</small></div>
+                    </a>
+                </li>
+
+                <!-- Sales Staff Specific -->
+                <?php if($role == 'Sales Staff'): ?>
+                    <li data-keywords="quotation quotes create generate new price">
+                        <a href="create_quotation.php">
+                            <div class="cp-item-icon cp-icon-success"><i class="fas fa-plus"></i></div> 
+                            <div><div class="cp-item-title">Create Quotation</div><small class="cp-item-desc">Generate a new quote</small></div>
+                        </a>
+                    </li>
+                    <li data-keywords="quotations list quotes tracker">
+                        <a href="quotations_list.php">
+                            <div class="cp-item-icon cp-icon-info"><i class="fas fa-list"></i></div> 
+                            <div><div class="cp-item-title">Quotations Directory</div><small class="cp-item-desc">View all quotes</small></div>
+                        </a>
+                    </li>
+                    <li data-keywords="purchase request create new pr">
+                        <a href="create_pr.php">
+                            <div class="cp-item-icon cp-icon-success"><i class="fas fa-plus"></i></div> 
+                            <div><div class="cp-item-title">Create PR</div><small class="cp-item-desc">Request for purchase</small></div>
+                        </a>
+                    </li>
+                <?php endif; ?>
+
+                <!-- PR Visibility -->
+                <?php if(in_array($role, ['Sales Staff', 'Procurement', 'GM', 'President', 'Finance'])): ?>
+                    <li data-keywords="purchase requests pr list directory tracker">
+                        <a href="pr_list.php">
+                            <div class="cp-item-icon cp-icon-info"><i class="fas fa-clipboard-list"></i></div> 
+                            <div><div class="cp-item-title">Purchase Requests</div><small class="cp-item-desc">View PR directory</small></div>
+                        </a>
+                    </li>
+                <?php endif; ?>
+
+                <!-- PO Visibility -->
+                <?php if(in_array($role, ['Procurement', 'GM', 'President', 'Finance', 'Supply Chain'])): ?>
+                    <li data-keywords="purchase orders po list directory tracker">
+                        <a href="po_list.php">
+                            <div class="cp-item-icon cp-icon-info"><i class="fas fa-file-invoice"></i></div> 
+                            <div><div class="cp-item-title">Purchase Orders</div><small class="cp-item-desc">View PO directory</small></div>
+                        </a>
+                    </li>
+                <?php endif; ?>
+
+                <!-- Procurement Specific -->
+                <?php if($role == 'Procurement'): ?>
+                    <li data-keywords="purchase order po create generate new buy">
+                        <a href="create_po.php">
+                            <div class="cp-item-icon cp-icon-success"><i class="fas fa-plus"></i></div> 
+                            <div><div class="cp-item-title">Create PO</div><small class="cp-item-desc">Generate a new Purchase Order</small></div>
+                        </a>
+                    </li>
+                <?php endif; ?>
+
+                <!-- Admin Specific -->
+                <?php if($role == 'Admin'): ?>
+                    <li data-keywords="users manage accounts admin roles">
+                        <a href="admin_users.php">
+                            <div class="cp-item-icon cp-icon-warning"><i class="fas fa-users"></i></div> 
+                            <div><div class="cp-item-title">User Management</div><small class="cp-item-desc">Control user accounts</small></div>
+                        </a>
+                    </li>
+                    <li data-keywords="security requests unlock account access">
+                        <a href="admin_requests.php">
+                            <div class="cp-item-icon cp-icon-warning"><i class="fas fa-key"></i></div> 
+                            <div><div class="cp-item-title">Security Requests</div><small class="cp-item-desc">Manage access requests</small></div>
+                        </a>
+                    </li>
+                    <li data-keywords="audit logs history actions trail tracking">
+                        <a href="audit_logs.php">
+                            <div class="cp-item-icon cp-icon-warning"><i class="fas fa-history"></i></div> 
+                            <div><div class="cp-item-title">System Audit Trail</div><small class="cp-item-desc">Review system activity</small></div>
+                        </a>
+                    </li>
+                <?php endif; ?>
+
+            </ul>
+            <div id="cpNoResults" class="text-center py-4 text-muted" style="display: none;">
+                <i class="fas fa-search-minus fs-4 mb-2 opacity-50"></i>
+                <p class="mb-0" style="font-size: 0.8rem;">No matching commands found.</p>
+            </div>
+        </div>
+        <div class="cp-footer">
+            <span class="text-muted"><kbd>↑</kbd> <kbd>↓</kbd> navigate</span>
+            <span class="text-muted"><kbd>Enter</kbd> select</span>
+        </div>
+    </div>
+</div>
+
 <script>
+// ==========================================
+// INTERNAL TAB LOGGING
+// ==========================================
 document.addEventListener("DOMContentLoaded", function() {
-    var body = document.body;
-    var sidebar = document.getElementById('appSidebar');
-    var sidebarHoverHint = document.getElementById('sidebarHoverHint');
-    var mobileSidebarTrigger = document.getElementById('mobileSidebarTrigger');
-    var sidebarMobileBackdrop = document.getElementById('sidebarMobileBackdrop');
-    var sidebarRouteStateKey = 'fixie_sidebar_route_open';
-    var sidebarIntroStateKey = 'fixie_sidebar_intro_seen';
-    var mobileSidebarQuery = window.matchMedia('(max-width: 768px)');
-    var sidebarNavigationPending = false;
-
-    function isMobileSidebarMode() {
-        return mobileSidebarQuery.matches;
-    }
-
-    function setSidebarExpanded(isExpanded) {
-        if (sidebarHoverHint) {
-            sidebarHoverHint.setAttribute('aria-expanded', isExpanded.toString());
-        }
-        if (mobileSidebarTrigger) {
-            mobileSidebarTrigger.setAttribute('aria-expanded', isExpanded.toString());
-        }
-    }
-
-    function dismissIntroHint() {
-        if (!body.classList.contains('sidebar-show-intro')) {
-            return;
-        }
-
-        body.classList.remove('sidebar-show-intro');
-        try {
-            localStorage.setItem(sidebarIntroStateKey, '1');
-        } catch (e) {}
-    }
-
-    function setMobileSidebarOpen(isOpen) {
-        body.classList.toggle('sidebar-touch-open', isOpen);
-        setSidebarExpanded(isOpen);
-
-        if (isOpen) {
-            dismissIntroHint();
-        }
-    }
-
-    function clearRouteOpenState() {
-        body.classList.remove('sidebar-route-open');
-        try {
-            sessionStorage.removeItem(sidebarRouteStateKey);
-        } catch (e) {}
-    }
-
-    function closeHeldSidebar() {
-        setMobileSidebarOpen(false);
-        clearRouteOpenState();
-    }
-
-    requestAnimationFrame(function() {
-        body.classList.remove('sidebar-preload');
-    });
-
-    if (body.classList.contains('sidebar-show-intro')) {
-        setTimeout(dismissIntroHint, 4500);
-    }
-
-    if (sidebar && sidebarHoverHint) {
-        if (isMobileSidebarMode()) {
-            clearRouteOpenState();
-        }
-
-        if (body.classList.contains('sidebar-route-open')) {
-            setSidebarExpanded(true);
-        }
-
-        sidebar.addEventListener('mouseenter', function() {
-            if (isMobileSidebarMode()) {
-                return;
-            }
-            setSidebarExpanded(true);
-        });
-
-        sidebar.addEventListener('mouseleave', function() {
-            if (isMobileSidebarMode()) {
-                return;
-            }
-            if (!sidebarNavigationPending) {
-                clearRouteOpenState();
-            }
-            setSidebarExpanded(body.classList.contains('sidebar-touch-open'));
-        });
-
-        sidebar.addEventListener('focusin', function() {
-            setSidebarExpanded(true);
-        });
-
-        sidebar.addEventListener('focusout', function() {
-            setTimeout(function() {
-                if (!sidebar.contains(document.activeElement) && !body.classList.contains('sidebar-touch-open') && !body.classList.contains('sidebar-route-open')) {
-                    setSidebarExpanded(false);
-                }
-            }, 0);
-        });
-
-        sidebarHoverHint.addEventListener('click', function(event) {
-            event.stopPropagation();
-            dismissIntroHint();
-
-            if (isMobileSidebarMode()) {
-                setMobileSidebarOpen(!body.classList.contains('sidebar-touch-open'));
-                return;
-            }
-
-            setSidebarExpanded(true);
-
-            var firstNavLink = sidebar.querySelector('.nav-link.active') || sidebar.querySelector('.nav-link');
-            if (firstNavLink) {
-                firstNavLink.focus({ preventScroll: true });
-            }
-        });
-
-        if (mobileSidebarTrigger) {
-            mobileSidebarTrigger.addEventListener('click', function(event) {
-                event.stopPropagation();
-                setMobileSidebarOpen(!body.classList.contains('sidebar-touch-open'));
-            });
-        }
-
-        if (sidebarMobileBackdrop) {
-            sidebarMobileBackdrop.addEventListener('click', function() {
-                closeHeldSidebar();
-            });
-        }
-
-        if (typeof mobileSidebarQuery.addEventListener === 'function') {
-            mobileSidebarQuery.addEventListener('change', function() {
-                closeHeldSidebar();
-            });
-        } else if (typeof mobileSidebarQuery.addListener === 'function') {
-            mobileSidebarQuery.addListener(function() {
-                closeHeldSidebar();
-            });
-        }
-
-        document.addEventListener('click', function(event) {
-            if ((body.classList.contains('sidebar-touch-open') || body.classList.contains('sidebar-route-open')) && !sidebar.contains(event.target)) {
-                if (mobileSidebarTrigger && mobileSidebarTrigger.contains(event.target)) {
-                    return;
-                }
-                closeHeldSidebar();
-            }
-        });
-
-        document.addEventListener('keydown', function(event) {
-            if (event.key === 'Escape' && (body.classList.contains('sidebar-touch-open') || body.classList.contains('sidebar-route-open'))) {
-                closeHeldSidebar();
-                sidebarHoverHint.focus({ preventScroll: true });
-            }
-        });
-    }
-
-    document.querySelectorAll('.sidebar .nav-link').forEach(function(link) {
-        link.addEventListener('click', function(event) {
-            var href = link.getAttribute('href');
-            var opensNewTab = link.getAttribute('target') === '_blank';
-            var modifiedClick = event.ctrlKey || event.metaKey || event.shiftKey || event.altKey;
-
-            dismissIntroHint();
-
-            if (!isMobileSidebarMode() && !event.defaultPrevented && href && href.charAt(0) !== '#' && !href.toLowerCase().startsWith('javascript:') && !opensNewTab && !modifiedClick && !link.hasAttribute('download')) {
-                sidebarNavigationPending = true;
-                try {
-                    sessionStorage.setItem(sidebarRouteStateKey, '1');
-                } catch (e) {}
-                body.classList.add('sidebar-route-open');
-                setSidebarExpanded(true);
-            }
-        });
-
-        var label = link.textContent.trim().replace(/\s+/g, ' ');
-        if (label && !link.getAttribute('title')) {
-            link.setAttribute('title', label);
-        }
-    });
-
     var tabEls = document.querySelectorAll('button[data-bs-toggle="pill"], a[data-bs-toggle="tab"], button[data-bs-toggle="tab"]');
-    
     tabEls.forEach(function(tab) {
         tab.addEventListener('shown.bs.tab', function (event) {
             var tabName = event.target.innerText.trim();
@@ -397,5 +321,113 @@ document.addEventListener("DOMContentLoaded", function() {
             }
         });
     });
+    
+    requestAnimationFrame(function() { 
+        if(document.body.classList.contains('sidebar-preload')){
+            document.body.classList.remove('sidebar-preload'); 
+        }
+    });
+});
+
+// ==========================================
+// COMMAND PALETTE JAVASCRIPT
+// ==========================================
+const cpOverlay = document.getElementById('commandPaletteOverlay');
+const cpInput = document.getElementById('cpInput');
+const cpList = document.getElementById('cpList');
+const cpItems = cpList.querySelectorAll('li');
+const cpNoResults = document.getElementById('cpNoResults');
+let currentFocus = -1;
+
+function openCommandPalette() {
+    cpOverlay.style.display = 'flex';
+    cpInput.value = '';
+    filterItems('');
+    setTimeout(() => cpInput.focus(), 50);
+}
+
+function closeCommandPalette() {
+    cpOverlay.style.display = 'none';
+}
+
+function filterItems(query) {
+    let q = query.toLowerCase();
+    let hasVisible = false;
+    currentFocus = -1;
+    removeActive();
+
+    cpItems.forEach(item => {
+        let text = item.innerText.toLowerCase();
+        let keywords = item.getAttribute('data-keywords') ? item.getAttribute('data-keywords').toLowerCase() : '';
+        
+        if (text.includes(q) || keywords.includes(q)) {
+            item.style.display = 'block';
+            hasVisible = true;
+        } else {
+            item.style.display = 'none';
+        }
+    });
+
+    cpNoResults.style.display = hasVisible ? 'none' : 'block';
+}
+
+function addActive(itemsArray) {
+    if (!itemsArray || itemsArray.length === 0) return false;
+    removeActive();
+    if (currentFocus >= itemsArray.length) currentFocus = 0;
+    if (currentFocus < 0) currentFocus = (itemsArray.length - 1);
+    itemsArray[currentFocus].classList.add('cp-active');
+    itemsArray[currentFocus].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function removeActive() {
+    cpItems.forEach(item => item.classList.remove('cp-active'));
+}
+
+document.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        if (cpOverlay.style.display === 'none' || cpOverlay.style.display === '') {
+            openCommandPalette();
+        } else {
+            closeCommandPalette();
+        }
+    }
+    if (e.key === 'Escape' && cpOverlay.style.display === 'flex') {
+        closeCommandPalette();
+    }
+});
+
+cpInput.addEventListener('input', function(e) {
+    filterItems(this.value);
+});
+
+cpInput.addEventListener('keydown', function(e) {
+    let visibleItems = Array.from(cpItems).filter(item => item.style.display !== 'none');
+    
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        currentFocus++;
+        addActive(visibleItems);
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        currentFocus--;
+        addActive(visibleItems);
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (currentFocus > -1) {
+            if (visibleItems[currentFocus]) {
+                visibleItems[currentFocus].querySelector('a').click();
+            }
+        } else if (visibleItems.length > 0) {
+            visibleItems[0].querySelector('a').click(); 
+        }
+    }
+});
+
+cpOverlay.addEventListener('click', function(e) {
+    if (e.target === cpOverlay) {
+        closeCommandPalette();
+    }
 });
 </script>
