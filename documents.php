@@ -1075,13 +1075,16 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
                         <input type="hidden" name="parent_category" value="NEW_PARENT_FOLDER">
                         
                         <div class="mb-3">
-                            <label class="form-label fw-bold small text-secondary">New Parent Folder Name <span class="text-danger">*</span></label>
-                            <input type="text" name="new_parent_category" class="form-control" style="border-radius: 8px;" placeholder="e.g. Finance Records" required>
+                            <label class="form-label fw-semibold small text-secondary mb-1">Parent Folder Name <span class="text-danger">*</span></label>
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text bg-light border-end-0 text-muted"><i class="fas fa-folder"></i></span>
+                                <input type="text" name="new_parent_category" class="form-control border-start-0 ps-0" style="border-radius: 0 8px 8px 0;" placeholder="e.g. Finance Records" required>
+                            </div>
                         </div>
                     </div>
                     <div class="modal-footer bg-light border-top">
                         <button type="button" class="btn btn-light border" style="border-radius: 8px;" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-primary fw-bold px-4" style="border-radius: 8px;">Create Parent Folder</button>
+                        <button type="submit" class="btn btn-primary fw-medium px-4" style="border-radius: 8px;">Create Parent Folder</button>
                     </div>
                 </form>
             </div>
@@ -1103,34 +1106,48 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
                         <input type="hidden" name="action" value="create_folder">
                         <input type="hidden" name="parent_category" value="<?php echo htmlspecialchars($parent_filter); ?>">
                         
-                        <div class="alert alert-primary bg-opacity-10 border border-primary mb-3" style="border-radius: 8px;">
-                            <small class="text-primary d-block">Creating under folder:</small>
-                            <strong class="text-primary"><i class="fas fa-folder-open me-2"></i><?php echo htmlspecialchars($parent_filter); ?></strong>
+                        <div class="d-flex align-items-center mb-4 pb-2 border-bottom">
+                            <div class="bg-primary bg-opacity-10 text-primary rounded p-2 me-3">
+                                <i class="fas fa-folder-open fs-5"></i>
+                            </div>
+                            <div>
+                                <span class="d-block small text-muted fw-semibold">Target Location</span>
+                                <span class="d-block fw-bold text-dark"><?php echo htmlspecialchars($parent_filter); ?></span>
+                            </div>
                         </div>
                         
                         <div class="mb-3">
-                            <label class="form-label fw-bold small text-secondary">New Sub-Folder Name <span class="text-danger">*</span></label>
-                            <input type="text" name="new_folder_name" class="form-control" style="border-radius: 8px;" placeholder="e.g. Audit Reports 2026" required>
+                            <label class="form-label fw-semibold small text-secondary mb-1">Sub-Folder Name <span class="text-danger">*</span></label>
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text bg-light border-end-0 text-muted"><i class="fas fa-folder"></i></span>
+                                <input type="text" name="new_folder_name" class="form-control border-start-0 ps-0" style="border-radius: 0 8px 8px 0;" placeholder="e.g. Audit Reports 2026" required>
+                            </div>
                         </div>
 
-                        <div class="mb-3 p-3 bg-info bg-opacity-10 border border-info rounded" style="border-radius: 8px;">
-                            <label class="form-label fw-bold small text-info"><i class="fas fa-shield-alt me-1"></i> Default Retention Policy <span class="text-danger">*</span></label>
-                            <select name="folder_policy" class="form-select border-info" style="border-radius: 8px;" required>
-                                <option value="" disabled selected>-- Select Auto-Retention Rule --</option>
-                                <?php foreach($policies as $pol): ?>
-                                    <option value="<?php echo $pol['policy_id']; ?>">
-                                        <?php echo htmlspecialchars($pol['policy_name']); ?> 
-                                        (<?php echo $pol['retention_years']; ?> Yrs -> <?php echo $pol['action_after_retention']; ?>)
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                            <small class="text-info mt-2 d-block" style="font-size: 0.75rem;">All files uploaded to this folder will automatically follow this retention rule.</small>
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold small text-secondary mb-1">Default Retention Policy <span class="text-danger">*</span></label>
+                            <div class="input-group input-group-sm mb-2">
+                                <span class="input-group-text bg-light border-end-0 text-muted"><i class="fas fa-shield-alt"></i></span>
+                                <select name="folder_policy" class="form-select border-start-0 ps-0" style="border-radius: 0 8px 8px 0;" required>
+                                    <option value="" disabled selected>Select auto-retention rule...</option>
+                                    <?php foreach($policies as $pol): ?>
+                                        <option value="<?php echo $pol['policy_id']; ?>">
+                                            <?php echo htmlspecialchars($pol['policy_name']); ?> 
+                                            (<?php echo $pol['retention_years']; ?> Yrs &rarr; <?php echo $pol['action_after_retention']; ?>)
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="d-flex align-items-start gap-2">
+                                <i class="fas fa-info-circle text-primary mt-1" style="font-size: 0.85rem;"></i>
+                                <p class="mb-0 text-muted" style="font-size: 0.75rem; line-height: 1.4;">Files uploaded here will automatically inherit this schedule.</p>
+                            </div>
                         </div>
                         
                         <?php if($is_top_mgmt): ?>
                         <div class="mb-2">
-                            <label class="form-label fw-bold small text-secondary">Assign to User Roles <small class="text-muted fw-normal">(Hold Ctrl/Cmd for multiple)</small> <span class="text-danger">*</span></label>
-                            <select name="assigned_roles[]" class="form-select border-secondary" style="border-radius: 8px;" multiple size="6" required>
+                            <label class="form-label fw-semibold small text-secondary mb-1">Assign User Roles <span class="text-danger">*</span></label>
+                            <select name="assigned_roles[]" class="form-select text-secondary" style="border-radius: 8px; font-size: 0.85rem;" multiple size="5" required>
                                 <option value="Admin">Admin</option>
                                 <option value="President">President</option>
                                 <option value="GM">General Manager</option>
@@ -1140,13 +1157,13 @@ $hide_upload_button = in_array($type_filter, $restricted_upload_folders) || $vie
                                 <option value="Sales Staff">Sales Staff</option>
                                 <option value="Technical & Service">Technical & Service</option>
                             </select>
-                            <small class="text-muted d-block mt-2" style="font-size: 0.75rem;"><i class="fas fa-info-circle me-1 text-primary"></i> Admin, General Manager, and President automatically have access.</small>
+                            <small class="text-muted d-block mt-2" style="font-size: 0.75rem;"><i class="fas fa-lightbulb text-warning me-1"></i> Hold Ctrl/Cmd to select multiple. Top management has default access.</small>
                         </div>
                         <?php endif; ?>
                     </div>
                     <div class="modal-footer bg-light border-top">
                         <button type="button" class="btn btn-light border" style="border-radius: 8px;" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-primary fw-bold px-4" style="border-radius: 8px;">Create Sub-folder</button>
+                        <button type="submit" class="btn btn-primary fw-medium px-4" style="border-radius: 8px;">Create Sub-folder</button>
                     </div>
                 </form>
             </div>

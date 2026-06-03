@@ -73,8 +73,7 @@ if ($user_id > 0 && isset($conn)) {
         <a href="dashboard.php" class="saas-brand">
             <img src="assets/images/fixie_logo.png" alt="Fixie Logo">
             <div class="saas-brand-text d-none d-md-block">
-                <h6 class="m-0 fw-bold">FIXIE COMPUTER</h6>
-                <span>VENTURES</span>
+                <h6 class="m-0 fw-bold">FIXIE COMPUTER VENTURES</h6>
             </div>
         </a>
 

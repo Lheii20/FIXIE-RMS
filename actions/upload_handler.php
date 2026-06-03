@@ -61,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 
     if ($action == 'archive') {
-        $allowed = ['GM', 'President'];
+        $allowed = ['GM', 'President', 'Admin'];
         if (!in_array($_SESSION['role'], $allowed)) die("Access Denied");
 
         $doc_id = intval($_POST['doc_id']);
@@ -89,7 +89,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 
     if ($action == 'restore') {
-        $allowed = ['GM', 'President'];
+        $allowed = ['GM', 'President', 'Admin'];
         if (!in_array($_SESSION['role'], $allowed)) die("Access Denied");
 
         $doc_id = intval($_POST['doc_id']);
@@ -117,7 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 
     if ($action == 'delete') {
-        $allowed = ['GM', 'President'];
+        $allowed = ['GM', 'President', 'Admin'];
         if (!in_array($_SESSION['role'], $allowed)) die("Access Denied");
 
         $doc_id = intval($_POST['doc_id']);
@@ -156,8 +156,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 
     if ($action == 'renew') {
-        // Ang manual Expiry Date ay inalis na sa design. 
-        // Ang "Renew" ngayon ay ire-reset lamang ang timestamp base sa file na iu-upload.
         $doc_id = intval($_POST['doc_id']);
         $file = $_FILES['document'];
 
@@ -203,7 +201,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 $oldName = $row['file_name'];
             }
 
-            // AUTO-RENEW Logic: Irereset ang uploaded_at at ibabalik ang disposition sa Pending, tatanggalin ang expiry
+            // AUTO-RENEW Logic: Irereset ang uploaded_at at ibabalik ang disposition sa Pending, tatanggalin ang lumang expiry para mag re-compute sa background logic (kung meron mang manual run) o iiwang null kung manual monitoring muna
             $stmt = $conn->prepare("UPDATE documents SET file_name = ?, file_path = ?, file_hash = ?, expiry_date = NULL, uploaded_by = ?, uploaded_at = CURRENT_TIMESTAMP, disposition_status = 'Pending' WHERE doc_id = ?");
             $stmt->bind_param("sssii", $finalFileName, $dbPath, $fileHash, $user_id, $doc_id);
             
@@ -232,9 +230,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             exit();
         }
         
-        // SYSTEM AUTOMATION: Query ang database upang kunin ang Policy ID batay sa Category na pinili
+        // ==========================================
+        // 1. KUNIN ANG POLICY ID MULA SA FOLDER
+        // ==========================================
         $policy_id = null;
+        $expiry_date = null;
+
         if (!empty($category)) {
+            // Nanggaling sa Official Records (document_categories)
             $pol_stmt = $conn->prepare("SELECT policy_id FROM document_categories WHERE sub_category = ? LIMIT 1");
             $pol_stmt->bind_param("s", $category);
             $pol_stmt->execute();
@@ -242,9 +245,35 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             if ($pol_row = $pol_res->fetch_assoc()) {
                 $policy_id = $pol_row['policy_id'];
             }
+        } elseif (empty($category) && !empty($doc_type) && $doc_type !== 'General') {
+            // Nanggaling sa Company Files (company_folders)
+            $pol_stmt = $conn->prepare("SELECT policy_id FROM company_folders WHERE folder_name = ? LIMIT 1");
+            $pol_stmt->bind_param("s", $doc_type);
+            $pol_stmt->execute();
+            $pol_res = $pol_stmt->get_result();
+            if ($pol_row = $pol_res->fetch_assoc()) {
+                $policy_id = $pol_row['policy_id'];
+            }
         }
 
-        $custom_name = !empty($_POST['document_title']) ? trim($_POST['document_title']) : '';
+        // ==========================================
+        // 2. AUTOMATIC DATE MATH (EXPIRATION COMPUTATION)
+        // ==========================================
+        if ($policy_id) {
+            $stmt_years = $conn->prepare("SELECT retention_years FROM retention_policies WHERE policy_id = ? LIMIT 1");
+            $stmt_years->bind_param("i", $policy_id);
+            $stmt_years->execute();
+            $res_years = $stmt_years->get_result();
+            if ($row_years = $res_years->fetch_assoc()) {
+                $years = intval($row_years['retention_years']);
+                if ($years > 0) {
+                    // I-add ang retention years sa kasalukuyang date
+                    $expiry_date = date('Y-m-d', strtotime("+$years years"));
+                }
+            }
+        }
+
+        $custom_name = !empty($_POST['document_name']) ? trim($_POST['document_name']) : (!empty($_POST['document_title']) ? trim($_POST['document_title']) : '');
         if (!empty($custom_name)) {
             $custom_name = preg_replace('/[^A-Za-z0-9_\-\s]/', '', $custom_name);
         }
@@ -291,30 +320,28 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
         $finalFileName = !empty($custom_name) ? $custom_name . "." . $ext : basename($file['name']);
         $tags = $_POST['tags'] ?? '';
-        $expiry_date = null; // TULUYAN NANG TINANGGAL ANG MANUAL EXPIRATION.
 
         if (move_uploaded_file($file['tmp_name'], $targetPath)) {
             
             if ($po_id === null) {
-                // 9 Params: s(doc_type), s(finalFileName), s(dbPath), s(fileHash), s(category), s(tags), s(expiry_date), i(uploaded_by), i(policy_id)
                 $stmt = $conn->prepare("INSERT INTO documents (po_id, doc_type, file_name, file_path, file_hash, category, tags, expiry_date, uploaded_by, status, policy_id, disposition_status) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, 'Active', ?, 'Pending')");
                 $stmt->bind_param("sssssssii", $doc_type, $finalFileName, $dbPath, $fileHash, $category, $tags, $expiry_date, $user_id, $policy_id);
             } else {
-                // 10 Params: i(po_id), s(doc_type), s(finalFileName), s(dbPath), s(fileHash), s(category), s(tags), s(expiry_date), i(uploaded_by), i(policy_id)
                 $stmt = $conn->prepare("INSERT INTO documents (po_id, doc_type, file_name, file_path, file_hash, category, tags, expiry_date, uploaded_by, status, policy_id, disposition_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active', ?, 'Pending')");
                 $stmt->bind_param("isssssssii", $po_id, $doc_type, $finalFileName, $dbPath, $fileHash, $category, $tags, $expiry_date, $user_id, $policy_id);
             }
             
             if($stmt->execute()) {
                 $doc_id = $stmt->insert_id;
-                $ref = $po_id ? "PO ID: $po_id" : "Folder: $category";
-                $logMsg = "Uploaded $doc_type ($finalFileName) to $ref. Auto-applied Policy ID: $policy_id";
+                $ref = $po_id ? "PO ID: $po_id" : "Folder: " . (!empty($category) ? $category : $doc_type);
+                $logMsg = "Uploaded $doc_type ($finalFileName) to $ref. Auto-applied Policy ID: " . ($policy_id ?? 'None') . ". Expiry set to: " . ($expiry_date ?? 'Indefinite');
+                
                 if (function_exists('log_document_action')) {
                     log_document_action($conn, $user_id, 'UPLOAD', $doc_id, $logMsg, $redirectUrl);
                 } else {
                     log_audit_action($conn, $user_id, 'UPLOAD', $logMsg);
                 }
-                header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "success=UploadSuccess");
+                header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "success=" . urlencode("Upload Success. Automatic retention timer activated."));
             } else {
                  header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "error=DatabaseError");
             }

@@ -7,8 +7,18 @@ if(!isset($_SESSION['user_id'])) {
 }
 
 $role = $_SESSION['role'];
+// Pinalawak ang folder management access papunta sa Admin, GM, at President
 $can_manage = in_array($role, ['GM', 'President', 'Admin']);
-$can_manage_folders = ($role === 'Admin');
+$can_manage_folders = in_array($role, ['GM', 'President', 'Admin']);
+
+// Kuhanin ang active policies para sa paggawa ng Folder
+$policies = [];
+$pol_query = $conn->query("SELECT policy_id, policy_name, retention_years, retention_months FROM retention_policies ORDER BY policy_name ASC");
+if ($pol_query) {
+    while($p = $pol_query->fetch_assoc()) {
+        $policies[] = $p;
+    }
+}
 
 // ==========================================
 // FORM HANDLER: CREATE & DELETE COMPANY FOLDER
@@ -20,12 +30,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     
     if ($_POST['action'] === 'create_folder') {
         if (!$can_manage_folders) {
-            header("Location: general_docs.php?error=" . urlencode("Only the System Administrator can create Company Folders."));
+            header("Location: general_docs.php?error=" . urlencode("Only the Management and Admin can create Company Folders."));
             exit();
         }
 
         $new_folder = trim($_POST['new_folder_name']);
-        if (!empty($new_folder)) {
+        $policy_id = (isset($_POST['policy_id']) && $_POST['policy_id'] !== '') ? intval($_POST['policy_id']) : null;
+
+        if (!empty($new_folder) && $policy_id !== null) {
             $dup = $conn->prepare("SELECT id FROM company_folders WHERE LOWER(folder_name) = LOWER(?) LIMIT 1");
             $dup->bind_param("s", $new_folder);
             $dup->execute();
@@ -34,23 +46,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 exit();
             }
 
-            $stmt_create = $conn->prepare("INSERT INTO company_folders (folder_name) VALUES (?)");
-            $stmt_create->bind_param("s", $new_folder);
+            // Ininsert na din natin ang policy_id sa company_folders table
+            $stmt_create = $conn->prepare("INSERT INTO company_folders (folder_name, policy_id) VALUES (?, ?)");
+            $stmt_create->bind_param("si", $new_folder, $policy_id);
             if ($stmt_create->execute()) {
-                header("Location: general_docs.php?success=" . urlencode("New folder created successfully."));
+                header("Location: general_docs.php?success=" . urlencode("New folder successfully created and assigned to a retention policy."));
                 exit();
             } else {
-                header("Location: general_docs.php?error=" . urlencode("Failed to create folder."));
+                header("Location: general_docs.php?error=" . urlencode("Failed to create folder. Database error."));
                 exit();
             }
         }
-        header("Location: general_docs.php?error=" . urlencode("Folder name cannot be empty."));
+        header("Location: general_docs.php?error=" . urlencode("Folder name and Retention Policy are required."));
         exit();
     }
     
     if ($_POST['action'] === 'delete_folder') {
-        if ($role !== 'Admin') {
-            header("Location: general_docs.php?error=" . urlencode("Only the System Administrator can delete Company Folders."));
+        if (!$can_manage_folders) {
+            header("Location: general_docs.php?error=" . urlencode("You do not have permission to delete Company Folders."));
             exit();
         }
         
@@ -68,7 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 exit();
             }
         } else {
-            header("Location: general_docs.php?error=" . urlencode("Cannot delete folder. The folder must be completely empty."));
+            header("Location: general_docs.php?error=" . urlencode("Cannot delete folder. The folder must be completely empty before deletion."));
             exit();
         }
     }
@@ -490,7 +503,7 @@ if (empty($view_archives) && $type_filter === 'All') {
                 <div class="col-xl-3 col-lg-4 col-md-6">
                     <div class="folder-card position-relative p-3 h-100" onclick="if(!event.target.closest('.dropdown')) { window.location.href='?type=<?php echo urlencode($cat_name); ?>'; }">
                         
-                        <?php if ($role === 'Admin'): ?>
+                        <?php if ($can_manage_folders): ?>
                         <div class="dropdown position-absolute top-0 end-0 mt-2 me-2">
                             <button class="btn-dots dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
                                 <i class="fas fa-ellipsis-v"></i>
@@ -682,10 +695,32 @@ if (empty($view_archives) && $type_filter === 'All') {
                         <input type="hidden" name="action" value="create_folder">
                         
                         <div class="mb-3">
-                            <label class="form-label fw-semibold small text-secondary">New Folder Name</label>
-                            <input type="text" name="new_folder_name" class="form-control" style="border-radius: 8px;" placeholder="e.g. Health and Safety Protocols" required>
-                            <small class="text-muted mt-2 d-block" style="font-size: 0.75rem;"><i class="fas fa-info-circle"></i> Folders created here are accessible to all personnel.</small>
+                            <label class="form-label fw-semibold small text-secondary mb-1">Folder Name <span class="text-danger">*</span></label>
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text bg-light border-end-0 text-muted"><i class="fas fa-folder"></i></span>
+                                <input type="text" name="new_folder_name" class="form-control border-start-0 ps-0" style="border-radius: 0 8px 8px 0;" placeholder="e.g., Health and Safety Protocols" required>
+                            </div>
                         </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold small text-secondary mb-1">Retention Policy <span class="text-danger">*</span></label>
+                            <div class="input-group input-group-sm mb-2">
+                                <span class="input-group-text bg-light border-end-0 text-muted"><i class="fas fa-shield-alt"></i></span>
+                                <select name="policy_id" class="form-select border-start-0 ps-0" style="border-radius: 0 8px 8px 0;" required>
+                                    <option value="" selected disabled>Select a policy to assign...</option>
+                                    <?php foreach($policies as $p): ?>
+                                        <option value="<?php echo $p['policy_id']; ?>">
+                                            <?php echo htmlspecialchars($p['policy_name']) . ' (' . $p['retention_years'] . ' Yrs, ' . $p['retention_months'] . ' Mos)'; ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="p-2 bg-primary bg-opacity-10 border border-primary border-opacity-25 rounded-2 d-flex align-items-start gap-2">
+                                <i class="fas fa-info-circle text-primary mt-1" style="font-size: 0.85rem;"></i>
+                                <p class="mb-0 text-primary" style="font-size: 0.75rem; line-height: 1.4;">Files uploaded inside this folder will automatically inherit the selected retention schedule for lifecycle tracking.</p>
+                            </div>
+                        </div>
+
                     </div>
                     <div class="modal-footer bg-light border-top">
                         <button type="button" class="btn btn-light border" style="border-radius: 8px;" data-bs-dismiss="modal">Cancel</button>
@@ -715,7 +750,7 @@ if (empty($view_archives) && $type_filter === 'All') {
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label fw-semibold small text-secondary">Category</label>
+                            <label class="form-label fw-semibold small text-secondary">Select Folder Destination</label>
                             <select name="doc_type" class="form-select" style="border-radius: 8px;" required>
                                 <?php foreach($general_categories as $cat): ?>
                                     <option value="<?php echo htmlspecialchars($cat); ?>"><?php echo htmlspecialchars($cat); ?></option>
@@ -738,7 +773,7 @@ if (empty($view_archives) && $type_filter === 'All') {
     </div>
     <?php endif; ?>
 
-    <?php if ($role === 'Admin'): ?>
+    <?php if ($can_manage_folders): ?>
     <div class="modal fade confirm-modal" id="deleteFolderModal" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content border-0 shadow-sm">

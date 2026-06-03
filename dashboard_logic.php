@@ -7,231 +7,218 @@ if(!isset($_SESSION['user_id'])) header("Location: index.php");
 $role = $_SESSION['role'];
 $executives = ['GM', 'President'];
 
-$can_view_retention = in_array($role, $executives);
 $can_view_financials = in_array($role, array_merge($executives, ['Finance']));
-$can_view_records_kpi = in_array($role, $executives);
 $is_sales_staff = ($role === 'Sales Staff');
-$active_tab = $can_view_financials ? 'financial' : 'operations';
+
+// ==========================================
+// PERIOD FILTER LOGIC (PREPARED STATEMENT SAFE)
+// ==========================================
+$period = $_GET['period'] ?? 'all';
+
+function getDateFilter($column, $period) {
+    $start = $_GET['start'] ?? '';
+    $end = $_GET['end'] ?? '';
+    
+    switch ($period) {
+        case 'today': 
+            return ['sql' => "DATE($column) = CURDATE()", 'types' => '', 'params' => []];
+        case 'this_week': 
+            return ['sql' => "YEARWEEK($column, 1) = YEARWEEK(CURDATE(), 1)", 'types' => '', 'params' => []];
+        case 'this_month': 
+            return ['sql' => "MONTH($column) = MONTH(CURDATE()) AND YEAR($column) = YEAR(CURDATE())", 'types' => '', 'params' => []];
+        case 'this_year': 
+            return ['sql' => "YEAR($column) = YEAR(CURDATE())", 'types' => '', 'params' => []];
+        case 'custom':
+            if(!empty($start) && !empty($end)) {
+                $s = date('Y-m-d', strtotime($start));
+                $e = date('Y-m-d', strtotime($end));
+                return ['sql' => "DATE($column) BETWEEN ? AND ?", 'types' => 'ss', 'params' => [$s, $e]];
+            }
+            return ['sql' => "1=1", 'types' => '', 'params' => []];
+        default: 
+            return ['sql' => "1=1", 'types' => '', 'params' => []]; // All Time (default)
+    }
+}
+
+$audit_date = getDateFilter('timestamp', $period);
+$user_date  = getDateFilter('created_at', $period);
+$doc_date   = getDateFilter('uploaded_at', $period);
+$req_date   = getDateFilter('created_at', $period);
+$pr_date    = getDateFilter('date_created', $period);
+$po_date    = getDateFilter('date_created', $period);
+$q_date     = getDateFilter('created_at', $period);
+
+// HELPER FUNCTION: Mabilisang Prepared Statement execution para sa mga COUNT() at AVG()
+function get_count($conn, $sql, $types, $params) {
+    $stmt = $conn->prepare($sql);
+    if ($stmt) {
+        if (!empty($params)) {
+            $stmt->bind_param($types, ...$params);
+        }
+        $stmt->execute();
+        $res = $stmt->get_result();
+        if ($res && $row = $res->fetch_row()) {
+            return $row[0];
+        }
+    }
+    return 0;
+}
 
 // ==========================================
 // ROLE-SPECIFIC KPI STATS
 // ==========================================
-
-// 1. ADMIN STATS
 $admin_stats = ['total_users' => 0, 'audit_today' => 0, 'total_files' => 0, 'pending_requests' => 0];
 if ($role === 'Admin') {
-    $admin_stats['total_users'] = $conn->query("SELECT COUNT(*) FROM users")->fetch_row()[0] ?? 0;
-    $admin_stats['audit_today'] = $conn->query("SELECT COUNT(*) FROM audit_logs WHERE DATE(timestamp) = CURDATE()")->fetch_row()[0] ?? 0;
-    $admin_stats['total_files'] = $conn->query("SELECT COUNT(*) FROM documents")->fetch_row()[0] ?? 0;
-    $admin_stats['pending_requests'] = $conn->query("SELECT COUNT(*) FROM user_requests WHERE status = 'Pending'")->fetch_row()[0] ?? 0;
+    $admin_stats['total_users'] = get_count($conn, "SELECT COUNT(*) FROM users WHERE {$user_date['sql']}", $user_date['types'], $user_date['params']);
+    $admin_stats['audit_today'] = get_count($conn, "SELECT COUNT(*) FROM audit_logs WHERE {$audit_date['sql']}", $audit_date['types'], $audit_date['params']);
+    $admin_stats['total_files'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
+    $admin_stats['pending_requests'] = get_count($conn, "SELECT COUNT(*) FROM user_requests WHERE status = 'Pending' AND {$req_date['sql']}", $req_date['types'], $req_date['params']);
 }
 
-// 2. SALES STAFF STATS (UPDATED FOR QUOTATION TRACKER)
 $sales_stats = [
-    'total' => 0, 
-    'pending' => 0, 
-    'approved' => 0, 
-    'rejected' => 0, 
-    'pending_quotations' => 0, 
-    'received_client_po' => 0
+    'total' => 0, 'pending' => 0, 'approved' => 0, 'rejected' => 0, 'pending_quotations' => 0, 'received_client_po' => 0
 ];
 if ($is_sales_staff) {
-    // Existing PR Stats
-    $sales_stats['total'] = $conn->query("SELECT COUNT(*) FROM purchase_requests")->fetch_row()[0] ?? 0;
-    $sales_stats['pending'] = $conn->query("SELECT COUNT(*) FROM purchase_requests WHERE status = 'Pending'")->fetch_row()[0] ?? 0;
-    $sales_stats['approved'] = $conn->query("SELECT COUNT(*) FROM purchase_requests WHERE status IN ('Approved', 'Converted_to_PO')")->fetch_row()[0] ?? 0;
-    $sales_stats['rejected'] = $conn->query("SELECT COUNT(*) FROM purchase_requests WHERE status = 'Rejected'")->fetch_row()[0] ?? 0;
-    
-    // New Quotation Tracker Stats
-    $sales_stats['pending_quotations'] = $conn->query("SELECT COUNT(*) FROM quotations WHERE status = 'Pending PO'")->fetch_row()[0] ?? 0;
-    $sales_stats['received_client_po'] = $conn->query("SELECT COUNT(*) FROM quotations WHERE status = 'PO Received'")->fetch_row()[0] ?? 0;
+    $sales_stats['total'] = get_count($conn, "SELECT COUNT(*) FROM purchase_requests WHERE {$pr_date['sql']}", $pr_date['types'], $pr_date['params']);
+    $sales_stats['pending'] = get_count($conn, "SELECT COUNT(*) FROM purchase_requests WHERE status = 'Pending' AND {$pr_date['sql']}", $pr_date['types'], $pr_date['params']);
+    $sales_stats['approved'] = get_count($conn, "SELECT COUNT(*) FROM purchase_requests WHERE status IN ('Approved', 'Converted_to_PO') AND {$pr_date['sql']}", $pr_date['types'], $pr_date['params']);
+    $sales_stats['rejected'] = get_count($conn, "SELECT COUNT(*) FROM purchase_requests WHERE status = 'Rejected' AND {$pr_date['sql']}", $pr_date['types'], $pr_date['params']);
+    $sales_stats['pending_quotations'] = get_count($conn, "SELECT COUNT(*) FROM quotations WHERE status = 'Pending PO' AND {$q_date['sql']}", $q_date['types'], $q_date['params']);
+    $sales_stats['received_client_po'] = get_count($conn, "SELECT COUNT(*) FROM quotations WHERE status = 'PO Received' AND {$q_date['sql']}", $q_date['types'], $q_date['params']);
 }
 
-// 3. PROCUREMENT STATS
 $proc_stats = ['total' => 0, 'pending' => 0, 'funded' => 0, 'delivered' => 0];
 if ($role === 'Procurement') {
-    $proc_stats['total'] = $conn->query("SELECT COUNT(*) FROM purchase_orders")->fetch_row()[0] ?? 0;
-    $proc_stats['pending'] = $conn->query("SELECT COUNT(*) FROM purchase_orders WHERE status IN ('Pending', 'GM-Approved', 'Finance-Approved', 'President-Approved')")->fetch_row()[0] ?? 0;
-    $proc_stats['funded'] = $conn->query("SELECT COUNT(*) FROM purchase_orders WHERE status = 'Funded'")->fetch_row()[0] ?? 0;
-    $proc_stats['delivered'] = $conn->query("SELECT COUNT(*) FROM purchase_orders WHERE status = 'Collected'")->fetch_row()[0] ?? 0;
+    $proc_stats['total'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE {$po_date['sql']}", $po_date['types'], $po_date['params']);
+    $proc_stats['pending'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status IN ('Pending', 'GM-Approved', 'Finance-Approved', 'President-Approved') AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
+    $proc_stats['funded'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Funded' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
+    $proc_stats['delivered'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Collected' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
 }
 
-// 4. GM & PRESIDENT STATS
 $exec_stats = ['active_docs' => 0, 'archived_docs' => 0, 'pending_pr' => 0, 'pending_po' => 0];
 if (in_array($role, $executives)) {
-    $exec_stats['active_docs'] = $conn->query("SELECT COUNT(*) FROM documents WHERE status = 'Active'")->fetch_row()[0] ?? 0;
-    $exec_stats['archived_docs'] = $conn->query("SELECT COUNT(*) FROM documents WHERE status = 'Archived'")->fetch_row()[0] ?? 0;
-    
-    $exec_stats['pending_pr'] = $conn->query("SELECT COUNT(*) FROM purchase_requests WHERE status = 'Pending'")->fetch_row()[0] ?? 0;
-    
+    $exec_stats['active_docs'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE status = 'Active' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
+    $exec_stats['archived_docs'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE status = 'Archived' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
+    $exec_stats['pending_pr'] = get_count($conn, "SELECT COUNT(*) FROM purchase_requests WHERE status = 'Pending' AND {$pr_date['sql']}", $pr_date['types'], $pr_date['params']);
     if ($role === 'GM') {
-        $exec_stats['pending_po'] = $conn->query("SELECT COUNT(*) FROM purchase_orders WHERE status = 'Pending'")->fetch_row()[0] ?? 0;
+        $exec_stats['pending_po'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Pending' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
     } else {
-        $exec_stats['pending_po'] = $conn->query("SELECT COUNT(*) FROM purchase_orders WHERE status = 'Finance-Approved'")->fetch_row()[0] ?? 0;
+        $exec_stats['pending_po'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Finance-Approved' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
     }
 }
 
-// 5. FINANCE STATS
 $finance_stats = ['pending_po' => 0, 'funded_po' => 0, 'invoices' => 0, 'receipts' => 0];
 if ($role === 'Finance') {
-    $finance_stats['pending_po'] = $conn->query("SELECT COUNT(*) FROM purchase_orders WHERE status = 'GM-Approved'")->fetch_row()[0] ?? 0;
-    $finance_stats['funded_po'] = $conn->query("SELECT COUNT(*) FROM purchase_orders WHERE status = 'Funded'")->fetch_row()[0] ?? 0;
-    $finance_stats['invoices'] = $conn->query("SELECT COUNT(*) FROM documents WHERE category = 'Invoices' AND status='Active'")->fetch_row()[0] ?? 0;
-    $finance_stats['receipts'] = $conn->query("SELECT COUNT(*) FROM documents WHERE category = 'Official receipts' AND status='Active'")->fetch_row()[0] ?? 0;
+    $finance_stats['pending_po'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'GM-Approved' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
+    $finance_stats['funded_po'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Funded' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
+    $finance_stats['invoices'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE category = 'Invoices' AND status='Active' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
+    $finance_stats['receipts'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE category = 'Official receipts' AND status='Active' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
 }
 
-// 6. SUPPLY CHAIN STATS
 $sc_stats = ['incoming_po' => 0, 'collected_po' => 0, 'dr_count' => 0, 'supplier_docs' => 0];
 if ($role === 'Supply Chain') {
-    $sc_stats['incoming_po'] = $conn->query("SELECT COUNT(*) FROM purchase_orders WHERE status = 'Funded'")->fetch_row()[0] ?? 0;
-    $sc_stats['collected_po'] = $conn->query("SELECT COUNT(*) FROM purchase_orders WHERE status IN ('Collected', 'Delivered')")->fetch_row()[0] ?? 0;
-    $sc_stats['dr_count'] = $conn->query("SELECT COUNT(*) FROM documents WHERE category = 'Delivery receipts' AND status='Active'")->fetch_row()[0] ?? 0;
-    $sc_stats['supplier_docs'] = $conn->query("SELECT COUNT(*) FROM documents WHERE category = 'Supplier transaction records' AND status='Active'")->fetch_row()[0] ?? 0;
+    $sc_stats['incoming_po'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Funded' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
+    $sc_stats['collected_po'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status IN ('Collected', 'Delivered') AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
+    $sc_stats['dr_count'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE category = 'Delivery receipts' AND status='Active' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
+    $sc_stats['supplier_docs'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE category = 'Supplier transaction records' AND status='Active' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
 }
 
-// 7. TECHNICAL STATS
 $tech_stats = ['tickets' => 0, 'diagnostics' => 0, 'job_orders' => 0, 'total' => 0];
 if ($role === 'Technical') {
-    $tech_stats['tickets'] = $conn->query("SELECT COUNT(*) FROM documents WHERE category = 'Service tickets' AND status='Active'")->fetch_row()[0] ?? 0;
-    $tech_stats['diagnostics'] = $conn->query("SELECT COUNT(*) FROM documents WHERE category = 'Diagnostic reports' AND status='Active'")->fetch_row()[0] ?? 0;
-    $tech_stats['job_orders'] = $conn->query("SELECT COUNT(*) FROM documents WHERE category = 'Job orders' AND status='Active'")->fetch_row()[0] ?? 0;
+    $tech_stats['tickets'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE category = 'Service tickets' AND status='Active' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
+    $tech_stats['diagnostics'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE category = 'Diagnostic reports' AND status='Active' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
+    $tech_stats['job_orders'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE category = 'Job orders' AND status='Active' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
     $tech_stats['total'] = $tech_stats['tickets'] + $tech_stats['diagnostics'] + $tech_stats['job_orders'];
 }
 
-// 8. ADMINISTRATIVE / STAFF STATS
 $admin_staff_stats = ['leaves' => 0, 'notices' => 0, 'memos' => 0, 'policies' => 0];
 if (in_array($role, ['Administrative', 'Staff'])) {
-    $admin_staff_stats['leaves'] = $conn->query("SELECT COUNT(*) FROM documents WHERE category = 'Leave forms' AND status='Active'")->fetch_row()[0] ?? 0;
-    $admin_staff_stats['notices'] = $conn->query("SELECT COUNT(*) FROM documents WHERE category = 'Employee correspondence and notices' AND status='Active'")->fetch_row()[0] ?? 0;
-    $admin_staff_stats['memos'] = $conn->query("SELECT COUNT(*) FROM documents WHERE category = 'Internal memorandums' AND status='Active'")->fetch_row()[0] ?? 0;
-    $admin_staff_stats['policies'] = $conn->query("SELECT COUNT(*) FROM documents WHERE category = 'Company policies and procedures' AND status='Active'")->fetch_row()[0] ?? 0;
+    $admin_staff_stats['leaves'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE category = 'Leave forms' AND status='Active' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
+    $admin_staff_stats['notices'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE category = 'Employee correspondence and notices' AND status='Active' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
+    $admin_staff_stats['memos'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE category = 'Internal memorandums' AND status='Active' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
+    $admin_staff_stats['policies'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE category = 'Company policies and procedures' AND status='Active' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
 }
 
-
 // ==========================================
-// NOTIFICATIONS & RETENTION ALERTS
-// ==========================================
-if ($can_view_retention) {
-    if (!isset($_SESSION['alerts_generated_today']) || $_SESSION['alerts_generated_today'] !== date('Y-m-d')) {
-        $expiring_query_db = $conn->query("SELECT doc_id, file_name FROM documents WHERE expiry_date IS NOT NULL AND expiry_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND status = 'Active'");
-        
-        while ($edoc = $expiring_query_db->fetch_assoc()) {
-            $fname = $edoc['file_name'];
-            $msg = "Retention Alert: Document '" . $fname . "' requires attention (Expiring/Expired).";
-            
-            $check_stmt = $conn->prepare("SELECT notif_id FROM notifications WHERE target_role = ? AND message = ?");
-            $check_stmt->bind_param("ss", $role, $msg);
-            $check_stmt->execute();
-            
-            if ($check_stmt->get_result()->num_rows == 0) {
-                $insert_stmt = $conn->prepare("INSERT INTO notifications (target_role, message, is_read) VALUES (?, ?, 0)");
-                $insert_stmt->bind_param("ss", $role, $msg);
-                $insert_stmt->execute();
-            }
-        }
-        $_SESSION['alerts_generated_today'] = date('Y-m-d');
-    }
-}
-
-$notif_query_str = "SELECT * FROM notifications WHERE target_role = '$role' AND is_read = 0";
-if ($role !== 'Admin' && !in_array($role, ['GM', 'President'])) {
-    $notif_query_str .= " AND message NOT LIKE 'Retention Alert:%' AND message NOT LIKE 'DSS Alert:%'";
-}
-$notif_query_str .= " ORDER BY created_at DESC LIMIT 5";
-$bell_notifications = $conn->query($notif_query_str);
-$total_unread = $bell_notifications->num_rows;
-
-
-// ==========================================
-// GLOBAL TURNAROUND & CHART STATS
+// GLOBAL TURNAROUND STATS (PREPARED STATEMENT)
 // ==========================================
 if ($role !== 'Admin') {
     $stats = get_dashboard_stats($conn, $role);
 
-    $turnaround_query = $conn->query("
+    $turn_filter = getDateFilter('h1.timestamp', $period);
+    $turnaround_sql = "
         SELECT AVG(days) as avg_days FROM (
             SELECT DATEDIFF(MAX(h2.timestamp), MIN(h1.timestamp)) as days
             FROM po_history h1
             JOIN po_history h2 ON h1.po_id = h2.po_id
             WHERE h1.status_to IN ('Pending', 'New') AND h2.status_to IN ('Delivered', 'Collected')
+            AND {$turn_filter['sql']}
             GROUP BY h1.po_id
         ) as subquery
-    ");
-    $turnaround = round($turnaround_query->fetch_assoc()['avg_days'] ?? 0, 1);
-
-    $expiring_query = $conn->query("SELECT COUNT(*) as count FROM documents WHERE expiry_date IS NOT NULL AND expiry_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND status = 'Active'");
-    $expiring_docs = $expiring_query->fetch_assoc()['count'] ?? 0;
-
-    $retention_docs = []; 
-    $retention_data = []; 
-    $total_tracked = 0; $total_expired = 0; $total_expiring_soon = 0; $total_safe = 0;
-    
-    $retention_search = $_GET['retention_search'] ?? '';
-    $retention_filter = $_GET['retention_filter'] ?? 'All';
-
-    if ($can_view_retention) {
-        $retention_where = "WHERE d.expiry_date IS NOT NULL AND d.status = 'Active'";
-        $params = [];
-        $types = "";
-
-        if (!empty($retention_search)) {
-            $retention_where .= " AND d.file_name LIKE ?";
-            $search_param = "%" . $retention_search . "%";
-            $params[] = $search_param;
-            $types .= "s";
-        }
-
-        $retention_query = "
-            SELECT d.*, p.po_number, u.full_name 
-            FROM documents d 
-            LEFT JOIN purchase_orders p ON d.po_id = p.po_id 
-            LEFT JOIN users u ON d.uploaded_by = u.user_id 
-            $retention_where
-            ORDER BY d.expiry_date ASC";
-
-        $stmt = $conn->prepare($retention_query);
-        if (!empty($params)) {
-            $stmt->bind_param($types, ...$params);
-        }
-        $stmt->execute();
-        $retention_result = $stmt->get_result();
-
-        if($retention_result && $retention_result->num_rows > 0) {
-            $current_date_obj = new DateTime(date('Y-m-d')); 
-            while($row = $retention_result->fetch_assoc()) {
-                $total_tracked++;
-                $exp_date_obj = new DateTime(date('Y-m-d', strtotime($row['expiry_date'])));
-                $diff = $current_date_obj->diff($exp_date_obj);
-                $days_left = (int)$diff->format('%r%a');
-                
-                $doc_status = "Safe";
-                if ($days_left <= 0) { $doc_status = "Expired"; $total_expired++; } 
-                elseif ($days_left <= 30) { $doc_status = "Expiring"; $total_expiring_soon++; } 
-                else { $total_safe++; }
-
-                if ($retention_filter === 'All' || $retention_filter === $doc_status) {
-                    $row['days_left'] = $days_left;
-                    $row['retention_status'] = $doc_status;
-                    $retention_docs[] = $row;
-                }
-            }
-            $retention_data = $retention_docs; 
-        }
+    ";
+    $stmt_turn = $conn->prepare($turnaround_sql);
+    if(!empty($turn_filter['params'])) {
+        $stmt_turn->bind_param($turn_filter['types'], ...$turn_filter['params']);
     }
+    $stmt_turn->execute();
+    $turnaround = round($stmt_turn->get_result()->fetch_assoc()['avg_days'] ?? 0, 1);
 }
 
 // ==========================================
-// DYNAMIC ROLE-BASED DASHBOARD RECENT FILES 
+// PREPARING QUERIES FOR DASHBOARD TABLES
+// (Inilipat dito mula sa dashboard.php)
+// ==========================================
+$my_recent = null;
+if ($role !== 'Admin') {
+    if ($is_sales_staff) {
+        $ws_sql = "SELECT pr_id as id, pr_number as number, client_name, amount, status, date_created FROM purchase_requests WHERE {$pr_date['sql']} ORDER BY date_created DESC LIMIT 10";
+        $stmt_ws = $conn->prepare($ws_sql);
+        if(!empty($pr_date['params'])) $stmt_ws->bind_param($pr_date['types'], ...$pr_date['params']);
+    } else if ($role == 'Procurement') {
+        $ws_sql = "SELECT po_id as id, po_number as number, client_name, amount, status, current_location, date_created FROM purchase_orders WHERE {$po_date['sql']} ORDER BY date_created DESC LIMIT 10";
+        $stmt_ws = $conn->prepare($ws_sql);
+        if(!empty($po_date['params'])) $stmt_ws->bind_param($po_date['types'], ...$po_date['params']);
+    } else {
+        $ws_sql = "SELECT po_id as id, po_number as number, client_name, amount, status, current_location, date_created FROM purchase_orders WHERE status NOT IN ('Collected', 'Invalid') AND {$po_date['sql']} ORDER BY date_created DESC LIMIT 10";
+        $stmt_ws = $conn->prepare($ws_sql);
+        if(!empty($po_date['params'])) $stmt_ws->bind_param($po_date['types'], ...$po_date['params']);
+    }
+    $stmt_ws->execute();
+    $my_recent = $stmt_ws->get_result();
+}
+
+$recent_audit = null;
+if ($role === 'Admin') {
+    $ra_sql = "SELECT a.*, u.full_name, u.role FROM audit_logs a LEFT JOIN users u ON a.user_id = u.user_id WHERE {$audit_date['sql']} ORDER BY a.timestamp DESC LIMIT 10";
+    $stmt_ra = $conn->prepare($ra_sql);
+    if(!empty($audit_date['params'])) {
+        $stmt_ra->bind_param($audit_date['types'], ...$audit_date['params']);
+    }
+    $stmt_ra->execute();
+    $recent_audit = $stmt_ra->get_result();
+}
+
+$recent_pos = null;
+if ($can_view_financials) {
+    $rp_sql = "SELECT po_id, po_number, client_name, status, date_created FROM purchase_orders WHERE {$po_date['sql']} ORDER BY date_created DESC LIMIT 6";
+    $stmt_rp = $conn->prepare($rp_sql);
+    if(!empty($po_date['params'])) {
+        $stmt_rp->bind_param($po_date['types'], ...$po_date['params']);
+    }
+    $stmt_rp->execute();
+    $recent_pos = $stmt_rp->get_result();
+}
+
+// ==========================================
+// RBAC CATEGORY & RECENT FILES
 // ==========================================
 $rbac_categories = [];
 $all_cats = [];
 
-// Kinukuha mula sa database lahat ng assigned roles sa halip na i-hardcode.
 $cat_query = $conn->query("SELECT sub_category, assigned_to_role FROM document_categories");
 if ($cat_query) {
     while ($row = $cat_query->fetch_assoc()) {
         $all_cats[] = $row['sub_category'];
-        
         if (!empty($row['assigned_to_role'])) {
             $roles = explode(',', $row['assigned_to_role']);
             foreach ($roles as $r) {
@@ -243,7 +230,6 @@ if ($cat_query) {
 }
 
 $is_top_mgmt = in_array($role, ['Admin', 'GM', 'President']);
-
 if ($is_top_mgmt) {
     $user_categories = $all_cats;
 } else {
@@ -251,19 +237,21 @@ if ($is_top_mgmt) {
 }
 
 $recent_dashboard_files = null;
-
 if (!empty($user_categories)) {
     $placeholders = implode(',', array_fill(0, count($user_categories), '?'));
     $q_str = "
         SELECT d.*, u.full_name 
         FROM documents d 
         LEFT JOIN users u ON d.uploaded_by = u.user_id 
-        WHERE d.status = 'Active' AND d.category IN ($placeholders) 
+        WHERE d.status = 'Active' AND d.category IN ($placeholders) AND {$doc_date['sql']}
         ORDER BY d.uploaded_at DESC LIMIT 5";
     $stmt_rf = $conn->prepare($q_str);
     if ($stmt_rf) {
-        $types_rf = str_repeat('s', count($user_categories));
-        $stmt_rf->bind_param($types_rf, ...$user_categories);
+        $types_rf = str_repeat('s', count($user_categories)) . $doc_date['types'];
+        $params_rf = array_merge($user_categories, $doc_date['params']);
+        if(!empty($params_rf)) {
+            $stmt_rf->bind_param($types_rf, ...$params_rf);
+        }
         $stmt_rf->execute();
         $recent_dashboard_files = $stmt_rf->get_result();
     }

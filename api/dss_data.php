@@ -16,13 +16,39 @@ if (!in_array($_SESSION['role'], $allowed_dss_roles)) {
 }
 
 $action = $_GET['action'] ?? '';
+$period = $_GET['period'] ?? 'all'; 
 
+function getDateFilter($column, $period) {
+    $start = $_GET['start'] ?? '';
+    $end = $_GET['end'] ?? '';
+    
+    switch ($period) {
+        case 'today': 
+            return "DATE($column) = CURDATE()";
+        case 'this_week': 
+            return "YEARWEEK($column, 1) = YEARWEEK(CURDATE(), 1)";
+        case 'this_month': 
+            return "MONTH($column) = MONTH(CURDATE()) AND YEAR($column) = YEAR(CURDATE())";
+        case 'this_year': 
+            return "YEAR($column) = YEAR(CURDATE())";
+        case 'custom':
+            if(!empty($start) && !empty($end)) {
+                $s = date('Y-m-d', strtotime($start));
+                $e = date('Y-m-d', strtotime($end));
+                return "DATE($column) BETWEEN '$s' AND '$e'";
+            }
+            return "1=1";
+        default: 
+            return "1=1"; 
+    }
+}
 
 if ($action === 'revenue_forecast') {
+    $date_filter = getDateFilter('date_created', $period);
     $query = "
         SELECT DATE_FORMAT(date_created, '%Y-%m') as month, SUM(amount) as total
         FROM purchase_orders
-        WHERE status NOT IN ('Rejected', 'Invalid')
+        WHERE status NOT IN ('Rejected', 'Invalid') AND $date_filter
         GROUP BY month
         ORDER BY month ASC
     ";
@@ -82,7 +108,8 @@ if ($action === 'revenue_forecast') {
 }
 
 elseif ($action === 'bottleneck_analysis') {
-    $query = "SELECT po_id, status_to, timestamp FROM po_history ORDER BY po_id ASC, timestamp ASC";
+    $date_filter = getDateFilter('timestamp', $period);
+    $query = "SELECT po_id, status_to, timestamp FROM po_history WHERE $date_filter ORDER BY po_id ASC, timestamp ASC";
     $result = $conn->query($query);
     
     $po_data = [];
@@ -134,10 +161,11 @@ elseif ($action === 'bottleneck_analysis') {
 }
 
 elseif ($action === 'top_clients') {
+    $date_filter = getDateFilter('date_created', $period);
     $query = "
         SELECT client_name, SUM(amount) as total_revenue
         FROM purchase_orders
-        WHERE status NOT IN ('Rejected', 'Invalid')
+        WHERE status NOT IN ('Rejected', 'Invalid') AND $date_filter
         GROUP BY client_name
         ORDER BY total_revenue DESC
         LIMIT 5
@@ -155,11 +183,12 @@ elseif ($action === 'top_clients') {
 }
 
 elseif ($action === 'top_categories') {
+    $date_filter = getDateFilter('o.date_created', $period);
     $query = "
         SELECT p.category, SUM(p.total_price) as revenue
         FROM po_items p
         JOIN purchase_orders o ON p.po_id = o.po_id
-        WHERE o.status NOT IN ('Rejected', 'Invalid')
+        WHERE o.status NOT IN ('Rejected', 'Invalid') AND $date_filter
         GROUP BY p.category
         ORDER BY revenue DESC
     ";
@@ -188,12 +217,13 @@ elseif ($action === 'top_categories') {
 }
 
 elseif ($action === 'workload_distribution') {
-    // FIX: Idinagdag ang 'Voided' sa NOT IN para hindi isama sa departments
+    $date_filter = getDateFilter('date_created', $period);
     $query = "
         SELECT current_location, COUNT(po_id) as pending_count 
         FROM purchase_orders 
         WHERE status NOT IN ('Collected', 'Rejected', 'Invalid') 
         AND current_location NOT IN ('Closed', '', 'Voided')
+        AND $date_filter
         GROUP BY current_location 
         ORDER BY pending_count DESC
     ";
@@ -210,11 +240,13 @@ elseif ($action === 'workload_distribution') {
 }
 
 elseif ($action === 'rejection_rate') {
+    $date_filter = getDateFilter('date_created', $period);
     $query = "
         SELECT 
             SUM(CASE WHEN status IN ('Rejected', 'Invalid') THEN 1 ELSE 0 END) as rejected_count,
             SUM(CASE WHEN status NOT IN ('Rejected', 'Invalid') THEN 1 ELSE 0 END) as passed_count
         FROM purchase_orders
+        WHERE $date_filter
     ";
     $result = $conn->query($query);
     $labels = ['Passed / Active', 'Rejected / Rework'];
