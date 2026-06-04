@@ -2,857 +2,364 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Overview - Fixie DRMS</title>
+    <title>Overview & Analytics - Fixie DRMS</title>
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
     <link href="assets/css/style.css" rel="stylesheet">
     <link href="assets/css/dashboard.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
     
+    <!-- Flatpickr CSS (Core Only, Native header is hidden) -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    
+    <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <style>
-        .badge-subtle-success { background-color: rgba(25, 135, 84, 0.1); color: #198754; border: 1px solid rgba(25, 135, 84, 0.2); }
-        .badge-subtle-warning { background-color: rgba(255, 193, 7, 0.1); color: #D97706; border: 1px solid rgba(255, 193, 7, 0.2); }
-        .badge-subtle-danger { background-color: rgba(220, 53, 69, 0.1); color: #dc3545; border: 1px solid rgba(220, 53, 69, 0.2); }
-        .table-professional th { font-size: 0.7rem; letter-spacing: 0.5px; font-weight: 600; }
-        .table-professional td { font-size: 0.8rem; vertical-align: middle; }
-        .hover-dark:hover { color: #1e293b !important; }
-        
-        .sleek-filter-group {
-            border-radius: 50px;
-            border: 1px solid #e2e8f0;
-            background-color: #ffffff;
-            transition: all 0.2s ease-in-out;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.03);
-            overflow: hidden; 
-            flex-wrap: nowrap;
+        /* Enterprise Corporate UI Variables */
+        :root {
+            --bg-body: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --border-light: #e2e8f0;
+            --primary: #2563eb;
+            --primary-glow: rgba(37, 99, 235, 0.2);
         }
-        .sleek-filter-group:hover {
-            border-color: #94a3b8;
-            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
-        }
-        .sleek-filter-group .input-group-text {
-            background-color: transparent !important;
-            border: none !important;
-            padding-left: 1rem;
-            color: #64748b;
-        }
-        .sleek-filter-group select, 
-        .sleek-filter-group input {
-            background-color: transparent !important;
-            border: none !important;
-            font-size: 0.85rem !important;
-            font-weight: 600;
-            color: #334155;
-            box-shadow: none !important;
-            padding-right: 1rem;
-        }
-        .sleek-filter-group select:focus, 
-        .sleek-filter-group input:focus {
-            box-shadow: none !important;
-            outline: none !important;
+        body, .main-content {
+            background-color: var(--bg-body) !important;
+            font-family: 'Inter', 'Segoe UI', Roboto, sans-serif;
+            color: var(--text-main);
         }
 
-        .sleek-filter-group select {
-            width: auto !important;
-            min-width: 95px !important;
+        /* PREMIUM BUTTON TRIGGER */
+        .btn-filter-trigger {
+            background: #ffffff; border: 1px solid #cbd5e1; color: #334155; font-weight: 600;
+            font-size: 0.85rem; padding: 0.55rem 1.1rem; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            display: inline-flex; align-items: center; gap: 8px; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        #customDateWrapper .sleek-filter-group input.form-control {
-            min-width: 260px !important; 
-            text-align: center;
+        .btn-filter-trigger:hover, .btn-filter-trigger[aria-expanded="true"] {
+            border-color: var(--primary); color: var(--primary); box-shadow: 0 4px 12px var(--primary-glow);
         }
         
-        .flatpickr-calendar {
-            font-family: 'Inter', 'Segoe UI', Roboto, sans-serif !important;
-            width: 290px !important; 
-            border: 1px solid #e2e8f0 !important;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.08) !important;
-            border-radius: 12px !important;
-            padding: 10px !important;
+        /* PREMIUM MINIMALIST POPOVER */
+        .filter-dropdown-menu {
+            width: auto; 
+            min-width: 600px; 
+            border-radius: 16px; 
+            padding: 0;
+            margin-top: 12px !important; 
+            box-shadow: 0 20px 40px -10px rgba(0,0,0,0.15), 0 0 0 1px rgba(0,0,0,0.05);
+            border: none; 
+            background: #ffffff;
+            transform-origin: top right;
         }
-        .flatpickr-months { margin-bottom: 8px !important; }
-        .flatpickr-current-month { font-size: 1.05rem !important; font-weight: 700 !important; color: #1e293b !important; }
-        .flatpickr-day {
-            font-size: 0.85rem !important;
-            border-radius: 6px !important;
-            max-width: 34px !important;
-            height: 34px !important;
-            line-height: 34px !important;
-            color: #475569 !important;
-            margin-top: 2px !important;
+        .filter-dropdown-menu.show {
+            animation: smoothPopover 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
-        .flatpickr-day.inRange, .flatpickr-day.prevMonthDay.inRange, .flatpickr-day.nextMonthDay.inRange, .flatpickr-day.today.inRange {
-            background: rgba(13, 110, 253, 0.1) !important;
-            border-color: transparent !important;
-            box-shadow: -5px 0 0 rgba(13, 110, 253, 0.1), 5px 0 0 rgba(13, 110, 253, 0.1) !important;
+        @keyframes smoothPopover {
+            0% { opacity: 0; transform: translateY(-8px) scale(0.98); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
         }
-        .flatpickr-day.selected, .flatpickr-day.startRange, .flatpickr-day.endRange, .flatpickr-day.selected:focus, .flatpickr-day.selected:hover {
-            background: #0d6efd !important;
-            border-color: #0d6efd !important;
-            color: #ffffff !important;
-            font-weight: 700 !important;
-            border-radius: 6px !important;
+        
+        /* SLEEK QUICK LINKS */
+        .quick-filter-title {
+            font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; margin-bottom: 12px;
         }
-        .flatpickr-weekdays { height: 24px !important; }
-        span.flatpickr-weekday { font-size: 0.75rem !important; font-weight: 600 !important; color: #94a3b8 !important; }
+        .quick-filter-btn {
+            display: block; width: 100%; text-align: left; 
+            padding: 8px 12px; border-radius: 8px; margin-bottom: 4px; cursor: pointer;
+            color: #475569; font-weight: 500; font-size: 0.85rem; transition: all 0.2s ease; 
+            background: transparent; border: none;
+        }
+        .quick-filter-btn:hover { background: #f1f5f9; color: #0f172a; }
+        .quick-filter-btn.active { background: #eff6ff; color: var(--primary); font-weight: 600; }
+        
+        /* =========================================
+           100% INDEPENDENT CUSTOM CALENDAR HEADER 
+           ========================================= */
+        .flatpickr-months { display: none !important; } /* TANGGALIN ANG NATIVE BULKY HEADER */
+        
+        .custom-cal-header { width: 100%; max-width: 320px; margin: 0 auto; user-select: none; }
+        .custom-cal-nav {
+            height: 34px; width: 34px; display: flex; align-items: center; justify-content: center; 
+            border-radius: 8px; transition: 0.2s; background: #f8fafc; border: 1px solid #cbd5e1; cursor: pointer; color: #475569;
+        }
+        .custom-cal-nav:hover { background: #e2e8f0; border-color: #94a3b8; color: #0f172a; }
+        
+        .custom-cal-select {
+            appearance: none; -webkit-appearance: none; -moz-appearance: none;
+            background-color: #f8fafc;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+            background-repeat: no-repeat; background-position: right 8px center; background-size: 14px;
+            border: 1px solid #cbd5e1; color: #1e293b; font-weight: 700;
+            padding: 4px 28px 4px 12px; border-radius: 8px; cursor: pointer;
+            transition: all 0.2s ease; outline: none; font-size: 0.9rem; height: 34px;
+        }
+        .custom-cal-select:hover, .custom-cal-select:focus { background-color: #eff6ff; border-color: #93c5fd; color: var(--primary); }
 
-        .chart-container {
-            position: relative;
-            height: 320px; 
-            width: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+        /* CALENDAR BODY */
+        .calendar-wrapper { width: 320px; margin: 0 auto; display: flex; justify-content: center; }
+        .flatpickr-calendar { box-shadow: none !important; border: none !important; width: 100% !important; padding: 0 !important; background: transparent; }
+        
+        .flatpickr-weekdays { height: 24px; margin-bottom: 5px; }
+        .flatpickr-weekday { color: #94a3b8; font-weight: 600; font-size: 0.7rem; text-transform: uppercase; }
+        .flatpickr-days { border: none !important; width: 100% !important; }
+        .dayContainer { width: 100% !important; min-width: 100% !important; max-width: 100% !important; }
+        
+        /* Individual Days */
+        .flatpickr-day { 
+            border-radius: 8px !important; font-weight: 500; color: #334155; transition: 0.2s; border: none !important; 
+            height: 36px; line-height: 36px; margin: 2px 0;
         }
-        .no-data-message {
-            position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            background: rgba(248, 249, 250, 0.6);
-            border: 1px dashed #cbd5e1;
-            border-radius: 8px;
-            color: #64748b;
-            z-index: 10;
+        .flatpickr-day:hover { background: #f1f5f9; color: #0f172a; }
+        .flatpickr-day.inRange { background: #eff6ff !important; box-shadow: -5px 0 0 #eff6ff, 5px 0 0 #eff6ff !important; border-radius: 0 !important; }
+        .flatpickr-day.selected, .flatpickr-day.startRange, .flatpickr-day.endRange, .flatpickr-day.selected:focus, .flatpickr-day.startRange:focus, .flatpickr-day.endRange:focus {
+            background: var(--primary) !important; color: #fff !important; font-weight: 600; box-shadow: 0 4px 10px var(--primary-glow) !important; border-radius: 8px !important; z-index: 2;
         }
-        .no-data-message i { font-size: 2.5rem; margin-bottom: 10px; color: #94a3b8; }
-        .no-data-message span { font-size: 0.85rem; font-weight: 600; letter-spacing: 0.3px; }
+
+        /* Action Footer */
+        .custom-range-display { font-size: 0.85rem; font-weight: 500; color: #64748b; }
+        .custom-range-display strong { color: #0f172a; font-weight: 700; }
+
+        /* EXECUTIVE KPI CARDS */
+        .kpi-corp-card {
+            background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border-light);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04); padding: 1.5rem; position: relative; overflow: hidden;
+            display: flex; flex-direction: column; justify-content: space-between; transition: all 0.2s ease; height: 100%;
+        }
+        .kpi-corp-card:hover { transform: translateY(-2px); box-shadow: 0 8px 16px -4px rgba(0, 0, 0, 0.05); border-color: #cbd5e1; }
+        .accent-blue { border-top: 4px solid #3b82f6; } .accent-slate { border-top: 4px solid #64748b; }
+        .accent-amber { border-top: 4px solid #f59e0b; } .accent-rose { border-top: 4px solid #f43f5e; }
+        .kpi-corp-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem; }
+        .kpi-corp-title { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; margin: 0; }
+        .kpi-corp-value { font-size: 1.85rem; font-weight: 700; color: var(--text-main); line-height: 1; margin: 0; }
+        .kpi-corp-icon { width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.15rem; }
+        .kpi-corp-badge { font-size: 0.7rem; font-weight: 500; color: #475569; display: flex; align-items: center; gap: 4px; }
+        
+        /* Premium Chart Widgets */
+        .corp-widget {
+            background: #ffffff; border-radius: 12px; padding: 1.25rem; border: 1px solid var(--border-light);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04); height: 100%; display: flex; flex-direction: column; transition: box-shadow 0.2s ease;
+        }
+        .corp-widget:hover { box-shadow: 0 8px 16px -4px rgba(0, 0, 0, 0.05); }
+        .corp-widget-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; }
+        .corp-widget-title { font-size: 0.85rem; font-weight: 700; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; margin: 0; display: flex; align-items: center; gap: 8px; }
+        .chart-box { position: relative; flex-grow: 1; width: 100%; min-height: 260px; max-height: 300px; }
+
+        .table-corp th { font-size: 0.7rem; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; color: var(--text-muted); background: #f8fafc; border-bottom: 1px solid var(--border-light); padding: 10px 16px; }
+        .table-corp td { padding: 12px 16px; vertical-align: middle; border-bottom: 1px solid #f1f5f9; font-size: 0.85rem; }
     </style>
 </head>
 <body>
     <?php include 'sidebar.php'; ?>
     <div class="main-content fade-in">
         
-        <header class="mb-3 pb-2 border-bottom d-flex flex-wrap justify-content-between align-items-center gap-3">
+        <!-- HEADER -->
+        <header class="mb-4 pb-3 border-bottom d-flex flex-wrap justify-content-between align-items-center gap-3">
             <div>
-                <h4 class="fw-bold mb-1 text-dark text-uppercase" style="letter-spacing: 0.5px;">System Overview</h4>
-                <p class="text-muted mb-0" style="font-size: 0.8rem;">
-                    Welcome back, <span class="fw-semibold text-dark"><?php echo htmlspecialchars($_SESSION['fullname']); ?></span>.
+                <h4 class="fw-bold mb-1" style="color: #0f172a; letter-spacing: -0.5px;">Dashboard & Analytics</h4>
+                <p class="text-muted mb-0" style="font-size: 0.85rem;">
+                    Welcome, <span class="fw-semibold text-dark"><?php echo htmlspecialchars($_SESSION['fullname']); ?></span>.
                 </p>
             </div>
             
             <div class="d-flex align-items-center">
-                <form method="GET" class="d-flex align-items-center m-0 gap-2" id="periodFilterForm">
-                    <?php 
-                    foreach($_GET as $k => $v) {
-                        if($k !== 'period' && $k !== 'start' && $k !== 'end' && is_string($v)) {
-                            echo "<input type='hidden' name='".htmlspecialchars($k)."' value='".htmlspecialchars($v)."'>";
-                        }
-                    } 
-                    ?>
+                
+                <!-- CUSTOM DROPDOWN FILTER -->
+                <div class="dropdown position-relative">
+                    <button class="btn-filter-trigger dropdown-toggle" type="button" id="filterDropdown" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                        <i class="far fa-calendar-alt text-secondary"></i> 
+                        <span id="displayFilterText"><?php echo $active_filter_text; ?></span>
+                    </button>
                     
-                    <div class="input-group input-group-sm sleek-filter-group" title="Select Data Range">
-                        <span class="input-group-text text-primary pe-1">
-                            <i class="fas fa-calendar-day"></i>
-                        </span>
-                        <select name="period" id="period" class="form-select ps-1" onchange="handlePeriodChange()">
-                            <option value="all" <?php echo $period == 'all' ? 'selected' : ''; ?>>All Time</option>
-                            <option value="today" <?php echo $period == 'today' ? 'selected' : ''; ?>>Today</option>
-                            <option value="this_week" <?php echo $period == 'this_week' ? 'selected' : ''; ?>>This Week</option>
-                            <option value="this_month" <?php echo $period == 'this_month' ? 'selected' : ''; ?>>This Month</option>
-                            <option value="this_year" <?php echo $period == 'this_year' ? 'selected' : ''; ?>>This Year</option>
-                            <option value="custom" <?php echo $period == 'custom' ? 'selected' : ''; ?>>Custom</option>
-                        </select>
-                    </div>
-                    
-                    <div id="customDateWrapper" style="display: <?php echo $period == 'custom' ? 'block' : 'none'; ?>;">
-                        <div class="input-group input-group-sm sleek-filter-group" title="Click to select start and end dates">
-                            <span class="input-group-text text-primary pe-0">
-                                <i class="fas fa-calendar-alt"></i>
-                            </span>
-                            <input type="text" id="customDateRange" class="form-control flatpickr-input px-2" placeholder="Select 'From' and 'To'..." readonly>
-                            <input type="hidden" name="start" id="startDate" value="<?php echo htmlspecialchars($_GET['start'] ?? ''); ?>">
-                            <input type="hidden" name="end" id="endDate" value="<?php echo htmlspecialchars($_GET['end'] ?? ''); ?>">
+                    <div class="dropdown-menu dropdown-menu-end filter-dropdown-menu p-0" aria-labelledby="filterDropdown">
+                        <div class="d-flex flex-column flex-md-row">
+                            
+                            <!-- Left: Minimalist Quick Links -->
+                            <div class="border-end p-4 bg-light" style="min-width: 170px;">
+                                <div class="quick-filter-title">Presets</div>
+                                <div class="d-flex flex-column">
+                                    <button type="button" class="quick-filter-btn <?php echo ($period=='today')?'active':''; ?>" data-val="today">Today</button>
+                                    <button type="button" class="quick-filter-btn <?php echo ($period=='this_week')?'active':''; ?>" data-val="this_week">This Week</button>
+                                    <button type="button" class="quick-filter-btn <?php echo ($period=='this_month')?'active':''; ?>" data-val="this_month">This Month</button>
+                                    <button type="button" class="quick-filter-btn <?php echo ($period=='this_year')?'active':''; ?>" data-val="this_year">This Year</button>
+                                    <button type="button" class="quick-filter-btn <?php echo ($period=='all')?'active':''; ?>" data-val="all">All Time</button>
+                                </div>
+                            </div>
+                            
+                            <!-- Right: Calendar & Actions -->
+                            <div class="flex-grow-1 p-4 bg-white">
+                                <div class="quick-filter-title mb-3">Custom Range</div>
+                                
+                                <!-- 100% WORKING CUSTOM HEADER (Independent from Flatpickr DOM) -->
+                                <div class="custom-cal-header d-flex justify-content-between align-items-center mb-3">
+                                    <button type="button" id="calPrev" class="custom-cal-nav"><i class="fas fa-chevron-left"></i></button>
+                                    <div class="d-flex gap-2">
+                                        <select id="calMonth" class="custom-cal-select">
+                                            <option value="0">January</option>
+                                            <option value="1">February</option>
+                                            <option value="2">March</option>
+                                            <option value="3">April</option>
+                                            <option value="4">May</option>
+                                            <option value="5">June</option>
+                                            <option value="6">July</option>
+                                            <option value="7">August</option>
+                                            <option value="8">September</option>
+                                            <option value="9">October</option>
+                                            <option value="10">November</option>
+                                            <option value="11">December</option>
+                                        </select>
+                                        <select id="calYear" class="custom-cal-select">
+                                            <!-- Puno ito ng Javascript mamaya -->
+                                        </select>
+                                    </div>
+                                    <button type="button" id="calNext" class="custom-cal-nav"><i class="fas fa-chevron-right"></i></button>
+                                </div>
+
+                                <div class="calendar-wrapper">
+                                    <input type="text" id="inlineCalendarContainer" class="d-none">
+                                </div>
+
+                                <div class="d-flex justify-content-between align-items-center mt-3 pt-3 border-top">
+                                    <div class="custom-range-display" id="customRangeDisplay">
+                                        <?php echo ($period == 'custom' && !empty($_GET['start']) && !empty($_GET['end'])) ? "<strong>".date('M d, Y', strtotime($_GET['start']))."</strong> &mdash; <strong>".date('M d, Y', strtotime($_GET['end']))."</strong>" : "<span class='text-muted fw-normal fst-italic'>Select dates...</span>"; ?>
+                                    </div>
+                                    <div class="d-flex gap-2">
+                                        <button type="button" class="btn btn-sm btn-light text-secondary fw-bold px-3 border-0" onclick="closeDropdown()">Cancel</button>
+                                        <button type="button" class="btn btn-sm btn-primary fw-bold px-3 shadow-sm" id="applyFilterBtn" style="border-radius: 8px;">Apply</button>
+                                    </div>
+                                </div>
+                            </div>
+                            
                         </div>
                     </div>
-                </form>
+                </div>
+
             </div>
         </header>
 
-        <div class="row g-2 mb-3 mt-1">
-            <?php if ($_SESSION['role'] === 'Admin'): ?>
-                <div class="col-xl-3 col-md-6">
-                    <a href="admin_users.php" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Total System Users</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(13, 110, 253, 0.1); color: #0d6efd;">
-                                <i class="fas fa-users"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $admin_stats['total_users']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Accounts</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="audit_logs.php" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">System Audits</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(13, 202, 240, 0.1); color: #0dcaf0;">
-                                <i class="fas fa-history"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $admin_stats['audit_today']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Logs</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="documents.php" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Total System Files</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(108, 117, 125, 0.1); color: #6c757d;">
-                                <i class="fas fa-database"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $admin_stats['total_files']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Documents</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="admin_requests.php" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Account Requests</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(255, 193, 7, 0.1); color: #D97706;">
-                                <i class="fas fa-user-shield"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $admin_stats['pending_requests']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Pending</span></div>
-                    </a>
-                </div>
-            <?php elseif (in_array($_SESSION['role'], ['GM', 'President'])): ?>
-                <div class="col-xl-3 col-md-6">
-                    <a href="documents.php" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Active Records</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(13, 110, 253, 0.1); color: #0d6efd;">
-                                <i class="fas fa-folder-open"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $exec_stats['active_docs']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Files</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="documents.php?view_filter=All" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Archived Docs</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(108, 117, 125, 0.1); color: #6c757d;">
-                                <i class="fas fa-archive"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $exec_stats['archived_docs']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Saved</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="pr_list.php?filter=Pending" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Pending PR Approval</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(255, 193, 7, 0.1); color: #D97706;">
-                                <i class="fas fa-file-signature"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $exec_stats['pending_pr']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Requests</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="po_list.php?filter=Pending" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Pending PO Approval</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(220, 53, 69, 0.1); color: #dc3545;">
-                                <i class="fas fa-stamp"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $exec_stats['pending_po']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Orders</span></div>
-                    </a>
-                </div>
-            <?php elseif ($_SESSION['role'] === 'Finance'): ?>
-                <div class="col-xl-3 col-md-6">
-                    <a href="po_list.php?filter=GM-Approved" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Pending PO Review</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(255, 193, 7, 0.1); color: #ffc107;">
-                                <i class="fas fa-search-dollar"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $finance_stats['pending_po']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">For Approval</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="documents.php?type=Invoices" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Total Invoices</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(13, 110, 253, 0.1); color: #0d6efd;">
-                                <i class="fas fa-file-invoice-dollar"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $finance_stats['invoices']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Files</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="documents.php?type=Official+receipts" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Official Receipts</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(25, 135, 84, 0.1); color: #198754;">
-                                <i class="fas fa-receipt"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $finance_stats['receipts']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Files</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="po_list.php?filter=Funded" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Funded POs</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(13, 202, 240, 0.1); color: #0dcaf0;">
-                                <i class="fas fa-money-bill-wave"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $finance_stats['funded_po']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Ready</span></div>
-                    </a>
-                </div>
-            <?php elseif ($_SESSION['role'] === 'Sales Staff'): ?>
-                <div class="col-xl-3 col-md-6">
-                    <a href="pr_list.php" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Total PRs Created</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(13, 110, 253, 0.1); color: #0d6efd;">
-                                <i class="fas fa-file-invoice"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $sales_stats['total']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Requests</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="pr_list.php?filter=Pending" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Pending PRs</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(255, 193, 7, 0.1); color: #ffc107;">
-                                <i class="fas fa-clock"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $sales_stats['pending']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Waiting</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="pr_list.php?filter=Approved" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Approved PRs</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(25, 135, 84, 0.1); color: #198754;">
-                                <i class="fas fa-check-square"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $sales_stats['approved']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Approved</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="pr_list.php?filter=Rejected" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Rejected PRs</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(220, 53, 69, 0.1); color: #dc3545;">
-                                <i class="fas fa-times-square"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $sales_stats['rejected']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Declined</span></div>
-                    </a>
-                </div>
-            <?php elseif ($_SESSION['role'] === 'Procurement'): ?>
-                <div class="col-xl-3 col-md-6">
-                    <a href="po_list.php" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Total POs Handled</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(13, 110, 253, 0.1); color: #0d6efd;">
-                                <i class="fas fa-file-invoice"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $proc_stats['total']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Records</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="po_list.php?filter=Pending" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Pending Approvals</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(255, 193, 7, 0.1); color: #ffc107;">
-                                <i class="fas fa-hourglass-half"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $proc_stats['pending']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">POs</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="po_list.php?filter=Funded" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Funded POs</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(13, 202, 240, 0.1); color: #0dcaf0;">
-                                <i class="fas fa-money-bill-wave"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $proc_stats['funded']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">For Delivery</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="po_list.php?filter=Delivered" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Collected POs</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(25, 135, 84, 0.1); color: #198754;">
-                                <i class="fas fa-check-square"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $proc_stats['delivered']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">POs</span></div>
-                    </a>
-                </div>
-            <?php elseif ($_SESSION['role'] === 'Supply Chain'): ?>
-                <div class="col-xl-3 col-md-6">
-                    <a href="po_list.php?filter=Funded" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Incoming Deliveries</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(255, 193, 7, 0.1); color: #ffc107;">
-                                <i class="fas fa-truck"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $sc_stats['incoming_po']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Pending</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="po_list.php?filter=Collected" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Completed Deliveries</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(25, 135, 84, 0.1); color: #198754;">
-                                <i class="fas fa-box-open"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $sc_stats['collected_po']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Items</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="documents.php?type=Delivery+receipts" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Delivery Receipts</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(13, 110, 253, 0.1); color: #0d6efd;">
-                                <i class="fas fa-receipt"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $sc_stats['dr_count']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Files</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="documents.php?type=Supplier+transaction+records" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Supplier Records</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(13, 202, 240, 0.1); color: #0dcaf0;">
-                                <i class="fas fa-address-book"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $sc_stats['supplier_docs']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Files</span></div>
-                    </a>
-                </div>
-            <?php elseif ($_SESSION['role'] === 'Technical'): ?>
-                <div class="col-xl-3 col-md-6">
-                    <a href="documents.php?type=Service+tickets" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Service Tickets</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(220, 53, 69, 0.1); color: #dc3545;">
-                                <i class="fas fa-ticket-alt"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $tech_stats['tickets']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Files</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="documents.php?type=Diagnostic+reports" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Diagnostic Reports</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(255, 193, 7, 0.1); color: #ffc107;">
-                                <i class="fas fa-stethoscope"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $tech_stats['diagnostics']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Files</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="documents.php?type=Job+orders" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Job Orders</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(25, 135, 84, 0.1); color: #198754;">
-                                <i class="fas fa-tools"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $tech_stats['job_orders']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Files</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="documents.php" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Total Tech Records</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(13, 110, 253, 0.1); color: #0d6efd;">
-                                <i class="fas fa-cogs"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $tech_stats['total']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Total</span></div>
-                    </a>
-                </div>
-            <?php elseif (in_array($_SESSION['role'], ['Administrative', 'Staff'])): ?>
-                <div class="col-xl-3 col-md-6">
-                    <a href="documents.php?type=Leave+forms" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Leave Forms</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(13, 110, 253, 0.1); color: #0d6efd;">
-                                <i class="fas fa-calendar-minus"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $admin_staff_stats['leaves']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Files</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="documents.php?type=Employee+correspondence+and+notices" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Employee Notices</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(13, 202, 240, 0.1); color: #0dcaf0;">
-                                <i class="fas fa-id-card"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $admin_staff_stats['notices']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Files</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="documents.php?type=Internal+memorandums" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Internal Memos</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(255, 193, 7, 0.1); color: #ffc107;">
-                                <i class="fas fa-bullhorn"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $admin_staff_stats['memos']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Files</span></div>
-                    </a>
-                </div>
-                <div class="col-xl-3 col-md-6">
-                    <a href="documents.php?type=Company+policies+and+procedures" class="kpi-card text-decoration-none d-block h-100">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="kpi-title text-muted fw-bold text-uppercase">Company Policies</span>
-                            <div class="icon-box rounded-1 d-flex align-items-center justify-content-center" style="background: rgba(25, 135, 84, 0.1); color: #198754;">
-                                <i class="fas fa-book"></i>
-                            </div>
-                        </div>
-                        <div class="kpi-value fw-bold text-dark"><?php echo $admin_staff_stats['policies']; ?> <span class="text-muted fw-normal" style="font-size: 0.75rem;">Files</span></div>
-                    </a>
-                </div>
-            <?php endif; ?>
-        </div>
-
-        <ul class="nav nav-pills mb-3 border-bottom pb-2" id="dashboardTabs" role="tablist">
-            <?php if ($_SESSION['role'] === 'Admin'): ?>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link active" id="syshealth-tab" data-bs-toggle="pill" data-bs-target="#syshealth" type="button" role="tab" aria-selected="true">
-                        <i class="fas fa-shield-alt me-2"></i> System Health & Audit
-                    </button>
-                </li>
-            <?php elseif ($can_view_financials): ?>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link active" id="financial-tab" data-bs-toggle="pill" data-bs-target="#financial" type="button" role="tab" aria-selected="true">
-                        <i class="fas fa-chart-line me-2"></i> Financial & Analytics Overview
-                    </button>
-                </li>
-                
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link ms-1" id="operations-tab" data-bs-toggle="pill" data-bs-target="#operations" type="button" role="tab" aria-selected="false">
-                        <i class="fas fa-cogs me-2"></i> Department Performance
-                    </button>
-                </li>
-            <?php else: ?>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link active" id="workspace-tab" data-bs-toggle="pill" data-bs-target="#workspace" type="button" role="tab" aria-selected="true">
-                        <i class="fas fa-briefcase me-2"></i>Workspace
-                    </button>
-                </li>
-            <?php endif; ?>
-        </ul>
-
-        <div class="tab-content" id="dashboardTabsContent">
+        <!-- GM AND PRESIDENT EXCLUSIVE "EXECUTIVE" LAYOUT -->
+        <?php if (in_array($_SESSION['role'], ['GM', 'President'])): ?>
             
-            <?php if ($_SESSION['role'] === 'Admin'): ?>
-                <div class="tab-pane fade show active" id="syshealth" role="tabpanel" tabindex="0">
-                    <div class="card shadow-sm border-0 h-100">
-                        <div class="card-header bg-white border-bottom py-2 d-flex justify-content-between align-items-center">
-                            <h6 class="fw-bold mb-0 text-dark">
-                                <i class="fas fa-history me-2 text-primary"></i> Recent System Activity
-                            </h6>
-                            <a href="audit_logs.php" class="btn btn-sm btn-outline-primary shadow-sm"><i class="fas fa-list me-1"></i> View Full Logs</a>
-                        </div>
-                        <div class="card-body p-0">
-                            <div class="table-responsive">
-                                <table class="table table-hover align-middle mb-0 border-0">
-                                    <thead class="bg-light text-muted small text-uppercase">
-                                        <tr>
-                                            <th class="ps-3 py-2">User</th>
-                                            <th class="py-2">Action Details</th>
-                                            <th class="py-2">IP Address</th>
-                                            <th class="text-end pe-3 py-2">Date & Time</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php
-                                        if($recent_audit && $recent_audit->num_rows > 0):
-                                            while($log = $recent_audit->fetch_assoc()): ?>
-                                                <tr>
-                                                    <td class="ps-3 py-2 fw-bold text-dark">
-                                                        <?php echo htmlspecialchars($log['full_name'] ?? 'System / Guest'); ?><br>
-                                                        <small class="text-muted fw-normal" style="font-size: 0.7rem;"><?php echo htmlspecialchars($log['role'] ?? 'N/A'); ?></small>
-                                                    </td>
-                                                    <td class="py-2">
-                                                        <span class="badge bg-light text-dark border border-secondary border-opacity-25 px-2 py-1 mb-1 rounded-1"><?php echo htmlspecialchars($log['action_type']); ?></span><br>
-                                                        <small class="text-muted" style="font-size: 0.75rem;"><?php echo htmlspecialchars($log['description']); ?></small>
-                                                    </td>
-                                                    <td class="py-2 text-muted small"><i class="fas fa-network-wired me-1"></i> <?php echo htmlspecialchars($log['ip_address']); ?></td>
-                                                    <td class="text-end pe-3 py-2 text-muted small"><i class="far fa-clock me-1"></i><?php echo date('M d, Y h:i A', strtotime($log['timestamp'])); ?></td>
-                                                </tr>
-                                            <?php endwhile; 
-                                        else: ?>
-                                            <tr><td colspan="4" class="text-center py-4 text-muted"><i class="fas fa-history fa-2x mb-2 d-block opacity-50"></i>No recent activity found.</td></tr>
-                                        <?php endif; ?>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            <?php elseif ($can_view_financials): ?>
-                <div class="tab-pane fade show active" id="financial" role="tabpanel" tabindex="0">
-                    <div class="row g-3 mb-3">
-                        <div class="col-lg-8">
-                            <div class="card shadow-sm border-0 h-100">
-                                <div class="card-header bg-white border-bottom py-2 d-flex justify-content-between align-items-center">
-                                    <h6 class="m-0 fw-bold text-primary"><i class="fas fa-chart-line me-2"></i> Sales Forecast</h6>
-                                    <span class="badge bg-light text-muted border rounded-1">Predictive Analysis</span>
-                                </div>
-                                <div class="card-body p-2">
-                                    <div class="chart-container">
-                                        <canvas id="revenueForecastChart"></canvas>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-lg-4">
-                            <div class="card shadow-sm border-0 h-100">
-                                <div class="card-header bg-white border-bottom py-2 d-flex justify-content-between align-items-center">
-                                    <h6 class="fw-bold mb-0 text-dark"><i class="fas fa-history me-2"></i> Recent Records</h6>
-                                    <a href="po_list.php" class="text-decoration-none small text-primary fw-medium">View All</a>
-                                </div>
-                                <div class="card-body p-0">
-                                    <div class="table-responsive">
-                                        <table class="table table-hover align-middle mb-0 border-0">
-                                            <tbody>
-                                                <?php
-                                                if($recent_pos && $recent_pos->num_rows > 0):
-                                                    while($po = $recent_pos->fetch_assoc()): ?>
-                                                        <tr style="cursor: pointer;" onclick="window.location.href='view_po.php?id=<?php echo $po['po_id']; ?>'">
-                                                            <td class="ps-3 py-2">
-                                                                <div class="fw-bold text-dark">#<?php echo htmlspecialchars($po['po_number']); ?></div>
-                                                                <div class="text-muted text-truncate" style="max-width: 140px; font-size: 0.75rem;"><?php echo htmlspecialchars($po['client_name']); ?></div>
-                                                            </td>
-                                                            <td class="py-2">
-                                                                <span class="badge-status status-<?php echo str_replace([' ', '/'], '_', $po['status']); ?>">
-                                                                    <?php echo $po['status']; ?>
-                                                                </span>
-                                                            </td>
-                                                            <td class="text-end pe-3 py-2 text-muted" style="font-size: 0.7rem;">
-                                                                <?php echo date('M d', strtotime($po['date_created'])); ?>
-                                                            </td>
-                                                        </tr>
-                                                    <?php endwhile; 
-                                                else: ?>
-                                                    <tr><td colspan="3" class="text-center py-4 text-muted"><i class="fas fa-folder-open fa-2x mb-2 d-block opacity-25"></i><br>No recent records.</td></tr>
-                                                <?php endif; ?>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="row g-3">
-                        <div class="col-lg-6">
-                            <div class="card shadow-sm border-0 h-100">
-                                <div class="card-header bg-white border-bottom py-2">
-                                    <h6 class="m-0 fw-bold text-dark"><i class="fas fa-crown text-warning me-2"></i> Top 5 Clients </h6>
-                                </div>
-                                <div class="card-body p-2">
-                                    <div class="chart-container">
-                                        <canvas id="topClientsChart"></canvas>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-lg-6">
-                            <div class="card shadow-sm border-0 h-100">
-                                <div class="card-header bg-white border-bottom py-2">
-                                    <h6 class="m-0 fw-bold text-dark"><i class="fas fa-boxes text-primary me-2"></i> Sales by Category</h6>
-                                </div>
-                                <div class="card-body p-2">
-                                    <div class="chart-container">
-                                        <canvas id="topCategoriesChart"></canvas>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+            <div class="row g-3 mb-4">
+                <div class="col-xl-3 col-md-6"><a href="documents.php" class="text-decoration-none"><div class="kpi-corp-card accent-blue"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Active Records</p><h3 class="kpi-corp-value mt-1"><?php echo $exec_stats['active_docs']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-folder-open"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-primary" style="font-size: 6px;"></i> Current working files</div></div></a></div>
+                <div class="col-xl-3 col-md-6"><a href="documents.php?view_filter=All" class="text-decoration-none"><div class="kpi-corp-card accent-slate"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Archived Docs</p><h3 class="kpi-corp-value mt-1"><?php echo $exec_stats['archived_docs']; ?></h3></div><div class="kpi-corp-icon bg-secondary bg-opacity-10 text-secondary"><i class="fas fa-archive"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-secondary" style="font-size: 6px;"></i> Safely stored records</div></div></a></div>
+                <div class="col-xl-3 col-md-6"><a href="pr_list.php?filter=Pending" class="text-decoration-none"><div class="kpi-corp-card accent-amber"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Pending PRs</p><h3 class="kpi-corp-value mt-1"><?php echo $exec_stats['pending_pr']; ?></h3></div><div class="kpi-corp-icon bg-warning bg-opacity-10 text-warning"><i class="fas fa-file-signature"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-warning" style="font-size: 6px;"></i> Awaiting your approval</div></div></a></div>
+                <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=Pending" class="text-decoration-none"><div class="kpi-corp-card accent-rose"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Pending POs</p><h3 class="kpi-corp-value mt-1"><?php echo $exec_stats['pending_po']; ?></h3></div><div class="kpi-corp-icon bg-danger bg-opacity-10 text-danger"><i class="fas fa-stamp"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-danger" style="font-size: 6px;"></i> Action required</div></div></a></div>
+            </div>
 
-                <div class="tab-pane fade" id="operations" role="tabpanel" tabindex="0">
-                    <div class="row g-3 mb-3">
-                        <div class="col-12">
-                            <div class="card shadow-sm border-0 h-100">
-                                <div class="card-header bg-white border-bottom py-2">
-                                    <h6 class="m-0 fw-bold text-dark"><i class="fas fa-history text-muted me-2"></i> Average Processing Time </h6>
-                                </div>
-                                <div class="card-body p-2">
-                                    <div class="chart-container">
-                                        <canvas id="bottleneckChart"></canvas>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="row g-3">
-                        <div class="col-lg-6">
-                            <div class="card shadow-sm border-0 h-100">
-                                <div class="card-header bg-white border-bottom py-2">
-                                    <h6 class="m-0 fw-bold text-info"><i class="fas fa-users-cog me-2"></i> Department Workload</h6>
-                                </div>
-                                <div class="card-body p-2">
-                                    <div class="chart-container">
-                                        <canvas id="workloadChart"></canvas>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-lg-6">
-                            <div class="card shadow-sm border-0 h-100">
-                                <div class="card-header bg-white border-bottom py-2">
-                                    <h6 class="m-0 fw-bold text-success"><i class="fas fa-check-circle me-2"></i>PO Success Rate</h6>
-                                </div>
-                                <div class="card-body p-2">
-                                    <div class="chart-container">
-                                        <canvas id="rejectionChart"></canvas>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            <?php else: ?>
-                <div class="tab-pane fade show active" id="workspace" role="tabpanel" tabindex="0">
-                    <div class="row g-3 mb-3">
-                        <div class="col-12">
-                            <div class="card shadow-sm border-0 h-100">
-                                <div class="card-header bg-white border-bottom py-2 d-flex justify-content-between align-items-center">
-                                    <h6 class="fw-bold mb-0 text-dark">
-                                        <i class="fas fa-tasks me-2 text-primary"></i> 
-                                        <?php 
-                                        if (isset($is_sales_staff) && $is_sales_staff) {
-                                            echo 'Recent Purchase Requests';
-                                        } else {
-                                            echo ($_SESSION['role'] == 'Procurement') ? 'Recent Handled POs' : 'Active System Purchase Orders'; 
-                                        }
-                                        ?>
-                                    </h6>
-                                    <?php if(isset($is_sales_staff) && $is_sales_staff): ?>
-                                        <a href="create_pr.php" class="btn btn-sm btn-primary shadow-sm"><i class="fas fa-plus me-1"></i> New PR</a>
-                                    <?php elseif(in_array($_SESSION['role'], ['Supply Chain', 'Procurement', 'Finance'])): ?>
-                                        <a href="po_list.php" class="btn btn-sm btn-outline-primary shadow-sm"><i class="fas fa-list me-1"></i> View Full Directory</a>
-                                    <?php endif; ?>
-                                </div>
-                                <div class="card-body p-0">
-                                    <div class="table-responsive">
-                                        <table class="table table-hover align-middle mb-0 border-0">
-                                            <thead class="bg-light text-muted small text-uppercase">
-                                                <tr>
-                                                    <th class="ps-3 py-2"><?php echo (isset($is_sales_staff) && $is_sales_staff) ? 'PR Number' : 'PO Number'; ?></th>
-                                                    <th class="py-2">Client Name</th>
-                                                    <th class="py-2">Grand Total</th>
-                                                    <th class="py-2">Status</th>
-                                                    <?php if(!isset($is_sales_staff) || !$is_sales_staff): ?>
-                                                    <th class="py-2">Current Desk</th>
-                                                    <?php endif; ?>
-                                                    <th class="text-end pe-3 py-2">Date Created</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <?php
-                                                if($my_recent && $my_recent->num_rows > 0):
-                                                    while($doc = $my_recent->fetch_assoc()): ?>
-                                                        <tr <?php echo (!isset($is_sales_staff) || !$is_sales_staff) ? "style='cursor: pointer;' onclick=\"window.location.href='view_po.php?id={$doc['id']}';\"" : ""; ?>>
-                                                            <td class="ps-3 py-2 fw-bold text-primary">#<?php echo htmlspecialchars($doc['number']); ?></td>
-                                                            <td class="py-2 text-dark fw-medium"><?php echo htmlspecialchars($doc['client_name']); ?></td>
-                                                            <td class="py-2 fw-medium text-dark">₱ <?php echo number_format($doc['amount'], 2); ?></td>
-                                                            <td class="py-2">
-                                                                <span class="badge-status status-<?php echo str_replace([' ', '/'], '_', $doc['status']); ?>">
-                                                                    <?php echo $doc['status']; ?>
-                                                                </span>
-                                                            </td>
-                                                            <?php if(!isset($is_sales_staff) || !$is_sales_staff): ?>
-                                                            <td class="py-2">
-                                                                <span class="badge bg-light text-secondary border border-secondary border-opacity-25 px-2 py-1 rounded-1"><i class="fas fa-map-marker-alt me-1 text-danger"></i> <?php echo htmlspecialchars($doc['current_location']); ?></span>
-                                                            </td>
-                                                            <?php endif; ?>
-                                                            <td class="text-end pe-3 py-2 text-muted small"><i class="far fa-calendar-alt me-1"></i><?php echo date('M d, Y', strtotime($doc['date_created'])); ?></td>
-                                                        </tr>
-                                                    <?php endwhile; 
-                                                else: ?>
-                                                    <tr><td colspan="<?php echo (isset($is_sales_staff) && $is_sales_staff) ? '5' : '6'; ?>" class="text-center py-5 text-muted"><i class="fas fa-folder-open fa-3x mb-3 d-block opacity-25"></i>No records found to display.</td></tr>
-                                                <?php endif; ?>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            <?php endif; ?>
-        </div>
+            <div class="row g-3 mb-4 align-items-stretch">
+                <div class="col-lg-8"><div class="corp-widget"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-shield-alt text-primary"></i> System Audit & Activity Trend</h6></div><div class="chart-box"><canvas id="gmAuditChart"></canvas></div></div></div>
+                <div class="col-lg-4"><div class="corp-widget"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-recycle text-emerald"></i> Document Lifecycle</h6></div><div class="chart-box"><canvas id="gmLifecycleChart"></canvas></div></div></div>
+            </div>
 
-        <?php if (!empty($user_categories)): ?>
-        <div class="row mt-3 mb-3">
-            <div class="col-12">
-                <div class="card shadow-sm border-0">
-                    <div class="card-header bg-white border-bottom py-2 d-flex justify-content-between align-items-center">
-                        <h6 class="fw-bold mb-0 text-dark">
-                            <i class="fas fa-folder-open me-2 text-warning"></i> Recent Department Files
-                        </h6>
-                        <div>
-                            <a href="documents.php" class="btn btn-sm btn-outline-secondary shadow-sm"><i class="fas fa-folder me-1"></i> View All Folders</a>
-                        </div>
-                    </div>
-                    <div class="card-body p-0">
-                        <div class="table-responsive">
-                            <table class="table table-hover align-middle mb-0 border-0">
-                                <thead class="bg-light text-muted small text-uppercase">
-                                    <tr>
-                                        <th class="ps-3 py-2">Document Name</th>
-                                        <th class="py-2">Folder</th>
-                                        <th class="py-2">Uploaded By</th>
-                                        <th class="text-end pe-3 py-2">Date Uploaded</th>
-                                    </tr>
+            <div class="row g-3 mb-4 align-items-stretch">
+                <div class="col-lg-6"><div class="corp-widget"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-folder text-info"></i> Record Volume Distribution</h6></div><div class="chart-box"><canvas id="gmVolumeChart"></canvas></div></div></div>
+                <div class="col-lg-6"><div class="corp-widget"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-project-diagram text-rose"></i> Processing Bottleneck (Avg Hrs)</h6></div><div class="chart-box"><canvas id="gmTurnaroundChart"></canvas></div></div></div>
+            </div>
+
+        <?php else: ?>
+            
+            <!-- STANDARD SECTION FOR ALL OTHER ROLES -->
+            <div class="row g-3 mb-4">
+                <?php if ($_SESSION['role'] === 'Admin'): ?>
+                    <div class="col-xl-3 col-md-6"><a href="admin_users.php" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-blue"><div class="kpi-corp-header"><div><p class="kpi-corp-title">System Users</p><h3 class="kpi-corp-value mt-1"><?php echo $admin_stats['total_users']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-users"></i></div></div></div></a></div>
+                    <div class="col-xl-3 col-md-6"><a href="audit_logs.php" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-slate"><div class="kpi-corp-header"><div><p class="kpi-corp-title">System Audits</p><h3 class="kpi-corp-value mt-1"><?php echo $admin_stats['audit_today']; ?></h3></div><div class="kpi-corp-icon bg-secondary bg-opacity-10 text-secondary"><i class="fas fa-history"></i></div></div></div></a></div>
+                    <div class="col-xl-3 col-md-6"><a href="documents.php" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-amber"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Total Files</p><h3 class="kpi-corp-value mt-1"><?php echo $admin_stats['total_files']; ?></h3></div><div class="kpi-corp-icon bg-warning bg-opacity-10 text-warning"><i class="fas fa-database"></i></div></div></div></a></div>
+                    <div class="col-xl-3 col-md-6"><a href="admin_requests.php" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-rose"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Account Requests</p><h3 class="kpi-corp-value mt-1"><?php echo $admin_stats['pending_requests']; ?></h3></div><div class="kpi-corp-icon bg-danger bg-opacity-10 text-danger"><i class="fas fa-user-shield"></i></div></div></div></a></div>
+                
+                <?php elseif ($_SESSION['role'] === 'Finance'): ?>
+                    <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=GM-Approved" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-amber"><div class="kpi-corp-header"><div><p class="kpi-corp-title">PO For Review</p><h3 class="kpi-corp-value mt-1"><?php echo $finance_stats['pending_po']; ?></h3></div><div class="kpi-corp-icon bg-warning bg-opacity-10 text-warning"><i class="fas fa-search-dollar"></i></div></div></div></a></div>
+                    <div class="col-xl-3 col-md-6"><a href="documents.php?type=Invoices" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-blue"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Total Invoices</p><h3 class="kpi-corp-value mt-1"><?php echo $finance_stats['invoices']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-file-invoice-dollar"></i></div></div></div></a></div>
+                    <div class="col-xl-3 col-md-6"><a href="documents.php?type=Official+receipts" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-slate"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Official Receipts</p><h3 class="kpi-corp-value mt-1"><?php echo $finance_stats['receipts']; ?></h3></div><div class="kpi-corp-icon bg-success bg-opacity-10 text-success"><i class="fas fa-receipt"></i></div></div></div></a></div>
+                    <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=Funded" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-rose"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Funded POs</p><h3 class="kpi-corp-value mt-1"><?php echo $finance_stats['funded_po']; ?></h3></div><div class="kpi-corp-icon bg-info bg-opacity-10 text-info"><i class="fas fa-money-bill-wave"></i></div></div></div></a></div>
+                
+                <?php elseif ($_SESSION['role'] === 'Sales Staff'): ?>
+                    <div class="col-xl-3 col-md-6"><a href="pr_list.php" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-blue"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Total PRs Created</p><h3 class="kpi-corp-value mt-1"><?php echo $sales_stats['total']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-file-invoice"></i></div></div></div></a></div>
+                    <div class="col-xl-3 col-md-6"><a href="pr_list.php?filter=Pending" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-amber"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Pending PRs</p><h3 class="kpi-corp-value mt-1"><?php echo $sales_stats['pending']; ?></h3></div><div class="kpi-corp-icon bg-warning bg-opacity-10 text-warning"><i class="fas fa-clock"></i></div></div></div></a></div>
+                    <div class="col-xl-3 col-md-6"><a href="pr_list.php?filter=Approved" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-slate"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Approved PRs</p><h3 class="kpi-corp-value mt-1"><?php echo $sales_stats['approved']; ?></h3></div><div class="kpi-corp-icon bg-success bg-opacity-10 text-success"><i class="fas fa-check-square"></i></div></div></div></a></div>
+                    <div class="col-xl-3 col-md-6"><a href="pr_list.php?filter=Rejected" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-rose"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Rejected PRs</p><h3 class="kpi-corp-value mt-1"><?php echo $sales_stats['rejected']; ?></h3></div><div class="kpi-corp-icon bg-danger bg-opacity-10 text-danger"><i class="fas fa-times-square"></i></div></div></div></a></div>
+                
+                <?php elseif ($_SESSION['role'] === 'Procurement'): ?>
+                    <div class="col-xl-3 col-md-6"><a href="po_list.php" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-blue"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Total POs Handled</p><h3 class="kpi-corp-value mt-1"><?php echo $proc_stats['total']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-file-invoice"></i></div></div></div></a></div>
+                    <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=Pending" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-amber"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Pending Approvals</p><h3 class="kpi-corp-value mt-1"><?php echo $proc_stats['pending']; ?></h3></div><div class="kpi-corp-icon bg-warning bg-opacity-10 text-warning"><i class="fas fa-hourglass-half"></i></div></div></div></a></div>
+                    <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=Funded" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-slate"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Funded POs</p><h3 class="kpi-corp-value mt-1"><?php echo $proc_stats['funded']; ?></h3></div><div class="kpi-corp-icon bg-info bg-opacity-10 text-info"><i class="fas fa-money-bill-wave"></i></div></div></div></a></div>
+                    <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=Delivered" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-rose"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Collected POs</p><h3 class="kpi-corp-value mt-1"><?php echo $proc_stats['delivered']; ?></h3></div><div class="kpi-corp-icon bg-success bg-opacity-10 text-success"><i class="fas fa-check-square"></i></div></div></div></a></div>
+                
+                <?php elseif ($_SESSION['role'] === 'Supply Chain'): ?>
+                    <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=Funded" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-amber"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Incoming Deliveries</p><h3 class="kpi-corp-value mt-1"><?php echo $sc_stats['incoming_po']; ?></h3></div><div class="kpi-corp-icon bg-warning bg-opacity-10 text-warning"><i class="fas fa-truck"></i></div></div></div></a></div>
+                    <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=Collected" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-slate"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Completed Deliveries</p><h3 class="kpi-corp-value mt-1"><?php echo $sc_stats['collected_po']; ?></h3></div><div class="kpi-corp-icon bg-success bg-opacity-10 text-success"><i class="fas fa-box-open"></i></div></div></div></a></div>
+                    <div class="col-xl-3 col-md-6"><a href="documents.php?type=Delivery+receipts" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-blue"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Delivery Receipts</p><h3 class="kpi-corp-value mt-1"><?php echo $sc_stats['dr_count']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-receipt"></i></div></div></div></a></div>
+                    <div class="col-xl-3 col-md-6"><a href="documents.php?type=Supplier+transaction+records" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-rose"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Supplier Records</p><h3 class="kpi-corp-value mt-1"><?php echo $sc_stats['supplier_docs']; ?></h3></div><div class="kpi-corp-icon bg-info bg-opacity-10 text-info"><i class="fas fa-address-book"></i></div></div></div></a></div>
+                
+                <?php elseif ($_SESSION['role'] === 'Technical'): ?>
+                    <div class="col-xl-3 col-md-6"><a href="documents.php?type=Service+tickets" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-rose"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Service Tickets</p><h3 class="kpi-corp-value mt-1"><?php echo $tech_stats['tickets']; ?></h3></div><div class="kpi-corp-icon bg-danger bg-opacity-10 text-danger"><i class="fas fa-ticket-alt"></i></div></div></div></a></div>
+                    <div class="col-xl-3 col-md-6"><a href="documents.php?type=Diagnostic+reports" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-amber"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Diagnostic Reports</p><h3 class="kpi-corp-value mt-1"><?php echo $tech_stats['diagnostics']; ?></h3></div><div class="kpi-corp-icon bg-warning bg-opacity-10 text-warning"><i class="fas fa-stethoscope"></i></div></div></div></a></div>
+                    <div class="col-xl-3 col-md-6"><a href="documents.php?type=Job+orders" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-slate"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Job Orders</p><h3 class="kpi-corp-value mt-1"><?php echo $tech_stats['job_orders']; ?></h3></div><div class="kpi-corp-icon bg-success bg-opacity-10 text-success"><i class="fas fa-tools"></i></div></div></div></a></div>
+                    <div class="col-xl-3 col-md-6"><a href="documents.php" class="text-decoration-none d-block h-100"><div class="kpi-corp-card accent-blue"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Total Tech Records</p><h3 class="kpi-corp-value mt-1"><?php echo $tech_stats['total']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-cogs"></i></div></div></div></a></div>
+                <?php endif; ?>
+            </div>
+
+            <div class="row g-3 mb-4 align-items-stretch">
+                <?php if (isset($is_sales_staff) && $is_sales_staff): ?>
+                    <div class="col-lg-6"><div class="corp-widget"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-chart-pie text-primary"></i> PR Status</h6></div><div class="chart-box"><canvas id="salesPrStatusChart"></canvas></div></div></div>
+                    <div class="col-lg-6"><div class="corp-widget"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-chart-bar text-success"></i> PR Creation Trend</h6></div><div class="chart-box"><canvas id="salesPerformanceChart"></canvas></div></div></div>
+                <?php elseif (in_array($_SESSION['role'], ['Procurement', 'Supply Chain'])): ?>
+                    <div class="col-lg-6"><div class="corp-widget"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-chart-pie text-warning"></i> PO Overview</h6></div><div class="chart-box"><canvas id="procPoStatusChart"></canvas></div></div></div>
+                    <div class="col-lg-6"><div class="corp-widget"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-folder-open text-info"></i> Document Categories</h6></div><div class="chart-box"><canvas id="docsCategoryChart"></canvas></div></div></div>
+                <?php endif; ?>
+            </div>
+            
+            <div class="row g-3 mb-4">
+                <div class="col-12">
+                    <div class="corp-widget p-0 overflow-hidden">
+                        <div class="corp-widget-header px-4 pt-4 pb-2 border-bottom-0"><h6 class="corp-widget-title"><i class="fas fa-tasks text-primary"></i> <?php echo (isset($is_sales_staff) && $is_sales_staff) ? 'Recent PRs' : 'Active POs'; ?></h6></div>
+                        <div class="table-responsive" style="max-height: 250px;">
+                            <table class="table table-corp align-middle mb-0">
+                                <thead class="bg-light sticky-top">
+                                    <tr><th class="ps-4">Number</th><th>Client</th><th>Total</th><th>Status</th><?php if(!isset($is_sales_staff) || !$is_sales_staff): ?><th>Location</th><?php endif; ?></tr>
                                 </thead>
                                 <tbody>
-                                    <?php if($recent_dashboard_files && $recent_dashboard_files->num_rows > 0): ?>
-                                        <?php while($doc = $recent_dashboard_files->fetch_assoc()): 
-                                            $ext = strtolower(pathinfo($doc['file_name'], PATHINFO_EXTENSION));
-                                            $icon = in_array($ext, ['pdf']) ? 'fa-file-pdf text-danger' : (in_array($ext, ['jpg','png','jpeg']) ? 'fa-file-image text-success' : 'fa-file-alt text-primary');
-                                        ?>
-                                            <tr style="cursor: pointer;" onclick="window.location.href='documents.php?search=<?php echo urlencode($doc['file_name']); ?>'">
-                                                <td class="ps-3 py-2 fw-bold text-dark">
-                                                    <i class="fas <?php echo $icon; ?> me-2"></i> <?php echo htmlspecialchars($doc['file_name']); ?>
-                                                </td>
-                                                <td class="py-2"><span class="badge bg-warning text-dark fw-medium rounded-1"><i class="fas fa-folder me-1"></i><?php echo htmlspecialchars($doc['category']); ?></span></td>
-                                                <td class="py-2 text-muted small"><?php echo htmlspecialchars($doc['full_name']); ?></td>
-                                                <td class="text-end pe-3 py-2 text-muted small"><?php echo date('M d, Y h:i A', strtotime($doc['uploaded_at'])); ?></td>
-                                            </tr>
-                                        <?php endwhile; ?>
-                                    <?php else: ?>
-                                        <tr><td colspan="4" class="text-center py-4 text-muted">No recent files found for your department.</td></tr>
-                                    <?php endif; ?>
+                                    <?php if($my_recent && $my_recent->num_rows > 0): while($doc = $my_recent->fetch_assoc()): ?>
+                                        <tr <?php echo (!isset($is_sales_staff) || !$is_sales_staff) ? "style='cursor: pointer;' onclick=\"window.location.href='view_po.php?id={$doc['id']}';\"" : ""; ?>>
+                                            <td class="ps-4 fw-bold text-primary">#<?php echo htmlspecialchars($doc['number']); ?></td>
+                                            <td class="fw-medium"><?php echo htmlspecialchars($doc['client_name']); ?></td>
+                                            <td class="fw-bold">P<?php echo number_format($doc['amount'], 2); ?></td>
+                                            <td><span class="badge bg-light text-dark border px-2"><?php echo $doc['status']; ?></span></td>
+                                            <?php if(!isset($is_sales_staff) || !$is_sales_staff): ?>
+                                                <td><small class="text-muted"><i class="fas fa-map-marker-alt text-danger"></i> <?php echo htmlspecialchars($doc['current_location']); ?></small></td>
+                                            <?php endif; ?>
+                                        </tr>
+                                    <?php endwhile; endif; ?>
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+        <?php endif; ?>
+
+        <!-- Recent Department Files Table -->
+        <?php if (!empty($user_categories) && !in_array($_SESSION['role'], ['GM', 'President'])): ?>
+        <div class="row g-3 mb-4">
+            <div class="col-12">
+                <div class="corp-widget p-0 overflow-hidden">
+                    <div class="corp-widget-header px-4 pt-4 pb-2 border-bottom-0"><h6 class="corp-widget-title"><i class="fas fa-folder-open text-warning"></i> Recent Department Files</h6></div>
+                    <div class="table-responsive" style="max-height: 200px;">
+                        <table class="table table-corp align-middle mb-0">
+                            <thead class="bg-light sticky-top"><tr><th class="ps-4">Document</th><th>Folder</th><th>Uploader</th><th class="text-end pe-4">Date</th></tr></thead>
+                            <tbody>
+                                <?php if($recent_dashboard_files && $recent_dashboard_files->num_rows > 0): while($doc = $recent_dashboard_files->fetch_assoc()): ?>
+                                        <tr style="cursor: pointer;" onclick="window.location.href='documents.php?search=<?php echo urlencode($doc['file_name']); ?>'">
+                                            <td class="ps-4 fw-bold text-dark"><i class="fas fa-file-alt text-primary me-2"></i> <?php echo htmlspecialchars($doc['file_name']); ?></td>
+                                            <td><span class="badge bg-light text-dark border px-2"><i class="fas fa-folder me-1 opacity-50"></i><?php echo htmlspecialchars($doc['category']); ?></span></td>
+                                            <td class="text-muted"><small><?php echo htmlspecialchars($doc['full_name']); ?></small></td>
+                                            <td class="text-end pe-4 text-muted"><small><?php echo date('M d, H:i', strtotime($doc['uploaded_at'])); ?></small></td>
+                                        </tr>
+                                    <?php endwhile; endif; ?>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
@@ -860,83 +367,237 @@
         <?php endif; ?>
     </div>
 
-    <div class="modal fade" id="documentViewerModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-xl-custom modal-dialog-centered" style="margin: 1rem auto;">
-            <div class="modal-content shadow-lg border-0">
-                <div class="modal-header bg-primary text-white">
-                    <h6 class="modal-title fw-bold" id="documentViewerTitle"><i class="fas fa-file-alt me-2"></i> Document Viewer</h6>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body p-0 text-center position-relative" style="height: 75vh; background-color: #f1f5f9;">
-                    <iframe id="documentViewerFrame" src="" style="width: 100%; height: 100%; border: none; display: block;"></iframe>
-                </div>
-                <div class="modal-footer bg-light border-top-0 py-2">
-                    <button type="button" class="btn btn-secondary px-3 fw-medium shadow-sm" data-bs-dismiss="modal">
-                        <i class="fas fa-arrow-left me-2"></i> Back
-                    </button>
-                    <a href="#" id="documentDownloadBtn" class="btn btn-primary px-3 fw-medium shadow-sm" download>
-                        <i class="fas fa-download me-2"></i> Download
-                    </a>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <div class="modal fade" id="previewModal" tabindex="-1">
-        <div class="modal-dialog modal-lg modal-dialog-centered">
-            <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header bg-primary text-white py-2">
-                    <h6 class="modal-title fw-bold"><i class="fas fa-eye me-2"></i> File Preview</h6>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body text-center p-0 bg-light" id="previewBody" style="min-height: 400px; display: flex; align-items: center; justify-content: center;"></div>
-            </div>
-        </div>
-    </div>
+    <!-- Scripts -->
+    <?php if (isset($gm_charts) && !empty($gm_charts)): ?>
+        <script>const gmData = <?php echo json_encode($gm_charts); ?>;</script>
+    <?php endif; ?>
 
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script src="assets/js/dashboard.js"></script>
     
+    <!-- DASHBOARD DATE FILTER SCRIPT -->
     <script>
-        function handlePeriodChange() {
-            var period = document.getElementById('period').value;
-            if (period === 'custom') {
-                document.getElementById('customDateWrapper').style.display = 'block';
-                const fp = document.querySelector("#customDateRange")._flatpickr;
-                if(fp) {
-                    setTimeout(() => fp.open(), 50); 
+        document.addEventListener('DOMContentLoaded', function() {
+            let selectedPeriod = "<?php echo $period; ?>";
+            let startDateStr = "<?php echo $_GET['start'] ?? ''; ?>";
+            let endDateStr = "<?php echo $_GET['end'] ?? ''; ?>";
+
+            // Initialize Custom DOM Elements for Month & Year
+            const calMonth = document.getElementById('calMonth');
+            const calYear = document.getElementById('calYear');
+            const calPrev = document.getElementById('calPrev');
+            const calNext = document.getElementById('calNext');
+
+            // Populate Year Dropdown (15 years past and future)
+            const currentY = new Date().getFullYear();
+            for(let i = currentY - 15; i <= currentY + 15; i++) {
+                let opt = document.createElement('option');
+                opt.value = i; opt.text = i;
+                calYear.appendChild(opt);
+            }
+
+            // Initialize Flatpickr 
+            const fp = flatpickr("#inlineCalendarContainer", {
+                mode: "range",
+                inline: true,
+                showMonths: 1, 
+                defaultDate: (startDateStr && endDateStr) ? [startDateStr, endDateStr] : null,
+                
+                // Hooks to sync Flatpickr state to our custom dropdowns
+                onReady: function(selectedDates, dateStr, instance) {
+                    calMonth.value = instance.currentMonth;
+                    calYear.value = instance.currentYear;
+                },
+                onMonthChange: function(selectedDates, dateStr, instance) {
+                    calMonth.value = instance.currentMonth;
+                    calYear.value = instance.currentYear;
+                },
+                onYearChange: function(selectedDates, dateStr, instance) {
+                    calMonth.value = instance.currentMonth;
+                    calYear.value = instance.currentYear;
+                },
+                
+                onChange: function(selectedDates, dateStr, instance) {
+                    document.querySelectorAll('.quick-filter-btn').forEach(b => b.classList.remove('active'));
+                    selectedPeriod = 'custom';
+                    
+                    if (selectedDates.length === 2) {
+                        startDateStr = instance.formatDate(selectedDates[0], "Y-m-d");
+                        endDateStr = instance.formatDate(selectedDates[1], "Y-m-d");
+                        let s_disp = instance.formatDate(selectedDates[0], "M d, Y");
+                        let e_disp = instance.formatDate(selectedDates[1], "M d, Y");
+                        document.getElementById('customRangeDisplay').innerHTML = `<strong>${s_disp}</strong> &mdash; <strong>${e_disp}</strong>`;
+                    } else if (selectedDates.length === 1) {
+                        startDateStr = instance.formatDate(selectedDates[0], "Y-m-d");
+                        endDateStr = startDateStr; 
+                        let s_disp = instance.formatDate(selectedDates[0], "M d, Y");
+                        document.getElementById('customRangeDisplay').innerHTML = `<strong>${s_disp}</strong> &mdash; <span class="text-muted fw-normal fst-italic">Select end date...</span>`;
+                    }
                 }
-            } else {
-                document.getElementById('customDateWrapper').style.display = 'none';
-                document.getElementById('startDate').value = '';
-                document.getElementById('endDate').value = '';
-                document.getElementById('periodFilterForm').submit();
+            });
+
+            // Action Listeners for Custom Header UI
+            function updateFlatpickrView() {
+                let m = parseInt(calMonth.value);
+                let y = parseInt(calYear.value);
+                fp.jumpToDate(new Date(y, m, 1)); // Forces Flatpickr to go to exactly this month/year
             }
-        }
-
-        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
-        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-          return new bootstrap.Tooltip(tooltipTriggerEl)
-        })
-
-        function viewFile(path, type) {
-            const modalBody = document.getElementById('previewBody');
-            const myModal = new bootstrap.Modal(document.getElementById('previewModal'));
-            modalBody.innerHTML = '<div class="spinner-border text-primary" role="status"></div>';
             
-            if (type === 'image') {
-                modalBody.innerHTML = `<img src="${path}" class="img-fluid" style="max-height: 80vh;">`;
-            } else if (type === 'pdf') {
-                modalBody.innerHTML = `<iframe src="${path}" width="100%" height="600px" style="border:none;"></iframe>`;
-            } else {
-                modalBody.innerHTML = `<div class="p-4"><i class="fas fa-file-download fa-2x text-muted mb-2"></i><p style="font-size:0.85rem;">This file type cannot be previewed.</p><a href="${path}" download class="btn btn-primary shadow-sm"><i class="fas fa-download me-2"></i> Download File</a></div>`;
+            calMonth.addEventListener('change', updateFlatpickrView);
+            calYear.addEventListener('change', updateFlatpickrView);
+            
+            calPrev.addEventListener('click', function(e){ e.preventDefault(); fp.changeMonth(-1); });
+            calNext.addEventListener('click', function(e){ e.preventDefault(); fp.changeMonth(1); });
+
+            // Ensure rendering when opening modal
+            const filterDropdown = document.getElementById('filterDropdown');
+            if(filterDropdown) {
+                filterDropdown.addEventListener('show.bs.dropdown', function () {
+                    fp.redraw();
+                });
             }
-            myModal.show();
+
+            // Quick Filter Buttons Logic
+            const quickBtns = document.querySelectorAll('.quick-filter-btn');
+            quickBtns.forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.preventDefault(); 
+                    e.stopPropagation(); 
+                    
+                    selectedPeriod = this.getAttribute('data-val');
+                    let currentUrl = new URL(window.location.href);
+                    currentUrl.searchParams.set('period', selectedPeriod);
+                    currentUrl.searchParams.delete('start');
+                    currentUrl.searchParams.delete('end');
+                    
+                    window.location.href = currentUrl.toString(); 
+                });
+            });
+
+            // Apply Custom Range
+            document.getElementById('applyFilterBtn').addEventListener('click', function() {
+                if (selectedPeriod === 'custom' && (!startDateStr || !endDateStr)) {
+                    alert('Mangyaring pumili ng kumpletong Start at End Date sa kalendaryo.');
+                    return;
+                }
+                
+                let currentUrl = new URL(window.location.href);
+                currentUrl.searchParams.set('period', selectedPeriod);
+                
+                if (selectedPeriod === 'custom') {
+                    currentUrl.searchParams.set('start', startDateStr);
+                    currentUrl.searchParams.set('end', endDateStr);
+                }
+                
+                window.location.href = currentUrl.toString(); 
+            });
+        });
+        
+        function closeDropdown() {
+            var dropdownElement = document.getElementById('filterDropdown');
+            var dropdownInstance = bootstrap.Dropdown.getInstance(dropdownElement);
+            if (dropdownInstance) dropdownInstance.hide();
         }
     </script>
+    
+    <!-- EXECUTIVE CHARTS JAVASCRIPT -->
+    <?php if (in_array($_SESSION['role'], ['President', 'GM'])): ?>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            
+            Chart.defaults.font.family = "'Inter', 'Segoe UI', sans-serif";
+            Chart.defaults.color = '#64748b'; 
+            Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(15, 23, 42, 0.95)';
+            Chart.defaults.plugins.tooltip.padding = 10;
+            Chart.defaults.plugins.tooltip.cornerRadius = 8;
+            Chart.defaults.plugins.tooltip.titleFont = { size: 12, weight: '600' };
+            Chart.defaults.plugins.tooltip.bodyFont = { size: 12 };
+
+            if(document.getElementById('gmAuditChart')) {
+                const ctx = document.getElementById('gmAuditChart').getContext('2d');
+                let gradient = ctx.createLinearGradient(0, 0, 0, 300);
+                gradient.addColorStop(0, 'rgba(37, 99, 235, 0.2)'); 
+                gradient.addColorStop(1, 'rgba(37, 99, 235, 0)');   
+
+                const aLabels = gmData.audit.map(a => a.log_date);
+                const aData = gmData.audit.map(a => a.action_count);
+                
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: aLabels,
+                        datasets: [{
+                            label: 'System Actions',
+                            data: aData,
+                            borderColor: '#2563eb',
+                            backgroundColor: gradient,
+                            borderWidth: 3,
+                            pointRadius: 0, 
+                            pointHoverRadius: 6,
+                            pointHoverBackgroundColor: '#2563eb',
+                            pointHoverBorderColor: '#fff',
+                            pointHoverBorderWidth: 2,
+                            fill: true,
+                            tension: 0.4
+                        }]
+                    },
+                    options: {
+                        maintainAspectRatio: false,
+                        interaction: { intersect: false, mode: 'index' },
+                        plugins: { legend: { display: false } },
+                        scales: { 
+                            y: { beginAtZero: true, grid: { borderDash: [2, 2], color: '#f1f5f9' }, border: { display: false }, ticks: { font: {size:10} } }, 
+                            x: { grid: { display: false }, border: { display: false }, ticks: { font: {size:10} } } 
+                        }
+                    }
+                });
+            }
+
+            if(document.getElementById('gmLifecycleChart')) {
+                new Chart(document.getElementById('gmLifecycleChart'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Active', 'Archived', 'Disposition'],
+                        datasets: [{
+                            data: [ gmData.lifecycle.active_docs, gmData.lifecycle.archived_docs, gmData.lifecycle.ready_disp ],
+                            backgroundColor: ['#10b981', '#94a3b8', '#ef4444'],
+                            borderWidth: 2,
+                            borderColor: '#ffffff',
+                            hoverOffset: 4
+                        }]
+                    },
+                    options: {
+                        cutout: '70%',
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 6, font: {size: 11, weight: '500'} } } }
+                    }
+                });
+            }
+
+            if(document.getElementById('gmVolumeChart')) {
+                const vLabels = gmData.volume.map(v => v.category || 'Uncategorized');
+                const vData = gmData.volume.map(v => v.count);
+                new Chart(document.getElementById('gmVolumeChart'), {
+                    type: 'bar',
+                    data: { labels: vLabels, datasets: [{ label: 'Total Files', data: vData, backgroundColor: '#3b82f6', borderRadius: 4, barThickness: 12 }] },
+                    options: { indexAxis: 'y', maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, grid: { borderDash: [2, 2], color: '#f1f5f9' }, border: { display: false }, ticks: { precision: 0 } }, y: { grid: { display: false }, border: { display: false }, ticks: { font: {size: 11} } } } }
+                });
+            }
+
+            if(document.getElementById('gmTurnaroundChart')) {
+                const tLabels = gmData.turnaround.map(t => t.stage.replace('-Approved', ''));
+                const tData = gmData.turnaround.map(t => t.avg_hours);
+                new Chart(document.getElementById('gmTurnaroundChart'), {
+                    type: 'bar',
+                    data: { labels: tLabels, datasets: [{ label: 'Avg Hours Spent', data: tData, backgroundColor: '#f43f5e', borderRadius: 4, barThickness: 30 }] },
+                    options: { maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, grid: { borderDash: [2, 2], color: '#f1f5f9' }, border: { display: false } }, x: { grid: { display: false }, border: { display: false } } } }
+                });
+            }
+        });
+    </script>
+    <?php endif; ?>
+
 </body>
 </html>

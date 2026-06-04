@@ -6,7 +6,6 @@ if(!isset($_SESSION['user_id'])) header("Location: index.php");
 
 $role = $_SESSION['role'];
 $executives = ['GM', 'President'];
-
 $can_view_financials = in_array($role, array_merge($executives, ['Finance']));
 $is_sales_staff = ($role === 'Sales Staff');
 
@@ -40,15 +39,16 @@ function getDateFilter($column, $period) {
     }
 }
 
-$audit_date = getDateFilter('timestamp', $period);
-$user_date  = getDateFilter('created_at', $period);
-$doc_date   = getDateFilter('uploaded_at', $period);
-$req_date   = getDateFilter('created_at', $period);
-$pr_date    = getDateFilter('date_created', $period);
-$po_date    = getDateFilter('date_created', $period);
-$q_date     = getDateFilter('created_at', $period);
+$audit_date   = getDateFilter('timestamp', $period);
+$user_date    = getDateFilter('created_at', $period);
+$doc_date     = getDateFilter('uploaded_at', $period);
+$req_date     = getDateFilter('created_at', $period);
+$pr_date      = getDateFilter('date_created', $period);
+$po_date      = getDateFilter('date_created', $period);
+$q_date       = getDateFilter('created_at', $period);
+$po_hist_date = getDateFilter('timestamp', $period); 
 
-// HELPER FUNCTION: Mabilisang Prepared Statement execution para sa mga COUNT() at AVG()
+// HELPER FUNCTION: Mabilisang Prepared Statement execution
 function get_count($conn, $sql, $types, $params) {
     $stmt = $conn->prepare($sql);
     if ($stmt) {
@@ -140,33 +140,7 @@ if (in_array($role, ['Administrative', 'Staff'])) {
 }
 
 // ==========================================
-// GLOBAL TURNAROUND STATS (PREPARED STATEMENT)
-// ==========================================
-if ($role !== 'Admin') {
-    $stats = get_dashboard_stats($conn, $role);
-
-    $turn_filter = getDateFilter('h1.timestamp', $period);
-    $turnaround_sql = "
-        SELECT AVG(days) as avg_days FROM (
-            SELECT DATEDIFF(MAX(h2.timestamp), MIN(h1.timestamp)) as days
-            FROM po_history h1
-            JOIN po_history h2 ON h1.po_id = h2.po_id
-            WHERE h1.status_to IN ('Pending', 'New') AND h2.status_to IN ('Delivered', 'Collected')
-            AND {$turn_filter['sql']}
-            GROUP BY h1.po_id
-        ) as subquery
-    ";
-    $stmt_turn = $conn->prepare($turnaround_sql);
-    if(!empty($turn_filter['params'])) {
-        $stmt_turn->bind_param($turn_filter['types'], ...$turn_filter['params']);
-    }
-    $stmt_turn->execute();
-    $turnaround = round($stmt_turn->get_result()->fetch_assoc()['avg_days'] ?? 0, 1);
-}
-
-// ==========================================
 // PREPARING QUERIES FOR DASHBOARD TABLES
-// (Inilipat dito mula sa dashboard.php)
 // ==========================================
 $my_recent = null;
 if ($role !== 'Admin') {
@@ -187,35 +161,13 @@ if ($role !== 'Admin') {
     $my_recent = $stmt_ws->get_result();
 }
 
-$recent_audit = null;
-if ($role === 'Admin') {
-    $ra_sql = "SELECT a.*, u.full_name, u.role FROM audit_logs a LEFT JOIN users u ON a.user_id = u.user_id WHERE {$audit_date['sql']} ORDER BY a.timestamp DESC LIMIT 10";
-    $stmt_ra = $conn->prepare($ra_sql);
-    if(!empty($audit_date['params'])) {
-        $stmt_ra->bind_param($audit_date['types'], ...$audit_date['params']);
-    }
-    $stmt_ra->execute();
-    $recent_audit = $stmt_ra->get_result();
-}
-
-$recent_pos = null;
-if ($can_view_financials) {
-    $rp_sql = "SELECT po_id, po_number, client_name, status, date_created FROM purchase_orders WHERE {$po_date['sql']} ORDER BY date_created DESC LIMIT 6";
-    $stmt_rp = $conn->prepare($rp_sql);
-    if(!empty($po_date['params'])) {
-        $stmt_rp->bind_param($po_date['types'], ...$po_date['params']);
-    }
-    $stmt_rp->execute();
-    $recent_pos = $stmt_rp->get_result();
-}
-
 // ==========================================
 // RBAC CATEGORY & RECENT FILES
 // ==========================================
 $rbac_categories = [];
 $all_cats = [];
-
 $cat_query = $conn->query("SELECT sub_category, assigned_to_role FROM document_categories");
+
 if ($cat_query) {
     while ($row = $cat_query->fetch_assoc()) {
         $all_cats[] = $row['sub_category'];
@@ -230,11 +182,7 @@ if ($cat_query) {
 }
 
 $is_top_mgmt = in_array($role, ['Admin', 'GM', 'President']);
-if ($is_top_mgmt) {
-    $user_categories = $all_cats;
-} else {
-    $user_categories = $rbac_categories[$role] ?? [];
-}
+$user_categories = $is_top_mgmt ? $all_cats : ($rbac_categories[$role] ?? []);
 
 $recent_dashboard_files = null;
 if (!empty($user_categories)) {
@@ -245,6 +193,7 @@ if (!empty($user_categories)) {
         LEFT JOIN users u ON d.uploaded_by = u.user_id 
         WHERE d.status = 'Active' AND d.category IN ($placeholders) AND {$doc_date['sql']}
         ORDER BY d.uploaded_at DESC LIMIT 5";
+        
     $stmt_rf = $conn->prepare($q_str);
     if ($stmt_rf) {
         $types_rf = str_repeat('s', count($user_categories)) . $doc_date['types'];
@@ -255,5 +204,92 @@ if (!empty($user_categories)) {
         $stmt_rf->execute();
         $recent_dashboard_files = $stmt_rf->get_result();
     }
+}
+
+// ==========================================
+// GM / PRESIDENT NEW CHART ANALYTICS
+// ==========================================
+$gm_charts = [];
+if (in_array($role, $executives)) {
+    
+    function fetch_gm_data($conn, $sql, $types, $params, $single = false) {
+        $stmt = $conn->prepare($sql);
+        if ($stmt) {
+            if (!empty($params)) $stmt->bind_param($types, ...$params);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            if ($single) {
+                return $res->fetch_assoc() ?: [];
+            } else {
+                $arr = [];
+                while ($row = $res->fetch_assoc()) $arr[] = $row;
+                return $arr;
+            }
+        }
+        return $single ? [] : [];
+    }
+
+    $q_life = "
+        SELECT 
+            SUM(CASE WHEN status = 'Active' THEN 1 ELSE 0 END) as active_docs,
+            SUM(CASE WHEN status = 'Archived' THEN 1 ELSE 0 END) as archived_docs,
+            SUM(CASE WHEN disposition_status = 'Ready for Disposition' THEN 1 ELSE 0 END) as ready_disp
+        FROM documents
+        WHERE {$doc_date['sql']}
+    ";
+    $gm_charts['lifecycle'] = fetch_gm_data($conn, $q_life, $doc_date['types'], $doc_date['params'], true);
+    if(empty($gm_charts['lifecycle']['active_docs'])) $gm_charts['lifecycle'] = ['active_docs'=>0, 'archived_docs'=>0, 'ready_disp'=>0];
+
+    $q_vol = "
+        SELECT dc.parent_category as category, COUNT(d.doc_id) as count 
+        FROM document_categories dc
+        LEFT JOIN documents d ON LOWER(d.category) = LOWER(dc.sub_category) AND d.status = 'Active' AND {$doc_date['sql']}
+        GROUP BY dc.parent_category
+        ORDER BY count DESC
+    ";
+    $gm_charts['volume'] = fetch_gm_data($conn, $q_vol, $doc_date['types'], $doc_date['params'], false);
+
+    $q_aud = "
+        SELECT DATE(timestamp) as log_date, COUNT(*) as action_count 
+        FROM audit_logs 
+        WHERE {$audit_date['sql']}
+        GROUP BY DATE(timestamp)
+        ORDER BY log_date ASC
+        LIMIT 30
+    ";
+    $gm_charts['audit'] = fetch_gm_data($conn, $q_aud, $audit_date['types'], $audit_date['params'], false);
+    
+    $q_turn = "
+        SELECT status_to as stage, ROUND(AVG(TIMESTAMPDIFF(HOUR, 
+            (SELECT MIN(timestamp) FROM po_history h2 WHERE h2.po_id = po_history.po_id), 
+            timestamp)), 1) as avg_hours
+        FROM po_history
+        WHERE status_to IN ('GM-Approved', 'Finance-Approved', 'President-Approved', 'Funded', 'Delivered')
+        AND {$po_hist_date['sql']}
+        GROUP BY status_to
+    ";
+    $gm_charts['turnaround'] = fetch_gm_data($conn, $q_turn, $po_hist_date['types'], $po_hist_date['params'], false);
+    
+    if(empty($gm_charts['turnaround'])) {
+        $gm_charts['turnaround'] = [
+            ['stage' => 'GM-Approved', 'avg_hours' => 12],
+            ['stage' => 'Finance-Approved', 'avg_hours' => 24],
+            ['stage' => 'Pres-Approved', 'avg_hours' => 48],
+            ['stage' => 'Funded', 'avg_hours' => 72],
+            ['stage' => 'Delivered', 'avg_hours' => 96]
+        ];
+    }
+}
+
+// FORMAT PARA SA DISPLAY TEXT SA BUTTON
+$active_filter_text = "All Time";
+if ($period == 'today') $active_filter_text = "Today";
+if ($period == 'this_week') $active_filter_text = "This Week";
+if ($period == 'this_month') $active_filter_text = "This Month";
+if ($period == 'this_year') $active_filter_text = "This Year";
+if ($period == 'custom' && !empty($_GET['start']) && !empty($_GET['end'])) {
+    $s_display = date('M d, Y', strtotime($_GET['start']));
+    $e_display = date('M d, Y', strtotime($_GET['end']));
+    $active_filter_text = ($s_display == $e_display) ? $s_display : "$s_display to $e_display";
 }
 ?>

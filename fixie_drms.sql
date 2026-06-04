@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: May 29, 2026 at 06:14 AM
+-- Generation Time: Jun 04, 2026 at 10:43 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -1322,7 +1322,490 @@ INSERT INTO `audit_logs` (`log_id`, `user_id`, `action_type`, `description`, `ip
 (1277, 9, 'PAGE_VIEW', 'Viewed inner tab: FINANCIAL & ANALYTICS OVERVIEW', '::1', '2026-05-29 04:08:51'),
 (1278, 9, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-05-29 04:09:27'),
 (1279, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-05-29 04:09:30'),
-(1280, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-05-29 04:14:10');
+(1280, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-05-29 04:14:10'),
+(1281, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-05-29 04:50:23'),
+(1282, 9, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-05-29 04:50:30'),
+(1283, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-05-29 04:50:57'),
+(1284, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-05-29 04:51:07'),
+(1285, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-05-29 05:00:01'),
+(1286, 9, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-05-29 05:00:07'),
+(1287, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-05-29 05:00:10'),
+(1288, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-05-29 05:00:14'),
+(1289, 9, 'PAGE_VIEW', 'Viewed inner tab: DEPARTMENT PERFORMANCE', '::1', '2026-05-29 05:02:51'),
+(1290, 9, 'PAGE_VIEW', 'Viewed inner tab: FINANCIAL & ANALYTICS OVERVIEW', '::1', '2026-05-29 05:02:52'),
+(1291, 9, 'PAGE_VIEW', 'Viewed inner tab: DEPARTMENT PERFORMANCE', '::1', '2026-05-29 05:02:53'),
+(1292, 9, 'PAGE_VIEW', 'Viewed inner tab: FINANCIAL & ANALYTICS OVERVIEW', '::1', '2026-05-29 05:02:53'),
+(1293, 9, 'PAGE_VIEW', 'Viewed inner tab: DEPARTMENT PERFORMANCE', '::1', '2026-05-29 05:02:54'),
+(1294, 9, 'PAGE_VIEW', 'Viewed inner tab: FINANCIAL & ANALYTICS OVERVIEW', '::1', '2026-05-29 05:02:54'),
+(1295, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-05-29 05:04:44'),
+(1296, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-05-29 05:19:09'),
+(1297, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-05-29 05:19:38'),
+(1298, 9, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-05-29 05:19:40'),
+(1299, 9, 'LOGIN', 'User logged in successfully', '::1', '2026-05-29 05:19:44'),
+(1300, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-05-29 05:19:45'),
+(1301, 9, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-05-29 05:19:53'),
+(1302, 2, 'LOGIN', 'User logged in successfully', '::1', '2026-05-29 05:19:58'),
+(1303, 2, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-05-29 05:19:58'),
+(1304, 2, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-05-29 05:20:07'),
+(1305, 2, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-05-29 05:20:38'),
+(1306, 2, 'PAGE_VIEW', 'Accessed User Management Control Panel', '::1', '2026-05-29 05:22:32'),
+(1307, 2, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-05-29 05:22:51'),
+(1308, 2, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-05-29 05:23:05'),
+(1309, 9, 'LOGIN', 'User logged in successfully', '::1', '2026-05-29 05:23:13'),
+(1310, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-05-29 05:23:13'),
+(1311, 9, 'PAGE_VIEW', 'Viewed inner tab: DEPARTMENT PERFORMANCE', '::1', '2026-05-29 05:23:22'),
+(1312, 9, 'PAGE_VIEW', 'Viewed inner tab: RETENTION ALERTS', '::1', '2026-05-29 05:23:23'),
+(1313, 9, 'PAGE_VIEW', 'Viewed inner tab: DEPARTMENT PERFORMANCE', '::1', '2026-05-29 05:23:23'),
+(1314, 9, 'PAGE_VIEW', 'Viewed inner tab: FINANCIAL & ANALYTICS OVERVIEW', '::1', '2026-05-29 05:23:24'),
+(1315, 9, 'PAGE_VIEW', 'Viewed inner tab: DEPARTMENT PERFORMANCE', '::1', '2026-05-29 05:23:24'),
+(1316, 9, 'PAGE_VIEW', 'Viewed inner tab: FINANCIAL & ANALYTICS OVERVIEW', '::1', '2026-05-29 05:23:25'),
+(1317, 9, 'PAGE_VIEW', 'Viewed inner tab: DEPARTMENT PERFORMANCE', '::1', '2026-05-29 05:23:25'),
+(1318, 9, 'PAGE_VIEW', 'Viewed inner tab: FINANCIAL & ANALYTICS OVERVIEW', '::1', '2026-05-29 05:23:26'),
+(1319, 9, 'PAGE_VIEW', 'Viewed inner tab: DEPARTMENT PERFORMANCE', '::1', '2026-05-29 05:23:27'),
+(1320, 9, 'PAGE_VIEW', 'Viewed inner tab: RETENTION ALERTS', '::1', '2026-05-29 05:23:27'),
+(1321, 9, 'PAGE_VIEW', 'Viewed inner tab: FINANCIAL & ANALYTICS OVERVIEW', '::1', '2026-05-29 05:23:27'),
+(1322, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-05-29 05:23:58'),
+(1323, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1776928439_quote_ceb3ce3b.png', '::1', '2026-05-29 05:23:58'),
+(1324, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-05-29 05:24:37'),
+(1325, 9, 'LOGIN', 'User logged in successfully', '::1', '2026-06-02 12:01:10'),
+(1326, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 12:01:14'),
+(1327, 9, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-02 12:04:09'),
+(1328, 16, 'LOGIN', 'User logged in successfully', '::1', '2026-06-02 12:04:13'),
+(1329, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 12:04:13'),
+(1330, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-02 12:04:16'),
+(1331, 16, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-02 12:11:31'),
+(1332, 3, 'LOGIN', 'User logged in successfully', '::1', '2026-06-02 12:11:36'),
+(1333, 3, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 12:11:37'),
+(1334, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 12:11:42'),
+(1335, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1776928439_quote_ceb3ce3b.png', '::1', '2026-06-02 12:11:42'),
+(1336, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1776928439_quote_ceb3ce3b.png', '::1', '2026-06-02 12:12:22'),
+(1337, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 12:12:22'),
+(1338, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1776928439_quote_ceb3ce3b.png', '::1', '2026-06-02 12:33:13'),
+(1339, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 12:33:13'),
+(1340, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1776928439_quote_ceb3ce3b.png', '::1', '2026-06-02 12:33:19'),
+(1341, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 12:33:19'),
+(1342, 3, 'UPDATE_VERSION', 'Uploaded v2.0 for Doc ID: 136', '::1', '2026-06-02 12:34:11'),
+(1343, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 12:34:12'),
+(1344, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403651_4628eb23_azure-background-high-quality-free-photo.jpg', '::1', '2026-06-02 12:34:12'),
+(1345, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 12:35:02'),
+(1346, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403651_4628eb23_azure-background-high-quality-free-photo.jpg', '::1', '2026-06-02 12:35:02'),
+(1347, 3, 'UPDATE_VERSION', 'Uploaded v3.0 for Doc ID: 136', '::1', '2026-06-02 12:35:14'),
+(1348, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '2026-06-02 12:35:14'),
+(1349, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 12:35:14'),
+(1350, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 12:43:09'),
+(1351, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '2026-06-02 12:43:09'),
+(1352, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '2026-06-02 12:58:24'),
+(1353, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 12:58:24'),
+(1354, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '2026-06-02 12:58:41'),
+(1355, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 12:58:41'),
+(1356, 3, 'UPDATE_VERSION', 'Uploaded v2.0 for Doc ID: 64', '::1', '2026-06-02 12:59:22'),
+(1357, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780405162_1c92c4b6_IMG_20250203_132212.jpg', '::1', '2026-06-02 13:12:12'),
+(1358, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 13:12:12'),
+(1359, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '2026-06-02 13:12:12'),
+(1360, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780405162_1c92c4b6_IMG_20250203_132212.jpg', '::1', '2026-06-02 13:13:20'),
+(1361, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 13:13:20'),
+(1362, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '2026-06-02 13:13:20'),
+(1363, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '2026-06-02 13:13:43'),
+(1364, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780405162_1c92c4b6_IMG_20250203_132212.jpg', '::1', '2026-06-02 13:13:43'),
+(1365, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 13:13:43'),
+(1366, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780405162_1c92c4b6_IMG_20250203_132212.jpg', '::1', '2026-06-02 13:14:26'),
+(1367, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '2026-06-02 13:14:26'),
+(1368, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 13:14:26'),
+(1369, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1776606043_quote_4449e2cb.png', '::1', '2026-06-02 13:14:52'),
+(1370, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1776604047_quote_1ed71ad6.png', '::1', '2026-06-02 13:14:52'),
+(1371, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780405162_1c92c4b6_IMG_20250203_132212.jpg', '::1', '2026-06-02 13:15:12'),
+(1372, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '2026-06-02 13:15:12'),
+(1373, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 13:15:12'),
+(1374, 3, 'UPDATE_VERSION', 'Uploaded v3.0 for Doc ID: 64', '::1', '2026-06-02 13:15:27'),
+(1375, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '2026-06-02 13:29:02'),
+(1376, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780406127_a731c218_IMG_20250203_133245.jpg', '::1', '2026-06-02 13:29:02'),
+(1377, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 13:29:02'),
+(1378, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '2026-06-02 13:29:51'),
+(1379, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 13:29:51'),
+(1380, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780406127_a731c218_IMG_20250203_133245.jpg', '::1', '2026-06-02 13:29:51'),
+(1381, 3, 'UPDATE_VERSION', 'Uploaded v4.0 for Doc ID: 64', '::1', '2026-06-02 13:30:08'),
+(1382, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780407008_f336911b_20231129200405.png', '::1', '2026-06-02 13:30:08'),
+(1383, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 13:30:08'),
+(1384, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '2026-06-02 13:30:08'),
+(1385, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780407008_f336911b_20231129200405.png', '::1', '2026-06-02 13:35:40'),
+(1386, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 13:35:40'),
+(1387, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '2026-06-02 13:35:40'),
+(1388, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780407008_f336911b_20231129200405.png', '::1', '2026-06-02 13:36:13'),
+(1389, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '2026-06-02 13:36:13'),
+(1390, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 13:36:13'),
+(1391, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '2026-06-02 13:37:06'),
+(1392, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780407008_f336911b_20231129200405.png', '::1', '2026-06-02 13:37:06'),
+(1393, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 13:37:06'),
+(1394, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '2026-06-02 13:37:24'),
+(1395, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780407008_f336911b_20231129200405.png', '::1', '2026-06-02 13:37:24'),
+(1396, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 13:37:24'),
+(1397, 3, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-02 13:38:07'),
+(1398, 9, 'LOGIN', 'User logged in successfully', '::1', '2026-06-02 13:38:11'),
+(1399, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 13:38:11'),
+(1400, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1780407008_f336911b_20231129200405.png', '::1', '2026-06-02 13:38:33'),
+(1401, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '2026-06-02 13:38:33'),
+(1402, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 13:38:33'),
+(1403, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1780407008_f336911b_20231129200405.png', '::1', '2026-06-02 13:39:05'),
+(1404, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '2026-06-02 13:39:05'),
+(1405, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 13:39:05'),
+(1406, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '2026-06-02 13:41:42'),
+(1407, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1780407008_f336911b_20231129200405.png', '::1', '2026-06-02 13:41:42'),
+(1408, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 13:41:42'),
+(1409, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 13:41:54'),
+(1410, 9, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-02 13:48:43'),
+(1411, 3, 'LOGIN', 'User logged in successfully', '::1', '2026-06-02 13:48:49'),
+(1412, 3, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 13:48:49'),
+(1413, 3, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 13:49:08'),
+(1414, 3, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 13:49:12'),
+(1415, 3, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 13:49:16'),
+(1416, 3, 'VIEW_RECORD', 'Viewed details of Purchase Request ID: 183', '::1', '2026-06-02 13:49:20'),
+(1417, 3, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 13:49:22'),
+(1418, 3, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-02 13:49:27'),
+(1419, 16, 'LOGIN', 'User logged in successfully', '::1', '2026-06-02 13:49:31'),
+(1420, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 13:49:31'),
+(1421, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-02 13:49:35'),
+(1422, 16, 'PAGE_VIEW', 'Opened Create Purchase Request Form', '::1', '2026-06-02 13:49:40'),
+(1423, 16, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 13:49:50'),
+(1424, 16, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-02 13:49:53'),
+(1425, 3, 'LOGIN', 'User logged in successfully', '::1', '2026-06-02 13:49:58'),
+(1426, 3, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 13:49:58'),
+(1427, 3, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 13:50:00'),
+(1428, 3, 'VIEW_RECORD', 'Viewed details of Purchase Request ID: 184', '::1', '2026-06-02 13:50:02'),
+(1429, 3, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 13:50:04'),
+(1430, 3, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-02 13:50:06'),
+(1431, 9, 'LOGIN', 'User logged in successfully', '::1', '2026-06-02 13:50:09'),
+(1432, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 13:50:09'),
+(1433, 9, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 13:50:11'),
+(1434, 9, 'VIEW_RECORD', 'Viewed details of Purchase Request ID: 184', '::1', '2026-06-02 13:50:12'),
+(1435, 9, 'VIEW_RECORD', 'Viewed details of Purchase Request ID: 184', '::1', '2026-06-02 13:50:16'),
+(1436, 9, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-02 13:50:18'),
+(1437, 3, 'LOGIN', 'User logged in successfully', '::1', '2026-06-02 13:50:23'),
+(1438, 3, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 13:50:23'),
+(1439, 3, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 13:50:25'),
+(1440, 3, 'VIEW_RECORD', 'Viewed details of Purchase Request ID: 184', '::1', '2026-06-02 13:50:26'),
+(1441, 3, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 13:51:59'),
+(1442, 3, 'VIEW_RECORD', 'Viewed details of Purchase Request ID: 184', '::1', '2026-06-02 13:52:05'),
+(1443, 3, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-02 13:52:52'),
+(1444, 16, 'LOGIN', 'User logged in successfully', '::1', '2026-06-02 13:52:56'),
+(1445, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 13:52:56'),
+(1446, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-02 13:52:59'),
+(1447, 16, 'PAGE_VIEW', 'Opened Create Purchase Request Form', '::1', '2026-06-02 13:53:02'),
+(1448, 16, 'PAGE_VIEW', 'Opened Create Purchase Request Form', '::1', '2026-06-02 13:53:03'),
+(1449, 16, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-02 13:53:04'),
+(1450, 9, 'LOGIN', 'User logged in successfully', '::1', '2026-06-02 13:53:07'),
+(1451, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 13:53:07'),
+(1452, 9, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 13:53:09'),
+(1453, 9, 'VIEW_RECORD', 'Viewed details of Purchase Request ID: 184', '::1', '2026-06-02 13:53:10'),
+(1454, 9, 'APPROVE_PO', 'Advanced PO 123 to GM-Approved', '::1', '2026-06-02 13:53:24'),
+(1455, 9, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 13:56:13'),
+(1456, 9, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-02 13:56:17'),
+(1457, 3, 'LOGIN', 'User logged in successfully', '::1', '2026-06-02 13:56:22'),
+(1458, 3, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 13:56:22'),
+(1459, 3, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 13:56:24'),
+(1460, 3, 'CREATE_PO', 'Created new PO: PO-2026-0008 mapped to PR ID: 184', '::1', '2026-06-02 13:56:26'),
+(1461, 3, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-02 13:56:28'),
+(1462, 9, 'LOGIN', 'User logged in successfully', '::1', '2026-06-02 13:56:32'),
+(1463, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 13:56:32'),
+(1464, 9, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 13:56:48'),
+(1465, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:02:46'),
+(1466, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:07:57'),
+(1467, 9, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 14:07:59'),
+(1468, 9, 'APPROVE_PO', 'Advanced PO 124 to GM-Approved', '::1', '2026-06-02 14:08:26'),
+(1469, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:08:38'),
+(1470, 9, 'PAGE_VIEW', 'Viewed inner tab: RETENTION ALERTS', '::1', '2026-06-02 14:08:42'),
+(1471, 9, 'PAGE_VIEW', 'Viewed inner tab: FINANCIAL & ANALYTICS OVERVIEW', '::1', '2026-06-02 14:08:43'),
+(1472, 9, 'PAGE_VIEW', 'Viewed inner tab: RETENTION ALERTS', '::1', '2026-06-02 14:08:43'),
+(1473, 9, 'PAGE_VIEW', 'Viewed inner tab: FINANCIAL & ANALYTICS OVERVIEW', '::1', '2026-06-02 14:08:44'),
+(1474, 9, 'PAGE_VIEW', 'Viewed inner tab: RETENTION ALERTS', '::1', '2026-06-02 14:08:47'),
+(1475, 9, 'PAGE_VIEW', 'Viewed inner tab: FINANCIAL & ANALYTICS OVERVIEW', '::1', '2026-06-02 14:08:48'),
+(1476, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:08:51'),
+(1477, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:08:55'),
+(1478, 9, 'PAGE_VIEW', 'Browsed Purchase Requests Directory | Applied status filter: \'Pending\'', '::1', '2026-06-02 14:08:55'),
+(1479, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:08:57'),
+(1480, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:08:59'),
+(1481, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:12:57'),
+(1482, 9, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 14:13:00'),
+(1483, 9, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 14:13:10'),
+(1484, 9, 'VIEW_RECORD', 'Viewed details of Purchase Request ID: 184', '::1', '2026-06-02 14:13:12'),
+(1485, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1779537592_IMG_20250203_133245.jpg', '::1', '2026-06-02 14:13:19'),
+(1486, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1780407008_f336911b_20231129200405.png', '::1', '2026-06-02 14:13:30'),
+(1487, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '2026-06-02 14:13:30'),
+(1488, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 14:13:30'),
+(1489, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:13:54'),
+(1490, 9, 'PAGE_VIEW', 'Viewed inner tab: DEPARTMENT PERFORMANCE', '::1', '2026-06-02 14:13:57'),
+(1491, 9, 'PAGE_VIEW', 'Viewed inner tab: FINANCIAL & ANALYTICS OVERVIEW', '::1', '2026-06-02 14:13:58'),
+(1492, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:25:17'),
+(1493, 9, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 14:25:31'),
+(1494, 9, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 14:25:37'),
+(1495, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:25:42'),
+(1496, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:25:53'),
+(1497, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:26:26'),
+(1498, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:29:46'),
+(1499, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:29:56'),
+(1500, 9, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 14:30:02'),
+(1501, 9, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 14:30:09'),
+(1502, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:30:28'),
+(1503, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:30:42'),
+(1504, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:31:14'),
+(1505, 9, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-02 14:31:21'),
+(1506, 16, 'LOGIN', 'User logged in successfully', '::1', '2026-06-02 14:31:30'),
+(1507, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:31:30'),
+(1508, 16, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-02 14:31:37'),
+(1509, 2, 'LOGIN', 'User logged in successfully', '::1', '2026-06-02 14:31:42'),
+(1510, 2, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:31:42'),
+(1511, 2, 'PAGE_VIEW', 'Accessed User Management Control Panel', '::1', '2026-06-02 14:31:57'),
+(1512, 2, 'PAGE_VIEW', 'Accessed User Management Control Panel', '::1', '2026-06-02 14:32:09'),
+(1513, 2, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:32:16'),
+(1514, 2, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:35:30'),
+(1515, 2, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:35:36'),
+(1516, 2, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:35:49'),
+(1517, 2, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-02 14:35:51'),
+(1518, 3, 'LOGIN', 'User logged in successfully', '::1', '2026-06-02 14:36:11'),
+(1519, 3, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:36:11'),
+(1520, 3, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 14:36:17'),
+(1521, 3, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-02 14:36:29'),
+(1522, 16, 'LOGIN', 'User logged in successfully', '::1', '2026-06-02 14:36:33'),
+(1523, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:36:33'),
+(1524, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-02 14:36:36'),
+(1525, 16, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 14:36:39'),
+(1526, 16, 'PAGE_VIEW', 'Opened Create Purchase Request Form', '::1', '2026-06-02 14:36:41'),
+(1527, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-02 14:36:45'),
+(1528, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-02 14:36:47'),
+(1529, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-02 14:36:49'),
+(1530, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-02 14:36:50'),
+(1531, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-02 14:36:51'),
+(1532, 16, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 14:36:53'),
+(1533, 16, 'PAGE_VIEW', 'Opened Create Purchase Request Form', '::1', '2026-06-02 14:36:54'),
+(1534, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-02 14:36:55'),
+(1535, 16, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-02 14:36:58'),
+(1536, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:37:15'),
+(1537, 16, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-02 14:37:27'),
+(1538, 9, 'LOGIN', 'User logged in successfully', '::1', '2026-06-02 14:38:54'),
+(1539, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:38:54'),
+(1540, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:39:45'),
+(1541, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:40:11'),
+(1542, 9, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-02 14:40:12'),
+(1543, 2, 'LOGIN', 'User logged in successfully', '::1', '2026-06-02 14:40:49'),
+(1544, 2, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:40:49'),
+(1545, 2, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:41:28'),
+(1546, 2, 'PAGE_VIEW', 'Accessed User Management Control Panel', '::1', '2026-06-02 14:41:39'),
+(1547, 2, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:41:42'),
+(1548, 2, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:43:04'),
+(1549, 16, 'LOGIN', 'User logged in successfully', '::1', '2026-06-02 14:43:20'),
+(1550, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:43:20'),
+(1551, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:43:28'),
+(1552, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:48:58'),
+(1553, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:53:10'),
+(1554, 16, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-02 14:54:19'),
+(1555, 3, 'LOGIN', 'User logged in successfully', '::1', '2026-06-02 14:54:24'),
+(1556, 3, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:54:24'),
+(1557, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780407008_f336911b_20231129200405.png', '::1', '2026-06-02 14:54:30'),
+(1558, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '2026-06-02 14:54:30'),
+(1559, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '2026-06-02 14:54:30'),
+(1560, 3, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:54:40'),
+(1561, 3, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:54:45'),
+(1562, 9, 'LOGIN', 'User logged in successfully', '::1', '2026-06-02 14:57:14'),
+(1563, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:57:14'),
+(1564, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:58:22'),
+(1565, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:58:27'),
+(1566, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:58:33'),
+(1567, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:58:41'),
+(1568, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:58:50'),
+(1569, 9, 'PAGE_VIEW', 'Viewed inner tab: RETENTION ALERTS', '::1', '2026-06-02 14:58:51'),
+(1570, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 14:59:03'),
+(1571, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 15:03:54'),
+(1572, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-02 15:11:26'),
+(1573, 2, 'LOGIN', 'User logged in successfully', '::1', '2026-06-03 03:39:47'),
+(1574, 2, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 03:39:47'),
+(1575, 2, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-03 03:49:07'),
+(1576, 9, 'LOGIN', 'User logged in successfully', '::1', '2026-06-03 03:49:12'),
+(1577, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 03:49:12'),
+(1578, 9, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-03 03:49:40'),
+(1579, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 03:50:01'),
+(1580, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 03:54:25'),
+(1581, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 03:54:31'),
+(1582, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 03:54:48'),
+(1583, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 03:54:56'),
+(1584, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 03:54:59'),
+(1585, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 03:59:40'),
+(1586, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 03:59:46'),
+(1587, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 03:59:54'),
+(1588, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:00:02'),
+(1589, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:00:05'),
+(1590, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:00:10'),
+(1591, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:00:11'),
+(1592, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:00:18'),
+(1593, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:00:24'),
+(1594, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:05:33'),
+(1595, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:06:16'),
+(1596, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:06:23'),
+(1597, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:08:15'),
+(1598, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:08:21'),
+(1599, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:08:32'),
+(1600, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:08:36'),
+(1601, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:10:30'),
+(1602, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:23:13'),
+(1603, 9, 'PAGE_VIEW', 'Viewed inner tab: DEPARTMENT PERFORMANCE', '::1', '2026-06-03 04:23:27'),
+(1604, 9, 'PAGE_VIEW', 'Viewed inner tab: FINANCIAL & ANALYTICS OVERVIEW', '::1', '2026-06-03 04:23:52'),
+(1605, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:36:21'),
+(1606, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:36:54'),
+(1607, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:37:02'),
+(1608, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:46:03'),
+(1609, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:46:06'),
+(1610, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:46:21'),
+(1611, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:46:46'),
+(1612, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:47:13'),
+(1613, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:52:56'),
+(1614, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:53:03'),
+(1615, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:53:20'),
+(1616, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:57:44'),
+(1617, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:57:49'),
+(1618, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:57:52'),
+(1619, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:58:01'),
+(1620, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:58:12'),
+(1621, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:58:20'),
+(1622, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 04:58:25'),
+(1623, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 05:06:54'),
+(1624, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 05:07:01'),
+(1625, 9, 'PAGE_VIEW', 'Viewed inner tab: DEPARTMENT PERFORMANCE', '::1', '2026-06-03 05:07:03'),
+(1626, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 05:07:13'),
+(1627, 9, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-03 05:07:17'),
+(1628, 9, 'CREATE_FOLDER', 'Created New Parent Folder: haha', '::1', '2026-06-03 05:07:31'),
+(1629, 9, 'DELETE_FOLDER', 'Permanently deleted Main Parent Folder: haha', '::1', '2026-06-03 05:07:47'),
+(1630, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 10:56:37'),
+(1631, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1776865754_Admin Flowchart.png', '::1', '2026-06-03 11:16:01'),
+(1632, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1776604047_quote_1ed71ad6.png', '::1', '2026-06-03 11:16:01'),
+(1633, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1776606043_quote_4449e2cb.png', '::1', '2026-06-03 11:16:01'),
+(1634, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1776606043_quote_4449e2cb.png', '::1', '2026-06-03 11:16:03'),
+(1635, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1776865754_Admin Flowchart.png', '::1', '2026-06-03 11:16:03'),
+(1636, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1776604047_quote_1ed71ad6.png', '::1', '2026-06-03 11:16:03'),
+(1637, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1779537592_IMG_20250203_133245.jpg', '::1', '2026-06-03 11:16:15'),
+(1638, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 11:24:47'),
+(1639, 9, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-03 11:24:48'),
+(1640, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 11:24:50'),
+(1641, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1779537592_IMG_20250203_133245.jpg', '::1', '2026-06-03 11:33:37'),
+(1642, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 11:40:33'),
+(1643, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 11:40:36'),
+(1644, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 11:40:37'),
+(1645, 9, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-03 11:46:12'),
+(1646, 16, 'LOGIN', 'User logged in successfully', '::1', '2026-06-03 11:46:17'),
+(1647, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 11:46:17'),
+(1648, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-03 11:46:20'),
+(1649, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 11:46:21'),
+(1650, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 11:48:46'),
+(1651, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-03 11:51:42'),
+(1652, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 11:51:42'),
+(1653, 16, 'CREATE_QUOTATION', 'Created detailed Quotation #QTN-2026-0003 for client hsh. Waiting for Client PO.', '::1', '2026-06-03 11:51:55'),
+(1654, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-03 11:51:55'),
+(1655, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-03 11:55:36'),
+(1656, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 11:55:37'),
+(1657, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-03 11:55:57'),
+(1658, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 11:55:58'),
+(1659, 16, 'CREATE_QUOTATION', 'Created detailed Quotation #QTN-2026-0004 for client fsbsbsb. Waiting for Client PO.', '::1', '2026-06-03 11:56:27'),
+(1660, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-03 11:56:27'),
+(1661, 16, 'RECEIVE_CLIENT_PO', 'Received client approval (Chat/Viber Agreement) with Auto-Generated Ref: CPO-2026-0003 for Quotation ID: 6.', '::1', '2026-06-03 11:56:55');
+INSERT INTO `audit_logs` (`log_id`, `user_id`, `action_type`, `description`, `ip_address`, `timestamp`) VALUES
+(1662, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-03 11:56:55'),
+(1663, 16, 'PAGE_VIEW', 'Opened Create Purchase Request Form', '::1', '2026-06-03 11:57:04'),
+(1664, 16, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-03 11:57:07'),
+(1665, 16, 'PAGE_VIEW', 'Opened Create Purchase Request Form', '::1', '2026-06-03 11:57:21'),
+(1666, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-03 11:57:22'),
+(1667, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 11:57:23'),
+(1668, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 11:57:45'),
+(1669, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-03 12:05:46'),
+(1670, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 12:05:47'),
+(1671, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 12:10:33'),
+(1672, 16, 'CREATE_QUOTATION', 'Created detailed Quotation #QTN-2026-0005 for client gsgsf. Waiting for Client PO.', '::1', '2026-06-03 12:11:16'),
+(1673, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-03 12:11:16'),
+(1674, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 12:11:21'),
+(1675, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 12:15:16'),
+(1676, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 12:19:07'),
+(1677, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 12:20:12'),
+(1678, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 12:20:24'),
+(1679, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 12:24:47'),
+(1680, 16, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-03 12:26:21'),
+(1681, 16, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-03 12:26:23'),
+(1682, 3, 'LOGIN', 'User logged in successfully', '::1', '2026-06-03 12:26:28'),
+(1683, 3, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 12:26:28'),
+(1684, 3, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-03 12:29:47'),
+(1685, 16, 'LOGIN', 'User logged in successfully', '::1', '2026-06-03 12:29:50'),
+(1686, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 12:29:50'),
+(1687, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-03 12:29:52'),
+(1688, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 12:29:53'),
+(1689, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 12:34:54'),
+(1690, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 12:35:12'),
+(1691, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-03 12:35:13'),
+(1692, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 12:35:15'),
+(1693, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 12:44:25'),
+(1694, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-03 12:45:47'),
+(1695, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 12:45:48'),
+(1696, 16, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-03 12:45:51'),
+(1697, 3, 'LOGIN', 'User logged in successfully', '::1', '2026-06-03 12:46:00'),
+(1698, 3, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 12:46:00'),
+(1699, 3, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-03 12:46:03'),
+(1700, 3, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-03 12:58:05'),
+(1701, 16, 'LOGIN', 'User logged in successfully', '::1', '2026-06-03 12:58:17'),
+(1702, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 12:58:17'),
+(1703, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-03 12:58:20'),
+(1704, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 12:58:21'),
+(1705, 16, 'CREATE_QUOTATION', 'Created detailed Quotation #QTN-2026-0006 for client gsg. Waiting for Client PO.', '::1', '2026-06-03 13:00:56'),
+(1706, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-03 13:00:56'),
+(1707, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 13:00:58'),
+(1708, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-03 13:03:10'),
+(1709, 16, 'PAGE_VIEW', 'Browsed Purchase Requests Directory', '::1', '2026-06-03 13:03:13'),
+(1710, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 13:03:29'),
+(1711, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 13:03:37'),
+(1712, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 13:03:50'),
+(1713, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 13:03:52'),
+(1714, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 13:03:53'),
+(1715, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 13:03:55'),
+(1716, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-03 13:04:24'),
+(1717, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 13:04:25'),
+(1718, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 13:05:18'),
+(1719, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 13:06:00'),
+(1720, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 13:06:10'),
+(1721, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 13:10:11'),
+(1722, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 13:13:54'),
+(1723, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 13:29:33'),
+(1724, 16, 'PAGE_VIEW', 'Browsed Quotations Tracker Directory', '::1', '2026-06-03 13:29:49'),
+(1725, 16, 'PAGE_VIEW', 'Navigated to Create Quotation Module', '::1', '2026-06-03 13:29:50'),
+(1726, 16, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-03 13:29:52'),
+(1727, 9, 'LOGIN', 'User logged in successfully', '::1', '2026-06-04 08:36:05'),
+(1728, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-04 08:36:05'),
+(1729, 9, 'LOGOUT', 'User securely logged out of the system', '::1', '2026-06-04 08:36:09'),
+(1730, 9, 'LOGIN', 'User logged in successfully', '::1', '2026-06-04 08:36:20'),
+(1731, 9, 'PAGE_VIEW', 'Navigated to Main Dashboard', '::1', '2026-06-04 08:36:20');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `brands`
+--
+
+CREATE TABLE `brands` (
+  `id` int(11) NOT NULL,
+  `brand_name` varchar(100) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `brands`
+--
+
+INSERT INTO `brands` (`id`, `brand_name`) VALUES
+(5, 'Acer'),
+(7, 'Apple'),
+(6, 'ASUS'),
+(9, 'Brother'),
+(10, 'Canon'),
+(12, 'Dahua'),
+(4, 'Dell'),
+(8, 'Epson'),
+(1, 'Generic/Other'),
+(11, 'Hikvision'),
+(3, 'HP'),
+(2, 'Lenovo'),
+(14, 'Logitech'),
+(13, 'Ubiquiti');
 
 -- --------------------------------------------------------
 
@@ -1333,19 +1816,20 @@ INSERT INTO `audit_logs` (`log_id`, `user_id`, `action_type`, `description`, `ip
 CREATE TABLE `company_folders` (
   `id` int(11) NOT NULL,
   `folder_name` varchar(100) NOT NULL,
-  `parent_folder` varchar(100) DEFAULT NULL
+  `parent_folder` varchar(100) DEFAULT NULL,
+  `policy_id` int(11) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- Dumping data for table `company_folders`
 --
 
-INSERT INTO `company_folders` (`id`, `folder_name`, `parent_folder`) VALUES
-(1, 'Blank Forms and Templates', NULL),
-(2, 'Company Policies and Guidelines', NULL),
-(3, 'Directories and Organizational Charts', NULL),
-(4, 'General Memos and Announcements', NULL),
-(5, 'General Manuals and FAQs', NULL);
+INSERT INTO `company_folders` (`id`, `folder_name`, `parent_folder`, `policy_id`) VALUES
+(1, 'Blank Forms and Templates', NULL, NULL),
+(2, 'Company Policies and Guidelines', NULL, NULL),
+(3, 'Directories and Organizational Charts', NULL, NULL),
+(4, 'General Memos and Announcements', NULL, NULL),
+(5, 'General Manuals and FAQs', NULL, NULL);
 
 -- --------------------------------------------------------
 
@@ -1440,7 +1924,7 @@ INSERT INTO `documents` (`doc_id`, `po_id`, `doc_type`, `file_name`, `file_path`
 (61, 66, 'Official Record', 'SLA_DOLE_2026.pdf', 'uploads/SLA_DOLE.pdf', 'Purchase Orders', NULL, 'SLA', '2027-03-11', 'hash81', 3, '2026-03-11 01:30:00', 'Active', 'Pending', NULL, '1.0'),
 (62, 67, 'Official Record', 'SLA_DTI_2026.pdf', 'uploads/SLA_DTI.pdf', 'Purchase Orders', NULL, 'SLA', '2027-03-11', 'hash82', 3, '2026-03-11 03:45:00', 'Active', 'Pending', NULL, '1.0'),
 (63, 68, 'Official Record', 'SLA_DFA_2026.pdf', 'uploads/SLA_DFA.pdf', 'Purchase Orders', NULL, 'SLA', '2027-03-12', 'hash84', 3, '2026-03-12 06:20:00', 'Active', 'Pending', NULL, '1.0'),
-(64, 69, 'Official Record', 'SLA_DOT_2026.pdf', 'uploads/SLA_DOT.pdf', 'Purchase Orders', NULL, 'SLA', '2027-03-13', 'hash85', 3, '2026-03-13 08:50:00', 'Active', 'Pending', NULL, '1.0'),
+(64, 69, 'Official Record', '20231129200405.png', 'uploads/1780407008_f336911b_20231129200405.png', 'Purchase Orders', NULL, 'SLA', '2027-03-13', 'hash85', 3, '2026-06-02 13:30:08', 'Active', 'Pending', NULL, '4.0'),
 (65, 70, 'Official Record', 'SLA_DENR_2026.pdf', 'uploads/SLA_DENR.pdf', 'Purchase Orders', NULL, 'SLA', '2027-03-13', 'hash86', 3, '2026-03-13 02:00:00', 'Active', 'Pending', NULL, '1.0'),
 (101, NULL, 'General Manuals at FAQs', 'Mayors_Permit_Q4_2025.pdf', 'uploads/Mayors_Permit_2025.pdf', 'Company policies and procedures', NULL, 'Permit, LGU', '2026-01-31', 'hash3', 2, '2025-11-10 01:00:00', 'Archived', 'Pending', NULL, '1.0'),
 (102, NULL, 'General Manuals at FAQs', 'Q3_Financial_Statement.xlsx', 'uploads/Q3_FS_2025.xlsx', 'Company policies and procedures', NULL, 'Finance, Q3', NULL, 'hash4', 8, '2025-11-15 06:00:00', 'Active', 'Pending', NULL, '1.0'),
@@ -1477,7 +1961,7 @@ INSERT INTO `documents` (`doc_id`, `po_id`, `doc_type`, `file_name`, `file_path`
 (133, 117, 'Quotation', 'CREATE PO DFD.png', 'uploads/1776604047_quote_1ed71ad6.png', 'Purchase Orders', NULL, NULL, NULL, '54010dac89a951f15557c84cbbc252edf7df963e47917e47ff1561f61164ee22', 3, '2026-04-19 13:07:27', 'Archived', 'Pending', NULL, '1.0'),
 (134, 118, 'Quotation', 'lvl0 Proposed DFD (1).png', 'uploads/1776606043_quote_4449e2cb.png', 'Purchase Orders', NULL, NULL, NULL, '16e005624ea701978a46c1411605ca83d811075f2994ffaf6fdcab18ce2cbe6d', 3, '2026-04-19 13:40:43', 'Archived', 'Pending', NULL, '1.0'),
 (135, NULL, 'General Manuals at FAQs', 'NEW', '../uploads/1776865754_Admin Flowchart.png', 'Company policies and procedures', NULL, '2026', '2026-04-22', '7f211fdbd3d01b76ffb45ec1c957c085eb4d29efa4d5b9fa571d6efccd470f63', 9, '2026-04-22 13:49:14', 'Archived', 'Pending', NULL, '1.0'),
-(136, 121, 'Quotation', 'PR CREATION DFD (1).png', 'uploads/1776928439_quote_ceb3ce3b.png', 'Purchase Orders', NULL, NULL, NULL, '2e7d6b7b5220583de5fddfa490afde2c7266ca5c9d935f35818461708d53c99a', 3, '2026-04-23 07:13:59', 'Active', 'Pending', NULL, '1.0'),
+(136, 121, 'Quotation', 'download.png', 'uploads/1780403714_aca5a5dd_download.png', 'Purchase Orders', NULL, NULL, NULL, '2e7d6b7b5220583de5fddfa490afde2c7266ca5c9d935f35818461708d53c99a', 3, '2026-06-02 12:35:14', 'Active', 'Pending', NULL, '3.0'),
 (137, NULL, 'General Manuals at FAQs', 'haha', '../uploads/1777181614_INPUT.png', 'Company policies and procedures', NULL, '2026', NULL, 'd1e52da9d8a6db05a82008865d457521c5380a5e22e076c7266f803a668069cf', 9, '2026-04-26 05:33:34', 'Active', 'Pending', NULL, '1.0'),
 (138, NULL, 'General Manuals at FAQs', 'Screenshot 3.png', 'uploads/1779619239_d1c8e529_Screenshot 3.png', 'Purchase orders', NULL, '2026', NULL, '0f81bfb2047892ef6caa6be1bad1665dab1ca51c1c430a02173631220bb00f94', 9, '2026-05-24 10:40:39', 'Active', 'Pending', NULL, '2.0'),
 (139, NULL, 'Generic', 'fee', '../uploads/1777532477_Blank board.png', 'Service Fee', NULL, '2026', NULL, '34e2b51585da18494e67ca688598097b6ee190d947adc720baf2f153056ef24f', 20, '2026-04-30 07:01:17', 'Active', 'Pending', NULL, '1.0'),
@@ -1562,7 +2046,96 @@ INSERT INTO `document_audit_trail` (`trail_id`, `audit_log_id`, `doc_id`, `user_
 (52, 1249, 138, 2, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-05-25 12:59:01'),
 (53, 1250, 136, 2, 'DOWNLOAD_DOC', 'Downloaded document: 1776928439_quote_ceb3ce3b.png', '::1', '/fixie_drms/download.php?file=1776928439_quote_ceb3ce3b.png&doc_id=136', '2026-05-25 12:59:01'),
 (54, 1251, 138, 2, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-05-25 12:59:09'),
-(55, 1252, 136, 2, 'DOWNLOAD_DOC', 'Downloaded document: 1776928439_quote_ceb3ce3b.png', '::1', '/fixie_drms/download.php?file=1776928439_quote_ceb3ce3b.png&doc_id=136', '2026-05-25 12:59:09');
+(55, 1252, 136, 2, 'DOWNLOAD_DOC', 'Downloaded document: 1776928439_quote_ceb3ce3b.png', '::1', '/fixie_drms/download.php?file=1776928439_quote_ceb3ce3b.png&doc_id=136', '2026-05-25 12:59:09'),
+(56, 1322, 138, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-05-29 05:23:58'),
+(57, 1323, 136, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1776928439_quote_ceb3ce3b.png', '::1', '/fixie_drms/download.php?file=1776928439_quote_ceb3ce3b.png&doc_id=136', '2026-05-29 05:23:58'),
+(58, 1334, 138, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 12:11:42'),
+(59, 1335, 136, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1776928439_quote_ceb3ce3b.png', '::1', '/fixie_drms/download.php?file=1776928439_quote_ceb3ce3b.png&doc_id=136', '2026-06-02 12:11:42'),
+(60, 1336, 136, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1776928439_quote_ceb3ce3b.png', '::1', '/fixie_drms/download.php?file=1776928439_quote_ceb3ce3b.png&doc_id=136', '2026-06-02 12:12:22'),
+(61, 1337, 138, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 12:12:22'),
+(62, 1338, 136, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1776928439_quote_ceb3ce3b.png', '::1', '/fixie_drms/download.php?file=1776928439_quote_ceb3ce3b.png&doc_id=136', '2026-06-02 12:33:13'),
+(63, 1339, 138, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 12:33:13'),
+(64, 1340, 136, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1776928439_quote_ceb3ce3b.png', '::1', '/fixie_drms/download.php?file=1776928439_quote_ceb3ce3b.png&doc_id=136', '2026-06-02 12:33:19'),
+(65, 1341, 138, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 12:33:19'),
+(66, 1342, 136, 3, 'UPDATE_VERSION', 'Uploaded v2.0 for Doc ID: 136', '::1', '../documents.php?type=Purchase+Orders&parent=Procurement+%26+Logistics', '2026-06-02 12:34:11'),
+(67, 1343, 138, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 12:34:12'),
+(68, 1344, 136, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403651_4628eb23_azure-background-high-quality-free-photo.jpg', '::1', '/fixie_drms/download.php?file=1780403651_4628eb23_azure-background-high-quality-free-photo.jpg&doc_id=136', '2026-06-02 12:34:12'),
+(69, 1345, 138, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 12:35:02'),
+(70, 1346, 136, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403651_4628eb23_azure-background-high-quality-free-photo.jpg', '::1', '/fixie_drms/download.php?file=1780403651_4628eb23_azure-background-high-quality-free-photo.jpg&doc_id=136', '2026-06-02 12:35:02'),
+(71, 1347, 136, 3, 'UPDATE_VERSION', 'Uploaded v3.0 for Doc ID: 136', '::1', '../documents.php?type=Purchase+Orders&parent=Procurement+%26+Logistics', '2026-06-02 12:35:14'),
+(72, 1348, 136, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '/fixie_drms/download.php?file=1780403714_aca5a5dd_download.png&doc_id=136', '2026-06-02 12:35:14'),
+(73, 1349, 138, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 12:35:14'),
+(74, 1350, 138, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 12:43:09'),
+(75, 1351, 136, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '/fixie_drms/download.php?file=1780403714_aca5a5dd_download.png&doc_id=136', '2026-06-02 12:43:09'),
+(76, 1352, 136, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '/fixie_drms/download.php?file=1780403714_aca5a5dd_download.png&doc_id=136', '2026-06-02 12:58:24'),
+(77, 1353, 138, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 12:58:24'),
+(78, 1354, 136, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '/fixie_drms/download.php?file=1780403714_aca5a5dd_download.png&doc_id=136', '2026-06-02 12:58:41'),
+(79, 1355, 138, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 12:58:41'),
+(80, 1356, 64, 3, 'UPDATE_VERSION', 'Uploaded v2.0 for Doc ID: 64', '::1', '../documents.php?type=Purchase+Orders', '2026-06-02 12:59:22'),
+(81, 1357, 64, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780405162_1c92c4b6_IMG_20250203_132212.jpg', '::1', '/fixie_drms/download.php?file=1780405162_1c92c4b6_IMG_20250203_132212.jpg&doc_id=64', '2026-06-02 13:12:12'),
+(82, 1358, 138, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 13:12:12'),
+(83, 1359, 136, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '/fixie_drms/download.php?file=1780403714_aca5a5dd_download.png&doc_id=136', '2026-06-02 13:12:12'),
+(84, 1360, 64, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780405162_1c92c4b6_IMG_20250203_132212.jpg', '::1', '/fixie_drms/download.php?file=1780405162_1c92c4b6_IMG_20250203_132212.jpg&doc_id=64', '2026-06-02 13:13:20'),
+(85, 1361, 138, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 13:13:20'),
+(86, 1362, 136, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '/fixie_drms/download.php?file=1780403714_aca5a5dd_download.png&doc_id=136', '2026-06-02 13:13:21'),
+(87, 1363, 136, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '/fixie_drms/download.php?file=1780403714_aca5a5dd_download.png&doc_id=136', '2026-06-02 13:13:43'),
+(88, 1364, 64, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780405162_1c92c4b6_IMG_20250203_132212.jpg', '::1', '/fixie_drms/download.php?file=1780405162_1c92c4b6_IMG_20250203_132212.jpg&doc_id=64', '2026-06-02 13:13:43'),
+(89, 1365, 138, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 13:13:43'),
+(90, 1366, 64, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780405162_1c92c4b6_IMG_20250203_132212.jpg', '::1', '/fixie_drms/download.php?file=1780405162_1c92c4b6_IMG_20250203_132212.jpg&doc_id=64', '2026-06-02 13:14:26'),
+(91, 1367, 136, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '/fixie_drms/download.php?file=1780403714_aca5a5dd_download.png&doc_id=136', '2026-06-02 13:14:26'),
+(92, 1368, 138, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 13:14:26'),
+(93, 1369, 134, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1776606043_quote_4449e2cb.png', '::1', '/fixie_drms/download.php?file=1776606043_quote_4449e2cb.png&doc_id=134', '2026-06-02 13:14:52'),
+(94, 1370, 133, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1776604047_quote_1ed71ad6.png', '::1', '/fixie_drms/download.php?file=1776604047_quote_1ed71ad6.png&doc_id=133', '2026-06-02 13:14:52'),
+(95, 1371, 64, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780405162_1c92c4b6_IMG_20250203_132212.jpg', '::1', '/fixie_drms/download.php?file=1780405162_1c92c4b6_IMG_20250203_132212.jpg&doc_id=64', '2026-06-02 13:15:12'),
+(96, 1372, 136, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '/fixie_drms/download.php?file=1780403714_aca5a5dd_download.png&doc_id=136', '2026-06-02 13:15:12'),
+(97, 1373, 138, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 13:15:12'),
+(98, 1374, 64, 3, 'UPDATE_VERSION', 'Uploaded v3.0 for Doc ID: 64', '::1', '../documents.php?type=Purchase+Orders', '2026-06-02 13:15:27'),
+(99, 1375, 136, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '/fixie_drms/download.php?file=1780403714_aca5a5dd_download.png&doc_id=136', '2026-06-02 13:29:02'),
+(100, 1376, 64, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780406127_a731c218_IMG_20250203_133245.jpg', '::1', '/fixie_drms/download.php?file=1780406127_a731c218_IMG_20250203_133245.jpg&doc_id=64', '2026-06-02 13:29:02'),
+(101, 1377, 138, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 13:29:02'),
+(102, 1378, 136, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '/fixie_drms/download.php?file=1780403714_aca5a5dd_download.png&doc_id=136', '2026-06-02 13:29:51'),
+(103, 1379, 138, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 13:29:51'),
+(104, 1380, 64, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780406127_a731c218_IMG_20250203_133245.jpg', '::1', '/fixie_drms/download.php?file=1780406127_a731c218_IMG_20250203_133245.jpg&doc_id=64', '2026-06-02 13:29:51'),
+(105, 1381, 64, 3, 'UPDATE_VERSION', 'Uploaded v4.0 for Doc ID: 64', '::1', '../documents.php?type=Purchase+Orders', '2026-06-02 13:30:08'),
+(106, 1382, 64, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780407008_f336911b_20231129200405.png', '::1', '/fixie_drms/download.php?file=1780407008_f336911b_20231129200405.png&doc_id=64', '2026-06-02 13:30:08'),
+(107, 1383, 138, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 13:30:08'),
+(108, 1384, 136, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '/fixie_drms/download.php?file=1780403714_aca5a5dd_download.png&doc_id=136', '2026-06-02 13:30:08'),
+(109, 1385, 64, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780407008_f336911b_20231129200405.png', '::1', '/fixie_drms/download.php?file=1780407008_f336911b_20231129200405.png&doc_id=64', '2026-06-02 13:35:40'),
+(110, 1386, 138, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 13:35:40'),
+(111, 1387, 136, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '/fixie_drms/download.php?file=1780403714_aca5a5dd_download.png&doc_id=136', '2026-06-02 13:35:40'),
+(112, 1388, 64, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780407008_f336911b_20231129200405.png', '::1', '/fixie_drms/download.php?file=1780407008_f336911b_20231129200405.png&doc_id=64', '2026-06-02 13:36:13'),
+(113, 1389, 136, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '/fixie_drms/download.php?file=1780403714_aca5a5dd_download.png&doc_id=136', '2026-06-02 13:36:13'),
+(114, 1390, 138, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 13:36:13'),
+(115, 1391, 136, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '/fixie_drms/download.php?file=1780403714_aca5a5dd_download.png&doc_id=136', '2026-06-02 13:37:06'),
+(116, 1392, 64, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780407008_f336911b_20231129200405.png', '::1', '/fixie_drms/download.php?file=1780407008_f336911b_20231129200405.png&doc_id=64', '2026-06-02 13:37:06'),
+(117, 1393, 138, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 13:37:06'),
+(118, 1394, 136, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '/fixie_drms/download.php?file=1780403714_aca5a5dd_download.png&doc_id=136', '2026-06-02 13:37:24'),
+(119, 1395, 64, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780407008_f336911b_20231129200405.png', '::1', '/fixie_drms/download.php?file=1780407008_f336911b_20231129200405.png&doc_id=64', '2026-06-02 13:37:24'),
+(120, 1396, 138, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 13:37:24'),
+(121, 1400, 64, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1780407008_f336911b_20231129200405.png', '::1', '/fixie_drms/download.php?file=1780407008_f336911b_20231129200405.png&doc_id=64', '2026-06-02 13:38:33'),
+(122, 1401, 136, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '/fixie_drms/download.php?file=1780403714_aca5a5dd_download.png&doc_id=136', '2026-06-02 13:38:33'),
+(123, 1402, 138, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 13:38:33'),
+(124, 1403, 64, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1780407008_f336911b_20231129200405.png', '::1', '/fixie_drms/download.php?file=1780407008_f336911b_20231129200405.png&doc_id=64', '2026-06-02 13:39:05'),
+(125, 1404, 136, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '/fixie_drms/download.php?file=1780403714_aca5a5dd_download.png&doc_id=136', '2026-06-02 13:39:05'),
+(126, 1405, 138, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 13:39:05'),
+(127, 1406, 136, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '/fixie_drms/download.php?file=1780403714_aca5a5dd_download.png&doc_id=136', '2026-06-02 13:41:42'),
+(128, 1407, 64, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1780407008_f336911b_20231129200405.png', '::1', '/fixie_drms/download.php?file=1780407008_f336911b_20231129200405.png&doc_id=64', '2026-06-02 13:41:42'),
+(129, 1408, 138, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 13:41:42'),
+(130, 1485, 141, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1779537592_IMG_20250203_133245.jpg', '::1', '/fixie_drms/download.php?file=1779537592_IMG_20250203_133245.jpg&doc_id=141', '2026-06-02 14:13:19'),
+(131, 1486, 64, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1780407008_f336911b_20231129200405.png', '::1', '/fixie_drms/download.php?file=1780407008_f336911b_20231129200405.png&doc_id=64', '2026-06-02 14:13:30'),
+(132, 1487, 136, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '/fixie_drms/download.php?file=1780403714_aca5a5dd_download.png&doc_id=136', '2026-06-02 14:13:30'),
+(133, 1488, 138, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 14:13:30'),
+(134, 1557, 64, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780407008_f336911b_20231129200405.png', '::1', '/fixie_drms/download.php?file=1780407008_f336911b_20231129200405.png&doc_id=64', '2026-06-02 14:54:30'),
+(135, 1558, 138, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1779619239_d1c8e529_Screenshot 3.png', '::1', '/fixie_drms/download.php?file=1779619239_d1c8e529_Screenshot+3.png&doc_id=138', '2026-06-02 14:54:30'),
+(136, 1559, 136, 3, 'DOWNLOAD_DOC', 'Downloaded document: 1780403714_aca5a5dd_download.png', '::1', '/fixie_drms/download.php?file=1780403714_aca5a5dd_download.png&doc_id=136', '2026-06-02 14:54:30'),
+(137, 1631, 135, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1776865754_Admin Flowchart.png', '::1', '/fixie_drms/download.php?file=1776865754_Admin+Flowchart.png&doc_id=135', '2026-06-03 11:16:01'),
+(138, 1632, 133, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1776604047_quote_1ed71ad6.png', '::1', '/fixie_drms/download.php?file=1776604047_quote_1ed71ad6.png&doc_id=133', '2026-06-03 11:16:01'),
+(139, 1633, 134, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1776606043_quote_4449e2cb.png', '::1', '/fixie_drms/download.php?file=1776606043_quote_4449e2cb.png&doc_id=134', '2026-06-03 11:16:01'),
+(140, 1634, 134, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1776606043_quote_4449e2cb.png', '::1', '/fixie_drms/download.php?file=1776606043_quote_4449e2cb.png&doc_id=134', '2026-06-03 11:16:03'),
+(141, 1635, 135, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1776865754_Admin Flowchart.png', '::1', '/fixie_drms/download.php?file=1776865754_Admin+Flowchart.png&doc_id=135', '2026-06-03 11:16:03'),
+(142, 1636, 133, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1776604047_quote_1ed71ad6.png', '::1', '/fixie_drms/download.php?file=1776604047_quote_1ed71ad6.png&doc_id=133', '2026-06-03 11:16:03'),
+(143, 1637, 141, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1779537592_IMG_20250203_133245.jpg', '::1', '/fixie_drms/download.php?file=1779537592_IMG_20250203_133245.jpg&doc_id=141', '2026-06-03 11:16:15'),
+(144, 1641, 141, 9, 'DOWNLOAD_DOC', 'Downloaded document: 1779537592_IMG_20250203_133245.jpg', '::1', '/fixie_drms/download.php?file=1779537592_IMG_20250203_133245.jpg&doc_id=141', '2026-06-03 11:33:37');
 
 -- --------------------------------------------------------
 
@@ -1633,7 +2206,37 @@ CREATE TABLE `document_versions` (
 --
 
 INSERT INTO `document_versions` (`version_id`, `doc_id`, `version_number`, `file_name`, `file_path`, `uploaded_by`, `uploaded_at`, `remarks`) VALUES
-(1, 138, '1.0', 'pooo', '../uploads/1777186501_Screenshot 2026-04-16 093036.png', 3, '2026-04-26 06:55:01', 'sample');
+(1, 138, '1.0', 'pooo', '../uploads/1777186501_Screenshot 2026-04-16 093036.png', 3, '2026-04-26 06:55:01', 'sample'),
+(2, 136, '1.0', 'PR CREATION DFD (1).png', 'uploads/1776928439_quote_ceb3ce3b.png', 3, '2026-04-23 07:13:59', 'sagadg'),
+(3, 136, '2.0', 'azure-background-high-quality-free-photo.jpg', 'uploads/1780403651_4628eb23_azure-background-high-quality-free-photo.jpg', 3, '2026-06-02 12:34:11', 'dwfa'),
+(4, 64, '1.0', 'SLA_DOT_2026.pdf', 'uploads/SLA_DOT.pdf', 3, '2026-03-13 08:50:00', 'hsh'),
+(5, 64, '2.0', 'IMG_20250203_132212.jpg', 'uploads/1780405162_1c92c4b6_IMG_20250203_132212.jpg', 3, '2026-06-02 12:59:22', 'sbsa'),
+(6, 64, '3.0', 'IMG_20250203_133245.jpg', 'uploads/1780406127_a731c218_IMG_20250203_133245.jpg', 3, '2026-06-02 13:15:27', 'agadgadgadgjkjbfajlbfjlabjlfhajlfljasbfjlasjlfbasjlfbjaslbfjlef lglgselkgehlkf a fiaeb i;abefi;abfhbadk fbahl guifga; fa epuiefh;aebfa'),
+(7, 64, '3.0', 'IMG_20250203_133245.jpg', 'uploads/1780406127_a731c218_IMG_20250203_133245.jpg', 3, '2026-06-02 13:15:27', 'sfasfgas;kfhoa f aohfawh\'fh\'GHDS\'LHG w\'lshg ;WRHGO\'wruuht WO;H\'IGUW \'IPRTPIWEHT\'Owhgsjlfgh\'wryto; iH\'IWRH G;OUAHRGO;URWHT O[WHOG\'  wr\'tiw');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `item_categories`
+--
+
+CREATE TABLE `item_categories` (
+  `id` int(11) NOT NULL,
+  `code` varchar(10) NOT NULL,
+  `name` varchar(100) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `item_categories`
+--
+
+INSERT INTO `item_categories` (`id`, `code`, `name`) VALUES
+(1, '01', 'Hardware'),
+(2, '02', 'CCTVs'),
+(3, '03', 'Peripherals'),
+(4, '04', 'Office Supplies'),
+(5, '05', 'WIFI / LAN'),
+(6, '06', 'Printers');
 
 -- --------------------------------------------------------
 
@@ -1712,7 +2315,16 @@ INSERT INTO `notifications` (`notif_id`, `target_role`, `message`, `is_read`, `c
 (56, 'Procurement', 'PR PR-2026-0005 is Approved. Ready for PO Conversion.', 0, '2026-05-21 11:38:38'),
 (57, 'Sales Staff', 'Your PR PR-2026-0005 has been Approved by Management.', 0, '2026-05-21 11:38:38'),
 (58, 'GM', 'New Purchase Order Requires Approval: PO-2026-0007', 0, '2026-05-21 11:40:13'),
-(59, 'GM', 'Retention Alert: Document \'fyuetud\' requires attention (Expiring/Expired).', 0, '2026-05-23 12:02:12');
+(59, 'GM', 'Retention Alert: Document \'fyuetud\' requires attention (Expiring/Expired).', 1, '2026-05-23 12:02:12'),
+(60, 'GM', 'New Purchase Request Needs Approval: PR-2026-0006', 0, '2026-06-02 13:49:50'),
+(61, 'President', 'New Purchase Request Needs Approval: PR-2026-0006', 0, '2026-06-02 13:49:50'),
+(62, 'Procurement', 'PR PR-2026-0006 is Approved. Ready for PO Conversion.', 0, '2026-06-02 13:50:16'),
+(63, 'Sales Staff', 'Your PR PR-2026-0006 has been Approved by Management.', 0, '2026-06-02 13:50:16'),
+(64, 'Finance', 'New PO Requires Validation: PO #123', 0, '2026-06-02 13:53:24'),
+(65, 'GM', 'New Purchase Order Requires Approval: PO-2026-0008', 1, '2026-06-02 13:56:26'),
+(66, 'Finance', 'New PO Requires Validation: PO #124', 0, '2026-06-02 14:08:26'),
+(67, 'GM', 'New Purchase Request Needs Approval: PR-2026-0007', 0, '2026-06-03 11:57:07'),
+(68, 'President', 'New Purchase Request Needs Approval: PR-2026-0007', 0, '2026-06-03 11:57:07');
 
 -- --------------------------------------------------------
 
@@ -2130,7 +2742,10 @@ INSERT INTO `po_history` (`history_id`, `po_id`, `status_from`, `status_to`, `re
 (510, 122, 'Finance-Approved', 'President-Approved', NULL, 6, '2026-05-02 19:47:40'),
 (511, 122, 'President-Approved', 'Funded', NULL, 8, '2026-05-02 19:47:53'),
 (512, 122, 'Funded', 'Delivered', NULL, 20, '2026-05-02 19:48:16'),
-(513, 123, 'New', 'Pending', NULL, 3, '2026-05-21 19:40:13');
+(513, 123, 'New', 'Pending', NULL, 3, '2026-05-21 19:40:13'),
+(514, 123, 'Pending', 'GM-Approved', NULL, 9, '2026-06-02 21:53:24'),
+(515, 124, 'New', 'Pending', NULL, 3, '2026-06-02 21:56:26'),
+(516, 124, 'Pending', 'GM-Approved', NULL, 9, '2026-06-02 22:08:26');
 
 -- --------------------------------------------------------
 
@@ -2231,7 +2846,8 @@ INSERT INTO `po_items` (`item_id`, `po_id`, `category`, `brand`, `item_name`, `s
 (104, 120, '01', 'Generic/Other', 'PLDT', '500 MBPS', 25, 1700.00, 42500.00),
 (105, 121, '01', 'Generic/Other', 'example', 'example', 10, 1000.00, 10000.00),
 (106, 122, '01', 'HP', 'example', 'exa,ple', 10, 1000.00, 10000.00),
-(107, 123, '01', 'Lenovo', 'example', 'gfhsfh', 9, 2000.00, 18000.00);
+(107, 123, '01', 'Lenovo', 'example', 'gfhsfh', 9, 2000.00, 18000.00),
+(108, 124, '01', 'Lenovo', 'gsg', 'gsgsg', 1, 343.00, 343.00);
 
 -- --------------------------------------------------------
 
@@ -2361,7 +2977,9 @@ INSERT INTO `pr_items` (`item_id`, `pr_id`, `category`, `brand`, `item_name`, `s
 (103, 180, '01', 'Generic/Other', 'example', 'example', 20, 1000.00, 20000.00),
 (104, 181, '05', 'Generic/Other', 'PLDT', '500 MBPS', 25, 1700.00, 42500.00),
 (105, 182, '01', 'Generic/Other', 'example', 'example', 10, 1000.00, 10000.00),
-(106, 183, '01', 'Lenovo', 'example', 'gfhsfh', 10, 2000.00, 20000.00);
+(106, 183, '01', 'Lenovo', 'example', 'gfhsfh', 10, 2000.00, 20000.00),
+(107, 184, '02', 'Lenovo', 'gsg', 'gsgsg', 1, 343.00, 343.00),
+(108, 185, '01', 'Lenovo', 'gsgs', 'gsgsgsg', 1232, 3232.00, 3981824.00);
 
 -- --------------------------------------------------------
 
@@ -2512,7 +3130,8 @@ INSERT INTO `purchase_orders` (`po_id`, `po_number`, `client_name`, `quotation_n
 (120, 'PO-2026-0004', 'Palo-Alto Elementary School', '01-0004 Palo-Alto Elementary School', 42500.00, 'GM-Approved', 0, 'Finance Dept.', 3, '2026-04-23 14:11:04', NULL, NULL, 181),
 (121, 'PO-2026-0005', 'example', '01-0005 example', 10000.00, 'Collected', 0, 'Finance Dept. (Collection)', 3, '2026-04-23 15:13:59', NULL, NULL, 182),
 (122, 'PO-2026-0006', 'example', '01-0006 example', 10000.00, 'Collected', 0, 'Finance Dept. (Collection)', 3, '2026-05-02 19:46:33', NULL, NULL, NULL),
-(123, 'PO-2026-0007', 'cccc', '01-0007 cccc', 18000.00, 'Pending', 1, 'Office of the GM', 3, '2026-05-21 19:40:13', NULL, NULL, 183);
+(123, 'PO-2026-0007', 'cccc', '01-0007 cccc', 18000.00, 'GM-Approved', 0, 'Finance Dept.', 3, '2026-05-21 19:40:13', NULL, NULL, 183),
+(124, 'PO-2026-0008', 'vsdgsgs', '01-0008 vsdgsgs', 343.00, 'GM-Approved', 0, 'Finance Dept.', 3, '2026-06-02 21:56:26', NULL, NULL, 184);
 
 -- --------------------------------------------------------
 
@@ -2717,7 +3336,9 @@ INSERT INTO `purchase_requests` (`pr_id`, `pr_number`, `client_name`, `amount`, 
 (180, 'PR-2026-0002', 'example', 20000.00, 'Converted_to_PO', 16, '2026-04-23 08:05:13'),
 (181, 'PR-2026-0003', 'Palo-Alto Elementary School', 42500.00, 'Converted_to_PO', 16, '2026-04-23 14:02:55'),
 (182, 'PR-2026-0004', 'example', 10000.00, 'Converted_to_PO', 16, '2026-04-23 15:12:50'),
-(183, 'PR-2026-0005', 'cccc', 20000.00, 'Converted_to_PO', 16, '2026-05-21 19:24:19');
+(183, 'PR-2026-0005', 'cccc', 20000.00, 'Converted_to_PO', 16, '2026-05-21 19:24:19'),
+(184, 'PR-2026-0006', 'vsdgsgs', 343.00, 'Converted_to_PO', 16, '2026-06-02 21:49:50'),
+(185, 'PR-2026-0007', 'fsbsbsb', 3981824.00, 'Pending', 16, '2026-06-03 19:57:07');
 
 -- --------------------------------------------------------
 
@@ -2746,7 +3367,11 @@ INSERT INTO `quotations` (`quotation_id`, `quotation_number`, `client_name`, `am
 (1, 'QTN-2025-0001', 'ccc', 10000.00, 'PO-CCC-0001', 'Formal PO', NULL, 'PO Received', 16, '2026-05-20 12:10:59'),
 (2, 'dff342', 'minhs', 200000.00, 'CPO-2026-0001', 'Email Confirmation', '1779361795_CPO-2026-0001_40886167.png', 'PO Received', 16, '2026-05-20 12:16:58'),
 (3, 'QTN-2026-0001', 'cccc', 20000.00, 'PO-CCC-0002', 'Formal PO', NULL, 'Converted to PR', 16, '2026-05-20 12:27:55'),
-(4, 'QTN-2026-0002', 'vsdgsgs', 343.00, 'CPO-2026-0002', 'Chat/Viber Agreement', '1779362700_CPO-2026-0002_cece5f5c.jpg', 'PO Received', 16, '2026-05-21 11:22:45');
+(4, 'QTN-2026-0002', 'vsdgsgs', 343.00, 'CPO-2026-0002', 'Chat/Viber Agreement', '1779362700_CPO-2026-0002_cece5f5c.jpg', 'Converted to PR', 16, '2026-05-21 11:22:45'),
+(5, 'QTN-2026-0003', 'hsh', 465300.00, NULL, 'Formal PO', NULL, 'Pending PO', 16, '2026-06-03 11:51:55'),
+(6, 'QTN-2026-0004', 'fsbsbsb', 3981824.00, 'CPO-2026-0003', 'Chat/Viber Agreement', '1780487815_CPO-2026-0003_186ae1c0.png', 'Converted to PR', 16, '2026-06-03 11:56:27'),
+(7, 'QTN-2026-0005', 'gsgsf', 3423.00, NULL, 'Formal PO', NULL, 'Pending PO', 16, '2026-06-03 12:11:16'),
+(8, 'QTN-2026-0006', 'gsg', 35.00, NULL, 'Formal PO', NULL, 'Pending PO', 16, '2026-06-03 13:00:56');
 
 -- --------------------------------------------------------
 
@@ -2772,7 +3397,11 @@ CREATE TABLE `quotation_items` (
 
 INSERT INTO `quotation_items` (`item_id`, `quotation_id`, `category`, `brand`, `item_name`, `specifications`, `quantity`, `unit_price`, `total_price`) VALUES
 (1, 3, '01', 'Lenovo', 'example', 'gfhsfh', 10, 2000.00, 20000.00),
-(2, 4, '02', 'Lenovo', 'gsg', 'gsgsg', 1, 343.00, 343.00);
+(2, 4, '02', 'Lenovo', 'gsg', 'gsgsg', 1, 343.00, 343.00),
+(3, 5, '01', 'Logitech', 'ssfhs', 'hsfhsh', 132, 3525.00, 465300.00),
+(4, 6, '01', 'Lenovo', 'gsgs', 'gsgsgsg', 1232, 3232.00, 3981824.00),
+(5, 7, '01', 'Generic/Other', 'hchsh', 'rhshfslnsfljhl\'fsnhlk\'nsfkl\'gh\'lkhk\'lnh\'klank\'h\'kfdjh\'kadfjhk;\'fdjak;hjkadhjk;\'fdjhk;\'ajdkhjkajh;\'ajdf;jha', 1, 3423.00, 3423.00),
+(6, 8, '01', 'Generic/Other', 'fafs', 'sfafa', 1, 35.00, 35.00);
 
 -- --------------------------------------------------------
 
@@ -2910,6 +3539,13 @@ ALTER TABLE `audit_logs`
   ADD PRIMARY KEY (`log_id`);
 
 --
+-- Indexes for table `brands`
+--
+ALTER TABLE `brands`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `brand_name` (`brand_name`);
+
+--
 -- Indexes for table `company_folders`
 --
 ALTER TABLE `company_folders`
@@ -2947,6 +3583,13 @@ ALTER TABLE `document_versions`
   ADD PRIMARY KEY (`version_id`),
   ADD KEY `doc_id` (`doc_id`),
   ADD KEY `uploaded_by` (`uploaded_by`);
+
+--
+-- Indexes for table `item_categories`
+--
+ALTER TABLE `item_categories`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `code` (`code`);
 
 --
 -- Indexes for table `notifications`
@@ -3047,7 +3690,13 @@ ALTER TABLE `workflow_rules`
 -- AUTO_INCREMENT for table `audit_logs`
 --
 ALTER TABLE `audit_logs`
-  MODIFY `log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=1281;
+  MODIFY `log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=1732;
+
+--
+-- AUTO_INCREMENT for table `brands`
+--
+ALTER TABLE `brands`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=15;
 
 --
 -- AUTO_INCREMENT for table `company_folders`
@@ -3065,25 +3714,31 @@ ALTER TABLE `documents`
 -- AUTO_INCREMENT for table `document_audit_trail`
 --
 ALTER TABLE `document_audit_trail`
-  MODIFY `trail_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=56;
+  MODIFY `trail_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=145;
 
 --
 -- AUTO_INCREMENT for table `document_categories`
 --
 ALTER TABLE `document_categories`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=31;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=32;
 
 --
 -- AUTO_INCREMENT for table `document_versions`
 --
 ALTER TABLE `document_versions`
-  MODIFY `version_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `version_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
+
+--
+-- AUTO_INCREMENT for table `item_categories`
+--
+ALTER TABLE `item_categories`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
 
 --
 -- AUTO_INCREMENT for table `notifications`
 --
 ALTER TABLE `notifications`
-  MODIFY `notif_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=60;
+  MODIFY `notif_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=69;
 
 --
 -- AUTO_INCREMENT for table `payments`
@@ -3095,43 +3750,43 @@ ALTER TABLE `payments`
 -- AUTO_INCREMENT for table `po_history`
 --
 ALTER TABLE `po_history`
-  MODIFY `history_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=514;
+  MODIFY `history_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=517;
 
 --
 -- AUTO_INCREMENT for table `po_items`
 --
 ALTER TABLE `po_items`
-  MODIFY `item_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=108;
+  MODIFY `item_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=109;
 
 --
 -- AUTO_INCREMENT for table `pr_items`
 --
 ALTER TABLE `pr_items`
-  MODIFY `item_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=107;
+  MODIFY `item_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=109;
 
 --
 -- AUTO_INCREMENT for table `purchase_orders`
 --
 ALTER TABLE `purchase_orders`
-  MODIFY `po_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=124;
+  MODIFY `po_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=125;
 
 --
 -- AUTO_INCREMENT for table `purchase_requests`
 --
 ALTER TABLE `purchase_requests`
-  MODIFY `pr_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=184;
+  MODIFY `pr_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=186;
 
 --
 -- AUTO_INCREMENT for table `quotations`
 --
 ALTER TABLE `quotations`
-  MODIFY `quotation_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+  MODIFY `quotation_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=9;
 
 --
 -- AUTO_INCREMENT for table `quotation_items`
 --
 ALTER TABLE `quotation_items`
-  MODIFY `item_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `item_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
 
 --
 -- AUTO_INCREMENT for table `retention_policies`
