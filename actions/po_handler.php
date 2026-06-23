@@ -33,68 +33,92 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 
     if ($action == 'create') {
-        $po_number = trim($_POST['po_number']);
         $client_name = trim($_POST['client_name']);
-        $amount = floatval($_POST['grand_total']);
         $items = $_POST['items'] ?? [];
         $pr_id = isset($_POST['pr_id']) && !empty($_POST['pr_id']) ? intval($_POST['pr_id']) : null;
         
-        // Empty Items Validation
         if (empty($items)) {
             header("Location: ../create_po.php?error=PO Items Cannot Be Empty");
             exit();
         }
 
-        // Price Zero Validation
-        foreach ($items as $item) {
-            if (floatval($item['price']) <= 0) {
-                header("Location: ../create_po.php?error=Item price cannot be zero or less.");
+        // =================================================================================
+        // BACKEND DEFINITIVE CALCULATION (SECURITY FIX)
+        // Hindi nagtitiwala sa client-side JS ang math. Server ang mag-cocompute.
+        // =================================================================================
+        $definitive_amount = 0;
+        foreach ($items as &$item) {
+            $qty = (int)$item['qty'];
+            $price = (float)$item['price'];
+            
+            if ($price <= 0 || $qty <= 0) {
+                header("Location: ../create_po.php?error=Item quantity and price must be greater than zero.");
                 exit();
             }
+
+            $line_total = $qty * $price;
+            $item['calculated_total'] = $line_total; 
+            $definitive_amount += $line_total;
         }
+        unset($item); // Break reference para iwas bug sa loops mamaya
 
-        // Server-Side Calculation Validation
-        $calculated_amount = 0;
-        foreach ($items as $item) {
-            $calculated_amount += ((int)$item['qty'] * (float)$item['price']);
-        }
-        
-        if (abs($amount - $calculated_amount) > 0.01) {
-            header("Location: ../create_po.php?error=Grand Total Calculation Mismatch");
-            exit();
-        }
+        // =================================================================================
+        // SECURE TRANSACTION BLOCK PARA MAIWASAN ANG RACE CONDITION
+        // =================================================================================
+        try {
+            $conn->begin_transaction();
 
-        $status = 'Pending';
-        $location = 'Office of the GM';
+            // 1. GENERATE NEXT PO NUMBER (Gamit ang FOR UPDATE row lock para di ma-agawan)
+            $year = date('Y');
+            $po_prefix = "PO-" . $year . "-";
+            $like_prefix = $po_prefix . "%";
+            
+            $po_stmt = $conn->prepare("SELECT po_number FROM purchase_orders WHERE po_number LIKE ? ORDER BY CAST(SUBSTRING_INDEX(po_number, '-', -1) AS UNSIGNED) DESC LIMIT 1 FOR UPDATE");
+            $po_stmt->bind_param("s", $like_prefix);
+            $po_stmt->execute();
+            $po_res = $po_stmt->get_result();
 
-        $base_category = '01'; 
-        if (!empty($items) && isset($items[0]['category'])) {
-            $base_category = $items[0]['category']; 
-        }
+            if ($po_res->num_rows > 0) {
+                $last_po = $po_res->fetch_assoc()['po_number'];
+                $last_po_num = intval(substr($last_po, -4));
+                $next_po_num = $last_po_num + 1;
+            } else {
+                $next_po_num = 1;
+            }
+            $po_number = $po_prefix . str_pad($next_po_num, 4, "0", STR_PAD_LEFT);
 
-        $qt_stmt = $conn->query("SELECT quotation_number FROM purchase_orders ORDER BY po_id DESC LIMIT 1");
-        $next_qt_num = 1;
+            // 2. GENERATE QUOTATION NUMBER (Gamit din ang FOR UPDATE lock)
+            $base_category = '01'; 
+            if (!empty($items) && isset($items[0]['category'])) {
+                $base_category = $items[0]['category']; 
+            }
 
-        if($qt_stmt && $qt_stmt->num_rows > 0) {
-            $last_qt = $qt_stmt->fetch_assoc()['quotation_number'];
-            $parts = explode(' ', $last_qt);
-            if(isset($parts[0])) {
-                $cat_seq = explode('-', $parts[0]);
-                if(isset($cat_seq[1])) {
-                    $next_qt_num = intval($cat_seq[1]) + 1;
+            $qt_stmt = $conn->query("SELECT quotation_number FROM purchase_orders ORDER BY po_id DESC LIMIT 1 FOR UPDATE");
+            $next_qt_num = 1;
+
+            if($qt_stmt && $qt_stmt->num_rows > 0) {
+                $last_qt = $qt_stmt->fetch_assoc()['quotation_number'];
+                $parts = explode(' ', $last_qt);
+                if(isset($parts[0])) {
+                    $cat_seq = explode('-', $parts[0]);
+                    if(isset($cat_seq[1])) {
+                        $next_qt_num = intval($cat_seq[1]) + 1;
+                    }
                 }
             }
-        }
-        
-        $padded_qt_num = str_pad($next_qt_num, 4, "0", STR_PAD_LEFT);
-        $quotation_number = $base_category . "-" . $padded_qt_num . " " . $client_name;
+            $padded_qt_num = str_pad($next_qt_num, 4, "0", STR_PAD_LEFT);
+            $quotation_number = $base_category . "-" . $padded_qt_num . " " . $client_name;
 
-        $stmt = $conn->prepare("INSERT INTO purchase_orders (po_number, quotation_number, client_name, amount, status, current_location, created_by, pr_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->bind_param("sssdssii", $po_number, $quotation_number, $client_name, $amount, $status, $location, $user_id, $pr_id);
-        
-        if ($stmt->execute()) {
+            // 3. EXECUTE MAIN PO INSERT (Gamit ang computed definitive_amount)
+            $status = 'Pending';
+            $location = 'Office of the GM';
+
+            $stmt = $conn->prepare("INSERT INTO purchase_orders (po_number, quotation_number, client_name, amount, status, current_location, created_by, pr_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->bind_param("sssdssii", $po_number, $quotation_number, $client_name, $definitive_amount, $status, $location, $user_id, $pr_id);
+            $stmt->execute();
             $po_id = $conn->insert_id;
 
+            // 4. PROCESS PR AND LINE ITEMS
             if ($pr_id) {
                 $conn->query("UPDATE purchase_requests SET status = 'Converted_to_PO' WHERE pr_id = $pr_id");
             }
@@ -110,16 +134,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         $item['specs'], 
                         $item['qty'], 
                         $item['price'], 
-                        $item['total']
+                        $item['calculated_total'] // Gumagamit ng secured server-calculated total
                     );
                     $item_stmt->execute();
                 }
             }
 
+            // 5. UPDATE HISTORY AND NOTIFICATIONS
             $conn->query("INSERT INTO po_history (po_id, changed_by, status_from, status_to) VALUES ($po_id, $user_id, 'New', 'Pending')");
-            $conn->query("INSERT INTO notifications (target_role, message) VALUES ('GM', 'New Purchase Order Requires Approval: $po_number')");
-            log_audit_action($conn, $user_id, 'CREATE_PO', "Created new PO: $po_number mapped to PR ID: $pr_id");
-
+            $conn->query("INSERT INTO notifications (target_role, message) VALUES ('GM', 'New Purchase Order Requires Approval: PO #$po_id')");
+            
+            // 6. PROCESS ATTACHED QUOTATION FILE SECURELY
             if (isset($_FILES['po_document']) && !empty($_FILES['po_document']['name'])) {
                 $file = $_FILES['po_document'];
                 $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
@@ -142,11 +167,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 }
             }
 
+            // SUCCESS -> I-commit at i-save ang lahat ng ginawa natin sa DB
+            $conn->commit();
+
+            log_audit_action($conn, $user_id, 'CREATE_PO', "Created new PO: $po_number mapped to PR ID: $pr_id with verified amount: ₱$definitive_amount");
             header("Location: ../po_list.php?success=PO Successfully Created!");
-        } else {
-            header("Location: ../create_po.php?error=Failed to create PO.");
+            exit();
+
+        } catch (Exception $e) {
+            // ERROR -> I-rollback lahat ng changes para walang putol o sirang data
+            $conn->rollback();
+            header("Location: ../create_po.php?error=Transaction failed. Please try again.");
+            exit();
         }
-        exit();
     }
 
     $workflow_actions = ['approve_gm', 'approve_finance', 'approve_president', 'mark_funded', 'mark_delivered', 'reject', 'add_payment'];
@@ -154,6 +187,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     if (in_array($action, $workflow_actions)) {
         $po_id = intval($_POST['po_id']);
         
+        $fetch_po = $conn->prepare("SELECT po_number FROM purchase_orders WHERE po_id = ?");
+        $fetch_po->bind_param("i", $po_id);
+        $fetch_po->execute();
+        $po_res = $fetch_po->get_result();
+        $actual_po_number = ($po_res->num_rows > 0) ? $po_res->fetch_assoc()['po_number'] : $po_id;
+        $fetch_po->close();
+
         if ($action == 'reject') {
             if (!in_array($_SESSION['role'], ['GM', 'Finance', 'President'])) {
                 die("Unauthorized Action: Only approvers can reject a Purchase Order.");
@@ -163,7 +203,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $update->bind_param("i", $po_id);
             if($update->execute()) {
                 $conn->query("INSERT INTO po_history (po_id, changed_by, status_from, status_to) VALUES ($po_id, $user_id, 'Rejected', 'Invalid')");
-                log_audit_action($conn, $user_id, 'REJECT_PO', "Rejected PO ID: $po_id");
+                log_audit_action($conn, $user_id, 'REJECT_PO', "Rejected PO ID: $po_id ($actual_po_number)");
             }
             header("Location: ../view_po.php?id=$po_id&success=PO Rejected");
             exit();
@@ -218,13 +258,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     $conn->query("INSERT INTO notifications (target_role, message) VALUES ('$notif_role', '$notif_msg')");
                 }
                 
-                log_audit_action($conn, $user_id, 'APPROVE_PO', "Advanced PO $po_id to $new_status");
+                log_audit_action($conn, $user_id, 'APPROVE_PO', "Advanced PO $actual_po_number to $new_status");
             }
             header("Location: ../view_po.php?id=$po_id&success=PO Updated Successfully");
             exit();
         }
         
-        // TAMA NA: Inilipat na natin sa 'Finance' ang may karapatang mag-add ng payment
         if ($action == 'add_payment') {
             if ($_SESSION['role'] != 'Finance') {
                 header("Location: ../view_po.php?id=$po_id&error=Unauthorized: Only Finance can add payments");
@@ -239,18 +278,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $stmt->bind_param("idss", $po_id, $amount_paid, $payment_date, $notes);
             
             if($stmt->execute()) {
-                // I-check ang updated balance
                 $check = $conn->query("SELECT amount, (SELECT SUM(amount_paid) FROM payments WHERE po_id = purchase_orders.po_id) as paid FROM purchase_orders WHERE po_id = $po_id")->fetch_assoc();
                 $balance = $check['amount'] - $check['paid'];
                 
-                // Kapag bayad na (balance is almost 0), magiging 'Collected', kung may balanse pa, 'Partially-Collected'
                 $new_status = ($balance <= 1.00) ? 'Collected' : 'Partially-Collected';
                 
                 $update_po = $conn->prepare("UPDATE purchase_orders SET status = ?, current_location = 'Finance Dept. (Collection)' WHERE po_id = ?");
                 $update_po->bind_param("si", $new_status, $po_id);
                 $update_po->execute();
                 
-                log_audit_action($conn, $user_id, 'ADD_PAYMENT', "Added payment of P$amount_paid to PO $po_id");
+                log_audit_action($conn, $user_id, 'ADD_PAYMENT', "Added payment of P$amount_paid to PO $actual_po_number");
                 header("Location: ../view_po.php?id=$po_id&success=Payment Successfully Recorded");
             } else {
                 header("Location: ../view_po.php?id=$po_id&error=DatabaseError");
@@ -258,7 +295,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             exit();
         }
         
-        // Fallback catch kung may pinasang action na workflow pero hindi nag-match sa roles sa itaas
         header("Location: ../view_po.php?id=$po_id&error=Action not processed or unauthorized.");
         exit();
     }

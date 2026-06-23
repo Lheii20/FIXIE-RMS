@@ -1,6 +1,7 @@
 <?php
 session_start();
 require '../config/db_connect.php';
+require '../config/functions.php';
 
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
@@ -9,6 +10,17 @@ use PHPMailer\PHPMailer\SMTP;
 require '../libs/src/Exception.php';
 require '../libs/src/PHPMailer.php';
 require '../libs/src/SMTP.php';
+
+// AUTO-SETUP SECURITY COLUMNS (Ensures DB won't crash)
+$check_col = $conn->query("SHOW COLUMNS FROM users LIKE 'require_pass_change'");
+if ($check_col && $check_col->num_rows == 0) {
+    $conn->query("ALTER TABLE users ADD COLUMN require_pass_change TINYINT(1) DEFAULT 0");
+}
+$check_token_col = $conn->query("SHOW COLUMNS FROM users LIKE 'setup_token'");
+if ($check_token_col && $check_token_col->num_rows == 0) {
+    $conn->query("ALTER TABLE users ADD COLUMN setup_token VARCHAR(255) NULL");
+    $conn->query("ALTER TABLE users ADD COLUMN setup_token_expire DATETIME NULL");
+}
 
 if (!isset($_SESSION['user_id'])) { 
     header("Location: ../index.php");
@@ -24,295 +36,223 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
     $action = $_POST['action'] ?? '';
 
+    // STRICT ADMIN CHECK - Binalik natin para super secure ang User Management
+    if ($_SESSION['role'] !== 'Admin') {
+        die("Security Violation: Only the main Administrator can manage users.");
+    }
+
+    // ===============================================
+    // UPDATE USER PERMISSIONS (RBAC)
+    // ===============================================
+    if ($action == 'update_permissions') {
+        $target_user_id = intval($_POST['target_user_id']);
+        $perms = $_POST['permissions'] ?? [];
+        
+        $conn->begin_transaction();
+        try {
+            $del = $conn->prepare("DELETE FROM user_permissions WHERE user_id = ?");
+            $del->bind_param("i", $target_user_id);
+            $del->execute();
+            
+            if (!empty($perms)) {
+                $ins = $conn->prepare("INSERT INTO user_permissions (user_id, permission_name) VALUES (?, ?)");
+                foreach ($perms as $p) {
+                    $ins->bind_param("is", $target_user_id, $p);
+                    $ins->execute();
+                }
+            }
+            $conn->commit();
+            if (function_exists('log_audit_action')) {
+                log_audit_action($conn, $_SESSION['user_id'], 'UPDATE_PERMISSIONS', "Updated capabilities for user ID: $target_user_id");
+            }
+            header("Location: ../admin_users.php?success=PermissionsUpdated");
+        } catch (Exception $e) {
+            $conn->rollback();
+            header("Location: ../admin_users.php?error=UpdateFailed");
+        }
+        exit();
+    }
+
+    // ===============================================
+    // ADD NEW USER (ZERO-TRUST TOKEN LINK)
+    // ===============================================
     if ($action == 'create_user') {
-        if ($_SESSION['role'] !== 'Admin') die("Access Denied");
         $fullname = trim($_POST['full_name']);
         $username = trim($_POST['username']);
-        $password = $_POST['password'];
+        $email = trim($_POST['email']);
         $role = $_POST['role'];
 
-        $check = $conn->prepare("SELECT user_id FROM users WHERE username = ?");
-        $check->bind_param("s", $username);
+        $check = $conn->prepare("SELECT user_id FROM users WHERE username = ? OR email = ?");
+        $check->bind_param("ss", $username, $email);
         $check->execute();
         if($check->get_result()->num_rows > 0){
-            header("Location: ../admin_users.php?error=UsernameExists"); exit();
-        }
-
-        // Password Validation for Create User
-        if (!preg_match('/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/', $password)) {
-            header("Location: ../admin_users.php?error=WeakPassword"); 
+            header("Location: ../admin_users.php?error=UserOrEmailExists"); 
             exit();
         }
 
-        $hash = password_hash($password, PASSWORD_DEFAULT);
-        $stmt = $conn->prepare("INSERT INTO users (full_name, username, password_hash, role, status) VALUES (?, ?, ?, ?, 'Active')");
-        $stmt->bind_param("ssss", $fullname, $username, $hash, $role);
+        $setup_token = bin2hex(random_bytes(32));
+        $expire_time = date('Y-m-d H:i:s', strtotime('+24 hours'));
+        $dummy_hash = password_hash(bin2hex(random_bytes(20)), PASSWORD_DEFAULT);
+
+        $stmt = $conn->prepare("INSERT INTO users (full_name, username, email, password_hash, role, status, require_pass_change, setup_token, setup_token_expire) VALUES (?, ?, ?, ?, ?, 'Active', 0, ?, ?)");
+        $stmt->bind_param("sssssss", $fullname, $username, $email, $dummy_hash, $role, $setup_token, $expire_time);
         
-        if($stmt->execute()){ header("Location: ../admin_users.php?success=UserCreated"); } 
-        else { header("Location: ../admin_users.php?error=DatabaseError"); }
-        exit();
-    }
-
-    if ($action == 'request_username') {
-        $user_id = $_SESSION['user_id'];
-        $new_username = trim($_POST['new_username']);
-
-        $check = $conn->prepare("SELECT user_id FROM users WHERE username = ?");
-        $check->bind_param("s", $new_username);
-        $check->execute();
-        if($check->get_result()->num_rows > 0){
-            header("Location: ../settings.php?error=UsernameTaken"); 
-            exit();
-        }
-
-        $request_type = 'Change Username';
-        $status = 'Pending';
-        $stmt = $conn->prepare("INSERT INTO user_requests (user_id, request_type, new_value, status) VALUES (?, ?, ?, ?)");
-        $stmt->bind_param("isss", $user_id, $request_type, $new_username, $status);
-        
-        if($stmt->execute()) {
-            header("Location: ../settings.php?success=UsernameRequestSubmitted");
-        } else {
-            header("Location: ../settings.php?error=RequestFailed");
-        }
-        exit();
-    }
-
-    if ($action == 'change_password_direct') {
-        $user_id = $_SESSION['user_id'];
-        $current_pass = $_POST['current_password'];
-        $new_pass = $_POST['new_password'];
-        $confirm_pass = $_POST['confirm_password'];
-
-        $stmt = $conn->prepare("SELECT password_hash FROM users WHERE user_id = ?");
-        $stmt->bind_param("i", $user_id);
-        $stmt->execute();
-        $res = $stmt->get_result()->fetch_assoc();
-
-        if (!password_verify($current_pass, $res['password_hash'])) {
-            header("Location: ../settings.php?error=WrongCurrentPassword");
-            exit();
-        }
-
-        if ($new_pass !== $confirm_pass) {
-            header("Location: ../settings.php?error=PasswordMismatch");
-            exit();
-        }
-
-        // Updated Password Validation for Change Password
-        if (!preg_match('/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/', $new_pass)) {
-            header("Location: ../settings.php?error=WeakPassword"); 
-            exit();
-        }
-
-        $hash = password_hash($new_pass, PASSWORD_DEFAULT);
-        $update = $conn->prepare("UPDATE users SET password_hash = ? WHERE user_id = ?");
-        $update->bind_param("si", $hash, $user_id);
-        
-        if ($update->execute()) {
-            header("Location: ../settings.php?success=PasswordUpdated");
-        } else {
-            header("Location: ../settings.php?error=DatabaseError");
-        }
-        exit();
-    }
-
-    if ($action == 'update_basic_info') {
-        $user_id = $_SESSION['user_id'];
-        $full_name = trim($_POST['full_name']);
-        $new_email = trim($_POST['email']);
-
-        // Email Format Validation
-        if (!filter_var($new_email, FILTER_VALIDATE_EMAIL)) {
-            header("Location: ../settings.php?error=InvalidEmailFormat");
-            exit();
-        }
-
-        $stmt = $conn->prepare("UPDATE users SET full_name = ? WHERE user_id = ?");
-        $stmt->bind_param("si", $full_name, $user_id);
-        $stmt->execute();
-        $_SESSION['fullname'] = $full_name;
-
-        $q = $conn->prepare("SELECT email FROM users WHERE user_id = ?");
-        $q->bind_param("i", $user_id);
-        $q->execute();
-        $current_email = $q->get_result()->fetch_assoc()['email'];
-
-        if ($new_email !== $current_email) {
-            $check = $conn->prepare("SELECT user_id FROM users WHERE (email = ? OR pending_email = ?) AND user_id != ?");
-            $check->bind_param("ssi", $new_email, $new_email, $user_id);
-            $check->execute();
-            if ($check->get_result()->num_rows > 0) {
-                header("Location: ../settings.php?error=EmailAlreadyInUse");
-                exit();
+        if($stmt->execute()){ 
+            $new_user_id = $stmt->insert_id;
+            
+            // Assign default role capabilities IF matching existing base defaults
+            $role_clone_q = $conn->prepare("SELECT permission_name FROM user_permissions u_p JOIN users u ON u.user_id = u_p.user_id WHERE u.role = ? LIMIT 20");
+            $role_clone_q->bind_param("s", $role);
+            $role_clone_q->execute();
+            $role_res = $role_clone_q->get_result();
+            if ($role_res->num_rows > 0) {
+                $ins_perm = $conn->prepare("INSERT IGNORE INTO user_permissions (user_id, permission_name) VALUES (?, ?)");
+                while($p_row = $role_res->fetch_assoc()) {
+                    $ins_perm->bind_param("is", $new_user_id, $p_row['permission_name']);
+                    $ins_perm->execute();
+                }
             }
 
-            $verification_code = str_pad(mt_rand(0, 999999), 6, '0', STR_PAD_LEFT);
-
-            $upd = $conn->prepare("UPDATE users SET pending_email = ?, email_verification_code = ?, email_code_expire = DATE_ADD(NOW(), INTERVAL 15 MINUTE) WHERE user_id = ?");
-            $upd->bind_param("ssi", $new_email, $verification_code, $user_id);
-            $upd->execute();
-
+            $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http";
+            $host = $_SERVER['HTTP_HOST'];
+            $script = dirname($_SERVER['SCRIPT_NAME']);
+            $base_dir = rtrim(str_replace('/actions', '', $script), '/');
+            $setup_link = $protocol . "://" . $host . $base_dir . "/setup_password.php?token=" . $setup_token . "&email=" . urlencode($email);
+            
             $mail = new PHPMailer(true);
             try {
                 $mail->isSMTP();
                 $mail->Host       = 'smtp.gmail.com';
                 $mail->SMTPAuth   = true;
-                $mail->Username   = 'tamayolhei5@gmail.com';
-                $mail->Password   = 'wewnzrsryelddatr';
+                $mail->Username   = 'tamayolhei5@gmail.com'; 
+                $mail->Password   = 'wewnzrsryelddatr';      
                 $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
                 $mail->Port       = 465;
                 
-                $mail->SMTPOptions = array(
-                    'ssl' => array(
-                        'verify_peer' => false,
-                        'verify_peer_name' => false,
-                        'allow_self_signed' => true
-                    )
-                );
-
-                $mail->setFrom($mail->Username, 'Fixie DRMS Security');
-                $mail->addAddress($new_email, $full_name);
-
-                $mail->isHTML(true);
-                $mail->Subject = 'Your Email Verification Code';
-                $mail->Body    = "
-                    <div style='font-family: Arial, sans-serif; padding: 20px;'>
-                        <h2>Email Verification</h2>
-                        <p>Hello {$full_name},</p>
-                        <p>You requested to use this email for your Fixie DRMS account. Please use the verification code below to confirm:</p>
-                        <h1 style='color: #2563EB; letter-spacing: 5px; background: #F8FAFC; padding: 15px; border-radius: 8px; width: fit-content;'>{$verification_code}</h1>
-                        <p>This code will expire in 15 minutes.</p>
-                        <p>If you didn't request this change, you can safely ignore this email.</p>
-                    </div>
-                ";
-
-                $mail->send();
-                header("Location: ../settings.php?success=CodeSent");
-                exit();
+                $mail->SMTPOptions = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));
                 
+                $mail->setFrom('tamayolhei5@gmail.com', 'Fixie DRMS Security');
+                $mail->addAddress($email, $fullname);
+                $mail->Subject = 'Welcome to Fixie DRMS - Secure Account Setup Required';
+                $mail->isHTML(true);
+                $mail->Body = "
+                <div style='font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;'>
+                    <div style='background-color: #2a617b; padding: 20px; text-align: center; color: white;'>
+                        <h2 style='margin: 0;'>Welcome, {$fullname}!</h2>
+                    </div>
+                    <div style='padding: 25px; line-height: 1.6;'>
+                        <p>An administrator has provisioned an enterprise account for you with the username: <b>{$username}</b>.</p>
+                        <p>To securely activate your account and define your own password, please click the secure link below:</p>
+                        <div style='margin: 25px 0;'>
+                            <a href='{$setup_link}' style='background-color: #2a617b; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;'>Set Up My Password</a>
+                        </div>
+                        <p style='color: #dc2626; font-size: 13px;'><strong>Security Notice:</strong> This link will automatically expire in 24 hours. If it expires, contact the system administrator.</p>
+                    </div>
+                    <div style='background-color: #f4f4f4; padding: 15px; text-align: center; font-size: 12px; color: #777;'>
+                        &copy; " . date('Y') . " Fixie DRMS. All rights reserved.
+                    </div>
+                </div>";
+                
+                $mail->send();
+                if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'CREATE_USER', "Created new user: $username and sent setup link.");
+                header("Location: ../admin_users.php?success=UserCreated");
             } catch (Exception $e) {
-                $conn->query("UPDATE users SET pending_email = NULL, email_verification_code = NULL WHERE user_id = $user_id");
-                die("<div style='padding: 20px; font-family: sans-serif;'>
-                        <h2 style='color: red;'>Email Error</h2>
-                        <p><b>Technical Error:</b> {$mail->ErrorInfo}</p>
-                        <a href='../settings.php'>Back to Settings</a>
-                     </div>");
+                error_log("PHPMailer Error: " . $mail->ErrorInfo);
+                if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'CREATE_USER', "Created new user: $username (Email Failed)");
+                header("Location: ../admin_users.php?success=UserCreatedButEmailFailed");
             }
-        }
-
-        header("Location: ../settings.php?success=InfoUpdated");
-        exit();
-    }
-
-    if ($action == 'verify_email_code') {
-        $user_id = $_SESSION['user_id'];
-        $code_entered = trim($_POST['verification_code']);
-
-        $stmt = $conn->prepare("SELECT pending_email FROM users WHERE user_id = ? AND email_verification_code = ? AND email_code_expire > NOW()");
-        $stmt->bind_param("is", $user_id, $code_entered);
-        $stmt->execute();
-        $res = $stmt->get_result();
-
-        if ($res->num_rows > 0) {
-            $pending_email = $res->fetch_assoc()['pending_email'];
-            $upd = $conn->prepare("UPDATE users SET email = ?, pending_email = NULL, email_verification_code = NULL, email_code_expire = NULL WHERE user_id = ?");
-            $upd->bind_param("si", $pending_email, $user_id);
-            $upd->execute();
-
-            header("Location: ../settings.php?success=EmailVerified");
         } else {
-            header("Location: ../settings.php?error=InvalidCode");
+            header("Location: ../admin_users.php?error=CreateFailed");
         }
         exit();
     }
 
-    if ($action == 'cancel_email_change') {
-        $user_id = $_SESSION['user_id'];
-        $conn->query("UPDATE users SET pending_email = NULL, email_verification_code = NULL, email_code_expire = NULL WHERE user_id = $user_id");
-        header("Location: ../settings.php");
+    // ===============================================
+    // UPDATE USER
+    // ===============================================
+    if ($action == 'update_user') {
+        $target_user_id = intval($_POST['user_id']);
+        $fullname = trim($_POST['full_name']);
+        $email = trim($_POST['email']);
+        $role = $_POST['role'];
+
+        $check_admin = $conn->query("SELECT role FROM users WHERE user_id = $target_user_id")->fetch_assoc();
+        if ($check_admin && $check_admin['role'] === 'Admin' && $role !== 'Admin') {
+            header("Location: ../admin_users.php?error=CannotChangeAdminRole");
+            exit();
+        }
+
+        $stmt = $conn->prepare("UPDATE users SET full_name=?, email=?, role=? WHERE user_id=?");
+        $stmt->bind_param("sssi", $fullname, $email, $role, $target_user_id);
+        
+        if($stmt->execute()){
+            if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'UPDATE_USER', "Updated details for user ID: $target_user_id");
+            header("Location: ../admin_users.php?success=UserUpdated");
+        } else {
+            header("Location: ../admin_users.php?error=UpdateFailed");
+        }
         exit();
     }
 
+    // ===============================================
+    // DELETE USER
+    // ===============================================
     if ($action == 'delete_user') {
-        if ($_SESSION['role'] !== 'Admin') { header("Location: ../dashboard.php?error=Unauthorized"); exit(); }
-        $user_id_to_delete = $_POST['user_id'];
-        if ($user_id_to_delete == $_SESSION['user_id']) { header("Location: ../admin_users.php?error=CannotDeleteSelf"); exit(); }
+        $target_user_id = intval($_POST['user_id']);
+        
+        if ($target_user_id == $_SESSION['user_id']) {
+            header("Location: ../admin_users.php?error=CannotDeleteSelf");
+            exit();
+        }
 
         $stmt = $conn->prepare("DELETE FROM users WHERE user_id = ?");
-        $stmt->bind_param("i", $user_id_to_delete);
-        if ($stmt->execute()) { header("Location: ../admin_users.php?success=UserDeleted"); } 
-        else { header("Location: ../admin_users.php?error=DeleteFailed"); }
+        $stmt->bind_param("i", $target_user_id);
+        if($stmt->execute()){
+            if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'DELETE_USER', "Deleted user ID: $target_user_id");
+            header("Location: ../admin_users.php?success=UserDeleted");
+        } else {
+            header("Location: ../admin_users.php?error=DeleteFailed");
+        }
         exit();
     }
 
-    if ($action == 'admin_update_self') {
-        if ($_SESSION['role'] !== 'Admin') { header("Location: ../dashboard.php?error=Unauthorized"); exit(); }
-        $user_id = $_SESSION['user_id'];
-        $username = trim($_POST['username']);
-        $new_pass = $_POST['new_password'];
+    // ===============================================
+    // UPDATE STATUS
+    // ===============================================
+    if ($action == 'update_status') {
+        $target_user_id = intval($_POST['user_id']);
+        $new_status = $_POST['status'];
 
-        $stmt = $conn->prepare("UPDATE users SET username = ? WHERE user_id = ?");
-        $stmt->bind_param("si", $username, $user_id);
-        $stmt->execute();
-
-        if (!empty($new_pass)) {
-            // Updated Password Validation for Admin Update Self
-            if (!preg_match('/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/', $new_pass)) {
-                header("Location: ../settings.php?error=WeakPasswordAdmin"); exit();
-            }
-            $hash = password_hash($new_pass, PASSWORD_DEFAULT);
-            $stmt2 = $conn->prepare("UPDATE users SET password_hash = ? WHERE user_id = ?");
-            $stmt2->bind_param("si", $hash, $user_id);
-            $stmt2->execute();
+        if ($target_user_id == $_SESSION['user_id'] && $new_status == 'Suspended') {
+            header("Location: ../admin_users.php?error=CannotSuspendSelf");
+            exit();
         }
-        header("Location: ../settings.php?success=CredentialsUpdated");
+
+        $stmt = $conn->prepare("UPDATE users SET status = ? WHERE user_id = ?");
+        $stmt->bind_param("si", $new_status, $target_user_id);
+        if($stmt->execute()){
+            if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'UPDATE_STATUS', "Changed status to $new_status for user ID: $target_user_id");
+            header("Location: ../admin_users.php?success=UserStatusUpdated");
+        } else {
+            header("Location: ../admin_users.php?error=UpdateFailed");
+        }
         exit();
     }
 
-    if ($action == 'upload_avatar') {
-        $user_id = $_SESSION['user_id'];
-        if(isset($_FILES['avatar']) && $_FILES['avatar']['error'] == 0){
-            
-            // Avatar Size Validation (5MB Max)
-            $max_avatar_size = 5 * 1024 * 1024;
-            if ($_FILES['avatar']['size'] > $max_avatar_size) {
-                header("Location: ../settings.php?error=AvatarSizeTooLarge");
-                exit();
-            }
-
-            // MIME Type Validation (Hindi lang extension)
-            $finfo = new finfo(FILEINFO_MIME_TYPE);
-            $mime_type = $finfo->file($_FILES['avatar']['tmp_name']);
-            $allowed_mimes = ['image/jpeg', 'image/png', 'image/jpg'];
-
-            if (!in_array($mime_type, $allowed_mimes)) {
-                header("Location: ../settings.php?error=InvalidAvatarMimeType");
-                exit();
-            }
-
-            $allowed = ['jpg', 'jpeg', 'png'];
-            $filename = $_FILES['avatar']['name'];
-            $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
-            if(in_array($ext, $allowed)){
-                $new_name = "avatar_" . $user_id . "_" . time() . "." . $ext;
-                $target = "../uploads/avatars/" . $new_name;
-                if (!is_dir('../uploads/avatars')) { mkdir('../uploads/avatars', 0777, true); }
-                if(move_uploaded_file($_FILES['avatar']['tmp_name'], $target)){
-                    $db_path = "uploads/avatars/" . $new_name;
-                    $stmt = $conn->prepare("UPDATE users SET avatar = ? WHERE user_id = ?");
-                    $stmt->bind_param("si", $db_path, $user_id);
-                    $stmt->execute();
-                    $_SESSION['avatar'] = $db_path;
-                    header("Location: ../settings.php?success=AvatarUpdated");
-                    exit();
-                }
-            }
+    // ===============================================
+    // FORCE LOGOUT (Invalidate Session Token)
+    // ===============================================
+    if ($action == 'force_logout') {
+        $target_user_id = intval($_POST['user_id']);
+        $stmt = $conn->prepare("UPDATE users SET session_token = NULL WHERE user_id = ?");
+        $stmt->bind_param("i", $target_user_id);
+        
+        if ($stmt->execute()) {
+            if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'FORCE_LOGOUT', "Admin force logged out user ID: $target_user_id");
+            header("Location: ../admin_users.php?success=UserForceLoggedOut");
+        } else {
+            header("Location: ../admin_users.php?error=ActionFailed");
         }
-        header("Location: ../settings.php?error=UploadFailed");
         exit();
     }
 }
-header("Location: ../dashboard.php");
-exit();
-?>

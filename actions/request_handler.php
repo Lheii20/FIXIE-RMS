@@ -2,177 +2,188 @@
 session_start();
 require '../config/db_connect.php';
 
-use PHPMailer\PHPMailer\PHPMailer;
-use PHPMailer\PHPMailer\Exception;
-use PHPMailer\PHPMailer\SMTP;
+// Ensure the request is POST
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    header("Location: ../dashboard.php");
+    exit();
+}
 
-require '../libs/src/Exception.php';
-require '../libs/src/PHPMailer.php';
-require '../libs/src/SMTP.php';
+// CSRF Protection Check
+if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+    die("Security Validation Failed.");
+}
 
 $action = $_POST['action'] ?? '';
 
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-
-    $public_actions = ['request_forgot_password', 'verify_reset_code', 'execute_reset_password'];
-    if (!in_array($action, $public_actions)) {
-        if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
-            die("Security Error: Invalid CSRF Token");
-        }
+// ========================================================================
+// 1. SUBMIT ACCOUNT REQUEST (Triggered by Users in settings.php)
+// ========================================================================
+if ($action === 'submit_request') {
+    if (!isset($_SESSION['user_id'])) {
+        header("Location: ../index.php");
+        exit();
     }
 
-    if ($action == 'request_forgot_password') {
-        $username = trim($_POST['username']);
-        $email = trim($_POST['email']);
-        
-        $u = $conn->prepare("SELECT user_id, full_name FROM users WHERE username = ? AND email = ?");
-        $u->bind_param("ss", $username, $email);
-        $u->execute();
-        $res = $u->get_result();
+    $user_id = $_SESSION['user_id'];
+    $request_type = trim($_POST['request_type']);
+    $new_value = trim($_POST['new_value'] ?? '');
+    $reason = trim($_POST['reason'] ?? '');
+    $current_password = $_POST['current_password'] ?? ''; 
+    
+    // FETCH EXACT USERNAME AND PASSWORD HASH DIRECTLY FROM DB
+    $u_stmt = $conn->prepare("SELECT username, password_hash FROM users WHERE user_id = ?");
+    $u_stmt->bind_param("i", $user_id);
+    $u_stmt->execute();
+    $u_res = $u_stmt->get_result()->fetch_assoc();
+    $current_username = $u_res['username'] ?? 'Unknown';
+    $hashed_password = $u_res['password_hash'] ?? '';
+    $u_stmt->close();
 
-        if ($res->num_rows > 0) {
-            $user = $res->fetch_assoc();
-            $user_id = $user['user_id'];
-            $fullname = $user['full_name'];
+    // SECURITY CHECK: Verify if the entered password matches their current account password
+    if (!password_verify($current_password, $hashed_password)) {
+        header("Location: ../settings.php?error=WrongCurrentPassword");
+        exit();
+    }
+
+    // Insert into user_requests table
+    $stmt = $conn->prepare("INSERT INTO user_requests (user_id, request_type, new_value, reason, status) VALUES (?, ?, ?, ?, 'Pending')");
+    $stmt->bind_param("isss", $user_id, $request_type, $new_value, $reason);
+    
+    if ($stmt->execute()) {
+        
+        // --- ADMIN NOTIFICATION TRIGGER ---
+        $admin_notif_msg = "Action Required: " . $current_username . " is requesting to " . $request_type . ".";
+        $stmt_notif = $conn->prepare("INSERT INTO notifications (target_role, message, is_read, is_pinned) VALUES ('Admin', ?, 0, 0)");
+        $stmt_notif->bind_param("s", $admin_notif_msg);
+        $stmt_notif->execute();
+        // ----------------------------------
+
+        // Audit Trail Entry
+        $audit_desc = "Submitted request to " . $request_type . " to '" . $new_value . "' (Reason: " . $reason . ")";
+        $stmt_audit = $conn->prepare("INSERT INTO audit_logs (user_id, action_type, description, ip_address) VALUES (?, 'SUBMIT_REQUEST', ?, ?)");
+        $ip = $_SERVER['REMOTE_ADDR'];
+        $stmt_audit->bind_param("iss", $user_id, $audit_desc, $ip);
+        $stmt_audit->execute();
+
+        header("Location: ../settings.php?success=RequestSubmitted");
+        exit();
+    } else {
+        header("Location: ../settings.php?error=RequestFailed");
+        exit();
+    }
+}
+
+// ========================================================================
+// 2. MANAGE ACCOUNT REQUEST (Triggered by Admin in admin_requests.php)
+// ========================================================================
+elseif ($action === 'manage_request') {
+    if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Admin') {
+        header("Location: ../dashboard.php");
+        exit();
+    }
+
+    $request_id = intval($_POST['request_id']);
+    $decision = $_POST['decision']; // Accepts 'Approve' or 'Reject'
+
+    // Retrieve request data
+    $stmt_req = $conn->prepare("SELECT user_id, request_type, new_value FROM user_requests WHERE request_id = ?");
+    $stmt_req->bind_param("i", $request_id);
+    $stmt_req->execute();
+    $req_data = $stmt_req->get_result()->fetch_assoc();
+
+    if ($req_data) {
+        $req_user_id = $req_data['user_id'];
+        $req_type = $req_data['request_type'];
+        $new_val = $req_data['new_value'];
+
+        // Determine final string for status update
+        $final_status = ($decision === 'Approve') ? 'Approved' : 'Rejected';
+        
+        // Update request status in user_requests table
+        $stmt_upd = $conn->prepare("UPDATE user_requests SET status = ? WHERE request_id = ?");
+        $stmt_upd->bind_param("si", $final_status, $request_id);
+        $stmt_upd->execute();
+
+        // If Approved, apply the actual changes to the user's account in the database
+        if ($decision === 'Approve') {
+            if ($req_type === 'Change Username' && !empty($new_val)) {
+                $stmt_user = $conn->prepare("UPDATE users SET username = ? WHERE user_id = ?");
+                $stmt_user->bind_param("si", $new_val, $req_user_id);
+                $stmt_user->execute();
+            } elseif ($req_type === 'Unlock Account') {
+                $stmt_user = $conn->prepare("UPDATE users SET status = 'Active', failed_attempts = 0 WHERE user_id = ?");
+                $stmt_user->bind_param("i", $req_user_id);
+                $stmt_user->execute();
+            }
+        }
+
+        // Send a notification back to the user regarding the decision
+        $user_notif_msg = "Your account request to " . $req_type . " was " . strtolower($final_status) . " by the Admin.";
+        
+        // Fetch target role AND full name for accurate logging and notification
+        $target_role = 'User';
+        $target_fullname = 'Unknown User';
+        $stmt_get_user = $conn->query("SELECT role, full_name FROM users WHERE user_id = $req_user_id");
+        
+        if($stmt_get_user && $stmt_get_user->num_rows > 0) {
+            $u_data = $stmt_get_user->fetch_assoc();
+            $target_role = $u_data['role'];
+            $target_fullname = $u_data['full_name'];
             
-            $code = str_pad(random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
-            $upd = $conn->prepare("UPDATE users SET reset_token = ?, reset_token_expire = DATE_ADD(NOW(), INTERVAL 15 MINUTE) WHERE user_id = ?");
-            $upd->bind_param("si", $code, $user_id);
-            $upd->execute();
-
-            $mail = new PHPMailer(true);
-            try {
-                $mail->isSMTP();
-                $mail->Host       = 'smtp.gmail.com';
-                $mail->SMTPAuth   = true;
-                $mail->Username   = 'tamayolhei5@gmail.com'; 
-                $mail->Password   = 'wewnzrsryelddatr';   
-                $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
-                $mail->Port       = 465;
-                $mail->SMTPOptions = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));
-
-                $mail->setFrom($mail->Username, 'Fixie DRMS System');
-                $mail->addAddress($email, $fullname);
-
-                $mail->isHTML(true);
-                $mail->Subject = 'Password Reset Code - Fixie DRMS';
-                $mail->Body    = "<h3>Hello {$fullname},</h3><p>Use the code below to reset your password:</p><h1 style='color: #2563EB; letter-spacing: 5px;'>{$code}</h1><p>Expires in 15 mins.</p>";
-
-                $mail->send();
-                header("Location: ../forgot_password.php?step=2&email=" . urlencode($email));
-            } catch (Exception $e) {
-                header("Location: ../forgot_password.php?error=EmailError");
-            }
-        } else {
-            header("Location: ../forgot_password.php?error=AccountMismatch");
-        }
-        exit();
-    }
-
-    if ($action == 'verify_reset_code') {
-        $email = $_POST['email'];
-        $code = trim($_POST['code']);
-
-        $stmt = $conn->prepare("SELECT user_id FROM users WHERE email = ? AND reset_token = ? AND reset_token_expire > NOW()");
-        $stmt->bind_param("ss", $email, $code);
-        $stmt->execute();
-        $res = $stmt->get_result();
-
-        if ($res->num_rows > 0) {
-            header("Location: ../reset_password.php?token=" . $code . "&email=" . urlencode($email));
-        } else {
-            header("Location: ../forgot_password.php?step=2&email=" . urlencode($email) . "&error=InvalidCode");
-        }
-        exit();
-    }
-
-    if ($action == 'execute_reset_password') {
-        $code = $_POST['token'];
-        $email = $_POST['email'];
-        $new_pass = trim($_POST['new_password']);
-
-        $chk = $conn->prepare("SELECT user_id FROM users WHERE email = ? AND reset_token = ? AND reset_token_expire > NOW()");
-        $chk->bind_param("ss", $email, $code);
-        $chk->execute();
-        $res = $chk->get_result();
-
-        if ($res->num_rows > 0) {
-            $user_id = $res->fetch_assoc()['user_id'];
-            $new_hash = password_hash($new_pass, PASSWORD_DEFAULT);
-            $upd = $conn->prepare("UPDATE users SET password_hash = ?, reset_token = NULL, reset_token_expire = NULL WHERE user_id = ?");
-            $upd->bind_param("si", $new_hash, $user_id);
-            
-            if ($upd->execute()) {
-                header("Location: ../index.php?success=PasswordResetComplete");
-            } else {
-                header("Location: ../reset_password.php?token=$code&email=$email&error=SystemError");
-            }
-        } else {
-            header("Location: ../forgot_password.php?error=InvalidOrExpiredToken");
-        }
-        exit();
-    }
-
-    if ($action == 'submit_request') {
-        if(!isset($_SESSION['user_id'])) die("Unauthorized");
-        
-        $user_id = $_SESSION['user_id'];
-        $type = $_POST['request_type']; // Should be "Change Username"
-        $new_val = trim($_POST['new_value']);
-        $current_pwd = $_POST['current_password'];
-
-        // Verify current password before allowing a request
-        $stmt = $conn->prepare("SELECT password_hash FROM users WHERE user_id = ?");
-        $stmt->bind_param("i", $user_id);
-        $stmt->execute();
-        $res = $stmt->get_result()->fetch_assoc();
-
-        if (!password_verify($current_pwd, $res['password_hash'])) {
-            header("Location: ../settings.php?error=WrongCurrentPassword");
-            exit();
+            $stmt_notif = $conn->prepare("INSERT INTO notifications (target_role, message, is_read, is_pinned) VALUES (?, ?, 0, 0)");
+            $stmt_notif->bind_param("ss", $target_role, $user_notif_msg);
+            $stmt_notif->execute();
         }
 
-        $ins = $conn->prepare("INSERT INTO user_requests (user_id, request_type, new_value, status) VALUES (?, ?, ?, 'Pending')");
-        $ins->bind_param("iss", $user_id, $type, $new_val);
-        
-        if($ins->execute()){
-            header("Location: ../settings.php?success=RequestSubmitted");
-        } else {
-            header("Location: ../settings.php?error=DatabaseError");
-        }
-        exit();
-    }
-
-    if ($action == 'manage_request') {
-        if ($_SESSION['role'] !== 'Admin') die("Unauthorized");
-
-        $req_id = $_POST['request_id'];
-        $decision = $_POST['decision'];
-
-        $q = $conn->prepare("SELECT * FROM user_requests WHERE request_id = ?");
-        $q->bind_param("i", $req_id);
-        $q->execute();
-        $req = $q->get_result()->fetch_assoc();
-
-        if ($req) {
-            $status_req = ($decision == 'Approve') ? 'Approved' : 'Rejected';
-
-            if ($decision == 'Approve') {
-                if ($req['request_type'] == 'Change Username') {
-                    $upd = $conn->prepare("UPDATE users SET username = ? WHERE user_id = ?");
-                    $upd->bind_param("si", $req['new_value'], $req['user_id']);
-                    $upd->execute();
-                } 
-                // Removed the "Change Password" approval logic completely
-            }
-
-            $upd_req = $conn->prepare("UPDATE user_requests SET status = ? WHERE request_id = ?");
-            $upd_req->bind_param("si", $status_req, $req_id);
-            $upd_req->execute();
-        }
+        // Audit Trail for Admin Action - FULLY READABLE FOR HUMAN (No more IDs)
+        $audit_desc = "Admin " . strtolower($final_status) . " account request (" . $req_type . ") for " . $target_fullname;
+        $stmt_audit = $conn->prepare("INSERT INTO audit_logs (user_id, action_type, description, ip_address) VALUES (?, 'MANAGE_REQUEST', ?, ?)");
+        $ip = $_SERVER['REMOTE_ADDR'];
+        $admin_id = $_SESSION['user_id'];
+        $stmt_audit->bind_param("iss", $admin_id, $audit_desc, $ip);
+        $stmt_audit->execute();
 
         header("Location: ../admin_requests.php?success=ActionCompleted");
         exit();
     }
+    
+    header("Location: ../admin_requests.php?error=RequestNotFound");
+    exit();
 }
-?>
+
+// ========================================================================
+// 3. FORGOT PASSWORD REQUEST
+// ========================================================================
+elseif ($action === 'request_forgot_password') {
+    $username = trim($_POST['username']);
+    $email = trim($_POST['email']);
+    
+    $stmt = $conn->prepare("SELECT user_id FROM users WHERE username = ? AND email = ? LIMIT 1");
+    $stmt->bind_param("ss", $username, $email);
+    $stmt->execute();
+    
+    if ($stmt->get_result()->num_rows > 0) {
+        $reset_code = sprintf("%06d", mt_rand(1, 999999));
+        header("Location: ../forgot_password.php?step=2&email=" . urlencode($email));
+        exit();
+    } else {
+        header("Location: ../forgot_password.php?step=1&error=AccountMismatch");
+        exit();
+    }
+}
+
+// ========================================================================
+// 4. VERIFY RESET CODE
+// ========================================================================
+elseif ($action === 'verify_reset_code') {
+    $email = trim($_POST['email']);
+    $code = trim($_POST['code']);
+    
+    header("Location: ../reset_password.php?email=" . urlencode($email) . "&code=" . urlencode($code));
+    exit();
+}
+
+else {
+    header("Location: ../dashboard.php");
+    exit();
+}

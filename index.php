@@ -16,7 +16,6 @@
             background-color: #f4f7f9;
         }
         
-        /* Modern Corporate FCV Palette - Balanced & Professional */
         .brand-section {
             background: linear-gradient(135deg, #1d3a4d 0%, #2a617b 100%);
             position: relative;
@@ -66,7 +65,7 @@
         
         .custom-input:focus {
             outline: none;
-            border-bottom-color: #2a617b; /* FCV Corporate Blue */
+            border-bottom-color: #2a617b;
             box-shadow: none;
         }
 
@@ -97,7 +96,7 @@
         }
 
         .btn-login {
-            background-color: #2a617b; /* FCV Corporate Blue */
+            background-color: #2a617b;
             color: #ffffff;
             border: none;
             border-radius: 8px;
@@ -157,6 +156,9 @@
                                     if($_GET['error'] == 'InvalidCredentials') echo "Invalid Username or Password.";
                                     elseif($_GET['error'] == 'AccountLockedWaitAdmin') echo "Account is locked pending Admin approval.";
                                     elseif($_GET['error'] == 'TooManyAttemptsWait5Mins') echo "Too many failed attempts. Please try again after 5 minutes.";
+                                    // BAGONG MENSEHE PARA SA REALTIME LOGOUT
+                                    elseif($_GET['error'] == 'ForceLoggedOutByAdmin') echo "<b>Session Terminated:</b> An Administrator has forcefully logged you out.";
+                                    elseif($_GET['error'] == 'SessionExpired') echo "Your session has expired due to inactivity.";
                                     else echo "Login Failed.";
                                 ?>
                             </div>

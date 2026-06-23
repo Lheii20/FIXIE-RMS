@@ -33,7 +33,7 @@ $user = $query->fetch_assoc();
         </div>
 
         <?php if(isset($_GET['success'])): ?>
-            <div class="alert alert-success alert-dismissible fade show">
+            <div class="alert alert-success alert-dismissible fade show border-0 shadow-sm">
                 <i class="fas fa-check-circle me-2"></i> 
                 <?php 
                 if($_GET['success'] == 'CodeSent') echo "A 6-digit verification code has been sent to your new email.";
@@ -47,7 +47,7 @@ $user = $query->fetch_assoc();
         <?php endif; ?>
         
         <?php if(isset($_GET['error'])): ?>
-            <div class="alert alert-danger alert-dismissible fade show">
+            <div class="alert alert-danger alert-dismissible fade show border-0 shadow-sm">
                 <i class="fas fa-exclamation-circle me-2"></i> Error: 
                 <?php 
                 if($_GET['error'] == 'InvalidCode') echo "The verification code is incorrect or has expired.";
@@ -228,6 +228,14 @@ $user = $query->fetch_assoc();
                                 <div class="input-group">
                                     <span class="input-group-text bg-light"><i class="fas fa-at text-muted"></i></span>
                                     <input type="text" name="new_value" class="form-control" required placeholder="Enter new username">
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label small fw-bold">Reason for Change</label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light"><i class="fas fa-comment-dots text-muted"></i></span>
+                                    <input type="text" name="reason" class="form-control" required placeholder="Brief reason (e.g. Spelling correction)">
                                 </div>
                             </div>
 

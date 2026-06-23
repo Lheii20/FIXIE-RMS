@@ -1,27 +1,15 @@
 <?php 
 require 'config/db_connect.php'; 
+require 'config/functions.php';
+
 if(!isset($_SESSION['user_id']) || $_SESSION['role'] != 'Procurement') {
     header("Location: dashboard.php");
     exit();
 }
 
-$year = date('Y');
-$po_prefix = "PO-" . $year . "-";
-$like_prefix = $po_prefix . "%";
-
-$po_stmt = $conn->prepare("SELECT po_number FROM purchase_orders WHERE po_number LIKE ? ORDER BY CAST(SUBSTRING_INDEX(po_number, '-', -1) AS UNSIGNED) DESC LIMIT 1");
-$po_stmt->bind_param("s", $like_prefix);
-$po_stmt->execute();
-$po_res = $po_stmt->get_result();
-
-if ($po_res->num_rows > 0) {
-    $last_po = $po_res->fetch_assoc()['po_number'];
-    $last_po_num = intval(substr($last_po, -4));
-    $next_po_num = $last_po_num + 1;
-} else {
-    $next_po_num = 1;
-}
-$display_po_number = $po_prefix . str_pad($next_po_num, 4, "0", STR_PAD_LEFT);
+// Wala nang live fetching ng PO number dito para maiwasan ang Race Condition.
+// Ipapakita na lamang natin ang visual placeholder sa form.
+$display_po_number = "PO-" . date('Y') . "-[Auto-Generated]";
 
 $categories = [];
 $cats_query = $conn->query("SELECT code, name FROM item_categories ORDER BY code ASC");
@@ -80,7 +68,7 @@ if (isset($_GET['pr_id'])) {
                 'origQty' => $i['quantity']
             ];
         }
-        $pr_items_json = json_encode($items_arr);
+        $pr_items_json = json_encode($items_arr, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
     }
 }
 ?>
@@ -172,7 +160,6 @@ if (isset($_GET['pr_id'])) {
 
             <div class="split-card row g-0">
                 
-                <!-- LEFT PANEL -->
                 <div class="col-lg-3 left-panel d-none d-lg-block">
                     <div class="p-4 position-sticky" style="top: 85px; z-index: 10;">
                         <h6 class="fw-bold text-muted text-uppercase mb-4" style="font-size: 0.75rem; letter-spacing: 1px;">Encoding Progress</h6>
@@ -197,7 +184,6 @@ if (isset($_GET['pr_id'])) {
                     </div>
                 </div>
 
-                <!-- RIGHT PANEL (Form Area) -->
                 <div class="col-lg-9 p-3 p-md-4 right-panel">
                     
                     <div class="d-lg-none mb-3 pb-2 border-bottom d-flex justify-content-between align-items-center">
@@ -208,17 +194,16 @@ if (isset($_GET['pr_id'])) {
                     <form action="actions/po_handler.php" method="POST" id="poForm" enctype="multipart/form-data" onkeydown="return event.key != 'Enter';">
                         <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                         <input type="hidden" name="action" value="create">
-                        <input type="hidden" name="grand_total" id="hiddenGrandTotal">
+                        <input type="hidden" id="hiddenGrandTotal">
                         <?php if($pr_id_val): ?><input type="hidden" name="pr_id" value="<?php echo $pr_id_val; ?>"><?php endif; ?>
 
-                        <!-- STEP 1 -->
                         <div class="wizard-step active-step" id="step1">
                             <h5 class="fw-bold text-dark mb-3">Client Information</h5>
                             
                             <div class="row g-3">
                                 <div class="col-md-6">
                                     <label class="form-label">Generated PO Number</label>
-                                    <input type="text" name="po_number" class="form-control soft-input text-primary fw-bold" style="background-color: #eff6ff; border-color: transparent;" value="<?php echo $display_po_number; ?>" readonly>
+                                    <input type="text" class="form-control soft-input text-primary fw-bold" style="background-color: #eff6ff; border-color: transparent;" value="<?php echo $display_po_number; ?>" readonly>
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label">Client / Agency Name <span class="req-star">*</span></label>
@@ -234,7 +219,6 @@ if (isset($_GET['pr_id'])) {
                             </div>
                         </div>
 
-                        <!-- STEP 2 -->
                         <div class="wizard-step" id="step2">
                             <div class="d-flex justify-content-between align-items-center mb-3">
                                 <h5 class="fw-bold text-dark m-0">Line Items</h5>
@@ -270,7 +254,6 @@ if (isset($_GET['pr_id'])) {
         </div>
     </div>
 
-    <!-- FLOATING GLASS BAR -->
     <div class="glass-bar-container">
         <div class="glass-bar">
             <div class="d-flex align-items-center gap-3">
@@ -338,12 +321,12 @@ if (isset($_GET['pr_id'])) {
             }
         }
 
-        const dbCategories = <?php echo json_encode($categories); ?>;
-        const dbBrands = <?php echo json_encode($brands); ?>;
+        const dbCategories = <?php echo json_encode($categories, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+        const dbBrands = <?php echo json_encode($brands, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
         let itemIndex = 0;
-        const prefilledItems = <?php echo $pr_items_json; ?>;
-        const originalPrAmount = <?php echo json_encode($pr_amount_val); ?>;
-        const draftKey = 'po_draft_' + <?php echo json_encode($pr_id_val ? $pr_id_val : 'new'); ?>;
+        const prefilledItems = <?php echo $pr_items_json; ?>; 
+        const originalPrAmount = <?php echo json_encode($pr_amount_val, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+        const draftKey = 'po_draft_' + <?php echo json_encode($pr_id_val ? $pr_id_val : 'new', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
         
         function addItemRow(data = null) {
             const tbody = document.getElementById('itemsBody');
@@ -363,6 +346,7 @@ if (isset($_GET['pr_id'])) {
             let brandOptions = `<option value="Generic/Other" ${brand === 'Generic/Other' ? 'selected' : ''}>Select Brand</option>`;
             dbBrands.forEach(b => { if(b !== 'Generic/Other') { brandOptions += `<option value="${b}" ${brand === b ? 'selected' : ''}>${b}</option>`; } });
             
+            // Security Fix: Inalis na ang name="items[${itemIndex}][total]" kaya ang server na talaga ang magmu-multiply.
             row.innerHTML = `
                 <td>
                     <select name="items[${itemIndex}][category]" class="form-select soft-input mb-1" required>${catOptions}</select>
@@ -383,7 +367,7 @@ if (isset($_GET['pr_id'])) {
                 </td>
                 <td>
                     <input type="text" class="form-control bg-transparent text-end fw-bold total-display border-0 px-0 fs-6 text-primary" value="0.00" readonly>
-                    <input type="hidden" name="items[${itemIndex}][total]" class="total-input" value="0">
+                    <input type="hidden" class="total-input" value="0">
                 </td>
                 <td class="align-middle">
                     <div class="d-flex align-items-center justify-content-center h-100">
@@ -394,11 +378,12 @@ if (isset($_GET['pr_id'])) {
             
             if (data && data.brand) {
                 const brandSelect = row.querySelector('.brand-select');
-                brandSelect.value = data.brand;
-                if (!brandSelect.value) { brandSelect.value = 'Generic/Other'; }
+                if (brandSelect) {
+                    brandSelect.value = data.brand;
+                    if (!brandSelect.value) { brandSelect.value = 'Generic/Other'; }
+                }
             }
 
-            // Trigger auto-resize para sa draft at pre-filled data
             const specTextArea = row.querySelector('.spec-textarea');
             if(specTextArea && specTextArea.value) {
                 setTimeout(() => {

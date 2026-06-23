@@ -4,18 +4,17 @@ require '../config/functions.php';
 
 header('Content-Type: application/json');
 
-if (!isset($_SESSION['login_attempts'])) {
-    $_SESSION['login_attempts'] = 0;
-    $_SESSION['last_attempt_time'] = time();
-}
+$ip_address = $_SERVER['REMOTE_ADDR'] ?? 'Unknown';
 
-if ($_SESSION['login_attempts'] >= 5) {
-    if (time() - $_SESSION['last_attempt_time'] < 300) { 
-        echo json_encode(["status" => "error", "message" => "Too many failed attempts. Please try again after 5 minutes."]);
-        exit();
-    } else {
-        $_SESSION['login_attempts'] = 0; 
-    }
+// 1. Check DB for recent failed attempts
+$stmt_check_attempts = $conn->prepare("SELECT COUNT(*) as attempts FROM login_attempts WHERE ip_address = ? AND attempt_time > NOW() - INTERVAL 5 MINUTE");
+$stmt_check_attempts->bind_param("s", $ip_address);
+$stmt_check_attempts->execute();
+$attempts = $stmt_check_attempts->get_result()->fetch_assoc()['attempts'];
+
+if ($attempts >= 5) {
+    echo json_encode(["status" => "error", "message" => "Too many failed attempts. Please try again after 5 minutes."]);
+    exit();
 }
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
@@ -40,22 +39,38 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
             session_regenerate_id(true);
             
-            $_SESSION['login_attempts'] = 0;
+            // Clear IP attempts on successful login
+            $stmt_clear = $conn->prepare("DELETE FROM login_attempts WHERE ip_address = ?");
+            $stmt_clear->bind_param("s", $ip_address);
+            $stmt_clear->execute();
+
+            $session_token = bin2hex(random_bytes(32));
 
             $_SESSION['user_id'] = $id;
             $_SESSION['role'] = $role;
+            $_SESSION['session_token'] = $session_token;
 
-            log_audit_action($conn, $id, 'LOGIN', 'User logged in via API');
+            $conn->query("UPDATE users SET session_token = '$session_token', last_active = NOW() WHERE user_id = " . intval($id));
+
+            if (function_exists('log_audit_action')) {
+                log_audit_action($conn, $id, 'LOGIN', 'User logged in via API');
+            }
 
             echo json_encode(["status" => "success", "redirect" => "dashboard.php"]);
         } else {
-            $_SESSION['login_attempts']++;
-            $_SESSION['last_attempt_time'] = time();
+            // Log failed attempt to DB
+            $stmt_fail = $conn->prepare("INSERT INTO login_attempts (ip_address, username, attempt_time) VALUES (?, ?, NOW())");
+            $stmt_fail->bind_param("ss", $ip_address, $username);
+            $stmt_fail->execute();
+            
             echo json_encode(["status" => "error", "message" => "Invalid password"]);
         }
     } else {
-        $_SESSION['login_attempts']++;
-        $_SESSION['last_attempt_time'] = time();
+        // Log failed attempt to DB
+        $stmt_fail = $conn->prepare("INSERT INTO login_attempts (ip_address, username, attempt_time) VALUES (?, ?, NOW())");
+        $stmt_fail->bind_param("ss", $ip_address, $username);
+        $stmt_fail->execute();
+
         echo json_encode(["status" => "error", "message" => "User not found"]);
     }
     $stmt->close();

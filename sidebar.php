@@ -1,60 +1,105 @@
 <?php
+// ==========================================
+// GLOBAL SESSION TIMEOUT ENFORCER
+// ==========================================
+if (isset($_SESSION['user_id'])) {
+    $conn->query("CREATE TABLE IF NOT EXISTS system_settings (setting_key VARCHAR(50) PRIMARY KEY, setting_value VARCHAR(255) NOT NULL)");
+    
+    $timeout_query = $conn->query("SELECT setting_value FROM system_settings WHERE setting_key = 'session_timeout'");
+    $timeout_mins = ($timeout_query && $timeout_query->num_rows > 0) ? intval($timeout_query->fetch_assoc()['setting_value']) : 30;
+    
+    $timeout_secs = $timeout_mins * 60;
+    
+    if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity']) > $timeout_secs) {
+        session_unset();
+        session_destroy();
+        
+        // Sleek JavaScript-based redirect instead of PHP header to prevent "Headers Already Sent" error
+        echo '<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>';
+        echo '<script>
+            document.addEventListener("DOMContentLoaded", function() {
+                Swal.fire({
+                    icon: "warning",
+                    title: "Session Expired",
+                    text: "For your security, you have been automatically logged out due to inactivity.",
+                    confirmButtonColor: "#0f172a",
+                    confirmButtonText: "Return to Login",
+                    allowOutsideClick: false,
+                    allowEscapeKey: false,
+                    customClass: {
+                        popup: "sleek-swal-popup",
+                        title: "sleek-swal-title",
+                        confirmButton: "sleek-swal-btn"
+                    },
+                    backdrop: "rgba(15, 23, 42, 0.85)"
+                }).then(() => {
+                    window.location.href = "index.php";
+                });
+            });
+        </script>';
+        echo '<style>
+            .sleek-swal-popup { border-radius: 20px !important; padding: 2rem !important; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25) !important; font-family: "Inter", sans-serif !important; border: none !important; }
+            .sleek-swal-title { letter-spacing: -0.5px !important; font-weight: 700 !important; color: #0f172a !important; }
+            .sleek-swal-btn { border-radius: 10px !important; padding: 0.7rem 1.8rem !important; font-weight: 600 !important; letter-spacing: 0.3px !important; transition: all 0.2s !important; }
+            .sleek-swal-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(15,23,42,0.2); }
+        </style>';
+        exit(); // Stop loading the rest of the page to prevent errors
+    }
+    $_SESSION['last_activity'] = time(); 
+}
+
+$role = $_SESSION['role'];
+$notif_stmt = $conn->prepare("SELECT COUNT(*) AS unread_count FROM notifications WHERE target_role = ? AND is_read = 0");
+$notif_stmt->bind_param("s", $role);
+$notif_stmt->execute();
+$unread_count = $notif_stmt->get_result()->fetch_assoc()['unread_count'];
+
+// KUNIN KUNG MAY CAPABILITY ANG USER NA MAKITA ANG AUDIT LOGS
+$can_view_audit = false;
+if (isset($_SESSION['user_id'])) {
+    $can_view_audit = has_permission($conn, $_SESSION['user_id'], 'can_view_audit_logs');
+}
+?>
+
+<?php
 $current_page = basename($_SERVER['PHP_SELF']);
 $role = $_SESSION['role'] ?? 'User';
 $user_id = $_SESSION['user_id'] ?? 0;
 
-// ==========================================
-// SYSTEM AUDIT TRAIL & PAGE TRACKING LOGIC
-// ==========================================
-if ($user_id > 0 && isset($conn)) {
+if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
     $full_url = $_SERVER['REQUEST_URI'];
     $current_time = time();
     
-    if (!isset($_SESSION['last_url']) || $_SESSION['last_url'] !== $full_url || ($current_time - ($_SESSION['last_log_time'] ?? 0)) > 5) {
+    if (!isset($_SESSION['last_url']) || $_SESSION['last_url'] !== $full_url || ($current_time - ($_SESSION['last_log_time'] ?? 0)) > 10) {
         
-        $action_type = "PAGE_VIEW";
-        $clean_name = ucwords(str_replace(['.php', '_'], ['', ' '], $current_page));
-        $desc = "Navigated to " . $clean_name . " Module";
+        $action_type = "";
+        $desc = "";
 
-        switch($current_page) {
-            case 'dashboard.php': $desc = "Navigated to Main Dashboard"; break;
-            case 'pr_list.php': $desc = "Browsed Purchase Requests Directory"; break;
-            case 'create_pr.php': $desc = "Opened Create Purchase Request Form"; break;
-            case 'quotations_list.php': $desc = "Browsed Quotations Tracker Directory"; break;
-            case 'view_pr.php': 
-                $id = $_GET['id'] ?? 'Unknown';
-                $desc = "Viewed details of Purchase Request ID: $id"; 
-                $action_type = "VIEW_RECORD";
-                break;
-            case 'po_list.php': $desc = "Browsed Purchase Orders Tracker"; break;
-            case 'create_po.php': $desc = "Opened Generate PO Form"; break;
-            case 'view_po.php':
-                $id = $_GET['id'] ?? 'Unknown';
-                $desc = "Viewed details & attachments of Purchase Order ID: $id"; 
-                $action_type = "VIEW_RECORD";
-                break;
-            case 'documents.php': $desc = "Browsed Official Records & Retention List"; break;
-            case 'general_docs.php': $desc = "Browsed Company Files & General Storage"; break;
-            case 'admin_users.php': $desc = "Accessed User Management Control Panel"; break;
-            case 'audit_logs.php': $desc = "Reviewed System Audit Trail"; break;
-            case 'settings.php': $desc = "Opened Account Settings"; break;
-            case 'notifications.php': $desc = "Viewed All Notifications list"; break;
-            case 'admin_requests.php': $desc = "Accessed Account Requests Panel"; break;
+        if ($current_page == 'view_po.php' && isset($_GET['id'])) {
+            $id = intval($_GET['id']);
+            $po_q = $conn->query("SELECT po_number FROM purchase_orders WHERE po_id = $id");
+            $po_num = ($po_q && $po_q->num_rows > 0) ? $po_q->fetch_assoc()['po_number'] : "#$id";
+            $desc = "Viewed details of Purchase Order: $po_num";
+            $action_type = "VIEW_PO";
+        } elseif ($current_page == 'view_pr.php' && isset($_GET['id'])) {
+            $id = intval($_GET['id']);
+            $pr_q = $conn->query("SELECT pr_number FROM purchase_requests WHERE pr_id = $id");
+            $pr_num = ($pr_q && $pr_q->num_rows > 0) ? $pr_q->fetch_assoc()['pr_number'] : "#$id";
+            $desc = "Viewed details of Purchase Request: $pr_num";
+            $action_type = "VIEW_PR";
         }
 
-        if (isset($_GET['search']) && !empty($_GET['search'])) {
-            $desc .= " | Searched keyword: '" . $_GET['search'] . "'";
-            $action_type = "SEARCH";
-        }
-        if (isset($_GET['filter']) && !empty($_GET['filter'])) {
-            $desc .= " | Applied status filter: '" . $_GET['filter'] . "'";
-        }
-        if (isset($_GET['type']) && !empty($_GET['type']) && $_GET['type'] !== 'All') {
-            $desc .= " | Filtered by Category: '" . $_GET['type'] . "'";
-        }
-
-        if (function_exists('log_audit_action')) {
-            log_audit_action($conn, $user_id, $action_type, $desc);
+        if (!empty($action_type) && !empty($desc)) {
+            if (function_exists('log_audit_action')) {
+                log_audit_action($conn, $user_id, $action_type, $desc);
+            } else {
+                $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+                $ins = $conn->prepare("INSERT INTO audit_logs (user_id, action_type, description, ip_address) VALUES (?, ?, ?, ?)");
+                if($ins) {
+                    $ins->bind_param("isss", $user_id, $action_type, $desc, $ip);
+                    $ins->execute();
+                }
+            }
         }
         
         $_SESSION['last_url'] = $full_url;
@@ -63,13 +108,9 @@ if ($user_id > 0 && isset($conn)) {
 }
 ?>
 
-<!-- ==========================================
-     SAAS TOP NAVBAR 
-     ========================================== -->
 <nav class="saas-navbar shadow-sm d-print-none">
     <div class="saas-nav-container">
         
-        <!-- Left: Brand -->
         <a href="dashboard.php" class="saas-brand">
             <img src="assets/images/fixie_logo.png" alt="Fixie Logo">
             <div class="saas-brand-text d-none d-md-block">
@@ -77,7 +118,6 @@ if ($user_id > 0 && isset($conn)) {
             </div>
         </a>
 
-        <!-- Center: Command Palette Trigger -->
         <div class="saas-search-trigger" onclick="openCommandPalette()">
             <i class="fas fa-search"></i>
             <span class="d-none d-sm-inline">Search or jump to...</span>
@@ -85,10 +125,8 @@ if ($user_id > 0 && isset($conn)) {
             <kbd class="d-none d-md-inline-block">Ctrl K</kbd>
         </div>
 
-        <!-- Right: Modules & Profile -->
         <div class="saas-nav-menu">
             
-            <!-- Date Display (Inilipat dito sa Navbar mula sa Dashboard) -->
             <div class="d-none d-lg-flex align-items-center text-muted fw-medium border-end pe-3 me-2" style="font-size: 0.8rem;">
                 <i class="far fa-calendar-alt me-2 text-primary"></i><?php echo date('M d, Y'); ?>
             </div>
@@ -97,7 +135,6 @@ if ($user_id > 0 && isset($conn)) {
                 <i class="fas fa-chart-pie me-1 d-none d-lg-inline"></i> Dashboard
             </a>
 
-            <!-- Dropdown: Operations (Only visible to specific operational roles) -->
             <?php 
             $ops_roles = ['Sales Staff', 'Procurement', 'GM', 'President', 'Finance', 'Supply Chain'];
             if(in_array($role, $ops_roles)): 
@@ -122,7 +159,6 @@ if ($user_id > 0 && isset($conn)) {
             </div>
             <?php endif; ?>
 
-            <!-- Dropdown: Records -->
             <div class="saas-nav-item has-dropdown">
                 <a href="#" class="saas-nav-link <?php echo (in_array($current_page, ['documents.php', 'general_docs.php'])) ? 'active' : ''; ?>">
                     <i class="fas fa-folder-open me-1 d-none d-lg-inline"></i> Records <i class="fas fa-chevron-down ms-1" style="font-size:0.6rem;"></i>
@@ -133,26 +169,39 @@ if ($user_id > 0 && isset($conn)) {
                 </div>
             </div>
 
-            <!-- Dropdown: Admin -->
-            <?php if($role == 'Admin'): ?>
+            <?php if($role == 'Admin' || $can_view_audit): ?>
             <div class="saas-nav-item has-dropdown">
-                <a href="#" class="saas-nav-link <?php echo (in_array($current_page, ['admin_users.php', 'admin_requests.php', 'audit_logs.php'])) ? 'active' : ''; ?>">
-                    <i class="fas fa-shield-alt me-1 d-none d-lg-inline"></i> Admin <i class="fas fa-chevron-down ms-1" style="font-size:0.6rem;"></i>
+                <a href="#" class="saas-nav-link <?php echo (in_array($current_page, ['admin_users.php', 'admin_requests.php', 'audit_logs.php', 'admin_backup.php', 'admin_settings.php'])) ? 'active' : ''; ?>">
+                    <i class="fas fa-shield-alt me-1 d-none d-lg-inline"></i> <?php echo ($role == 'Admin') ? 'Admin' : 'System'; ?> <i class="fas fa-chevron-down ms-1" style="font-size:0.6rem;"></i>
                 </a>
                 <div class="saas-dropdown shadow-sm">
-                    <a href="admin_users.php"><i class="fas fa-users"></i> User Management</a>
-                    <a href="admin_requests.php"><i class="fas fa-key"></i> Access Requests</a>
-                    <a href="audit_logs.php"><i class="fas fa-history"></i> System Audit Trail</a>
+                    <?php if($role == 'Admin'): ?>
+                        <a href="admin_users.php"><i class="fas fa-users"></i> User Management</a>
+                        <a href="admin_requests.php"><i class="fas fa-key"></i> Access Requests</a>
+                    <?php endif; ?>
+                    
+                    <?php if($role == 'Admin' || $can_view_audit): ?>
+                        <a href="audit_logs.php"><i class="fas fa-history"></i> System Audit Trail</a>
+                    <?php endif; ?>
+
+                    <?php if($role == 'Admin'): ?>
+                        <a href="admin_backup.php"><i class="fas fa-database"></i> Backup & Restore</a>
+                        <div class="dropdown-divider my-1"></div>
+                        <a href="admin_settings.php"><i class="fas fa-cogs"></i> Global Settings</a>
+                    <?php endif; ?>
                 </div>
             </div>
             <?php endif; ?>
 
-            <!-- Notification -->
-            <a href="notifications.php" class="saas-nav-icon <?php echo ($current_page == 'notifications.php') ? 'active' : ''; ?>" title="Notifications">
-                <i class="fas fa-bell"></i>
+            <a href="notifications.php" class="saas-nav-icon <?php echo ($current_page == 'notifications.php') ? 'active' : ''; ?>" title="Notifications" style="position: relative; display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; color: #64748b; text-decoration: none; transition: color 0.2s;">
+                <i class="fas fa-bell" style="font-size: 1.25rem;"></i>
+                <?php if ($unread_count > 0): ?>
+                    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger shadow-sm" style="font-size: 0.6rem; padding: 0.3em 0.45em; margin-top: 6px; margin-left: -8px;">
+                        <?php echo $unread_count; ?>
+                    </span>
+                <?php endif; ?>
             </a>
 
-            <!-- Profile Dropdown -->
             <div class="saas-nav-item has-dropdown">
                 <div class="saas-profile-trigger">
                     <?php if(!empty($_SESSION['avatar']) && file_exists($_SESSION['avatar'])): ?>
@@ -176,9 +225,6 @@ if ($user_id > 0 && isset($conn)) {
     </div>
 </nav>
 
-<!-- ==========================================
-     COMMAND PALETTE OVERLAY 
-     ========================================== -->
 <div id="commandPaletteOverlay" class="cp-overlay" style="display: none;">
     <div class="cp-modal fade-in">
         <div class="cp-header">
@@ -189,7 +235,6 @@ if ($user_id > 0 && isset($conn)) {
         <div class="cp-body">
             <ul id="cpList" class="cp-list">
                 
-                <!-- Universal Links (For Everyone) -->
                 <li data-keywords="dashboard home main index stats analytics">
                     <a href="dashboard.php">
                         <div class="cp-item-icon cp-icon-primary"><i class="fas fa-chart-pie"></i></div> 
@@ -215,7 +260,6 @@ if ($user_id > 0 && isset($conn)) {
                     </a>
                 </li>
 
-                <!-- Sales Staff Specific -->
                 <?php if($role == 'Sales Staff'): ?>
                     <li data-keywords="quotation quotes create generate new price">
                         <a href="create_quotation.php">
@@ -237,7 +281,6 @@ if ($user_id > 0 && isset($conn)) {
                     </li>
                 <?php endif; ?>
 
-                <!-- PR Visibility -->
                 <?php if(in_array($role, ['Sales Staff', 'Procurement', 'GM', 'President', 'Finance'])): ?>
                     <li data-keywords="purchase requests pr list directory tracker">
                         <a href="pr_list.php">
@@ -247,7 +290,6 @@ if ($user_id > 0 && isset($conn)) {
                     </li>
                 <?php endif; ?>
 
-                <!-- PO Visibility -->
                 <?php if(in_array($role, ['Procurement', 'GM', 'President', 'Finance', 'Supply Chain'])): ?>
                     <li data-keywords="purchase orders po list directory tracker">
                         <a href="po_list.php">
@@ -257,7 +299,6 @@ if ($user_id > 0 && isset($conn)) {
                     </li>
                 <?php endif; ?>
 
-                <!-- Procurement Specific -->
                 <?php if($role == 'Procurement'): ?>
                     <li data-keywords="purchase order po create generate new buy">
                         <a href="create_po.php">
@@ -267,7 +308,6 @@ if ($user_id > 0 && isset($conn)) {
                     </li>
                 <?php endif; ?>
 
-                <!-- Admin Specific -->
                 <?php if($role == 'Admin'): ?>
                     <li data-keywords="users manage accounts admin roles">
                         <a href="admin_users.php">
@@ -281,10 +321,28 @@ if ($user_id > 0 && isset($conn)) {
                             <div><div class="cp-item-title">Security Requests</div><small class="cp-item-desc">Manage access requests</small></div>
                         </a>
                     </li>
+                <?php endif; ?>
+
+                <?php if($role == 'Admin' || $can_view_audit): ?>
                     <li data-keywords="audit logs history actions trail tracking">
                         <a href="audit_logs.php">
                             <div class="cp-item-icon cp-icon-warning"><i class="fas fa-history"></i></div> 
                             <div><div class="cp-item-title">System Audit Trail</div><small class="cp-item-desc">Review system activity</small></div>
+                        </a>
+                    </li>
+                <?php endif; ?>
+
+                <?php if($role == 'Admin'): ?>
+                    <li data-keywords="backup restore database sql server">
+                        <a href="admin_backup.php">
+                            <div class="cp-item-icon cp-icon-danger" style="color: #ef4444; background: rgba(239, 68, 68, 0.1);"><i class="fas fa-database"></i></div> 
+                            <div><div class="cp-item-title">Backup & Restore</div><small class="cp-item-desc">Manage system database</small></div>
+                        </a>
+                    </li>
+                    <li data-keywords="global system settings config timeout upload size admin">
+                        <a href="admin_settings.php">
+                            <div class="cp-item-icon cp-icon-warning"><i class="fas fa-cogs"></i></div> 
+                            <div><div class="cp-item-title">Global Settings</div><small class="cp-item-desc">Configure system rules</small></div>
                         </a>
                     </li>
                 <?php endif; ?>
@@ -303,24 +361,7 @@ if ($user_id > 0 && isset($conn)) {
 </div>
 
 <script>
-// ==========================================
-// INTERNAL TAB LOGGING
-// ==========================================
 document.addEventListener("DOMContentLoaded", function() {
-    var tabEls = document.querySelectorAll('button[data-bs-toggle="pill"], a[data-bs-toggle="tab"], button[data-bs-toggle="tab"]');
-    tabEls.forEach(function(tab) {
-        tab.addEventListener('shown.bs.tab', function (event) {
-            var tabName = event.target.innerText.trim();
-            if(tabName) {
-                fetch('api/log_action.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: 'action=PAGE_VIEW&desc=' + encodeURIComponent('Viewed inner tab: ' + tabName)
-                }).catch(err => console.error('Tracking Error:', err));
-            }
-        });
-    });
-    
     requestAnimationFrame(function() { 
         if(document.body.classList.contains('sidebar-preload')){
             document.body.classList.remove('sidebar-preload'); 
@@ -328,9 +369,6 @@ document.addEventListener("DOMContentLoaded", function() {
     });
 });
 
-// ==========================================
-// COMMAND PALETTE JAVASCRIPT
-// ==========================================
 const cpOverlay = document.getElementById('commandPaletteOverlay');
 const cpInput = document.getElementById('cpInput');
 const cpList = document.getElementById('cpList');
@@ -429,4 +467,27 @@ cpOverlay.addEventListener('click', function(e) {
         closeCommandPalette();
     }
 });
+
+// ==============================================================
+// REAL-TIME FORCE LOGOUT CHECKER (Background AJAX Polling)
+// ==============================================================
+setInterval(function() {
+    let apiPath = window.location.pathname.includes('/actions/') || window.location.pathname.includes('/api/') ? '../api/check_session.php' : 'api/check_session.php';
+    
+    fetch(apiPath, {
+        method: 'GET',
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'Accept': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'force_logout') {
+            let rootPath = window.location.pathname.includes('/actions/') || window.location.pathname.includes('/api/') ? '../index.php' : 'index.php';
+            window.location.href = rootPath + '?error=ForceLoggedOutByAdmin';
+        }
+    })
+    .catch(error => {});
+}, 5000); 
 </script>

@@ -29,32 +29,35 @@ if (!file_exists($filepath)) {
 
 // ==========================================
 // IDOR PROTECTION: STRICT ACCESS CONTROL
+// DATA PRIVACY FIX: Admin no longer has "Super-Viewer" access.
 // ==========================================
 if ($type !== 'avatar') {
-    // Ang Top Management ay may access sa lahat ng folders
-    $is_top_mgmt = in_array($role, ['Admin', 'GM', 'President']);
+    // Ang GM at President ay may Executive Privilege sa lahat ng folders.
+    $is_executive = in_array($role, ['GM', 'President']);
     
-    if (!$is_top_mgmt) {
+    if (!$is_executive) {
         $allowed = false;
         $doc_found = false;
         $doc_category = null;
+        $uploader_id = null;
 
-        // 1. Hanapin ang category via doc_id kung available
+        // 1. Hanapin ang category at uploader via doc_id kung available
         if (isset($_GET['doc_id']) && ctype_digit($_GET['doc_id'])) {
             $doc_id = intval($_GET['doc_id']);
-            $stmt = $conn->prepare("SELECT category FROM documents WHERE doc_id = ? LIMIT 1");
+            $stmt = $conn->prepare("SELECT category, uploaded_by FROM documents WHERE doc_id = ? LIMIT 1");
             $stmt->bind_param("i", $doc_id);
             $stmt->execute();
             $res = $stmt->get_result();
             if ($row = $res->fetch_assoc()) {
                 $doc_found = true;
                 $doc_category = $row['category'];
+                $uploader_id = $row['uploaded_by'];
             }
         }
 
         // 2. Fallback: Hanapin via file_name kung tinangkang hulaan ang URL nang walang doc_id
         if (!$doc_found) {
-            $stmt = $conn->prepare("SELECT category FROM documents WHERE file_name = ? OR file_path LIKE ? LIMIT 1");
+            $stmt = $conn->prepare("SELECT category, uploaded_by FROM documents WHERE file_name = ? OR file_path LIKE ? LIMIT 1");
             $like_file = "%" . $file;
             $stmt->bind_param("ss", $file, $like_file);
             $stmt->execute();
@@ -62,16 +65,20 @@ if ($type !== 'avatar') {
             if ($row = $res->fetch_assoc()) {
                 $doc_found = true;
                 $doc_category = $row['category'];
+                $uploader_id = $row['uploaded_by'];
             }
         }
 
-        // 3. I-evaluate ang Access ng User
+        // 3. I-evaluate ang Access ng User o Admin
         if ($doc_found) {
             if (empty($doc_category)) {
                 // Kung walang category, ito ay General Document (Company Files) na accessible sa lahat
                 $allowed = true;
+            } elseif ($uploader_id == $_SESSION['user_id']) {
+                // Pinapayagan kung ang mismong user/admin ang nag-upload ng file
+                $allowed = true;
             } else {
-                // Kung ito ay Official Record, i-check kung authorized ang Role ng user sa sub_category na ito
+                // Kung ito ay Official Record, i-check kung explicitly authorized ang Role sa sub_category
                 $stmt = $conn->prepare("SELECT assigned_to_role FROM document_categories WHERE sub_category = ? LIMIT 1");
                 $stmt->bind_param("s", $doc_category);
                 $stmt->execute();
@@ -91,10 +98,10 @@ if ($type !== 'avatar') {
             }
         }
 
-        // 4. I-block kung hindi authorized o kung physically na nandoon ang file pero walang record sa DB
+        // 4. I-block kung hindi authorized (Kasama ang Admin na walang explicit access)
         if (!$allowed) {
             http_response_code(403);
-            exit("Access Denied: You do not have permission to view or download this document.");
+            exit("Access Denied: Data Privacy Violation. You only have metadata access. You do not have permission to view or download the contents of this confidential document.");
         }
     }
 }

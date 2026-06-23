@@ -1,51 +1,86 @@
 <?php
+require_once __DIR__ . '/audit_bootstrap.php';
 
+// ===============================================
+// RBAC AUTO-SETUP & PERMISSION HELPERS
+// ===============================================
+function ensure_rbac_tables_exist($conn) {
+    $conn->query("CREATE TABLE IF NOT EXISTS permissions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        permission_name VARCHAR(50) NOT NULL UNIQUE,
+        description VARCHAR(255) DEFAULT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+    $conn->query("CREATE TABLE IF NOT EXISTS user_permissions (
+        user_id INT NOT NULL,
+        permission_name VARCHAR(50) NOT NULL,
+        PRIMARY KEY (user_id, permission_name),
+        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+        FOREIGN KEY (permission_name) REFERENCES permissions(permission_name) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+
+    $default_perms = [
+        ['can_upload_documents', 'Allow uploading of files and documents'],
+        ['can_archive_documents', 'Allow archiving of active documents'],
+        ['can_delete_documents', 'Allow permanent deletion of documents'],
+        ['can_manage_folders', 'Allow creating and deleting system folders'],
+        ['can_edit_policies', 'Allow editing of retention policies'],
+        ['can_view_audit_logs', 'Allow viewing of the system audit trail and logs'],
+        ['can_view_all_folders', 'Allow viewing of all folders regardless of department'],
+        ['can_view_disposition', 'Allow viewing of documents ready for disposition']
+    ];
+    
+    $stmt = $conn->prepare("INSERT IGNORE INTO permissions (permission_name, description) VALUES (?, ?)");
+    foreach ($default_perms as $dp) {
+        $stmt->bind_param("ss", $dp[0], $dp[1]);
+        $stmt->execute();
+    }
+    
+    $admin_q = $conn->query("SELECT user_id FROM users WHERE role = 'Admin'");
+    while ($admin_user = $admin_q->fetch_assoc()) {
+        $admin_id = $admin_user['user_id'];
+        foreach ($default_perms as $dp) {
+            $conn->query("INSERT IGNORE INTO user_permissions (user_id, permission_name) VALUES ($admin_id, '{$dp[0]}')");
+        }
+    }
+}
+
+function has_permission($conn, $user_id, $permission_name) {
+    static $user_perms = null;
+    static $tables_checked = false;
+    
+    if (!$tables_checked) {
+        ensure_rbac_tables_exist($conn);
+        $tables_checked = true;
+    }
+    
+    if ($user_perms === null) {
+        $user_perms = [];
+        $stmt = $conn->prepare("SELECT user_id, permission_name FROM user_permissions");
+        if ($stmt) {
+            $stmt->execute();
+            $res = $stmt->get_result();
+            while ($row = $res->fetch_assoc()) {
+                $uid = $row['user_id'];
+                if (!isset($user_perms[$uid])) $user_perms[$uid] = [];
+                $user_perms[$uid][] = $row['permission_name'];
+            }
+        }
+    }
+    return isset($user_perms[$user_id]) && in_array($permission_name, $user_perms[$user_id]);
+}
+
+// ===============================================
+// CORE SYSTEM FUNCTIONS
+// ===============================================
 function e($string) {
     if ($string === null) return '';
     return htmlspecialchars($string, ENT_QUOTES, 'UTF-8');
 }
 
-// 100% BULLETPROOF AUDIT LOG FUNCTION
-function log_audit_action($conn, $user_id, $action, $description) {
-    $ip = $_SERVER['REMOTE_ADDR'] ?? 'UNKNOWN';
-    
-    // STEP 1: Sapilitang kunin ang pinakamataas na ID sa database (Para i-bypass ang missing Auto-Increment)
-    $res = $conn->query("SELECT MAX(log_id) AS max_id FROM audit_logs");
-    $next_id = 1; // Default ID kung walang laman ang table
-    if ($res && $row = $res->fetch_assoc()) {
-        $next_id = (int)$row['max_id'] + 1;
-    }
-
-    // STEP 2: Subukang i-insert kasama ang ginawa nating Manual ID
-    $stmt = $conn->prepare("INSERT INTO audit_logs (log_id, user_id, action_type, description, ip_address) VALUES (?, ?, ?, ?, ?)");
-    
-    if ($stmt) {
-        $stmt->bind_param("iisss", $next_id, $user_id, $action, $description, $ip);
-        
-        // Kung mag-fail pa rin (halimbawa: naka-lock ang auto-increment setup ng MariaDB mo)
-        if ($stmt->execute()) {
-            return $next_id;
-        }
-
-        $stmt2 = $conn->prepare("INSERT INTO audit_logs (user_id, action_type, description, ip_address) VALUES (?, ?, ?, ?)");
-        if ($stmt2) {
-            $stmt2->bind_param("isss", $user_id, $action, $description, $ip);
-            if ($stmt2->execute()) {
-                return $stmt2->insert_id;
-            }
-        }
-    } else {
-        // Kung ma-block agad ng database ang Step 2 sa preparation pa lang, dederetso dito
-        $stmt2 = $conn->prepare("INSERT INTO audit_logs (user_id, action_type, description, ip_address) VALUES (?, ?, ?, ?)");
-        if ($stmt2) {
-            $stmt2->bind_param("isss", $user_id, $action, $description, $ip);
-            if ($stmt2->execute()) {
-                return $stmt2->insert_id;
-            }
-        }
-    }
-
-    return false;
+// IN-UPDATE: Para tumanggap ng State-Change JSON
+function log_audit_action($conn, $user_id, $action, $description, $old_payload = null, $new_payload = null) {
+    return drms_log_audit_action($conn, $user_id, $action, $description, $old_payload, $new_payload);
 }
 
 function ensure_document_audit_trail_table_exists($conn) {
@@ -174,6 +209,9 @@ function create_po_transaction($conn, $data, $user_id) {
         $notif_stmt->bind_param("ss", $target_role, $msg);
         if (!$notif_stmt->execute()) throw new Exception("Notif Error: " . $conn->error);
 
+        // Map payload state for JSON audit
+        log_audit_action($conn, $user_id, 'CREATE_PO', "Created Purchase Order {$data['po_number']}", null, $data);
+
         $conn->commit();
         return $new_po_id;
     } catch (Exception $e) {
@@ -232,8 +270,9 @@ function process_workflow_action($conn, $po_id, $action_key, $user_id, $user_rol
         $notif->execute();
     }
 
-    $audit_desc = "Workflow Action: '$action_key' on PO #$po_number. Status changed from '$current_status' to '$new_status'. Remarks: " . ($remarks ?: 'None');
-    log_audit_action($conn, $user_id, 'WORKFLOW_ACTION', $audit_desc);
+    $audit_desc = "Workflow Action: '$action_key' on PO #$po_number";
+    $state_change = ['from_status' => $current_status, 'to_status' => $new_status, 'remarks' => $remarks];
+    log_audit_action($conn, $user_id, 'WORKFLOW_ACTION', $audit_desc, $state_change, $state_change);
     return "Success";
 }
 
@@ -264,8 +303,8 @@ function create_detailed_quotation($conn, $data, $user_id) {
             $item_stmt->execute();
         }
 
-        $desc = "Created detailed Quotation #{$data['quotation_number']} for client {$data['client_name']}. Waiting for Client PO.";
-        log_audit_action($conn, $user_id, 'CREATE_QUOTATION', $desc);
+        $desc = "Created Quotation #{$data['quotation_number']} for client {$data['client_name']}";
+        log_audit_action($conn, $user_id, 'CREATE_QUOTATION', $desc, null, $data);
         
         $conn->commit();
         return $new_q_id;
@@ -280,8 +319,9 @@ function receive_client_po($conn, $quotation_id, $client_po_number, $approval_mo
     $stmt->bind_param("sssi", $client_po_number, $approval_mode, $po_file_path, $quotation_id);
     
     if ($stmt->execute()) {
-        $desc = "Received client approval ($approval_mode) with Auto-Generated Ref: $client_po_number for Quotation ID: $quotation_id.";
-        log_audit_action($conn, $user_id, 'RECEIVE_CLIENT_PO', $desc);
+        $desc = "Logged approval ($approval_mode) for Quotation ID: $quotation_id";
+        $payload = ['client_po_number' => $client_po_number, 'approval_mode' => $approval_mode];
+        log_audit_action($conn, $user_id, 'RECEIVE_CLIENT_PO', $desc, null, $payload);
         return true;
     }
     return false;

@@ -1,5 +1,7 @@
 <?php 
 require 'config/db_connect.php'; 
+require 'config/functions.php';
+
 date_default_timezone_set('Asia/Manila');
 
 if(!isset($_SESSION['user_id'])) header("Location: index.php");
@@ -195,7 +197,7 @@ $can_upload_files = ($role == 'Procurement');
                 
                 <div class="card border-0 shadow-sm mb-4">
                     <div class="card-header bg-white py-3 border-bottom-0">
-                        <h3 class="fw-bold text-primary m-0">PO #<?php echo htmlspecialchars($po['po_number']); ?></h3>
+                        <h3 class="fw-bold text-primary m-0"><?php echo htmlspecialchars($po['po_number']); ?></h3>
                     </div>
                     <div class="card-body pt-0">
                         <div class="row g-3">
