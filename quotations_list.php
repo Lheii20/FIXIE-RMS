@@ -4,8 +4,17 @@ require 'config/functions.php';
 if(!isset($_SESSION['user_id'])) header("Location: index.php");
 
 $search = $_GET['search'] ?? '';
-$valid_filters = ['all', 'Pending PO', 'PO Received', 'Converted to PR'];
-$filter = (isset($_GET['filter']) && in_array($_GET['filter'], $valid_filters)) ? $_GET['filter'] : 'all';
+
+// Valid filters using the updated 'Pending Approval' instead of 'Pending PO'
+$valid_filters = ['all', 'Pending Approval', 'PO Received', 'Converted to PR'];
+
+// Catch old 'Pending PO' links to prevent breaking
+$filter = $_GET['filter'] ?? 'all';
+if ($filter === 'Pending PO') $filter = 'Pending Approval';
+if (!in_array($filter, $valid_filters)) $filter = 'all';
+
+// Auto-Patch database on load to ensure old records match the new terminology
+$conn->query("UPDATE quotations SET status = 'Pending Approval' WHERE status = 'Pending PO'");
 
 $sql = "SELECT * FROM quotations WHERE 1=1";
 $params = [];
@@ -44,6 +53,8 @@ $result = $stmt->get_result();
     <link href="assets/css/style.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+    <!-- SweetAlert2 CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <!-- Import premium font for sleek typography -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -201,7 +212,7 @@ $result = $stmt->get_result();
             align-items: center;
             justify-content: center;
             background: #f1f5f9;
-            color: #f59e0b; /* Distinct subtle amber for Quotations */
+            color: #f59e0b; 
             font-size: 1.15rem;
             flex-shrink: 0;
             border: 1px solid #e2e8f0;
@@ -234,7 +245,6 @@ $result = $stmt->get_result();
         .bg-soft-warning { background: #fffbeb; color: #d97706; }
         .bg-soft-primary { background: #eff6ff; color: #2563eb; }
         .bg-soft-success { background: #ecfdf5; color: #059669; }
-        .bg-soft-danger { background: #fef2f2; color: #dc2626; }
 
         /* Action Buttons */
         .action-flex {
@@ -308,7 +318,7 @@ $result = $stmt->get_result();
                 
                 <select name="filter" class="sleek-select" onchange="this.form.submit()">
                     <option value="all" <?php echo ($filter == 'all') ? 'selected' : ''; ?>>All Records</option>
-                    <option value="Pending PO" <?php echo ($filter == 'Pending PO') ? 'selected' : ''; ?>>Pending Client PO</option>
+                    <option value="Pending Approval" <?php echo ($filter == 'Pending Approval') ? 'selected' : ''; ?>>Pending Approval</option>
                     <option value="PO Received" <?php echo ($filter == 'PO Received') ? 'selected' : ''; ?>>PO Received</option>
                     <option value="Converted to PR" <?php echo ($filter == 'Converted to PR') ? 'selected' : ''; ?>>Converted to PR</option>
                 </select>
@@ -360,7 +370,7 @@ $result = $stmt->get_result();
                             </tr>
                         </thead>
                         <tbody>
-                            <?php if($result->num_rows > 0): ?>
+                            <?php if($result && $result->num_rows > 0): ?>
                                 <?php while($row = $result->fetch_assoc()): 
                                     // Quotation Badge logic
                                     $s = $row['status'];
@@ -369,6 +379,18 @@ $result = $stmt->get_result();
                                     
                                     if($s == 'PO Received') { $badge = 'bg-soft-success'; $icon = 'fa-check-double'; }
                                     elseif($s == 'Converted to PR') { $badge = 'bg-soft-primary'; $icon = 'fa-exchange-alt'; }
+                                    
+                                    // Robust data variables to prevent JS/HTML breakage
+                                    $q_id = htmlspecialchars($row['quotation_id'] ?? '');
+                                    $q_num = htmlspecialchars($row['quotation_number'] ?? '');
+                                    $c_name = htmlspecialchars($row['client_name'] ?? '');
+                                    $amt = number_format((float)($row['amount'] ?? 0), 2);
+                                    $cpo = htmlspecialchars($row['client_po_number'] ?? '');
+                                    $date_c = $row['created_at'] ? date('M d, Y', strtotime($row['created_at'])) : '--';
+                                    $time_c = $row['created_at'] ? date('h:i A', strtotime($row['created_at'])) : '--';
+                                    
+                                    // addslashes to prevent single quotes in client name from breaking Javascript
+                                    $js_qnum = addslashes($q_num);
                                 ?>
                                 <tr>
                                     <td class="ps-4">
@@ -377,44 +399,44 @@ $result = $stmt->get_result();
                                                 <i class="fas fa-file-contract"></i>
                                             </div>
                                             <div class="doc-details">
-                                                <span class="doc-title"><?php echo htmlspecialchars($row['quotation_number']); ?></span>
-                                                <span class="data-label"><?php echo htmlspecialchars($row['client_name']); ?></span>
+                                                <span class="doc-title"><?php echo $q_num; ?></span>
+                                                <span class="data-label"><?php echo $c_name; ?></span>
                                             </div>
                                         </div>
                                     </td>
                                     <td class="currency-data">
-                                        ₱<?php echo number_format($row['amount'], 2); ?>
+                                        ₱<?php echo $amt; ?>
                                     </td>
                                     <td>
-                                        <?php if(!empty($row['client_po_number'])): ?>
-                                            <span class="data-value text-success"><i class="fas fa-file-invoice me-1"></i> <?php echo htmlspecialchars($row['client_po_number']); ?></span>
+                                        <?php if(!empty($cpo)): ?>
+                                            <span class="data-value text-success"><i class="fas fa-file-invoice me-1"></i> <?php echo $cpo; ?></span>
                                         <?php else: ?>
-                                            <span class="text-muted fst-italic" style="font-size: 0.8rem;">Pending Approval</span>
+                                            <span class="text-muted fst-italic" style="font-size: 0.8rem;">Waiting...</span>
                                         <?php endif; ?>
                                     </td>
                                     <td>
                                         <div class="badge-soft <?php echo $badge; ?>">
-                                            <i class="fas <?php echo $icon; ?>"></i> <?php echo htmlspecialchars($row['status']); ?>
+                                            <i class="fas <?php echo $icon; ?>"></i> <?php echo htmlspecialchars($s); ?>
                                         </div>
                                     </td>
                                     <td>
-                                        <span class="data-value d-block fw-normal"><?php echo date('M d, Y', strtotime($row['created_at'])); ?></span>
-                                        <span class="data-label"><?php echo date('h:i A', strtotime($row['created_at'])); ?></span>
+                                        <span class="data-value d-block fw-normal"><?php echo $date_c; ?></span>
+                                        <span class="data-label"><?php echo $time_c; ?></span>
                                     </td>
                                     <td class="text-end pe-4">
                                         <div class="action-flex">
                                             <?php if ($_SESSION['role'] === 'Sales Staff'): ?>
                                                 
-                                                <?php if ($row['status'] === 'Pending PO'): ?>
-                                                    <!-- Receive Client Approval Action -->
-                                                    <button type="button" class="btn-quick-act btn-quick-outline" onclick="openReceivePoModal('<?php echo $row['quotation_id']; ?>', '<?php echo htmlspecialchars($row['quotation_number']); ?>')">
+                                                <?php if ($s === 'Pending Approval' || $s === 'Pending PO'): ?>
+                                                    <!-- Receive Client Approval Action (Safe Escaped JS String) -->
+                                                    <button type="button" class="btn-quick-act btn-quick-outline" onclick="openReceivePoModal('<?php echo $q_id; ?>', '<?php echo $js_qnum; ?>')">
                                                         <i class="fas fa-paperclip me-1"></i> Log Approval
                                                     </button>
                                                 <?php endif; ?>
 
-                                                <?php if ($row['status'] === 'PO Received'): ?>
+                                                <?php if ($s === 'PO Received'): ?>
                                                     <!-- Proceed to PR creation -->
-                                                    <a href="create_pr.php?quotation_id=<?php echo $row['quotation_id']; ?>" class="btn-quick-act btn-quick-approve">
+                                                    <a href="create_pr.php?quotation_id=<?php echo $q_id; ?>" class="btn-quick-act btn-quick-approve">
                                                         <i class="fas fa-arrow-right me-1"></i> Create PR
                                                     </a>
                                                 <?php endif; ?>
@@ -422,7 +444,7 @@ $result = $stmt->get_result();
                                             <?php endif; ?>
                                             
                                             <!-- Universal View Details -->
-                                            <a href="view_quotation.php?id=<?php echo $row['quotation_id']; ?>" class="btn-view-icon" title="View Document">
+                                            <a href="view_quotation.php?id=<?php echo $q_id; ?>" class="btn-view-icon" title="View Document">
                                                 <i class="fas fa-eye"></i>
                                             </a>
                                         </div>
@@ -454,7 +476,7 @@ $result = $stmt->get_result();
                     </div>
                     
                     <div class="modal-body px-4 py-4">
-                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
                         <input type="hidden" name="action" value="receive_po">
                         <input type="hidden" name="quotation_id" id="modalQuotationId" value="">
                         
@@ -474,7 +496,7 @@ $result = $stmt->get_result();
                         <div class="mb-4 text-start">
                             <label class="form-label fw-bold" style="font-size: 0.75rem; text-transform: uppercase; color: #475569; letter-spacing: 0.5px;">Proof of Approval <span class="text-danger">*</span></label>
                             <div class="position-relative">
-                                <input type="file" name="client_po_file" class="form-control form-control-lg" accept=".pdf,.png,.jpg,.jpeg" required style="border-radius: 12px; font-size: 0.9rem; border: 2px dashed #cbd5e1; background: #f8fafc; padding: 1rem 1rem 1rem 3rem;">
+                                <input type="file" name="po_file" class="form-control form-control-lg" accept=".pdf,.png,.jpg,.jpeg" required style="border-radius: 12px; font-size: 0.9rem; border: 2px dashed #cbd5e1; background: #f8fafc; padding: 1rem 1rem 1rem 3rem;">
                                 <i class="fas fa-cloud-upload-alt position-absolute" style="left: 1.2rem; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 1.2rem;"></i>
                             </div>
                             <div class="form-text mt-2" style="font-size: 0.75rem; color: #64748b;">
@@ -496,29 +518,77 @@ $result = $stmt->get_result();
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
     <script>
         $(document).ready(function() {
-            var table = $('#dataTable').DataTable({
-                "order": [], 
-                "bStateSave": false, 
-                "pageLength": 15,
-                "language": {
-                    "info": "Showing _START_ to _END_ of _TOTAL_ entries",
-                    "infoEmpty": "No entries found",
-                    "paginate": {
-                        "previous": "<i class='fas fa-angle-left'></i>",
-                        "next": "<i class='fas fa-angle-right'></i>"
+            // Added try-catch and fallback timeout to guarantee table visibility even if DataTables fails to parse broken user data
+            try {
+                var table = $('#dataTable').DataTable({
+                    "order": [], 
+                    "bStateSave": false, 
+                    "pageLength": 15,
+                    "language": {
+                        "info": "Showing _START_ to _END_ of _TOTAL_ entries",
+                        "infoEmpty": "No entries found",
+                        "paginate": {
+                            "previous": "<i class='fas fa-angle-left'></i>",
+                            "next": "<i class='fas fa-angle-right'></i>"
+                        }
+                    },
+                    "dom": 't<"d-flex justify-content-between align-items-center border-top"ip>',
+                    "initComplete": function() {
+                        setTimeout(() => {
+                            $('#grid-skeleton').hide();
+                            $('#grid-content').fadeIn(300);
+                        }, 200); 
                     }
-                },
-                "dom": 't<"d-flex justify-content-between align-items-center border-top"ip>',
-                "initComplete": function() {
-                    setTimeout(() => {
-                        $('#grid-skeleton').hide();
-                        $('#grid-content').fadeIn(300);
-                    }, 200); 
+                });
+            } catch(e) {
+                console.error("DataTables Error: ", e);
+                $('#grid-skeleton').hide();
+                $('#grid-content').fadeIn(300);
+            }
+            
+            // Absolute Fallback
+            setTimeout(() => {
+                if($('#grid-skeleton').is(':visible')) {
+                    $('#grid-skeleton').hide();
+                    $('#grid-content').fadeIn(300);
                 }
-            });
+            }, 1000);
         });
+
+        // SweetAlert2 Toast Notification Configuration (Moved to bottom-end)
+        const Toast = Swal.mixin({
+            toast: true,
+            position: 'bottom-end',
+            showConfirmButton: false,
+            timer: 4000,
+            timerProgressBar: true,
+            customClass: { popup: 'shadow-lg rounded-3' },
+            didOpen: (toast) => {
+                toast.addEventListener('mouseenter', Swal.stopTimer)
+                toast.addEventListener('mouseleave', Swal.resumeTimer)
+            }
+        });
+
+        // Trigger Toasts based on PHP GET parameters
+        <?php if(isset($_GET['success'])): ?>
+            Toast.fire({
+                icon: 'success',
+                title: '<?php echo addslashes(htmlspecialchars($_GET['success'])); ?>'
+            });
+            window.history.replaceState(null, null, window.location.pathname);
+        <?php endif; ?>
+
+        <?php if(isset($_GET['error'])): ?>
+            Toast.fire({
+                icon: 'error',
+                title: '<?php echo addslashes(htmlspecialchars($_GET['error'])); ?>'
+            });
+            window.history.replaceState(null, null, window.location.pathname);
+        <?php endif; ?>
 
         function openReceivePoModal(quotationId, quotationNumber) {
             document.getElementById('modalQuotationId').value = quotationId;

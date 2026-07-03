@@ -43,6 +43,8 @@ $result = $stmt->get_result();
     <link href="assets/css/style.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+    <!-- SweetAlert2 CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <!-- Import premium font for sleek typography -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -200,7 +202,7 @@ $result = $stmt->get_result();
             align-items: center;
             justify-content: center;
             background: #f8fafc;
-            color: #8b5cf6; /* Distinct subtle purple for PRs */
+            color: #8b5cf6;
             font-size: 1.15rem;
             flex-shrink: 0;
             border: 1px solid #e2e8f0;
@@ -285,8 +287,18 @@ $result = $stmt->get_result();
         .dataTables_wrapper .dataTables_paginate .paginate_button.current { background: #f1f5f9 !important; color: #0f172a !important; font-weight: 600; }
         .dataTables_wrapper .dataTables_paginate .paginate_button:hover:not(.current) { background: #e2e8f0 !important; color: #0f172a !important; }
 
-        /* Modal Overrides */
-        .sleek-modal .modal-content { border-radius: 20px; border: none; box-shadow: 0 20px 40px rgba(0,0,0,0.1); }
+        /* SweetAlert Sleek Overrides */
+        .sleek-popup { border-radius: 16px !important; font-family: 'Inter', sans-serif; }
+        .swal2-textarea { 
+            font-size: 0.9rem !important; 
+            border-radius: 10px !important; 
+            border: 1px solid #cbd5e1 !important; 
+            box-shadow: none !important; 
+        }
+        .swal2-textarea:focus {
+            border-color: #ef4444 !important;
+            box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1) !important;
+        }
     </style>
 </head>
 <body>
@@ -346,7 +358,7 @@ $result = $stmt->get_result();
                 <?php endfor; ?>
             </div>
 
-            <!-- Table Container (Native CSS Scrolling for 100% width) -->
+            <!-- Table Container -->
             <div id="grid-content" style="display: none;">
                 <div class="table-responsive-custom">
                     <table id="dataTable" class="table premium-table">
@@ -400,8 +412,8 @@ $result = $stmt->get_result();
                                             <?php 
                                             // Executive Approval Logic for PRs
                                             if (in_array($_SESSION['role'], ['GM', 'President', 'Admin']) && $row['status'] === 'Pending'): ?>
-                                                <button type="button" class="btn-quick-act btn-quick-approve" onclick="openActionModal('approve_pr', '<?php echo $row['pr_id']; ?>', 'Confirm approval for Request #<?php echo $row['pr_number']; ?>?', 'success')"><i class="fas fa-check me-1"></i> Approve</button>
-                                                <button type="button" class="btn-quick-act btn-quick-reject ms-1" onclick="openActionModal('reject_pr', '<?php echo $row['pr_id']; ?>', 'REJECT Request #<?php echo $row['pr_number']; ?>?', 'danger')"><i class="fas fa-times"></i></button>
+                                                <button type="button" class="btn-quick-act btn-quick-approve" onclick="confirmApprovePR(event, '<?php echo $row['pr_id']; ?>', '<?php echo htmlspecialchars($row['pr_number']); ?>')"><i class="fas fa-check me-1"></i> Approve</button>
+                                                <button type="button" class="btn-quick-act btn-quick-reject ms-1" onclick="confirmRejectPR(event, '<?php echo $row['pr_id']; ?>', '<?php echo htmlspecialchars($row['pr_number']); ?>')"><i class="fas fa-times"></i></button>
                                             <?php endif; ?>
                                             
                                             <a href="view_pr.php?id=<?php echo $row['pr_id']; ?>" class="btn-view-icon" title="View Details">
@@ -419,39 +431,22 @@ $result = $stmt->get_result();
         </div>
     </div>
 
-    <!-- Soft confirmation modal -->
-    <div class="modal fade sleek-modal" id="actionModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered modal-sm">
-            <div class="modal-content p-3">
-                <form action="actions/pr_handler.php" method="POST" id="actionForm">
-                    <div class="modal-body text-center">
-                        <div id="modalIconWrap" class="mb-3 mx-auto d-flex align-items-center justify-content-center" style="width: 48px; height: 48px; border-radius: 50%;">
-                            <i id="modalIcon" class="fs-4"></i>
-                        </div>
-                        <h6 class="fw-bold text-dark mb-2" id="actionModalTitle">Confirm Action</h6>
-                        <p class="text-muted mb-4" style="font-size: 0.85rem;" id="actionModalMessage"></p>
-                        
-                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                        <input type="hidden" name="action" id="modalActionInput" value="">
-                        <input type="hidden" name="pr_id" id="modalPrIdInput" value="">
-                        
-                        <div class="d-flex gap-2">
-                            <button type="button" class="btn btn-light w-50" data-bs-dismiss="modal" style="border-radius: 10px; font-weight: 500; color: #64748b;">Cancel</button>
-                            <button type="submit" class="btn w-50 text-white" id="actionModalBtn" style="border-radius: 10px; font-weight: 600;">Proceed</button>
-                        </div>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
+    <!-- Hidden Form for SweetAlert Submission to ensure NO NATIVE FORMS interefere -->
+    <form id="dynamicActionForm" action="actions/pr_handler.php" method="POST" style="display: none;">
+        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+        <input type="hidden" name="action" id="dynamicAction">
+        <input type="hidden" name="pr_id" id="dynamicPrId">
+        <input type="hidden" name="remarks" id="dynamicRemarks">
+    </form>
 
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
     <script>
         $(document).ready(function() {
-            // Initialize DataTable WITHOUT scrollX/scrollY to allow native 100% width CSS to work perfectly
             var table = $('#dataTable').DataTable({
                 "order": [], 
                 "bStateSave": false, 
@@ -474,32 +469,69 @@ $result = $stmt->get_result();
             });
         });
 
-        function openActionModal(action, id, message, type = 'success') {
-            document.getElementById('modalActionInput').value = action;
-            document.getElementById('modalPrIdInput').value = id;
-            document.getElementById('actionModalMessage').innerText = message;
-            
-            let btn = document.getElementById('actionModalBtn');
-            let title = document.getElementById('actionModalTitle');
-            let wrap = document.getElementById('modalIconWrap');
-            let icon = document.getElementById('modalIcon');
-            
-            if (type === 'danger') {
-                title.innerText = 'Reject Request';
-                btn.style.background = '#ef4444';
-                wrap.style.background = '#fef2f2';
-                wrap.style.color = '#ef4444';
-                icon.className = 'fas fa-exclamation-triangle';
-            } else {
-                title.innerText = 'Approve Request';
-                btn.style.background = '#10b981';
-                wrap.style.background = '#ecfdf5';
-                wrap.style.color = '#10b981';
-                icon.className = 'fas fa-check-circle';
-            }
-            
-            var myModal = new bootstrap.Modal(document.getElementById('actionModal'));
-            myModal.show();
+        // Safe Approval Function
+        function confirmApprovePR(e, id, prNumber) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            Swal.fire({
+                title: 'Approve Request?',
+                html: "<span class='text-muted' style='font-size: 0.9rem;'>Are you sure you want to approve <b>" + prNumber + "</b>?</span>",
+                icon: 'success',
+                showCancelButton: true,
+                confirmButtonText: '<i class="fas fa-check me-1"></i> Yes, Approve',
+                cancelButtonText: 'Cancel',
+                buttonsStyling: false,
+                customClass: { 
+                    popup: 'sleek-popup', 
+                    confirmButton: 'btn btn-success px-4 py-2 shadow-sm fw-bold', 
+                    cancelButton: 'btn btn-light px-4 py-2 border fw-bold ms-2' 
+                }
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    $('#dynamicAction').val('approve_pr'); // usually maps to approve_pr or approve in backend
+                    $('#dynamicPrId').val(id);
+                    $('#dynamicRemarks').val('');
+                    $('#dynamicActionForm').submit();
+                }
+            });
+        }
+
+        // Strict Rejection Function
+        function confirmRejectPR(e, id, prNumber) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            Swal.fire({
+                title: 'Reject Request',
+                html: "<span class='text-muted' style='font-size: 0.9rem;'>Please state the reason for rejecting <b>" + prNumber + "</b>:</span>",
+                icon: 'warning',
+                input: 'textarea',
+                inputPlaceholder: 'Enter your reason here (Required)...',
+                showCancelButton: true,
+                confirmButtonText: '<i class="fas fa-times me-1"></i> Submit Rejection',
+                cancelButtonText: 'Cancel',
+                buttonsStyling: false,
+                customClass: { 
+                    popup: 'sleek-popup', 
+                    confirmButton: 'btn btn-danger px-4 py-2 shadow-sm fw-bold', 
+                    cancelButton: 'btn btn-light px-4 py-2 border fw-bold ms-2' 
+                },
+                preConfirm: (reason) => {
+                    if (!reason || reason.trim() === '') {
+                        Swal.showValidationMessage('Rejection reason cannot be empty!');
+                        return false;
+                    }
+                    return reason.trim();
+                }
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    $('#dynamicAction').val('reject_pr'); 
+                    $('#dynamicPrId').val(id);
+                    $('#dynamicRemarks').val(result.value);
+                    $('#dynamicActionForm').submit();
+                }
+            });
         }
     </script>
 </body>

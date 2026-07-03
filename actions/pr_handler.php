@@ -124,6 +124,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
         }
         
         $pr_id = intval($_POST['pr_id']);
+        $remarks = isset($_POST['remarks']) ? trim($_POST['remarks']) : '';
         
         // Status Validation Before Rejecting
         $status_check = $conn->query("SELECT status, pr_number FROM purchase_requests WHERE pr_id = $pr_id")->fetch_assoc();
@@ -131,11 +132,41 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
             header("Location: ../view_pr.php?id=$pr_id&error=PR is already processed.");
             exit();
         }
+
+        // =================================================================================
+        // AUTO-PATCH: Siguraduhing may "remarks" column ang table
+        // =================================================================================
+        $check_col = $conn->query("SHOW COLUMNS FROM purchase_requests LIKE 'remarks'");
+        if ($check_col && $check_col->num_rows == 0) {
+            $conn->query("ALTER TABLE purchase_requests ADD COLUMN remarks TEXT NULL");
+        }
         
-        $conn->query("UPDATE purchase_requests SET status = 'Rejected' WHERE pr_id = $pr_id");
+        // Update request securely including the remarks
+        $stmt_upd = $conn->prepare("UPDATE purchase_requests SET status = 'Rejected', remarks = ? WHERE pr_id = ?");
+        $stmt_upd->bind_param("si", $remarks, $pr_id);
+        $stmt_upd->execute();
+        
         $pr_number = $status_check['pr_number'];
 
-        $conn->query("INSERT INTO notifications (target_role, message) VALUES ('Sales Staff', 'Your PR $pr_number was Rejected by Management.')");
+        // Record history securely
+        $check_hist = $conn->query("SHOW TABLES LIKE 'pr_history'");
+        if ($check_hist && $check_hist->num_rows > 0) {
+            $check_hist_col = $conn->query("SHOW COLUMNS FROM pr_history LIKE 'remarks'");
+            if ($check_hist_col && $check_hist_col->num_rows == 0) {
+                $conn->query("ALTER TABLE pr_history ADD COLUMN remarks TEXT NULL");
+            }
+
+            $user_id = $_SESSION['user_id'];
+            $hist_stmt = $conn->prepare("INSERT INTO pr_history (pr_id, changed_by, status_from, status_to, remarks) VALUES (?, ?, 'Pending', 'Rejected', ?)");
+            if ($hist_stmt) {
+                $hist_stmt->bind_param("iis", $pr_id, $user_id, $remarks);
+                $hist_stmt->execute();
+            }
+        }
+
+        // Escape para iwas error sa single quotes sa chat string
+        $safe_remarks = $conn->real_escape_string($remarks);
+        $conn->query("INSERT INTO notifications (target_role, message) VALUES ('Sales Staff', 'Your PR $pr_number was Rejected by Management. Reason: $safe_remarks')");
 
         header("Location: ../view_pr.php?id=$pr_id&success=PR Rejected");
         exit();

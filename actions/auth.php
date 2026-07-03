@@ -31,9 +31,14 @@ if(isset($_POST['login'])){
         exit();
     }
 
-    $username = trim($_POST['username']);
-    $password = $_POST['password'];
-    $user = get_user_by_username($conn, $username);
+    $input_username = trim($_POST['username']); // Ito ay pwedeng username o email
+$password = $_POST['password'];
+
+// I-check kung ang nilagay ay nag-ma-match sa 'username' OR sa 'email'
+$stmt_user = $conn->prepare("SELECT * FROM users WHERE username = ? OR email = ? LIMIT 1");
+$stmt_user->bind_param("ss", $input_username, $input_username);
+$stmt_user->execute();
+$user = $stmt_user->get_result()->fetch_assoc();
 
     if($user){
         if(password_verify($password, $user['password_hash'])){
@@ -195,4 +200,130 @@ if(isset($_GET['logout'])){
     header("Location: ../index.php");
     exit();
 }
+
+// ... (Iyong mga nakaraang login logic sa taas) ...
+
+// I-load ang PHPMailer para sa Forgot Password
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
+
+// ==========================================
+// FORGOT PASSWORD LOGIC (SEND EMAIL)
+// ==========================================
+if (isset($_POST['forgot_password']) || (isset($_POST['action']) && $_POST['action'] === 'forgot_password')) {
+    require_once '../config/db_connect.php';
+    require_once '../libs/src/Exception.php';
+    require_once '../libs/src/PHPMailer.php';
+    require_once '../libs/src/SMTP.php';
+
+    $email = trim($_POST['email']);
+
+    // 1. Siguraduhing may password_resets table (Foolproof auto-create)
+    $conn->query("CREATE TABLE IF NOT EXISTS password_resets (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        email VARCHAR(255) NOT NULL,
+        token VARCHAR(255) NOT NULL,
+        expires_at DATETIME NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )");
+
+    // 2. Hanapin kung nag-eexist ang email sa users table
+    $stmt = $conn->prepare("SELECT user_id, full_name FROM users WHERE email = ? AND status = 'Active'");
+    $stmt->bind_param("s", $email);
+    $stmt->execute();
+    $res = $stmt->get_result();
+
+    if ($res->num_rows > 0) {
+        $user = $res->fetch_assoc();
+        
+        // 3. Gumawa ng secure token at expiry (1 hour)
+        $token = bin2hex(random_bytes(32)); 
+        $expires = date("Y-m-d H:i:s", strtotime('+1 hour'));
+
+        // Alisin ang lumang token ng user na ito at i-save ang bago
+        $conn->query("DELETE FROM password_resets WHERE email = '$email'");
+        $stmt2 = $conn->prepare("INSERT INTO password_resets (email, token, expires_at) VALUES (?, ?, ?)");
+        $stmt2->bind_param("sss", $email, $token, $expires);
+        $stmt2->execute();
+
+        // 4. I-setup ang Email Content at i-send via PHPMailer
+        $reset_link = "http://" . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF'], 2) . "/reset_password.php?token=" . $token;
+        
+        $mail = new PHPMailer(true);
+        try {
+            $mail->isSMTP();
+            $mail->Host       = 'smtp.gmail.com'; 
+            $mail->SMTPAuth   = true;
+            $mail->Username   = 'tamayolhei5@gmail.com';     
+            $mail->Password   = 'wewnzrsryelddatr';   
+            $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+            $mail->Port       = 587;
+
+            $mail->setFrom('no-reply@fixieventures.com', 'Fixie DRMS Security');
+            $mail->addAddress($email);
+
+            $mail->isHTML(true);
+            $mail->Subject = 'Password Reset Request - Fixie DRMS';
+            $mail->Body    = "Hello " . htmlspecialchars($user['full_name']) . ",<br><br>
+                              We received a request to reset your password. Click the secure link below to proceed:<br><br>
+                              <a href='{$reset_link}' style='padding: 10px 20px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 5px; display: inline-block;'>Reset Password</a><br><br>
+                              Or copy and paste this link to your browser:<br>
+                              {$reset_link}<br><br>
+                              <i>Note: This link is valid for 1 hour. If you did not request this, please ignore this email.</i>";
+
+            $mail->send();
+            header("Location: ../forgot_password.php?success=" . urlencode("A secure recovery link has been sent to your email."));
+            exit();
+        } catch (Exception $e) {
+            header("Location: ../forgot_password.php?error=" . urlencode("Failed to send email. Mailer Error."));
+            exit();
+        }
+    } else {
+        // Security best practice: Huwag ipaalam kung registered ang email o hindi. I-redirect pabalik as success/neutral.
+        header("Location: ../forgot_password.php?success=" . urlencode("If the email is registered, a recovery link has been sent."));
+        exit();
+    }
+}
+
+// ==========================================
+// RESET PASSWORD LOGIC (PROCESS NEW PASSWORD)
+// ==========================================
+if (isset($_POST['reset_password_submit']) || (isset($_POST['action']) && $_POST['action'] === 'reset_password_submit')) {
+    require_once '../config/db_connect.php';
+    
+    $token = trim($_POST['token']);
+    $new_pass = $_POST['new_password'];
+    $conf_pass = $_POST['confirm_password'];
+
+    if ($new_pass !== $conf_pass) {
+        header("Location: ../reset_password.php?token=$token&error=" . urlencode("Passwords do not match."));
+        exit();
+    }
+
+    // Hanapin ang token sa database
+    $stmt = $conn->prepare("SELECT email FROM password_resets WHERE token = ? AND expires_at > NOW()");
+    $stmt->bind_param("s", $token);
+    $stmt->execute();
+    $res = $stmt->get_result();
+
+    if ($res->num_rows > 0) {
+        $email = $res->fetch_assoc()['email'];
+        $hashed_password = password_hash($new_pass, PASSWORD_DEFAULT);
+
+        // I-update ang password sa users table
+        $update_stmt = $conn->prepare("UPDATE users SET password = ? WHERE email = ?");
+        $update_stmt->bind_param("ss", $hashed_password, $email);
+        $update_stmt->execute();
+
+        // Burahin ang nagamit na token
+        $conn->query("DELETE FROM password_resets WHERE email = '$email'");
+
+        header("Location: ../index.php?success=" . urlencode("Password successfully reset. You may now log in."));
+        exit();
+    } else {
+        header("Location: ../index.php?error=" . urlencode("Invalid or expired password reset link."));
+        exit();
+    }
+}
+?>
 ?>

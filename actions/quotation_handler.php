@@ -8,6 +8,11 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Sales Staff') {
     exit();
 }
 
+// =================================================================================
+// AUTO-PATCH: I-update ang mga lumang "Pending PO" status to "Pending Approval"
+// =================================================================================
+$conn->query("UPDATE quotations SET status = 'Pending Approval' WHERE status = 'Pending PO'");
+
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
     if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
         die("Security Error: Invalid CSRF Token");
@@ -31,6 +36,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
         $result = create_detailed_quotation($conn, $data, $_SESSION['user_id']);
         
         if ($result) {
+            // Siguraduhing "Pending Approval" ang bagsak kahit ano pa ang nasa function
+            $conn->query("UPDATE quotations SET status = 'Pending Approval' WHERE status = 'Pending PO'");
             header("Location: ../quotations_list.php?success=Detailed Quotation Created.");
         } else {
             header("Location: ../create_quotation.php?error=Failed to save quotation.");
@@ -63,9 +70,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
             $next_num = 1;
         }
         
-        $client_po_number = $cpo_prefix . str_pad($next_num, 4, "0", STR_PAD_LEFT); // Ex: CPO-2026-0001
+        $client_po_number = $cpo_prefix . str_pad($next_num, 4, "0", STR_PAD_LEFT); 
 
-        // 2. FILE UPLOAD HANDLING
+        // 2. FILE UPLOAD HANDLING (Fixed the input name to exactly match the form)
         if (isset($_FILES['po_file']) && $_FILES['po_file']['error'] == 0) {
             $allowed_ext = ['pdf', 'jpg', 'jpeg', 'png'];
             $file_name = $_FILES['po_file']['name'];

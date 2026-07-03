@@ -1,5 +1,7 @@
 <?php 
 require 'config/db_connect.php'; 
+require 'config/functions.php';
+
 if(!isset($_SESSION['user_id'])) header("Location: index.php");
 
 $user_id = $_SESSION['user_id'];

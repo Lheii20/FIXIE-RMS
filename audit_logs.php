@@ -44,8 +44,9 @@ if ($_SESSION['role'] !== 'Admin' && !has_permission($conn, $_SESSION['user_id']
 
 /**
  * Enterprise Parser: Converts raw system action logs into human-friendly statements.
+ * Now prioritized to use robust JSON structured payloads, with Regex as a fallback for legacy logs.
  */
-function parseAuditRecord($userName, $actionType, $description) {
+function parseAuditRecord($userName, $actionType, $description, $newPayloadJson = null, $oldPayloadJson = null) {
     $subject = htmlspecialchars($userName ?: "System Admin");
     $verb = "performed an action on";
     $object = "a system record";
@@ -56,6 +57,21 @@ function parseAuditRecord($userName, $actionType, $description) {
     $status = "Success";
     
     $descLower = strtolower($description);
+    
+    // Parse the structured payload dynamically to prevent parsing brittleness
+    $newPayload = is_string($newPayloadJson) ? json_decode($newPayloadJson, true) : [];
+    if (!is_array($newPayload)) $newPayload = [];
+
+    // Helper closure to smartly extract IDs: JSON Payload FIRST, Regex FALLBACK
+    $extract = function($key, $regex = null, $regexGroup = 1) use ($newPayload, $description) {
+        if (isset($newPayload[$key]) && $newPayload[$key] !== '') {
+            return $newPayload[$key];
+        }
+        if ($regex && preg_match($regex, $description, $matches) && isset($matches[$regexGroup])) {
+            return $matches[$regexGroup];
+        }
+        return null;
+    };
 
     // 1. Determine Natural Language Mapping based on Action Type
     if ($actionType === 'LOGIN') {
@@ -80,10 +96,13 @@ function parseAuditRecord($userName, $actionType, $description) {
         $details = "Session securely terminated.";
     } elseif (strpos($actionType, 'UPLOAD') !== false) {
         $verb = "uploaded";
-        if (preg_match('/Official Record: (.*?) \[(.*?)\]/i', $description, $matches)) {
-            $object = "a document record: <span class=\"fw-bold text-dark\">" . htmlspecialchars($matches[1]) . "</span>";
+        $docName = $extract('document_name', '/Official Record: (.*?) \[(.*?)\]/i', 1) ?? $extract('title');
+        $docCat = $extract('category', '/Official Record: (.*?) \[(.*?)\]/i', 2);
+        
+        if ($docName) {
+            $object = "a document record: <span class=\"fw-bold text-dark\">" . htmlspecialchars($docName) . "</span>";
             $module = "Document Management";
-            $details = "Category classified under " . htmlspecialchars($matches[2]) . ".";
+            $details = $docCat ? "Category classified under " . htmlspecialchars($docCat) . "." : htmlspecialchars($description);
         } else {
             $object = "a new document";
             $module = "Document Management";
@@ -93,119 +112,99 @@ function parseAuditRecord($userName, $actionType, $description) {
         $color = "primary";
     } elseif ($actionType === 'CREATE_PO') {
         $verb = "created";
-        if (preg_match('/new PO: (PO-\d{4}-\d{4})/i', $description, $matches)) {
-            $object = "Purchase Order <span class=\"fw-bold text-dark\">" . htmlspecialchars($matches[1]) . "</span>";
-        } else {
-            $object = "a new Purchase Order";
-        }
-        if (preg_match('/PR ID: (\d+)/i', $description, $m)) {
-            $details = "Successfully mapped to Purchase Request ID: " . $m[1] . ".";
-        } else {
-            $details = htmlspecialchars($description);
-        }
+        $poNumber = $extract('po_number', '/new PO: (PO-\d{4}-\d{4})/i');
+        $prId = $extract('pr_id', '/PR ID: (\d+)/i');
+
+        $object = $poNumber ? "Purchase Order <span class=\"fw-bold text-dark\">" . htmlspecialchars($poNumber) . "</span>" : "a new Purchase Order";
+        $details = $prId ? "Successfully mapped to Purchase Request ID: " . htmlspecialchars($prId) . "." : htmlspecialchars($description);
+        
         $module = "Purchase Orders";
         $icon = "file-invoice";
         $color = "primary";
-    } elseif ($actionType === 'APPROVE_PO') {
+    } elseif ($actionType === 'APPROVE_PO' || $actionType === 'WORKFLOW_ACTION') {
         $verb = "approved";
-        if (preg_match('/PO (\d+)/i', $description, $matches)) {
-            $object = "Purchase Order ID <span class=\"fw-bold text-dark\">" . htmlspecialchars($matches[1]) . "</span>";
-        } else {
-            $object = "a Purchase Order";
-        }
-        if (preg_match('/to (.*)/i', $description, $matches)) {
-            $details = "Status advanced to " . htmlspecialchars($matches[1]) . ".";
-        }
+        $poId = $extract('po_id', '/PO (\d+)/i') ?? $extract('po_number', '/PO #(\S+)/i');
+        $statusTo = $extract('to_status', '/to (.*)/i') ?? $extract('next_status');
+        
+        $object = $poId ? "Purchase Order <span class=\"fw-bold text-dark\">" . htmlspecialchars($poId) . "</span>" : "a Purchase Order";
+        $details = $statusTo ? "Status advanced to " . htmlspecialchars($statusTo) . "." : (isset($newPayload['remarks']) ? "Remarks: " . htmlspecialchars($newPayload['remarks']) : htmlspecialchars($description));
+        
         $module = "Purchase Orders";
         $icon = "check-double";
         $color = "success";
     } elseif ($actionType === 'ADD_PAYMENT') {
         $verb = "processed a payment for";
-        if (preg_match('/PO (\d+)/i', $description, $matches)) {
-            $object = "Purchase Order ID <span class=\"fw-bold text-dark\">" . htmlspecialchars($matches[1]) . "</span>";
-        } else {
-            $object = "a Purchase Order";
-        }
-        if (preg_match('/payment of (P\d+)/i', $description, $matches)) {
-            $details = "Payment amount applied: " . htmlspecialchars($matches[1]) . ".";
-        }
+        $poId = $extract('po_id', '/PO (\d+)/i');
+        $amount = $extract('amount', '/payment of (P[\d,]+)/i') ?? $extract('amount_paid');
+        
+        $object = $poId ? "Purchase Order <span class=\"fw-bold text-dark\">" . htmlspecialchars($poId) . "</span>" : "a Purchase Order";
+        $details = $amount ? "Payment amount applied: " . htmlspecialchars($amount) . "." : htmlspecialchars($description);
+        
         $module = "Finance";
         $icon = "coins";
         $color = "warning";
     } elseif ($actionType === 'ARCHIVE_FILE') {
         $verb = "archived";
-        if (preg_match('/Document ID: (\d+)/i', $description, $matches)) {
-            $object = "Document ID <span class=\"fw-bold text-dark\">" . htmlspecialchars($matches[1]) . "</span>";
-        } else {
-            $object = "a document record";
-        }
+        $docId = $extract('doc_id', '/Document ID: (\d+)/i') ?? $extract('document_id');
+        
+        $object = $docId ? "Document ID <span class=\"fw-bold text-dark\">" . htmlspecialchars($docId) . "</span>" : "a document record";
         $module = "Document Management";
         $details = "Record successfully moved to archive storage.";
         $icon = "archive";
         $color = "secondary";
     } elseif ($actionType === 'RESTORE_FILE') {
         $verb = "restored";
-        if (preg_match('/Document ID: (\d+)/i', $description, $matches)) {
-            $object = "Document ID <span class=\"fw-bold text-dark\">" . htmlspecialchars($matches[1]) . "</span>";
-        } else {
-            $object = "a document record";
-        }
+        $docId = $extract('doc_id', '/Document ID: (\d+)/i') ?? $extract('document_id');
+        
+        $object = $docId ? "Document ID <span class=\"fw-bold text-dark\">" . htmlspecialchars($docId) . "</span>" : "a document record";
         $module = "Document Management";
         $details = "Record retrieved and restored from archive storage.";
         $icon = "trash-restore";
         $color = "info";
     } elseif ($actionType === 'PRINT_DOC') {
         $verb = "printed";
-        if (preg_match('/document: (.*)/i', $description, $matches)) {
-            $object = "the document <span class=\"fw-bold text-dark\">" . htmlspecialchars($matches[1]) . "</span>";
-        } else {
-            $object = "a document";
-        }
+        $docName = $extract('document_name', '/document: (.*)/i') ?? $extract('file_name');
+        
+        $object = $docName ? "the document <span class=\"fw-bold text-dark\">" . htmlspecialchars($docName) . "</span>" : "a document";
         $module = "Document Management";
         $icon = "print";
         $color = "secondary";
     } elseif ($actionType === 'DOWNLOAD_DOC') {
         $verb = "downloaded";
-        if (preg_match('/document: (.*)/i', $description, $matches)) {
-            $object = "the file <span class=\"fw-bold text-dark\">" . htmlspecialchars($matches[1]) . "</span>";
-        } else {
-            $object = "a document file";
-        }
+        $docName = $extract('document_name', '/document: (.*)/i') ?? $extract('file_name');
+        
+        $object = $docName ? "the file <span class=\"fw-bold text-dark\">" . htmlspecialchars($docName) . "</span>" : "a document file";
         $module = "Document Management";
         $icon = "download";
         $color = "info";
     } elseif ($actionType === 'CREATE_QUOTATION') {
         $verb = "encoded";
-        if (preg_match('/Quotation (#\S+)/i', $description, $matches)) {
-            $object = "Quotation <span class=\"fw-bold text-dark\">" . htmlspecialchars($matches[1]) . "</span>";
-        } else {
-            $object = "a new Quotation";
-        }
-        if (preg_match('/for client (.*?)\./i', $description, $matches)) {
-            $details = "Client designated as " . htmlspecialchars($matches[1]) . ".";
-        }
+        $qNum = $extract('quotation_number', '/Quotation (#\S+)/i');
+        $cName = $extract('client_name', '/for client (.*?)\./i');
+        
+        $object = $qNum ? "Quotation <span class=\"fw-bold text-dark\">" . htmlspecialchars($qNum) . "</span>" : "a new Quotation";
+        $details = $cName ? "Client designated as " . htmlspecialchars($cName) . "." : htmlspecialchars($description);
+        
         $module = "Quotations";
         $icon = "file-signature";
         $color = "primary";
     } elseif ($actionType === 'RECEIVE_CLIENT_PO') {
         $verb = "received";
-        if (preg_match('/Client PO (#\S+)/i', $description, $matches)) {
-            $object = "Client PO <span class=\"fw-bold text-dark\">" . htmlspecialchars($matches[1]) . "</span>";
-        } elseif (preg_match('/Ref: (CPO-\S+)/i', $description, $matches)) {
-            $object = "Client Approval Ref: <span class=\"fw-bold text-dark\">" . htmlspecialchars($matches[1]) . "</span>";
-        } else {
-            $object = "a Client PO";
-        }
-        if (preg_match('/Quotation ID: (\d+)/i', $description, $m)) {
-            $details = "Mapped to Quotation ID: " . $m[1];
-        }
+        $cpo = $extract('client_po_number', '/Client PO (#\S+)/i') ?? $extract('client_po_number', '/Ref: (CPO-\S+)/i');
+        $qId = $extract('quotation_id', '/Quotation ID: (\d+)/i');
+        
+        $object = $cpo ? "Client PO <span class=\"fw-bold text-dark\">" . htmlspecialchars($cpo) . "</span>" : "a Client PO";
+        if ($qId) $details = "Mapped to Quotation ID: " . htmlspecialchars($qId);
+        
         $module = "Quotations";
         $icon = "handshake";
         $color = "success";
     } elseif ($actionType === 'VIEW_RECORD') {
         $verb = "accessed";
-        if (preg_match('/Purchase Request ID: (\d+)/i', $description, $matches)) {
-            $object = "Purchase Request PR-" . str_pad($matches[1], 4, '0', STR_PAD_LEFT);
+        $prId = $extract('pr_id', '/Purchase Request ID: (\d+)/i') ?? $extract('record_id');
+        
+        if ($prId) {
+            $object = "Purchase Request PR-" . str_pad($prId, 4, '0', STR_PAD_LEFT);
             $module = "Purchase Requests";
         } else {
             $object = "system record details";
@@ -220,12 +219,14 @@ function parseAuditRecord($userName, $actionType, $description) {
         $icon = "edit";
         $color = "warning";
         $module = "System Operations";
-        if ($actionType === 'UPDATE_VERSION' && preg_match('/Doc ID: (\d+)/i', $description, $matches)) {
-            $object = "a version update for Document ID " . $matches[1];
+        
+        $docId = $extract('doc_id', '/Doc ID: (\d+)/i');
+        $version = $extract('version', '/Uploaded (v\d+\.\d+)/i');
+        
+        if ($actionType === 'UPDATE_VERSION' && $docId) {
+            $object = "a version update for Document ID " . htmlspecialchars($docId);
             $module = "Document Management";
-            if (preg_match('/Uploaded (v\d+\.\d+)/i', $description, $m2)) {
-                $details = "Updated to version: " . $m2[1];
-            }
+            $details = $version ? "Updated to version: " . htmlspecialchars($version) : htmlspecialchars($description);
         } else {
             $details = htmlspecialchars($description);
         }
@@ -294,7 +295,15 @@ if ($logs) {
             $distinctUsers[$row['user_id']] = true;
         }
         
-        $parsed = parseAuditRecord($row['full_name'], $row['action_type'], $row['description']);
+        // Passing JSON payloads explicitly ensures parsing won't break 
+        // even if the description string structure changes in future updates.
+        $parsed = parseAuditRecord(
+            $row['full_name'], 
+            $row['action_type'], 
+            $row['description'], 
+            $row['new_payload'] ?? null, 
+            $row['old_payload'] ?? null
+        );
         
         if ($parsed['category'] === 'Deletion') {
             $criticalCount++;

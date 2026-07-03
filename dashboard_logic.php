@@ -3,6 +3,7 @@ require 'config/db_connect.php';
 require 'config/functions.php';
 
 if(!isset($_SESSION['user_id'])) header("Location: index.php");
+
 $role = $_SESSION['role'];
 $executives = ['GM', 'President'];
 $can_view_financials = in_array($role, array_merge($executives, ['Finance']));
@@ -114,12 +115,9 @@ function fetch_chart_data($conn, $sql, $types, $params, $single = false) {
     return $single ? [] : [];
 }
 
-
-
 // ==========================================
 // ROLE-SPECIFIC KPI STATS & ADMIN ANALYTICS
 // ==========================================
-
 $admin_stats = ['total_users' => 0, 'audit_today' => 0, 'total_files' => 0, 'pending_requests' => 0];
 $admin_charts = [];
 $admin_insights_data = [];
@@ -157,7 +155,7 @@ if ($role === 'Admin') {
     $admin_insights_data['total_files_all'] = get_count($conn, "SELECT COUNT(*) FROM documents", '', []);
 
     // ==========================================
-    // SYSTEM STORAGE CALCULATOR (RE-ADDED)
+    // SYSTEM STORAGE CALCULATOR
     // ==========================================
     $uploads_dir = __DIR__ . '/uploads'; 
     $storage_used = getDirSize($uploads_dir);
@@ -182,7 +180,9 @@ if ($is_sales_staff) {
     $sales_stats['pending'] = get_count($conn, "SELECT COUNT(*) FROM purchase_requests WHERE status = 'Pending' AND {$pr_date['sql']}", $pr_date['types'], $pr_date['params']);
     $sales_stats['approved'] = get_count($conn, "SELECT COUNT(*) FROM purchase_requests WHERE status IN ('Approved', 'Converted_to_PO') AND {$pr_date['sql']}", $pr_date['types'], $pr_date['params']);
     $sales_stats['rejected'] = get_count($conn, "SELECT COUNT(*) FROM purchase_requests WHERE status = 'Rejected' AND {$pr_date['sql']}", $pr_date['types'], $pr_date['params']);
-    $sales_stats['pending_quotations'] = get_count($conn, "SELECT COUNT(*) FROM quotations WHERE status = 'Pending PO' AND {$q_date['sql']}", $q_date['types'], $q_date['params']);
+    
+    // UPDATED: Now queries for "Pending Approval" instead of "Pending PO"
+    $sales_stats['pending_quotations'] = get_count($conn, "SELECT COUNT(*) FROM quotations WHERE status = 'Pending Approval' AND {$q_date['sql']}", $q_date['types'], $q_date['params']);
     $sales_stats['received_client_po'] = get_count($conn, "SELECT COUNT(*) FROM quotations WHERE status = 'PO Received' AND {$q_date['sql']}", $q_date['types'], $q_date['params']);
 
     // 1. PR Status Distribution (For Polar Area)
@@ -206,7 +206,7 @@ if ($is_sales_staff) {
     $q_top_clients_sales = "SELECT client_name, COUNT(*) as total_tx FROM purchase_requests WHERE status != 'Rejected' AND {$pr_date['sql']} GROUP BY client_name ORDER BY total_tx DESC LIMIT 5";
     $sales_charts['top_clients'] = fetch_chart_data($conn, $q_top_clients_sales, $pr_date['types'], $pr_date['params'], false);
 
-    // 4. Top Requested Categories (Strictly the 6 official categories for the Pie Chart)
+    // 4. Top Requested Categories
     $standard_cats = [
         '01' => ['name' => 'Hardware', 'qty' => 0],
         '02' => ['name' => 'CCTVs', 'qty' => 0],
@@ -266,6 +266,7 @@ if ($is_sales_staff) {
 // ==========================================
 $proc_stats = ['total' => 0, 'pending' => 0, 'funded' => 0, 'delivered' => 0];
 $proc_charts = [];
+
 if ($role === 'Procurement') {
     $proc_stats['total'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE {$po_date['sql']}", $po_date['types'], $po_date['params']);
     $proc_stats['pending'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status IN ('Pending', 'GM-Approved', 'Finance-Approved', 'President-Approved') AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
@@ -324,10 +325,12 @@ if ($role === 'Procurement') {
 // EXECUTIVE (GM/PRES) CHART ANALYTICS
 // ==========================================
 $exec_stats = ['active_docs' => 0, 'archived_docs' => 0, 'pending_pr' => 0, 'pending_po' => 0];
+
 if (in_array($role, $executives)) {
     $exec_stats['active_docs'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE status = 'Active' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
     $exec_stats['archived_docs'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE status = 'Archived' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
     $exec_stats['pending_pr'] = get_count($conn, "SELECT COUNT(*) FROM purchase_requests WHERE status = 'Pending' AND {$pr_date['sql']}", $pr_date['types'], $pr_date['params']);
+    
     if ($role === 'GM') {
         $exec_stats['pending_po'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Pending' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
     } else {
@@ -373,6 +376,7 @@ if (!in_array($role, ['Admin', 'Finance']) && !in_array($role, $executives)) {
 $rbac_categories = [];
 $all_cats = [];
 $cat_query = $conn->query("SELECT sub_category, assigned_to_role FROM document_categories");
+
 if ($cat_query) {
     while ($row = $cat_query->fetch_assoc()) {
         $all_cats[] = $row['sub_category'];
@@ -388,8 +392,8 @@ if ($cat_query) {
 
 $is_top_mgmt = in_array($role, ['Admin', 'GM', 'President']);
 $user_categories = $is_top_mgmt ? $all_cats : ($rbac_categories[$role] ?? []);
-
 $recent_dashboard_files = null;
+
 if (!empty($user_categories) && !in_array($role, ['Finance', 'Admin'])) {
     $placeholders = implode(',', array_fill(0, count($user_categories), '?'));
     $q_str = "
@@ -497,10 +501,12 @@ if ($role === 'Finance') {
     $in_data = fetch_chart_data($conn, $q_in, '', []);
     $q_out = "SELECT DATE_FORMAT(date_created, '%Y-%m') as m, SUM(amount) as val FROM purchase_requests WHERE status IN ('Approved', 'Converted_to_PO') GROUP BY m";
     $out_data = fetch_chart_data($conn, $q_out, '', []);
+
     $cf_months = [];
     foreach($in_data as $row) { $cf_months[$row['m']] = ['inflow' => $row['val'], 'outflow' => 0]; }
     foreach($out_data as $row) { if(!isset($cf_months[$row['m']])) { $cf_months[$row['m']] = ['inflow'=>0, 'outflow'=>0]; } $cf_months[$row['m']]['outflow'] = $row['val']; }
     ksort($cf_months); $cf_sliced = array_slice($cf_months, -6, 6, true);
+    
     $cf_labels = []; $cf_in = []; $cf_out = [];
     foreach($cf_sliced as $m => $v) { $cf_labels[] = date('M Y', strtotime($m.'-01')); $cf_in[] = $v['inflow']; $cf_out[] = $v['outflow']; }
     $finance_charts['cf_labels'] = $cf_labels; $finance_charts['cf_in'] = $cf_in; $finance_charts['cf_out'] = $cf_out;
@@ -515,6 +521,7 @@ if ($role === 'Finance') {
 
     $q_stacked = "SELECT client_name, SUM(amount) as total_revenue, SUM(CASE WHEN status = 'Collected' THEN amount WHEN status = 'Partially-Collected' THEN COALESCE((SELECT SUM(amount_paid) FROM payments WHERE po_id = purchase_orders.po_id), 0) ELSE 0 END) as collected_amount FROM purchase_orders WHERE status NOT IN ('Rejected', 'Invalid') AND {$po_date['sql']} GROUP BY client_name ORDER BY total_revenue DESC LIMIT 5";
     $stacked_data = fetch_chart_data($conn, $q_stacked, $po_date['types'], $po_date['params'], false);
+    
     $tc_labels = []; $tc_col = []; $tc_uncol = [];
     foreach($stacked_data as $t) { $tc_labels[] = $t['client_name']; $tc_col[] = (float)$t['collected_amount']; $tc_uncol[] = (float)$t['total_revenue'] - (float)$t['collected_amount']; }
     $finance_charts['tc_labels'] = $tc_labels; $finance_charts['tc_col'] = $tc_col; $finance_charts['tc_uncol'] = $tc_uncol;
@@ -531,4 +538,3 @@ if ($period == 'custom' && !empty($_GET['start']) && !empty($_GET['end'])) {
     $active_filter_text = ($s_display == $e_display) ? $s_display : "$s_display to $e_display";
 }
 ?>
-}

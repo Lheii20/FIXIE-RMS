@@ -44,7 +44,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
         // =================================================================================
         // BACKEND DEFINITIVE CALCULATION (SECURITY FIX)
-        // Hindi nagtitiwala sa client-side JS ang math. Server ang mag-cocompute.
         // =================================================================================
         $definitive_amount = 0;
         foreach ($items as &$item) {
@@ -60,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $item['calculated_total'] = $line_total; 
             $definitive_amount += $line_total;
         }
-        unset($item); // Break reference para iwas bug sa loops mamaya
+        unset($item);
 
         // =================================================================================
         // SECURE TRANSACTION BLOCK PARA MAIWASAN ANG RACE CONDITION
@@ -68,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         try {
             $conn->begin_transaction();
 
-            // 1. GENERATE NEXT PO NUMBER (Gamit ang FOR UPDATE row lock para di ma-agawan)
+            // 1. GENERATE NEXT PO NUMBER (Gamit ang FOR UPDATE row lock)
             $year = date('Y');
             $po_prefix = "PO-" . $year . "-";
             $like_prefix = $po_prefix . "%";
@@ -109,7 +108,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $padded_qt_num = str_pad($next_qt_num, 4, "0", STR_PAD_LEFT);
             $quotation_number = $base_category . "-" . $padded_qt_num . " " . $client_name;
 
-            // 3. EXECUTE MAIN PO INSERT (Gamit ang computed definitive_amount)
+            // 3. EXECUTE MAIN PO INSERT
             $status = 'Pending';
             $location = 'Office of the GM';
 
@@ -134,7 +133,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         $item['specs'], 
                         $item['qty'], 
                         $item['price'], 
-                        $item['calculated_total'] // Gumagamit ng secured server-calculated total
+                        $item['calculated_total']
                     );
                     $item_stmt->execute();
                 }
@@ -167,7 +166,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 }
             }
 
-            // SUCCESS -> I-commit at i-save ang lahat ng ginawa natin sa DB
             $conn->commit();
 
             log_audit_action($conn, $user_id, 'CREATE_PO', "Created new PO: $po_number mapped to PR ID: $pr_id with verified amount: ₱$definitive_amount");
@@ -175,7 +173,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             exit();
 
         } catch (Exception $e) {
-            // ERROR -> I-rollback lahat ng changes para walang putol o sirang data
             $conn->rollback();
             header("Location: ../create_po.php?error=Transaction failed. Please try again.");
             exit();
@@ -199,11 +196,35 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 die("Unauthorized Action: Only approvers can reject a Purchase Order.");
             }
 
-            $update = $conn->prepare("UPDATE purchase_orders SET status = 'Invalid', current_location = 'Voided' WHERE po_id = ?");
-            $update->bind_param("i", $po_id);
+            $remarks = isset($_POST['remarks']) ? trim($_POST['remarks']) : '';
+
+            // =================================================================================
+            // AUTO-PATCH: Siguraduhing may "remarks" column ang tables
+            // =================================================================================
+            $check_col = $conn->query("SHOW COLUMNS FROM purchase_orders LIKE 'remarks'");
+            if ($check_col && $check_col->num_rows == 0) {
+                $conn->query("ALTER TABLE purchase_orders ADD COLUMN remarks TEXT NULL");
+            }
+            
+            $check_hist_col = $conn->query("SHOW COLUMNS FROM po_history LIKE 'remarks'");
+            if ($check_hist_col && $check_hist_col->num_rows == 0) {
+                $conn->query("ALTER TABLE po_history ADD COLUMN remarks TEXT NULL");
+            }
+
+            // Kunin yung existing status bago siya gawing Rejected
+            $stmt_old = $conn->prepare("SELECT status FROM purchase_orders WHERE po_id = ?");
+            $stmt_old->bind_param("i", $po_id);
+            $stmt_old->execute();
+            $old_status = $stmt_old->get_result()->fetch_assoc()['status'] ?? 'Pending';
+
+            $update = $conn->prepare("UPDATE purchase_orders SET status = 'Rejected', current_location = 'Voided', remarks = ? WHERE po_id = ?");
+            $update->bind_param("si", $remarks, $po_id);
             if($update->execute()) {
-                $conn->query("INSERT INTO po_history (po_id, changed_by, status_from, status_to) VALUES ($po_id, $user_id, 'Rejected', 'Invalid')");
-                log_audit_action($conn, $user_id, 'REJECT_PO', "Rejected PO ID: $po_id ($actual_po_number)");
+                $hist = $conn->prepare("INSERT INTO po_history (po_id, changed_by, status_from, status_to, remarks) VALUES (?, ?, ?, 'Rejected', ?)");
+                $hist->bind_param("iiss", $po_id, $user_id, $old_status, $remarks);
+                $hist->execute();
+                
+                log_audit_action($conn, $user_id, 'REJECT_PO', "Rejected PO ID: $po_id ($actual_po_number). Reason: $remarks");
             }
             header("Location: ../view_po.php?id=$po_id&success=PO Rejected");
             exit();

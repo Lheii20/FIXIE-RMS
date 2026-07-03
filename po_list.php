@@ -51,6 +51,8 @@ if ($wf_query) {
     <link href="assets/css/style.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+    <!-- SweetAlert2 CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <!-- Import premium font for sleek typography -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -194,7 +196,7 @@ if ($wf_query) {
             border-bottom: none !important;
         }
 
-        /* Order Info Block (Replaced Avatar) */
+        /* Order Info Block */
         .order-info-block {
             display: flex;
             align-items: center;
@@ -293,8 +295,18 @@ if ($wf_query) {
         .dataTables_wrapper .dataTables_paginate .paginate_button.current { background: #f1f5f9 !important; color: #0f172a !important; font-weight: 600; }
         .dataTables_wrapper .dataTables_paginate .paginate_button:hover:not(.current) { background: #e2e8f0 !important; color: #0f172a !important; }
 
-        /* Modal Overrides */
-        .sleek-modal .modal-content { border-radius: 20px; border: none; box-shadow: 0 20px 40px rgba(0,0,0,0.1); }
+        /* SweetAlert Sleek Overrides */
+        .sleek-popup { border-radius: 16px !important; font-family: 'Inter', sans-serif; }
+        .swal2-textarea { 
+            font-size: 0.9rem !important; 
+            border-radius: 10px !important; 
+            border: 1px solid #cbd5e1 !important; 
+            box-shadow: none !important; 
+        }
+        .swal2-textarea:focus {
+            border-color: #ef4444 !important;
+            box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1) !important;
+        }
     </style>
 </head>
 <body>
@@ -414,7 +426,6 @@ if ($wf_query) {
                                             $role = $_SESSION['role'];
                                             $is_approver = false;
                                             $approve_action = '';
-                                            $approve_label = '';
                                             $can_reject = false;
 
                                             if (isset($wf_rules_array[$role][$row['status']])) {
@@ -424,16 +435,15 @@ if ($wf_query) {
                                                         $can_reject = true;
                                                     } else {
                                                         $approve_action = $rule['action_key'];
-                                                        $approve_label = $rule['button_label'];
                                                     }
                                                 }
                                             }
 
                                             if ($is_approver && isset($row['is_viewed']) && $row['is_viewed'] == 1) {
-                                                echo '<button type="button" class="btn-quick-act btn-quick-approve" onclick="openActionModal(\''.$approve_action.'\', \''.$row['po_id'].'\', \'Confirm approval for PO #'.$row['po_number'].'?\', \'success\')"><i class="fas fa-check me-1"></i> Approve</button>';
+                                                echo '<button type="button" class="btn-quick-act btn-quick-approve" onclick="confirmApprovePO(event, \''.$approve_action.'\', \''.$row['po_id'].'\', \''.htmlspecialchars($row['po_number']).'\')"><i class="fas fa-check me-1"></i> Approve</button>';
                                                 
                                                 if ($can_reject) {
-                                                    echo '<button type="button" class="btn-quick-act btn-quick-reject ms-1" onclick="openActionModal(\'reject\', \''.$row['po_id'].'\', \'REJECT PO #'.$row['po_number'].'?\', \'danger\')"><i class="fas fa-times"></i></button>';
+                                                    echo '<button type="button" class="btn-quick-act btn-quick-reject ms-1" onclick="confirmRejectPO(event, \''.$row['po_id'].'\', \''.htmlspecialchars($row['po_number']).'\')"><i class="fas fa-times"></i></button>';
                                                 }
                                             }
                                             ?>
@@ -452,36 +462,20 @@ if ($wf_query) {
         </div>
     </div>
 
-    <!-- Soft confirmation modal -->
-    <div class="modal fade sleek-modal" id="actionModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered modal-sm">
-            <div class="modal-content p-3">
-                <form action="actions/po_handler.php" method="POST" id="actionForm">
-                    <div class="modal-body text-center">
-                        <div id="modalIconWrap" class="mb-3 mx-auto d-flex align-items-center justify-content-center" style="width: 48px; height: 48px; border-radius: 50%;">
-                            <i id="modalIcon" class="fs-4"></i>
-                        </div>
-                        <h6 class="fw-bold text-dark mb-2" id="actionModalTitle">Confirm Action</h6>
-                        <p class="text-muted mb-4" style="font-size: 0.85rem;" id="actionModalMessage"></p>
-                        
-                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                        <input type="hidden" name="action" id="modalActionInput" value="">
-                        <input type="hidden" name="po_id" id="modalPoIdInput" value="">
-                        
-                        <div class="d-flex gap-2">
-                            <button type="button" class="btn btn-light w-50" data-bs-dismiss="modal" style="border-radius: 10px; font-weight: 500; color: #64748b;">Cancel</button>
-                            <button type="submit" class="btn w-50 text-white" id="actionModalBtn" style="border-radius: 10px; font-weight: 600;">Proceed</button>
-                        </div>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
+    <!-- Hidden Form for SweetAlert Submission to ensure NO NATIVE FORMS interefere -->
+    <form id="dynamicActionForm" action="actions/po_handler.php" method="POST" style="display: none;">
+        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+        <input type="hidden" name="action" id="dynamicAction">
+        <input type="hidden" name="po_id" id="dynamicPoId">
+        <input type="hidden" name="remarks" id="dynamicRemarks">
+    </form>
 
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
     <script>
         $(document).ready(function() {
             var table = $('#dataTable').DataTable({
@@ -506,32 +500,69 @@ if ($wf_query) {
             });
         });
 
-        function openActionModal(action, id, message, type = 'success') {
-            document.getElementById('modalActionInput').value = action;
-            document.getElementById('modalPoIdInput').value = id;
-            document.getElementById('actionModalMessage').innerText = message;
-            
-            let btn = document.getElementById('actionModalBtn');
-            let title = document.getElementById('actionModalTitle');
-            let wrap = document.getElementById('modalIconWrap');
-            let icon = document.getElementById('modalIcon');
-            
-            if (type === 'danger') {
-                title.innerText = 'Reject Order';
-                btn.style.background = '#ef4444';
-                wrap.style.background = '#fef2f2';
-                wrap.style.color = '#ef4444';
-                icon.className = 'fas fa-exclamation-triangle';
-            } else {
-                title.innerText = 'Approve Order';
-                btn.style.background = '#10b981';
-                wrap.style.background = '#ecfdf5';
-                wrap.style.color = '#10b981';
-                icon.className = 'fas fa-check-circle';
-            }
-            
-            var myModal = new bootstrap.Modal(document.getElementById('actionModal'));
-            myModal.show();
+        // Safe Approval Function
+        function confirmApprovePO(e, actionKey, id, poNumber) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            Swal.fire({
+                title: 'Approve Order?',
+                html: "<span class='text-muted' style='font-size: 0.9rem;'>Are you sure you want to approve PO <b>" + poNumber + "</b>?</span>",
+                icon: 'success',
+                showCancelButton: true,
+                confirmButtonText: '<i class="fas fa-check me-1"></i> Yes, Approve',
+                cancelButtonText: 'Cancel',
+                buttonsStyling: false,
+                customClass: { 
+                    popup: 'sleek-popup', 
+                    confirmButton: 'btn btn-success px-4 py-2 shadow-sm fw-bold', 
+                    cancelButton: 'btn btn-light px-4 py-2 border fw-bold ms-2' 
+                }
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    $('#dynamicAction').val(actionKey); // Usually maps to 'approve_gm', 'approve_finance', etc.
+                    $('#dynamicPoId').val(id);
+                    $('#dynamicRemarks').val('');
+                    $('#dynamicActionForm').submit();
+                }
+            });
+        }
+
+        // Strict Rejection Function
+        function confirmRejectPO(e, id, poNumber) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            Swal.fire({
+                title: 'Reject Order',
+                html: "<span class='text-muted' style='font-size: 0.9rem;'>Please state the reason for rejecting <b>" + poNumber + "</b>:</span>",
+                icon: 'warning',
+                input: 'textarea',
+                inputPlaceholder: 'Enter your reason here (Required)...',
+                showCancelButton: true,
+                confirmButtonText: '<i class="fas fa-times me-1"></i> Submit Rejection',
+                cancelButtonText: 'Cancel',
+                buttonsStyling: false,
+                customClass: { 
+                    popup: 'sleek-popup', 
+                    confirmButton: 'btn btn-danger px-4 py-2 shadow-sm fw-bold', 
+                    cancelButton: 'btn btn-light px-4 py-2 border fw-bold ms-2' 
+                },
+                preConfirm: (reason) => {
+                    if (!reason || reason.trim() === '') {
+                        Swal.showValidationMessage('Rejection reason cannot be empty!');
+                        return false;
+                    }
+                    return reason.trim();
+                }
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    $('#dynamicAction').val('reject'); 
+                    $('#dynamicPoId').val(id);
+                    $('#dynamicRemarks').val(result.value);
+                    $('#dynamicActionForm').submit();
+                }
+            });
         }
     </script>
 </body>

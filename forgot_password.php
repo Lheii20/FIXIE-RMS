@@ -1,116 +1,347 @@
-<?php
-require 'config/db_connect.php';
-$step = isset($_GET['step']) ? $_GET['step'] : 1;
-$email = isset($_GET['email']) ? $_GET['email'] : '';
+<?php 
+session_start();
+if(isset($_SESSION['user_id'])){ header("Location: dashboard.php"); exit(); }
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Forgot Password - Fixie DRMS</title>
+    <title>Account Recovery - Fixie DRMS</title>
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
-    <link href="assets/css/style.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
+    <!-- Professional Enterprise Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
     <style>
-        body, html { height: 100%; margin: 0; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f7f9; }
+        :root {
+            --brand-dark: #0f172a;
+            --brand-primary: #2563eb;
+            --brand-primary-hover: #1d4ed8;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --bg-light: #f8fafc;
+            --border-color: #cbd5e1;
+            --error-bg: #fef2f2;
+            --error-text: #b91c1c;
+            --success-bg: #f0fdf4;
+            --success-text: #15803d;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-light);
+            color: var(--text-main);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+        }
+
+        /* --- Split Layout Container --- */
+        .auth-wrapper {
+            display: flex;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* --- Left Side: Dynamic Branding Panel --- */
+        .brand-panel {
+            flex: 1;
+            /* Animated Dark Gradient Background */
+            background: linear-gradient(-45deg, #0f172a, #1e293b, #1e3a8a, #0f172a);
+            background-size: 400% 400%;
+            animation: gradientAnim 15s ease infinite;
+            color: #ffffff;
+            padding: 4rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+            text-align: center;
+        }
+
+        @keyframes gradientAnim {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        /* Subtle overlay pattern */
+        .brand-panel::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-image: radial-gradient(rgba(255, 255, 255, 0.07) 2px, transparent 2px);
+            background-size: 40px 40px;
+            z-index: 0;
+        }
+
+        .brand-panel::after {
+            content: '';
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 120%; height: 120%;
+            background: radial-gradient(circle, rgba(37, 99, 235, 0.2) 0%, transparent 60%);
+            z-index: 0;
+        }
+
+        .brand-center-content {
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* --- Logo with Transparent Drop Shadow & Hover Animation --- */
+        .main-logo {
+            width: 160px; 
+            height: auto;
+            max-height: 160px;
+            object-fit: contain;
+            margin-bottom: 2rem;
+            /* Transparent background, shadow directly applied to image shape */
+            filter: drop-shadow(0 10px 15px rgba(0, 0, 0, 0.4));
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            cursor: pointer;
+        }
+
+        .main-logo:hover {
+            transform: translateY(-8px) scale(1.05);
+            filter: drop-shadow(0 20px 25px rgba(0, 0, 0, 0.6));
+        }
+
+        .sys-title {
+            font-size: 2rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            margin-bottom: 0.5rem;
+            color: #ffffff;
+            text-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+
+        .sys-company {
+            font-size: 1.15rem;
+            font-weight: 500;
+            color: #94a3b8;
+            letter-spacing: 0.5px;
+        }
+
+        .system-meta { 
+            position: absolute;
+            bottom: 2rem;
+            z-index: 1; 
+            font-size: 0.8rem; 
+            color: #64748b; 
+            font-weight: 500; 
+            text-transform: uppercase; 
+            letter-spacing: 1px; 
+        }
+
+        /* --- Right Side: Form Panel --- */
+        .form-panel {
+            width: 100%;
+            max-width: 600px;
+            background: #ffffff;
+            padding: 4rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            box-shadow: -15px 0 40px rgba(0, 0, 0, 0.05);
+            z-index: 10;
+            overflow-y: auto;
+        }
+
+        .form-container { width: 100%; max-width: 360px; margin: 0 auto; }
+
+        .auth-header { margin-bottom: 2.5rem; text-align: center; }
+        .auth-header h2 { font-size: 1.6rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.5rem; letter-spacing: -0.5px; }
+        .auth-header p { font-size: 0.95rem; color: var(--text-muted); margin: 0; }
+
+        /* --- Floating Label Animations --- */
+        .form-floating-custom {
+            position: relative;
+            margin-bottom: 1.5rem;
+        }
+
+        .form-floating-custom input {
+            width: 100%;
+            padding: 1.1rem 1rem 0.9rem 1rem;
+            font-size: 1rem;
+            font-family: 'Inter', sans-serif;
+            color: var(--text-main);
+            background-color: transparent;
+            border: 1.5px solid var(--border-color);
+            border-radius: 8px;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            box-sizing: border-box;
+        }
+
+        .form-floating-custom label {
+            position: absolute;
+            top: 50%;
+            left: 1rem;
+            transform: translateY(-50%);
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            pointer-events: none;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            background-color: #ffffff;
+            padding: 0 0.4rem;
+            margin: 0 -0.4rem; 
+        }
+
+        .form-floating-custom input:focus,
+        .form-floating-custom input:not(:placeholder-shown) {
+            border-color: var(--brand-primary);
+            box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
+        }
+
+        .form-floating-custom input:focus ~ label,
+        .form-floating-custom input:not(:placeholder-shown) ~ label {
+            top: 0;
+            transform: translateY(-50%) scale(0.85);
+            color: var(--brand-primary);
+            font-weight: 600;
+        }
+
+        /* --- Buttons --- */
+        .btn-corporate {
+            width: 100%;
+            padding: 0.9rem;
+            background-color: var(--brand-dark);
+            color: #ffffff;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .btn-corporate:hover { 
+            background-color: #1e293b; 
+            transform: translateY(-2px);
+            box-shadow: 0 6px 10px -2px rgba(0, 0, 0, 0.15);
+        }
+
+        .btn-text-only {
+            width: 100%;
+            padding: 0.85rem;
+            background: transparent;
+            color: var(--text-main);
+            border: 1.5px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-top: 1rem;
+        }
+        .btn-text-only:hover { background: var(--bg-light); border-color: #94a3b8; }
+
+        /* --- Utilities --- */
+        .divider { display: flex; align-items: center; text-align: center; margin: 1.5rem 0; color: #94a3b8; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;}
+        .divider::before, .divider::after { content: ''; flex: 1; border-bottom: 1px solid var(--border-color); }
+        .divider::before { margin-right: 1em; }
+        .divider::after { margin-left: 1em; }
         
-        .brand-section {
-            background: linear-gradient(135deg, #1d3a4d 0%, #2a617b 100%);
-            position: relative; overflow: hidden;
+        .alert-system { padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.85rem; margin-bottom: 1.5rem; display: flex; align-items: flex-start; gap: 10px; font-weight: 500; border-left: 4px solid transparent;}
+        .alert-error { background: var(--error-bg); color: var(--error-text); border-color: #fca5a5; border-left-color: var(--error-text); }
+        .alert-success { background: var(--success-bg); color: var(--success-text); border-color: #bbf7d0; border-left-color: var(--success-text); }
+
+        .auth-view { opacity: 0; animation: fadeIn 0.4s ease forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* --- Responsive Adjustments --- */
+        @media (max-width: 992px) {
+            .auth-wrapper { flex-direction: column; }
+            .brand-panel { flex: none; padding: 3rem 2rem; height: auto; justify-content: center; }
+            .main-logo { width: 120px; max-height: 120px; margin-bottom: 1rem; }
+            .sys-title { font-size: 1.5rem; }
+            .sys-company { font-size: 1rem; }
+            .system-meta { display: none; } 
+            .form-panel { max-width: 100%; padding: 3rem 2rem; flex: 1; }
         }
-        .brand-section::before {
-            content: ""; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
-            background: radial-gradient(circle, rgba(255,255,255,0.06) 10%, transparent 20%);
-            background-size: 25px 25px; opacity: 0.6; animation: moveBackground 60s linear infinite;
-        }
-        @keyframes moveBackground { 0% { transform: translate(0, 0); } 100% { transform: translate(50px, 50px); } }
-        .form-section { background-color: #ffffff; box-shadow: -15px 0 35px rgba(0, 0, 0, 0.04); z-index: 10; }
-        .custom-input-group { position: relative; margin-bottom: 2.2rem; }
-        .custom-input { width: 100%; border: none; border-bottom: 2px solid #e2e8f0; border-radius: 0; padding: 10px 40px; font-size: 1.05rem; background-color: transparent; transition: all 0.3s ease; color: #1e293b; }
-        .custom-input:focus { outline: none; border-bottom-color: #2a617b; box-shadow: none; }
-        .input-icon-left { position: absolute; left: 5px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 1.2rem; transition: color 0.3s ease; }
-        .custom-input:focus ~ .input-icon-left { color: #2a617b; }
-        
-        .btn-primary-custom {
-            background-color: #2a617b; color: #ffffff !important; border: none; border-radius: 8px; padding: 14px; font-size: 1rem; letter-spacing: 0.5px; transition: all 0.3s ease;
-        }
-        .btn-primary-custom:hover { background-color: #1d465a; transform: translateY(-2px); box-shadow: 0 6px 15px rgba(42, 97, 123, 0.3); }
-        .brand-logo-img { width: 120px; height: auto; filter: drop-shadow(0px 6px 12px rgba(0,0,0,0.25)); }
-        .code-input { padding-left: 0; text-align: center; letter-spacing: 8px; font-size: 2rem; color: #1e293b; }
     </style>
 </head>
 <body>
-    <div class="container-fluid h-100 p-0">
-        <div class="row g-0 h-100">
-            <div class="col-lg-7 col-md-6 d-none d-md-flex align-items-center justify-content-center brand-section">
-                <div class="text-center text-white px-5" style="z-index: 2;">
-                    <img src="assets/images/fixie_logo.png" alt="Fixie Logo" class="brand-logo-img mb-4">
-                    <h1 class="display-5 fw-bolder mb-3" style="letter-spacing: -0.5px;">Fixie Computer Ventures</h1>
-                    <p class="lead fw-light text-white-50" style="max-width: 500px; margin: 0 auto; font-size: 1.1rem;">
-                        Records Management System</p>
-                </div>
+
+    <div class="auth-wrapper">
+        
+        <!-- Left Side: Dynamic Branding -->
+        <div class="brand-panel">
+            <div class="brand-center-content">
+                <img src="assets/images/fixie_logo.png" alt="Fixie Logo" class="main-logo" onerror="this.style.display='none'">
+                <div class="sys-title">Record Management System</div>
+                <div class="sys-company">Fixie Computer Ventures</div>
             </div>
-            <div class="col-lg-5 col-md-6 d-flex align-items-center justify-content-center form-section fade-in">
-                <div class="w-100 px-4 px-xl-5" style="max-width: 450px;">
-                    <div class="text-center d-md-none mb-4">
-                        <img src="assets/images/fixie_logo.png" alt="Logo" style="width: 80px;">
-                        <h4 class="fw-bold mt-2 text-dark">Fixie DRMS</h4>
+
+            <div class="system-meta">
+                &copy; <?php echo date('Y'); ?> Fixie Computer Ventures<br>
+            </div>
+        </div>
+
+        <!-- Right Side: Form Authentication Panel -->
+        <div class="form-panel">
+            <div class="form-container">
+
+                <div class="auth-view">
+                    <div class="auth-header">
+                        <h2>Account Recovery</h2>
+                        <p>Enter your registered email to receive reset instructions.</p>
                     </div>
-                    <div class="mb-5">
-                        <h2 class="fw-bold text-dark mb-2">Account Recovery</h2>
-                        <p class="text-muted">
-                            <?php echo ($step == 1) ? "Enter your Username and registered Email address to receive a 6-digit reset code." : "Enter the 6-digit code sent to <b class='text-dark'>".htmlspecialchars($email)."</b>"; ?>
-                        </p>
-                    </div>
+
+                    <!-- Display Errors -->
                     <?php if(isset($_GET['error'])): ?>
-                        <div class="alert alert-danger d-flex align-items-center small shadow-sm rounded-3 mb-4" role="alert">
-                            <i class="fas fa-exclamation-circle me-2"></i>
-                            <div>
-                                <?php 
-                                if($_GET['error'] == 'AccountMismatch') echo "No matching account found with that Username and Email combination.";
-                                elseif($_GET['error'] == 'InvalidCode') echo "The code you entered is incorrect or expired.";
-                                elseif($_GET['error'] == 'EmailError') echo "Problem sending the code. Please try again.";
-                                else echo "An error occurred."; 
-                                ?>
-                            </div>
+                        <div class="alert-system alert-error">
+                            <i class="fas fa-exclamation-triangle mt-1"></i>
+                            <div><?php echo htmlspecialchars($_GET['error']); ?></div>
                         </div>
                     <?php endif; ?>
-                    <?php if($step == 1): ?>
-                        <form action="actions/request_handler.php" method="POST">
-                            <input type="hidden" name="action" value="request_forgot_password">
-                            <div class="custom-input-group">
-                                <input type="text" name="username" class="custom-input" placeholder="Username" required autocomplete="off">
-                                <i class="fas fa-user input-icon-left"></i>
-                            </div>
-                            <div class="custom-input-group mb-4">
-                                <input type="email" name="email" class="custom-input" placeholder="Registered Email Address" required autocomplete="off">
-                                <i class="fas fa-envelope input-icon-left"></i>
-                            </div>
-                            <button type="submit" class="btn w-100 btn-primary-custom fw-bold shadow-sm">
-                                Send Reset Code <i class="fas fa-paper-plane ms-2"></i>
-                            </button>
-                        </form>
-                    <?php else: ?>
-                        <form action="actions/request_handler.php" method="POST">
-                            <input type="hidden" name="action" value="verify_reset_code">
-                            <input type="hidden" name="email" value="<?php echo htmlspecialchars($email); ?>">
-                            <div class="custom-input-group mb-4">
-                                <input type="text" name="code" class="custom-input code-input fw-bold" placeholder="000000" maxlength="6" required autocomplete="off">
-                            </div>
-                            <button type="submit" class="btn w-100 btn-primary-custom fw-bold shadow-sm">
-                                Verify Code <i class="fas fa-check-circle ms-2"></i>
-                            </button>
-                        </form>
+
+                    <!-- Display Success -->
+                    <?php if(isset($_GET['success'])): ?>
+                        <div class="alert-system alert-success">
+                            <i class="fas fa-check-circle mt-1"></i>
+                            <div><?php echo htmlspecialchars($_GET['success']); ?></div>
+                        </div>
                     <?php endif; ?>
-                    <div class="text-center mt-3">
-                        <a href="index.php" class="text-decoration-none small fw-semibold" style="color: #2a617b;">
-                            <i class="fas fa-arrow-left me-1"></i> Back to Login
-                        </a>
-                    </div>
+
+                    <form action="actions/auth.php" method="POST">
+                        <input type="hidden" name="action" value="forgot_password"> <!-- Or base this on your PHP logic backend -->
+                        
+                        <!-- Floating Label for Email -->
+                        <div class="form-floating-custom mb-4">
+                            <input type="email" id="reset_email" name="email" placeholder=" " required autocomplete="email">
+                            <label for="reset_email">Registered Email Address</label>
+                        </div>
+
+                        <button type="submit" name="forgot_password" class="btn-corporate">
+                            <i class="fas fa-paper-plane"></i> Send Recovery Link
+                        </button>
+                    </form>
+
+                    <div class="divider">Remembered your password?</div>
+
+                    <a href="index.php" style="text-decoration: none;">
+                        <button type="button" class="btn-text-only">
+                            <i class="fas fa-arrow-left me-2"></i> Return to Login
+                        </button>
+                    </a>
                 </div>
+
             </div>
         </div>
     </div>
+
 </body>
 </html>
