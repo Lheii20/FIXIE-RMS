@@ -466,6 +466,64 @@
                 <div class="col-lg-4"><div class="corp-widget" style="height: 100%;"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-building text-info"></i> Top Brands Purchased</h6></div><div class="chart-box"><canvas id="procBrandChart"></canvas></div></div></div>
             </div>
 
+        <?php elseif ($_SESSION['role'] === 'Supply Chain'): ?>
+            <div class="row g-3 mb-3">
+                <div class="col-xl-3 col-md-6"><a href="po_list.php" class="text-decoration-none"><div class="kpi-corp-card accent-amber"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Ready for Delivery</p><h3 class="kpi-corp-value mt-1"><?php echo $sc_stats['ready_for_delivery']; ?></h3></div><div class="kpi-corp-icon bg-warning bg-opacity-10 text-warning"><i class="fas fa-truck-loading"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-warning" style="font-size: 5px;"></i> Funded orders in queue</div></div></a></div>
+                <div class="col-xl-3 col-md-6"><a href="po_list.php" class="text-decoration-none"><div class="kpi-corp-card accent-blue"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Delivered Orders</p><h3 class="kpi-corp-value mt-1"><?php echo $sc_stats['delivered']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-truck"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-primary" style="font-size: 5px;"></i> Delivery handoffs completed</div></div></a></div>
+                <div class="col-xl-3 col-md-6"><a href="po_list.php" class="text-decoration-none"><div class="kpi-corp-card accent-rose"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Awaiting Collection</p><h3 class="kpi-corp-value mt-1"><?php echo $sc_stats['awaiting_collection']; ?></h3></div><div class="kpi-corp-icon bg-danger bg-opacity-10 text-danger"><i class="fas fa-hand-holding-usd"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-danger" style="font-size: 5px;"></i> Handed over to Finance</div></div></a></div>
+                <div class="col-xl-3 col-md-6"><a href="po_list.php" class="text-decoration-none"><div class="kpi-corp-card accent-emerald"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Delivery Proofs Filed</p><h3 class="kpi-corp-value mt-1"><?php echo $sc_stats['delivery_proofs']; ?></h3></div><div class="kpi-corp-icon bg-success bg-opacity-10 text-success"><i class="fas fa-clipboard-check"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-success" style="font-size: 5px;"></i> Proof-of-delivery records</div></div></a></div>
+            </div>
+
+            <?php
+                $sc_insights = [];
+                $ready = $sc_stats['ready_for_delivery'];
+                $sc_insights[] = [
+                    'status' => $ready > 0 ? 'warning' : 'success', 'icon' => $ready > 0 ? 'fa-truck-loading' : 'fa-check-circle',
+                    'title' => $ready > 0 ? 'Delivery Action Required' : 'Delivery Queue Clear',
+                    'desc' => $ready > 0 ? "There are <strong>{$ready}</strong> funded order(s) ready for delivery. Review the assigned client and complete the delivery proof after handoff." : 'There are no funded orders waiting for Supply Chain action.'
+                ];
+                $handoff = $sc_stats['awaiting_collection'];
+                $sc_insights[] = [
+                    'status' => $handoff > 0 ? 'info' : 'success', 'icon' => 'fa-share-square',
+                    'title' => $handoff > 0 ? 'Finance Collection Handoff' : 'Collection Handoffs Complete',
+                    'desc' => $handoff > 0 ? "<strong>{$handoff}</strong> delivered order(s) are now awaiting Finance collection. Delivery responsibility has been completed for these records." : 'No delivered orders are currently awaiting collection handoff.'
+                ];
+                $proof_gap = max(0, $sc_stats['delivered'] - $sc_stats['delivery_proofs']);
+                $sc_insights[] = [
+                    'status' => $proof_gap > 0 ? 'danger' : 'success', 'icon' => $proof_gap > 0 ? 'fa-file-circle-exclamation' : 'fa-file-circle-check',
+                    'title' => $proof_gap > 0 ? 'Review Delivery Documentation' : 'Delivery Proof Coverage',
+                    'desc' => $proof_gap > 0 ? "Up to <strong>{$proof_gap}</strong> delivery record(s) may still need a proof-of-delivery file. Attach the signed receipt or acknowledgement before closing the handoff." : 'Every delivery in the selected period has a matching proof-of-delivery record.'
+                ];
+                $completed = $sc_stats['completed_collections'];
+                $sc_insights[] = [
+                    'status' => 'primary', 'icon' => 'fa-flag-checkered',
+                    'title' => 'Completed Fulfilment Cycle',
+                    'desc' => "<strong>{$completed}</strong> order(s) in the selected period have reached the Collected stage."
+                ];
+            ?>
+
+            <div class="row g-3 mb-3 align-items-stretch">
+                <div class="col-lg-8"><div class="corp-widget" style="height: 100%;"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-chart-line text-primary"></i> Delivery Completion Trend</h6></div><div class="chart-box"><canvas id="scDeliveryTrendChart"></canvas></div></div></div>
+                <div class="col-lg-4">
+                    <div class="corp-widget" style="height: 100%;">
+                        <div class="corp-widget-header mb-3"><h6 class="corp-widget-title text-dark"><i class="fas fa-lightbulb text-warning"></i> Supply Chain Insights</h6></div>
+                        <div class="dss-insights">
+                            <?php foreach($sc_insights as $i): ?>
+                                <div class="insight-card p-2 mb-2 rounded border-start border-4 border-<?php echo $i['status']; ?> bg-<?php echo $i['status']; ?> bg-opacity-10">
+                                    <div class="d-flex align-items-start gap-2"><div class="text-<?php echo $i['status']; ?> mt-1" style="width: 20px; text-align: center;"><i class="fas <?php echo $i['icon']; ?>"></i></div><div><span class="d-block fw-bold text-dark" style="font-size: 0.75rem;"><?php echo $i['title']; ?></span><span class="text-muted" style="font-size: 0.7rem; line-height: 1.35; display: block; margin-top: 2px;"><?php echo $i['desc']; ?></span></div></div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-3 mb-3 align-items-stretch">
+                <div class="col-lg-4"><div class="corp-widget" style="height: 100%;"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-chart-pie text-emerald"></i> Fulfilment Status</h6></div><div class="chart-box"><canvas id="scStatusChart"></canvas></div></div></div>
+                <div class="col-lg-4"><div class="corp-widget" style="height: 100%;"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-building text-info"></i> Delivery Volume by Client</h6></div><div class="chart-box"><canvas id="scClientChart"></canvas></div></div></div>
+                <div class="col-lg-4"><div class="corp-widget" style="height: 100%;"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-file-signature text-success"></i> Proof Coverage</h6></div><div class="chart-box"><canvas id="scProofChart"></canvas></div></div></div>
+            </div>
+
         <?php elseif ($_SESSION['role'] === 'Sales Staff'): ?>
             <div class="row g-3 mb-3">
                 <div class="col-xl-3 col-md-6"><a href="pr_list.php" class="text-decoration-none"><div class="kpi-corp-card accent-blue"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Total PR Generated</p><h3 class="kpi-corp-value mt-1"><?php echo $sales_stats['total']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-file-invoice"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-primary" style="font-size: 5px;"></i> All requests created</div></div></a></div>
@@ -597,6 +655,9 @@
     <?php if (isset($proc_charts) && !empty($proc_charts)): ?>
         <script>const procData = <?php echo json_encode($proc_charts); ?>;</script>
     <?php endif; ?>
+    <?php if (isset($sc_charts) && !empty($sc_charts)): ?>
+        <script>const scData = <?php echo json_encode($sc_charts); ?>;</script>
+    <?php endif; ?>
     <?php if (isset($sales_charts) && !empty($sales_charts)): ?>
         <script>const salesData = <?php echo json_encode($sales_charts); ?>;</script>
     <?php endif; ?>
@@ -605,6 +666,59 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script src="assets/js/dashboard.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            if (typeof scData === 'undefined' || typeof Chart === 'undefined') return;
+
+            const renderChart = function (id, config, hasData) {
+                const canvas = document.getElementById(id);
+                if (!canvas) return;
+                const container = canvas.parentElement;
+                if (!hasData) {
+                    canvas.style.display = 'none';
+                    if (!container.querySelector('.no-data-message')) {
+                        const message = document.createElement('div');
+                        message.className = 'no-data-message';
+                        message.innerHTML = '<i class="fas fa-inbox"></i><span>No records found for this period.</span>';
+                        container.appendChild(message);
+                    }
+                    return;
+                }
+                new Chart(canvas.getContext('2d'), config);
+            };
+
+            const trend = scData.delivery_trend || [];
+            renderChart('scDeliveryTrendChart', {
+                type: 'line',
+                data: {
+                    labels: trend.map(row => row.delivery_date),
+                    datasets: [{ label: 'Delivered Orders', data: trend.map(row => Number(row.total)), borderColor: '#2563eb', backgroundColor: 'rgba(37, 99, 235, 0.12)', borderWidth: 3, fill: true, tension: 0.4, pointBackgroundColor: '#fff', pointBorderColor: '#2563eb', pointBorderWidth: 2, pointRadius: 4 }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { precision: 0 }, grid: { borderDash: [4, 4], color: '#f1f5f9' } } } }
+            }, trend.length > 0);
+
+            const statuses = scData.status_dist || [];
+            renderChart('scStatusChart', {
+                type: 'doughnut',
+                data: { labels: statuses.map(row => row.status), datasets: [{ data: statuses.map(row => Number(row.total)), backgroundColor: ['#f59e0b', '#2563eb', '#8b5cf6', '#10b981'], borderWidth: 0 }] },
+                options: { responsive: true, maintainAspectRatio: false, cutout: '72%', plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 14 } } } }
+            }, statuses.length > 0);
+
+            const clients = scData.top_clients || [];
+            renderChart('scClientChart', {
+                type: 'bar',
+                data: { labels: clients.map(row => row.client_name), datasets: [{ label: 'Delivered Orders', data: clients.map(row => Number(row.total)), backgroundColor: '#0ea5e9', borderRadius: 6, barPercentage: 0.65 }] },
+                options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { precision: 0 }, grid: { borderDash: [4, 4], color: '#f1f5f9' } }, y: { grid: { display: false } } } }
+            }, clients.length > 0);
+
+            const proofs = scData.proof_coverage || [];
+            renderChart('scProofChart', {
+                type: 'doughnut',
+                data: { labels: proofs.map(row => row.label), datasets: [{ data: proofs.map(row => Number(row.total)), backgroundColor: ['#10b981', '#e2e8f0'], borderWidth: 0 }] },
+                options: { responsive: true, maintainAspectRatio: false, cutout: '72%', plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 14 } } } }
+            }, proofs.some(row => Number(row.total) > 0));
+        });
+    </script>
     
     <script>
         document.addEventListener('DOMContentLoaded', function() {

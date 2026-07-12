@@ -283,7 +283,8 @@ function process_workflow_action($conn, $po_id, $action_key, $user_id, $user_rol
 function create_detailed_quotation($conn, $data, $user_id) {
     $conn->begin_transaction();
     try {
-        $stmt = $conn->prepare("INSERT INTO quotations (quotation_number, client_name, amount, created_by, status) VALUES (?, ?, ?, ?, 'Pending PO')");
+        // A newly issued quotation remains in the client-approval queue until proof is submitted.
+        $stmt = $conn->prepare("INSERT INTO quotations (quotation_number, client_name, amount, created_by, status) VALUES (?, ?, ?, ?, 'Pending Approval')");
         $stmt->bind_param("ssdi", $data['quotation_number'], $data['client_name'], $data['grand_total'], $user_id);
         $stmt->execute();
         $new_q_id = $stmt->insert_id;
@@ -315,15 +316,29 @@ function create_detailed_quotation($conn, $data, $user_id) {
 }
 
 function receive_client_po($conn, $quotation_id, $client_po_number, $approval_mode, $po_file_path, $user_id) {
-    $stmt = $conn->prepare("UPDATE quotations SET client_po_number = ?, approval_mode = ?, po_file_path = ?, status = 'PO Received' WHERE quotation_id = ?");
+    /*
+     * Only quotations that are still awaiting a client decision can be approved.
+     * The WHERE clause prevents an accidental overwrite of an already approved
+     * or converted quotation when a form is submitted twice.
+     */
+    $stmt = $conn->prepare(
+        "UPDATE quotations
+         SET client_po_number = ?, approval_mode = ?, po_file_path = ?, status = 'PO Received'
+         WHERE quotation_id = ? AND status IN ('Pending Approval', 'Pending PO')"
+    );
     $stmt->bind_param("sssi", $client_po_number, $approval_mode, $po_file_path, $quotation_id);
-    
-    if ($stmt->execute()) {
-        $desc = "Logged approval ($approval_mode) for Quotation ID: $quotation_id";
-        $payload = ['client_po_number' => $client_po_number, 'approval_mode' => $approval_mode];
-        log_audit_action($conn, $user_id, 'RECEIVE_CLIENT_PO', $desc, null, $payload);
-        return true;
+
+    if (!$stmt->execute() || $stmt->affected_rows !== 1) {
+        return false;
     }
-    return false;
+
+    $desc = "Submitted client approval via $approval_mode for Quotation ID: $quotation_id";
+    $payload = [
+        'client_po_number' => $client_po_number,
+        'approval_mode' => $approval_mode,
+        'proof_file' => $po_file_path
+    ];
+    log_audit_action($conn, $user_id, 'SUBMIT_CLIENT_APPROVAL', $desc, null, $payload);
+    return true;
 }
 ?>

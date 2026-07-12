@@ -5,16 +5,13 @@ if(!isset($_SESSION['user_id'])) header("Location: index.php");
 
 $search = $_GET['search'] ?? '';
 
-// Valid filters using the updated 'Pending Approval' instead of 'Pending PO'
+// Database statuses are kept stable for the existing PR workflow.
 $valid_filters = ['all', 'Pending Approval', 'PO Received', 'Converted to PR'];
 
 // Catch old 'Pending PO' links to prevent breaking
 $filter = $_GET['filter'] ?? 'all';
 if ($filter === 'Pending PO') $filter = 'Pending Approval';
 if (!in_array($filter, $valid_filters)) $filter = 'all';
-
-// Auto-Patch database on load to ensure old records match the new terminology
-$conn->query("UPDATE quotations SET status = 'Pending Approval' WHERE status = 'Pending PO'");
 
 $sql = "SELECT * FROM quotations WHERE 1=1";
 $params = [];
@@ -318,8 +315,8 @@ $result = $stmt->get_result();
                 
                 <select name="filter" class="sleek-select" onchange="this.form.submit()">
                     <option value="all" <?php echo ($filter == 'all') ? 'selected' : ''; ?>>All Records</option>
-                    <option value="Pending Approval" <?php echo ($filter == 'Pending Approval') ? 'selected' : ''; ?>>Pending Approval</option>
-                    <option value="PO Received" <?php echo ($filter == 'PO Received') ? 'selected' : ''; ?>>PO Received</option>
+                    <option value="Pending Approval" <?php echo ($filter == 'Pending Approval') ? 'selected' : ''; ?>>Waiting for Client Approval</option>
+                    <option value="PO Received" <?php echo ($filter == 'PO Received') ? 'selected' : ''; ?>>Client Approved</option>
                     <option value="Converted to PR" <?php echo ($filter == 'Converted to PR') ? 'selected' : ''; ?>>Converted to PR</option>
                 </select>
 
@@ -372,16 +369,17 @@ $result = $stmt->get_result();
                         <tbody>
                             <?php if($result && $result->num_rows > 0): ?>
                                 <?php while($row = $result->fetch_assoc()): 
-                                    // Quotation Badge logic
+                                    // Friendly labels for the existing quotation workflow statuses.
                                     $s = $row['status'];
                                     $badge = 'bg-soft-warning';
                                     $icon = 'fa-clock';
+                                    $status_label = 'Waiting for Client Approval';
                                     
-                                    if($s == 'PO Received') { $badge = 'bg-soft-success'; $icon = 'fa-check-double'; }
-                                    elseif($s == 'Converted to PR') { $badge = 'bg-soft-primary'; $icon = 'fa-exchange-alt'; }
+                                    if($s == 'PO Received') { $badge = 'bg-soft-success'; $icon = 'fa-check-double'; $status_label = 'Client Approved'; }
+                                    elseif($s == 'Converted to PR') { $badge = 'bg-soft-primary'; $icon = 'fa-exchange-alt'; $status_label = 'Converted to PR'; }
                                     
-                                    // Robust data variables to prevent JS/HTML breakage
-                                    $q_id = htmlspecialchars($row['quotation_id'] ?? '');
+                                    // Escaped values for HTML output.
+                                    $q_id = (int)($row['quotation_id'] ?? 0);
                                     $q_num = htmlspecialchars($row['quotation_number'] ?? '');
                                     $c_name = htmlspecialchars($row['client_name'] ?? '');
                                     $amt = number_format((float)($row['amount'] ?? 0), 2);
@@ -389,8 +387,6 @@ $result = $stmt->get_result();
                                     $date_c = $row['created_at'] ? date('M d, Y', strtotime($row['created_at'])) : '--';
                                     $time_c = $row['created_at'] ? date('h:i A', strtotime($row['created_at'])) : '--';
                                     
-                                    // addslashes to prevent single quotes in client name from breaking Javascript
-                                    $js_qnum = addslashes($q_num);
                                 ?>
                                 <tr>
                                     <td class="ps-4">
@@ -416,7 +412,7 @@ $result = $stmt->get_result();
                                     </td>
                                     <td>
                                         <div class="badge-soft <?php echo $badge; ?>">
-                                            <i class="fas <?php echo $icon; ?>"></i> <?php echo htmlspecialchars($s); ?>
+                                            <i class="fas <?php echo $icon; ?>"></i> <?php echo htmlspecialchars($status_label); ?>
                                         </div>
                                     </td>
                                     <td>
@@ -428,9 +424,8 @@ $result = $stmt->get_result();
                                             <?php if ($_SESSION['role'] === 'Sales Staff'): ?>
                                                 
                                                 <?php if ($s === 'Pending Approval' || $s === 'Pending PO'): ?>
-                                                    <!-- Receive Client Approval Action (Safe Escaped JS String) -->
-                                                    <button type="button" class="btn-quick-act btn-quick-outline" onclick="openReceivePoModal('<?php echo $q_id; ?>', '<?php echo $js_qnum; ?>')">
-                                                        <i class="fas fa-paperclip me-1"></i> Log Approval
+                                                    <button type="button" class="btn-quick-act btn-quick-outline submit-approval-btn" data-quotation-id="<?php echo $q_id; ?>" data-quotation-number="<?php echo htmlspecialchars($row['quotation_number'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
+                                                        <i class="fas fa-file-signature me-1"></i> Submit Approval
                                                     </button>
                                                 <?php endif; ?>
 
@@ -459,7 +454,7 @@ $result = $stmt->get_result();
         </div>
     </div>
 
-    <!-- Premium Confirmation Modal for Uploading/Receiving Client PO -->
+    <!-- Client approval submission modal -->
     <div class="modal fade" id="receivePoModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content p-1 border-0" style="border-radius: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);">
@@ -470,8 +465,8 @@ $result = $stmt->get_result();
                             <div class="mb-3 mx-auto d-flex align-items-center justify-content-center bg-soft-success text-success" style="width: 56px; height: 56px; border-radius: 16px;">
                                 <i class="fas fa-file-signature fs-4"></i>
                             </div>
-                            <h5 class="fw-bold text-dark mb-1" style="letter-spacing: -0.5px;">Log Client Approval</h5>
-                            <p class="text-muted mb-0" style="font-size: 0.85rem;">Attach proof of approval for <strong id="modalQuoteNumber" class="text-primary"></strong>.</p>
+                            <h5 class="fw-bold text-dark mb-1" style="letter-spacing: -0.5px;">Submit Client Approval</h5>
+                            <p class="text-muted mb-0" style="font-size: 0.85rem;">Record the client confirmation for <strong id="modalQuoteNumber" class="text-primary"></strong>.</p>
                         </div>
                     </div>
                     
@@ -480,15 +475,22 @@ $result = $stmt->get_result();
                         <input type="hidden" name="action" value="receive_po">
                         <input type="hidden" name="quotation_id" id="modalQuotationId" value="">
                         
-                        <!-- Mode of Approval Select -->
+                        <div class="d-flex align-items-start gap-2 p-3 mb-4 rounded-3" style="background: #f8fafc; border: 1px solid #e2e8f0;">
+                            <i class="fas fa-shield-alt text-primary mt-1"></i>
+                            <small class="text-muted">Attach a clear proof of the client’s approval. The quotation will become <strong class="text-success">Client Approved</strong> after submission.</small>
+                        </div>
+
                         <div class="mb-4 text-start">
                             <label class="form-label fw-bold" style="font-size: 0.75rem; text-transform: uppercase; color: #475569; letter-spacing: 0.5px;">Mode of Approval <span class="text-danger">*</span></label>
                             <select name="approval_mode" class="form-select form-select-lg sleek-select w-100" required style="border-radius: 12px; font-size: 0.95rem; background-color: #f8fafc; border: 1px solid #cbd5e1;">
-                                <option value="" disabled selected>Select how the client approved...</option>
+                                <option value="" disabled selected>Select the approval channel...</option>
+                                <option value="Messenger Chat">Messenger Chat</option>
+                                <option value="Viber / WhatsApp Chat">Viber / WhatsApp Chat</option>
                                 <option value="Email Confirmation">Email Confirmation</option>
-                                <option value="Chat/Viber Agreement">Chat / Viber Agreement</option>
-                                <option value="Signed Physical Document">Signed Physical Document</option>
-                                <option value="Official Client PO">Official Client PO Document</option>
+                                <option value="Signed Quotation">Signed Quotation</option>
+                                <option value="Official Client PO">Official Client PO</option>
+                                <option value="In-Person Confirmation">In-Person Confirmation</option>
+                                <option value="Other Written Confirmation">Other Written Confirmation</option>
                             </select>
                         </div>
 
@@ -496,17 +498,18 @@ $result = $stmt->get_result();
                         <div class="mb-4 text-start">
                             <label class="form-label fw-bold" style="font-size: 0.75rem; text-transform: uppercase; color: #475569; letter-spacing: 0.5px;">Proof of Approval <span class="text-danger">*</span></label>
                             <div class="position-relative">
-                                <input type="file" name="po_file" class="form-control form-control-lg" accept=".pdf,.png,.jpg,.jpeg" required style="border-radius: 12px; font-size: 0.9rem; border: 2px dashed #cbd5e1; background: #f8fafc; padding: 1rem 1rem 1rem 3rem;">
+                                <input type="file" name="po_file" id="approvalProofFile" class="form-control form-control-lg" accept=".pdf,.png,.jpg,.jpeg" required style="border-radius: 12px; font-size: 0.9rem; border: 2px dashed #cbd5e1; background: #f8fafc; padding: 1rem 1rem 1rem 3rem;">
                                 <i class="fas fa-cloud-upload-alt position-absolute" style="left: 1.2rem; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 1.2rem;"></i>
                             </div>
-                            <div class="form-text mt-2" style="font-size: 0.75rem; color: #64748b;">
-                                <i class="fas fa-info-circle text-primary me-1"></i> Acceptable formats: PDF, JPG, PNG (Max: 10MB)
+                            <div class="form-text mt-2 d-flex justify-content-between gap-2" style="font-size: 0.75rem; color: #64748b;">
+                                <span><i class="fas fa-info-circle text-primary me-1"></i> PDF, JPG, or PNG only (max. 10 MB)</span>
+                                <span id="selectedProofName" class="text-truncate"></span>
                             </div>
                         </div>
                         
                         <div class="d-flex gap-2 pt-2">
                             <button type="button" class="btn btn-light w-50 py-2" data-bs-dismiss="modal" style="border-radius: 12px; font-weight: 600; color: #475569; border: 1px solid #e2e8f0; font-size: 0.9rem;">Cancel</button>
-                            <button type="submit" class="btn btn-success w-50 text-white py-2" style="border-radius: 12px; font-weight: 600; background: #10b981; border: none; box-shadow: 0 4px 12px rgba(16,185,129,0.2); font-size: 0.9rem;">Confirm & Save</button>
+                            <button type="submit" class="btn btn-success w-50 text-white py-2" style="border-radius: 12px; font-weight: 600; background: #10b981; border: none; box-shadow: 0 4px 12px rgba(16,185,129,0.2); font-size: 0.9rem;">Submit Approval</button>
                         </div>
                     </div>
                 </form>
@@ -593,10 +596,24 @@ $result = $stmt->get_result();
         function openReceivePoModal(quotationId, quotationNumber) {
             document.getElementById('modalQuotationId').value = quotationId;
             document.getElementById('modalQuoteNumber').innerText = quotationNumber;
+            document.getElementById('approvalProofFile').value = '';
+            document.getElementById('selectedProofName').innerText = '';
             
             var myModal = new bootstrap.Modal(document.getElementById('receivePoModal'));
             myModal.show();
         }
+
+        document.addEventListener('click', function (event) {
+            const button = event.target.closest('.submit-approval-btn');
+            if (!button) return;
+            openReceivePoModal(button.dataset.quotationId, button.dataset.quotationNumber);
+        });
+
+        document.getElementById('approvalProofFile').addEventListener('change', function () {
+            const file = this.files[0];
+            const selectedName = document.getElementById('selectedProofName');
+            selectedName.innerText = file ? file.name : '';
+        });
     </script>
 </body>
 </html>

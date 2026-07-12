@@ -33,6 +33,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 
     if ($action == 'create') {
+        if ($_SESSION['role'] !== 'Procurement') {
+            header("Location: ../po_list.php?error=Only Procurement can create a Purchase Order.");
+            exit();
+        }
+
         $client_name = trim($_POST['client_name']);
         $items = $_POST['items'] ?? [];
         $pr_id = isset($_POST['pr_id']) && !empty($_POST['pr_id']) ? intval($_POST['pr_id']) : null;
@@ -86,27 +91,28 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
             $po_number = $po_prefix . str_pad($next_po_num, 4, "0", STR_PAD_LEFT);
 
-            // 2. GENERATE QUOTATION NUMBER (Gamit din ang FOR UPDATE lock)
-            $base_category = '01'; 
-            if (!empty($items) && isset($items[0]['category'])) {
-                $base_category = $items[0]['category']; 
-            }
+            // 2. Preserve the real source quotation. A PO must never invent a new quotation number.
+            $quotation_number = 'Manual PO';
+            if ($pr_id) {
+                $pr_stmt = $conn->prepare(
+                    "SELECT pr.pr_number, pr.client_name, pr.quotation_id, q.quotation_number AS source_quotation_number
+                     FROM purchase_requests pr
+                     LEFT JOIN quotations q ON q.quotation_id = pr.quotation_id
+                     WHERE pr.pr_id = ? AND pr.status = 'Approved' FOR UPDATE"
+                );
+                $pr_stmt->bind_param("i", $pr_id);
+                $pr_stmt->execute();
+                $source_pr = $pr_stmt->get_result()->fetch_assoc();
 
-            $qt_stmt = $conn->query("SELECT quotation_number FROM purchase_orders ORDER BY po_id DESC LIMIT 1 FOR UPDATE");
-            $next_qt_num = 1;
-
-            if($qt_stmt && $qt_stmt->num_rows > 0) {
-                $last_qt = $qt_stmt->fetch_assoc()['quotation_number'];
-                $parts = explode(' ', $last_qt);
-                if(isset($parts[0])) {
-                    $cat_seq = explode('-', $parts[0]);
-                    if(isset($cat_seq[1])) {
-                        $next_qt_num = intval($cat_seq[1]) + 1;
-                    }
+                if (!$source_pr) {
+                    throw new Exception('Only an approved Purchase Request can be converted to a PO.');
                 }
+
+                $client_name = $source_pr['client_name'];
+                $quotation_number = !empty($source_pr['source_quotation_number'])
+                    ? $source_pr['source_quotation_number']
+                    : 'PR ' . $source_pr['pr_number'];
             }
-            $padded_qt_num = str_pad($next_qt_num, 4, "0", STR_PAD_LEFT);
-            $quotation_number = $base_category . "-" . $padded_qt_num . " " . $client_name;
 
             // 3. EXECUTE MAIN PO INSERT
             $status = 'Pending';
@@ -119,7 +125,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
             // 4. PROCESS PR AND LINE ITEMS
             if ($pr_id) {
-                $conn->query("UPDATE purchase_requests SET status = 'Converted_to_PO' WHERE pr_id = $pr_id");
+                $pr_update = $conn->prepare("UPDATE purchase_requests SET status = 'Converted_to_PO' WHERE pr_id = ? AND status = 'Approved'");
+                $pr_update->bind_param("i", $pr_id);
+                $pr_update->execute();
+                if ($pr_update->affected_rows !== 1) {
+                    throw new Exception('The Purchase Request was already processed.');
+                }
             }
 
             if (!empty($items)) {
@@ -180,143 +191,217 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 
     $workflow_actions = ['approve_gm', 'approve_finance', 'approve_president', 'mark_funded', 'mark_delivered', 'reject', 'add_payment'];
-    
-    if (in_array($action, $workflow_actions)) {
-        $po_id = intval($_POST['po_id']);
-        
-        $fetch_po = $conn->prepare("SELECT po_number FROM purchase_orders WHERE po_id = ?");
-        $fetch_po->bind_param("i", $po_id);
-        $fetch_po->execute();
-        $po_res = $fetch_po->get_result();
-        $actual_po_number = ($po_res->num_rows > 0) ? $po_res->fetch_assoc()['po_number'] : $po_id;
-        $fetch_po->close();
 
-        if ($action == 'reject') {
-            if (!in_array($_SESSION['role'], ['GM', 'Finance', 'President'])) {
-                die("Unauthorized Action: Only approvers can reject a Purchase Order.");
-            }
-
-            $remarks = isset($_POST['remarks']) ? trim($_POST['remarks']) : '';
-
-            // =================================================================================
-            // AUTO-PATCH: Siguraduhing may "remarks" column ang tables
-            // =================================================================================
-            $check_col = $conn->query("SHOW COLUMNS FROM purchase_orders LIKE 'remarks'");
-            if ($check_col && $check_col->num_rows == 0) {
-                $conn->query("ALTER TABLE purchase_orders ADD COLUMN remarks TEXT NULL");
-            }
-            
-            $check_hist_col = $conn->query("SHOW COLUMNS FROM po_history LIKE 'remarks'");
-            if ($check_hist_col && $check_hist_col->num_rows == 0) {
-                $conn->query("ALTER TABLE po_history ADD COLUMN remarks TEXT NULL");
-            }
-
-            // Kunin yung existing status bago siya gawing Rejected
-            $stmt_old = $conn->prepare("SELECT status FROM purchase_orders WHERE po_id = ?");
-            $stmt_old->bind_param("i", $po_id);
-            $stmt_old->execute();
-            $old_status = $stmt_old->get_result()->fetch_assoc()['status'] ?? 'Pending';
-
-            $update = $conn->prepare("UPDATE purchase_orders SET status = 'Rejected', current_location = 'Voided', remarks = ? WHERE po_id = ?");
-            $update->bind_param("si", $remarks, $po_id);
-            if($update->execute()) {
-                $hist = $conn->prepare("INSERT INTO po_history (po_id, changed_by, status_from, status_to, remarks) VALUES (?, ?, ?, 'Rejected', ?)");
-                $hist->bind_param("iiss", $po_id, $user_id, $old_status, $remarks);
-                $hist->execute();
-                
-                log_audit_action($conn, $user_id, 'REJECT_PO', "Rejected PO ID: $po_id ($actual_po_number). Reason: $remarks");
-            }
-            header("Location: ../view_po.php?id=$po_id&success=PO Rejected");
+    if (in_array($action, $workflow_actions, true)) {
+        $po_id = intval($_POST['po_id'] ?? 0);
+        if ($po_id < 1) {
+            header("Location: ../po_list.php?error=Invalid Purchase Order.");
             exit();
         }
 
-        $new_status = "";
-        $new_loc = "";
-        $notif_role = "";
-        $notif_msg = "";
-
-        if ($action == 'approve_gm' && $_SESSION['role'] == 'GM') {
-            $new_status = 'GM-Approved';
-            $new_loc = 'Finance Dept.';
-            $notif_role = 'Finance';
-            $notif_msg = "New PO Requires Validation: PO #$po_id";
-        } elseif ($action == 'approve_finance' && $_SESSION['role'] == 'Finance') {
-            $new_status = 'Finance-Approved';
-            $new_loc = 'Office of the President';
-            $notif_role = 'President';
-            $notif_msg = "New PO Requires Sign-off: PO #$po_id";
-        } elseif ($action == 'approve_president' && $_SESSION['role'] == 'President') {
-            $new_status = 'President-Approved';
-            $new_loc = 'Finance Dept.';
-            $notif_role = 'Finance';
-            $notif_msg = "PO Approved by President. Ready for Funding: PO #$po_id";
-        } elseif ($action == 'mark_funded' && $_SESSION['role'] == 'Finance') {
-            $new_status = 'Funded';
-            $new_loc = 'Supply Chain Dept.';
-            $notif_role = 'Supply Chain';
-            $notif_msg = "PO Funded. Ready for Delivery: PO #$po_id";
-        } elseif ($action == 'mark_delivered' && $_SESSION['role'] == 'Supply Chain') {
-            $new_status = 'Delivered';
-            $new_loc = 'Finance Dept. (Collection)';
-            $notif_role = 'Finance';
-            $notif_msg = "PO Delivered. Awaiting Collection: PO #$po_id";
-        }
-
-        if ($new_status != "") {
-            $stmt = $conn->prepare("SELECT status FROM purchase_orders WHERE po_id = ?");
-            $stmt->bind_param("i", $po_id);
-            $stmt->execute();
-            $old_status = $stmt->get_result()->fetch_assoc()['status'];
-
-            $update = $conn->prepare("UPDATE purchase_orders SET status = ?, current_location = ?, is_viewed = 0 WHERE po_id = ?");
-            $update->bind_param("ssi", $new_status, $new_loc, $po_id);
-            if ($update->execute()) {
-                $hist = $conn->prepare("INSERT INTO po_history (po_id, changed_by, status_from, status_to) VALUES (?, ?, ?, ?)");
-                $hist->bind_param("iiss", $po_id, $user_id, $old_status, $new_status);
-                $hist->execute();
-
-                if ($notif_role != "") {
-                    $conn->query("INSERT INTO notifications (target_role, message) VALUES ('$notif_role', '$notif_msg')");
-                }
-                
-                log_audit_action($conn, $user_id, 'APPROVE_PO', "Advanced PO $actual_po_number to $new_status");
-            }
-            header("Location: ../view_po.php?id=$po_id&success=PO Updated Successfully");
-            exit();
-        }
-        
-        if ($action == 'add_payment') {
-            if ($_SESSION['role'] != 'Finance') {
-                header("Location: ../view_po.php?id=$po_id&error=Unauthorized: Only Finance can add payments");
+        // Payment is handled separately because it has financial validation and evidence requirements.
+        if ($action === 'add_payment') {
+            if ($_SESSION['role'] !== 'Finance') {
+                header("Location: ../view_po.php?id=$po_id&error=Only Finance can record payments.");
                 exit();
             }
 
-            $amount_paid = floatval($_POST['amount_paid']);
-            $payment_date = $_POST['payment_date'];
-            $notes = $_POST['payment_notes'] ?? '';
-            
-            $stmt = $conn->prepare("INSERT INTO payments (po_id, amount_paid, payment_date, notes) VALUES (?, ?, ?, ?)");
-            $stmt->bind_param("idss", $po_id, $amount_paid, $payment_date, $notes);
-            
-            if($stmt->execute()) {
-                $check = $conn->query("SELECT amount, (SELECT SUM(amount_paid) FROM payments WHERE po_id = purchase_orders.po_id) as paid FROM purchase_orders WHERE po_id = $po_id")->fetch_assoc();
-                $balance = $check['amount'] - $check['paid'];
-                
-                $new_status = ($balance <= 1.00) ? 'Collected' : 'Partially-Collected';
-                
-                $update_po = $conn->prepare("UPDATE purchase_orders SET status = ?, current_location = 'Finance Dept. (Collection)' WHERE po_id = ?");
-                $update_po->bind_param("si", $new_status, $po_id);
-                $update_po->execute();
-                
-                log_audit_action($conn, $user_id, 'ADD_PAYMENT', "Added payment of P$amount_paid to PO $actual_po_number");
+            $amount_paid = round((float) ($_POST['amount_paid'] ?? 0), 2);
+            $payment_method = trim($_POST['payment_method'] ?? '');
+            $reference_number = trim($_POST['reference_number'] ?? '');
+            $payment_date_input = trim($_POST['payment_date'] ?? '');
+            $allowed_methods = ['Cash', 'Bank Transfer', 'GCash', 'Cheque', 'Other'];
+            $payment_date = DateTime::createFromFormat('Y-m-d\\TH:i', $payment_date_input);
+
+            if ($amount_paid <= 0 || !in_array($payment_method, $allowed_methods, true) || $reference_number === '' || strlen($reference_number) > 100 || !$payment_date || $payment_date->format('Y-m-d\\TH:i') !== $payment_date_input || $payment_date > new DateTime()) {
+                header("Location: ../view_po.php?id=$po_id&error=Enter a valid amount, payment method, reference number, and non-future payment date.");
+                exit();
+            }
+
+            if (!isset($_FILES['payment_proof']) || $_FILES['payment_proof']['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES['payment_proof']['tmp_name'])) {
+                header("Location: ../view_po.php?id=$po_id&error=Payment proof is required.");
+                exit();
+            }
+
+            $proof = $_FILES['payment_proof'];
+            $proof_ext = strtolower(pathinfo($proof['name'], PATHINFO_EXTENSION));
+            $allowed_proofs = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png'];
+            $proof_mime = (new finfo(FILEINFO_MIME_TYPE))->file($proof['tmp_name']);
+            if ($proof['size'] < 1 || $proof['size'] > 10 * 1024 * 1024 || !isset($allowed_proofs[$proof_ext]) || $proof_mime !== $allowed_proofs[$proof_ext]) {
+                header("Location: ../view_po.php?id=$po_id&error=Payment proof must be a valid PDF, JPG, or PNG file up to 10 MB.");
+                exit();
+            }
+
+            $payment_dir = __DIR__ . '/../uploads/payments/';
+            $proof_file_path = null;
+
+            try {
+                if (!is_dir($payment_dir) && !mkdir($payment_dir, 0755, true) && !is_dir($payment_dir)) {
+                    throw new Exception('Unable to create the payment-proof folder.');
+                }
+
+                $conn->begin_transaction();
+                $po_stmt = $conn->prepare("SELECT po_number, amount, status FROM purchase_orders WHERE po_id = ? FOR UPDATE");
+                $po_stmt->bind_param("i", $po_id);
+                $po_stmt->execute();
+                $po = $po_stmt->get_result()->fetch_assoc();
+
+                if (!$po || !in_array($po['status'], ['Delivered', 'Partially-Collected'], true)) {
+                    throw new Exception('Payments can only be recorded after delivery.');
+                }
+
+                $paid_stmt = $conn->prepare("SELECT COALESCE(SUM(amount_paid), 0) AS total_paid FROM payments WHERE po_id = ?");
+                $paid_stmt->bind_param("i", $po_id);
+                $paid_stmt->execute();
+                $total_paid = (float) $paid_stmt->get_result()->fetch_assoc()['total_paid'];
+                $balance = round((float) $po['amount'] - $total_paid, 2);
+
+                if ($balance <= 0.01 || $amount_paid > $balance + 0.01) {
+                    throw new Exception('The payment amount cannot exceed the remaining balance.');
+                }
+
+                $proof_file_path = time() . '_payment_' . bin2hex(random_bytes(8)) . '.' . $proof_ext;
+                if (!move_uploaded_file($proof['tmp_name'], $payment_dir . $proof_file_path)) {
+                    throw new Exception('The payment proof could not be saved.');
+                }
+
+                $payment_datetime = $payment_date->format('Y-m-d H:i:s');
+                $notes = $amount_paid >= $balance - 0.01 ? 'Full Payment' : 'Partial Payment';
+                $payment_stmt = $conn->prepare("INSERT INTO payments (po_id, amount_paid, payment_date, notes, recorded_by, payment_method, reference_number, proof_file_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                $payment_stmt->bind_param("idssisss", $po_id, $amount_paid, $payment_datetime, $notes, $user_id, $payment_method, $reference_number, $proof_file_path);
+                $payment_stmt->execute();
+
+                $new_balance = round($balance - $amount_paid, 2);
+                $new_status = $new_balance <= 0.01 ? 'Collected' : 'Partially-Collected';
+                $po_update = $conn->prepare("UPDATE purchase_orders SET status = ?, current_location = 'Finance Dept. (Collection)' WHERE po_id = ? AND status = ?");
+                $po_update->bind_param("sis", $new_status, $po_id, $po['status']);
+                $po_update->execute();
+                if ($po_update->affected_rows !== 1) {
+                    throw new Exception('The PO status changed before the payment could be saved.');
+                }
+
+                log_audit_action($conn, $user_id, 'ADD_PAYMENT', "Recorded $notes of P$amount_paid for PO {$po['po_number']}", ['status' => $po['status']], ['status' => $new_status, 'reference_number' => $reference_number]);
+                $conn->commit();
                 header("Location: ../view_po.php?id=$po_id&success=Payment Successfully Recorded");
-            } else {
-                header("Location: ../view_po.php?id=$po_id&error=DatabaseError");
+            } catch (Exception $e) {
+                $conn->rollback();
+                if ($proof_file_path && is_file($payment_dir . $proof_file_path)) {
+                    unlink($payment_dir . $proof_file_path);
+                }
+                header("Location: ../view_po.php?id=$po_id&error=" . rawurlencode($e->getMessage()));
             }
             exit();
         }
-        
-        header("Location: ../view_po.php?id=$po_id&error=Action not processed or unauthorized.");
+
+        $delivery_proof = null;
+        $delivery_proof_ext = null;
+        $delivery_stored_path = null;
+        if ($action === 'mark_delivered') {
+            if (!isset($_FILES['delivery_proof']) || $_FILES['delivery_proof']['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES['delivery_proof']['tmp_name'])) {
+                header("Location: ../view_po.php?id=$po_id&error=Proof of delivery is required before marking this PO as delivered.");
+                exit();
+            }
+            $delivery_proof = $_FILES['delivery_proof'];
+            $delivery_proof_ext = strtolower(pathinfo($delivery_proof['name'], PATHINFO_EXTENSION));
+            $allowed_delivery_proofs = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png'];
+            $delivery_mime = (new finfo(FILEINFO_MIME_TYPE))->file($delivery_proof['tmp_name']);
+            if ($delivery_proof['size'] < 1 || $delivery_proof['size'] > 10 * 1024 * 1024 || !isset($allowed_delivery_proofs[$delivery_proof_ext]) || $delivery_mime !== $allowed_delivery_proofs[$delivery_proof_ext]) {
+                header("Location: ../view_po.php?id=$po_id&error=Delivery proof must be a valid PDF, JPG, or PNG file up to 10 MB.");
+                exit();
+            }
+        }
+
+        // Every approval/rejection must match a rule for both the current status and the logged-in role.
+        try {
+            $conn->begin_transaction();
+            $po_stmt = $conn->prepare("SELECT po_number, status FROM purchase_orders WHERE po_id = ? FOR UPDATE");
+            $po_stmt->bind_param("i", $po_id);
+            $po_stmt->execute();
+            $po = $po_stmt->get_result()->fetch_assoc();
+            if (!$po) {
+                throw new Exception('Purchase Order not found.');
+            }
+
+            $rule_stmt = $conn->prepare("SELECT next_status, notify_target FROM workflow_rules WHERE current_status = ? AND action_key = ? AND required_role = ? LIMIT 1");
+            $rule_stmt->bind_param("sss", $po['status'], $action, $_SESSION['role']);
+            $rule_stmt->execute();
+            $rule = $rule_stmt->get_result()->fetch_assoc();
+            if (!$rule) {
+                throw new Exception('This action is not allowed for your role at the current PO status.');
+            }
+
+            if ($action === 'mark_delivered') {
+                $upload_dir = __DIR__ . '/../uploads/';
+                if (!is_dir($upload_dir) && !mkdir($upload_dir, 0755, true) && !is_dir($upload_dir)) {
+                    throw new Exception('Unable to create the delivery-proof folder.');
+                }
+                $delivery_file_name = time() . '_delivery_' . bin2hex(random_bytes(8)) . '.' . $delivery_proof_ext;
+                $delivery_stored_path = $upload_dir . $delivery_file_name;
+                if (!move_uploaded_file($delivery_proof['tmp_name'], $delivery_stored_path)) {
+                    throw new Exception('The proof of delivery could not be saved.');
+                }
+
+                $delivery_hash = hash_file('sha256', $delivery_stored_path);
+                $doc_type = 'Proof of Delivery';
+                $db_delivery_path = 'uploads/' . $delivery_file_name;
+                $delivery_doc_stmt = $conn->prepare("INSERT INTO documents (po_id, doc_type, file_name, file_path, file_hash, uploaded_by, status) VALUES (?, ?, ?, ?, ?, ?, 'Active')");
+                $delivery_doc_stmt->bind_param("issssi", $po_id, $doc_type, $delivery_file_name, $db_delivery_path, $delivery_hash, $user_id);
+                $delivery_doc_stmt->execute();
+            }
+
+            $location_map = [
+                'approve_gm' => 'Finance Dept.',
+                'approve_finance' => 'Office of the President',
+                'approve_president' => 'Finance Dept.',
+                'mark_funded' => 'Supply Chain Dept.',
+                'mark_delivered' => 'Finance Dept. (Collection)',
+                'reject' => 'Voided'
+            ];
+            $new_status = $rule['next_status'];
+            $new_location = $location_map[$action] ?? $po['status'];
+            $remarks = trim($_POST['remarks'] ?? '');
+
+            if ($action === 'reject' && $remarks === '') {
+                throw new Exception('A rejection reason is required.');
+            }
+
+            if ($action === 'reject') {
+                $update = $conn->prepare("UPDATE purchase_orders SET status = ?, current_location = ?, remarks = ?, is_viewed = 0 WHERE po_id = ? AND status = ?");
+                $update->bind_param("sssis", $new_status, $new_location, $remarks, $po_id, $po['status']);
+            } elseif ($action === 'mark_delivered') {
+                $update = $conn->prepare("UPDATE purchase_orders SET status = ?, current_location = ?, actual_delivery_date = NOW(), expected_collection_date = DATE_ADD(NOW(), INTERVAL 30 DAY), is_viewed = 0 WHERE po_id = ? AND status = ?");
+                $update->bind_param("ssis", $new_status, $new_location, $po_id, $po['status']);
+            } else {
+                $update = $conn->prepare("UPDATE purchase_orders SET status = ?, current_location = ?, is_viewed = 0 WHERE po_id = ? AND status = ?");
+                $update->bind_param("ssis", $new_status, $new_location, $po_id, $po['status']);
+            }
+            $update->execute();
+            if ($update->affected_rows !== 1) {
+                throw new Exception('The PO status changed before the action could be saved.');
+            }
+
+            $history_stmt = $conn->prepare("INSERT INTO po_history (po_id, changed_by, status_from, status_to, remarks) VALUES (?, ?, ?, ?, ?)");
+            $history_stmt->bind_param("iisss", $po_id, $user_id, $po['status'], $new_status, $remarks);
+            $history_stmt->execute();
+
+            if (!empty($rule['notify_target'])) {
+                $notification = "PO {$po['po_number']} is now $new_status.";
+                $notify_stmt = $conn->prepare("INSERT INTO notifications (target_role, message) VALUES (?, ?)");
+                $notify_stmt->bind_param("ss", $rule['notify_target'], $notification);
+                $notify_stmt->execute();
+            }
+
+            $audit_action = $action === 'reject' ? 'REJECT_PO' : 'WORKFLOW_ACTION';
+            log_audit_action($conn, $user_id, $audit_action, "PO {$po['po_number']}: {$po['status']} to $new_status", ['status' => $po['status']], ['status' => $new_status, 'remarks' => $remarks]);
+            $conn->commit();
+            header("Location: ../view_po.php?id=$po_id&success=PO Updated Successfully");
+        } catch (Exception $e) {
+            $conn->rollback();
+            if ($delivery_stored_path && is_file($delivery_stored_path)) {
+                unlink($delivery_stored_path);
+            }
+            header("Location: ../view_po.php?id=$po_id&error=" . rawurlencode($e->getMessage()));
+        }
         exit();
     }
 

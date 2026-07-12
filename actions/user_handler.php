@@ -41,6 +41,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         die("Security Violation: Only the main Administrator can manage users.");
     }
 
+    // Keep every user-management action aligned with the users.role ENUM and workflow roles.
+    $allowed_roles = ['Admin', 'President', 'GM', 'Finance', 'Procurement', 'Supply Chain', 'Sales Staff'];
+
     // ===============================================
     // UPDATE USER PERMISSIONS (RBAC)
     // ===============================================
@@ -80,7 +83,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $fullname = trim($_POST['full_name']);
         $username = trim($_POST['username']);
         $email = trim($_POST['email']);
-        $role = $_POST['role'];
+        $role = $_POST['role'] ?? '';
+
+        if (!in_array($role, $allowed_roles, true)) {
+            header("Location: ../admin_users.php?error=InvalidRole");
+            exit();
+        }
 
         $check = $conn->prepare("SELECT user_id FROM users WHERE username = ? OR email = ?");
         $check->bind_param("ss", $username, $email);
@@ -174,7 +182,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $target_user_id = intval($_POST['user_id']);
         $fullname = trim($_POST['full_name']);
         $email = trim($_POST['email']);
-        $role = $_POST['role'];
+        $role = $_POST['role'] ?? '';
+
+        if (!in_array($role, $allowed_roles, true)) {
+            header("Location: ../admin_users.php?error=InvalidRole");
+            exit();
+        }
 
         $check_admin = $conn->query("SELECT role FROM users WHERE user_id = $target_user_id")->fetch_assoc();
         if ($check_admin && $check_admin['role'] === 'Admin' && $role !== 'Admin') {
@@ -188,6 +201,53 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         if($stmt->execute()){
             if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'UPDATE_USER', "Updated details for user ID: $target_user_id");
             header("Location: ../admin_users.php?success=UserUpdated");
+        } else {
+            header("Location: ../admin_users.php?error=UpdateFailed");
+        }
+        exit();
+    }
+
+    // ===============================================
+    // FORCE PASSWORD RESET (ADMIN-INITIATED)
+    // The user signs in once with this temporary password, then must create a permanent one.
+    // ===============================================
+    if ($action == 'force_password_reset') {
+        $target_user_id = intval($_POST['user_id'] ?? 0);
+        $temporary_password = $_POST['temporary_password'] ?? '';
+        $confirm_password = $_POST['confirm_password'] ?? '';
+
+        if ($target_user_id < 1 || $target_user_id === (int)$_SESSION['user_id']) {
+            header("Location: ../admin_users.php?error=CannotResetOwnPassword");
+            exit();
+        }
+
+        if ($temporary_password !== $confirm_password) {
+            header("Location: ../admin_users.php?error=PasswordsDoNotMatch");
+            exit();
+        }
+
+        if (strlen($temporary_password) < 8 || !preg_match('/[A-Z]/', $temporary_password) || !preg_match('/[a-z]/', $temporary_password) || !preg_match('/\d/', $temporary_password)) {
+            header("Location: ../admin_users.php?error=WeakTemporaryPassword");
+            exit();
+        }
+
+        $user_stmt = $conn->prepare("SELECT username FROM users WHERE user_id = ?");
+        $user_stmt->bind_param("i", $target_user_id);
+        $user_stmt->execute();
+        $target_user = $user_stmt->get_result()->fetch_assoc();
+        if (!$target_user) {
+            header("Location: ../admin_users.php?error=UserNotFound");
+            exit();
+        }
+
+        $password_hash = password_hash($temporary_password, PASSWORD_DEFAULT);
+        $new_session_token = bin2hex(random_bytes(32));
+        $reset_stmt = $conn->prepare("UPDATE users SET password_hash = ?, require_pass_change = 1, setup_token = NULL, setup_token_expire = NULL, session_token = ? WHERE user_id = ?");
+        $reset_stmt->bind_param("ssi", $password_hash, $new_session_token, $target_user_id);
+
+        if ($reset_stmt->execute()) {
+            log_audit_action($conn, $_SESSION['user_id'], 'FORCE_PASSWORD_RESET', "Forced password reset for user: {$target_user['username']}");
+            header("Location: ../admin_users.php?success=PasswordReset");
         } else {
             header("Location: ../admin_users.php?error=UpdateFailed");
         }

@@ -33,6 +33,13 @@ while($i = $items_res->fetch_assoc()) {
     $items_data[] = $i;
 }
 
+// Keep the downstream PR visible from its source quotation.
+$linked_pr = null;
+$linked_pr_stmt = $conn->prepare("SELECT pr_id, pr_number, status FROM purchase_requests WHERE quotation_id = ? ORDER BY pr_id DESC LIMIT 1");
+$linked_pr_stmt->bind_param("i", $quotation_id);
+$linked_pr_stmt->execute();
+$linked_pr = $linked_pr_stmt->get_result()->fetch_assoc();
+
 $role = $_SESSION['role'];
 $is_sales_staff = ($role === 'Sales Staff');
 $can_create_pr = ($is_sales_staff && $quote['status'] === 'PO Received');
@@ -41,9 +48,10 @@ $can_create_pr = ($is_sales_staff && $quote['status'] === 'PO Received');
 $s = $quote['status'];
 $badge = 'bg-soft-warning';
 $icon = 'fa-clock';
+$status_label = 'Waiting for Client Approval';
 
-if($s == 'PO Received') { $badge = 'bg-soft-success'; $icon = 'fa-check-double'; }
-elseif($s == 'Converted to PR') { $badge = 'bg-soft-primary'; $icon = 'fa-exchange-alt'; }
+if($s == 'PO Received') { $badge = 'bg-soft-success'; $icon = 'fa-check-double'; $status_label = 'Client Approved'; }
+elseif($s == 'Converted to PR') { $badge = 'bg-soft-primary'; $icon = 'fa-exchange-alt'; $status_label = 'Converted to PR'; }
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -109,7 +117,7 @@ elseif($s == 'Converted to PR') { $badge = 'bg-soft-primary'; $icon = 'fa-exchan
                     <?php endif; ?>
                     
                     <div style="line-height: 1.2;">
-                        <span class="badge <?php echo $badge; ?> px-3 py-1 shadow-sm"><i class="fas <?php echo $icon; ?>"></i> <?php echo htmlspecialchars($quote['status']); ?></span>
+                        <span class="badge <?php echo $badge; ?> px-3 py-1 shadow-sm"><i class="fas <?php echo $icon; ?>"></i> <?php echo htmlspecialchars($status_label); ?></span>
                     </div>
                 </div>
             </div>
@@ -160,7 +168,7 @@ elseif($s == 'Converted to PR') { $badge = 'bg-soft-primary'; $icon = 'fa-exchan
                         <div class="card-body p-4">
                             <h6 class="text-uppercase text-success fw-bold small mb-3"><i class="fas fa-check-circle me-1"></i> Client Approval</h6>
                             <div class="mb-2">
-                                <small class="text-muted d-block mb-1" style="font-size: 0.75rem;">Tracker / CPO Number</small>
+                                <small class="text-muted d-block mb-1" style="font-size: 0.75rem;">Approval Reference</small>
                                 <span class="fw-bold text-dark fs-6"><?php echo htmlspecialchars($quote['client_po_number']); ?></span>
                             </div>
                             <div class="mb-3">
@@ -194,12 +202,27 @@ elseif($s == 'Converted to PR') { $badge = 'bg-soft-primary'; $icon = 'fa-exchan
                     <div class="card shadow-sm border-0 border-start border-4 border-warning" style="border-radius: 16px;">
                         <div class="card-body p-4">
                             <h6 class="text-uppercase text-warning fw-bold small mb-2"><i class="fas fa-clock me-1"></i> Client Approval</h6>
-                            <p class="text-muted small m-0 fst-italic">Waiting for the client's official confirmation or purchase order document.</p>
+                            <p class="text-muted small m-0 fst-italic">Waiting for the client’s confirmation and supporting proof of approval.</p>
                         </div>
                     </div>
                     <?php endif; ?>
                 </div>
             </div>
+
+            <?php if($linked_pr): ?>
+            <div class="alert alert-primary border-0 shadow-sm d-flex align-items-center justify-content-between mt-4 mb-4" style="border-radius: 14px;">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="bg-white text-primary rounded-circle d-flex align-items-center justify-content-center shadow-sm" style="width: 38px; height: 38px;">
+                        <i class="fas fa-link"></i>
+                    </div>
+                    <div>
+                        <div class="fw-bold">Linked Purchase Request: <?php echo htmlspecialchars($linked_pr['pr_number']); ?></div>
+                        <small class="text-muted">Status: <?php echo htmlspecialchars($linked_pr['status']); ?></small>
+                    </div>
+                </div>
+                <a href="view_pr.php?id=<?php echo (int)$linked_pr['pr_id']; ?>" class="btn btn-sm btn-outline-primary fw-bold">View PR</a>
+            </div>
+            <?php endif; ?>
 
             <div class="card shadow-sm border-0 mb-4" style="border-radius: 16px; overflow: hidden;">
                 <div class="card-header bg-white py-3 border-bottom border-light">

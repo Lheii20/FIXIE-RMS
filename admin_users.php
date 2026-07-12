@@ -36,6 +36,7 @@ if(isset($_GET['success'])) {
     elseif($_GET['success'] == 'UserStatusUpdated') $toastMsg = 'User account status updated.';
     elseif($_GET['success'] == 'UserForceLoggedOut') $toastMsg = 'The user session was forcefully terminated.';
     elseif($_GET['success'] == 'PermissionsUpdated') $toastMsg = 'User access capabilities updated seamlessly.';
+    elseif($_GET['success'] == 'PasswordReset') $toastMsg = 'Temporary password saved. Ask the user to sign in once, then set a permanent password.';
     elseif($_GET['success'] == 'UserCreatedButEmailFailed') { 
         $toastType = 'warning'; 
         $toastMsg = 'User created but system failed to send email. Check SMTP setup.'; 
@@ -48,6 +49,11 @@ if(isset($_GET['success'])) {
     elseif($_GET['error'] == 'CannotDeleteSelf') $toastMsg = 'You cannot delete your own account.';
     elseif($_GET['error'] == 'CannotSuspendSelf') $toastMsg = 'You cannot suspend your own account.';
     elseif($_GET['error'] == 'UserOrEmailExists') $toastMsg = 'Username or Email is already registered.';
+    elseif($_GET['error'] == 'InvalidRole') $toastMsg = 'Select a valid system role.';
+    elseif($_GET['error'] == 'CannotResetOwnPassword') $toastMsg = 'You cannot force-reset your own password from User Management.';
+    elseif($_GET['error'] == 'PasswordsDoNotMatch') $toastMsg = 'Temporary password entries do not match.';
+    elseif($_GET['error'] == 'WeakTemporaryPassword') $toastMsg = 'Temporary password must be 8+ characters with uppercase, lowercase, and a number.';
+    elseif($_GET['error'] == 'UserNotFound') $toastMsg = 'The selected user account was not found.';
     elseif($_GET['error'] == 'UpdateFailed') $toastMsg = 'Failed to update system permissions.';
     else $toastMsg = htmlspecialchars($_GET['error']); 
 }
@@ -107,6 +113,8 @@ $all_perms_json = json_encode($all_permissions);
         .btn-dots { background: #ffffff; border: 1px solid #e2e8f0; color: #64748b; width: 34px; height: 34px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; transition: all 0.2s; }
         .btn-dots:hover { background: #f8fafc; color: #0f172a; border-color: #cbd5e1; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
         .dropdown-menu { z-index: 1050 !important; border: 1px solid #e2e8f0; box-shadow: 0 10px 20px -5px rgba(0,0,0,0.15); border-radius: 12px; padding: 0.5rem; min-width: 180px; }
+        .modal { z-index: 1060; }
+        .modal-backdrop { z-index: 1055; }
         .dropdown-item { padding: 0.55rem 0.75rem; border-radius: 6px; font-size: 0.88rem; font-weight: 500; color: #334155; display: flex; align-items: center; gap: 12px; transition: 0.2s; cursor: pointer; }
         a.dropdown-item:hover { background-color: #f8fafc; color: #0f172a; transform: translateX(2px); }
         
@@ -166,7 +174,7 @@ $all_perms_json = json_encode($all_permissions);
                 <option value="Finance">Finance</option>
                 <option value="Procurement">Procurement</option>
                 <option value="Supply Chain">Supply Chain</option>
-                <option value="Sales">Sales Staff / End User</option>
+                <option value="Sales Staff">Sales Staff</option>
             </select>
         </div>
     </div>
@@ -255,7 +263,7 @@ $all_perms_json = json_encode($all_permissions);
                                             </a>
                                         </li>
                                         <li>
-                                            <a class="dropdown-item fw-medium" href="#" data-bs-toggle="modal" data-bs-target="#editUserModal<?php echo $u['user_id']; ?>">
+                                            <a class="dropdown-item fw-medium" href="#" data-user-id="<?php echo (int)$u['user_id']; ?>" data-username="<?php echo e($u['username']); ?>" data-full-name="<?php echo e($u['full_name']); ?>" data-email="<?php echo e($u['email']); ?>" data-role="<?php echo e($u['role']); ?>" onclick="openEditUserModal(this); return false;">
                                                 <i class="fas fa-user-edit text-success"></i> Edit Details
                                             </a>
                                         </li>
@@ -313,6 +321,8 @@ $all_perms_json = json_encode($all_permissions);
                             </td>
                         </tr>
 
+                        <!-- Legacy per-row modal markup is intentionally kept inert. Bootstrap modals must not live inside tbody. -->
+                        <!--
                         <div class="modal fade" id="editUserModal<?php echo $u['user_id']; ?>" tabindex="-1" aria-hidden="true">
                             <div class="modal-dialog modal-dialog-centered">
                                 <div class="modal-content sleek-popup border-0 shadow">
@@ -340,11 +350,15 @@ $all_perms_json = json_encode($all_permissions);
                                                     <option value="President" <?php if($u['role'] == 'President') echo 'selected'; ?>>President</option>
                                                     <option value="GM" <?php if($u['role'] == 'GM') echo 'selected'; ?>>General Manager</option>
                                                     <option value="Finance" <?php if($u['role'] == 'Finance') echo 'selected'; ?>>Finance</option>
-                                                    <option value="Sales" <?php if($u['role'] == 'Sales') echo 'selected'; ?>>Sales / End User</option>
-                                                    <option value="Auditor" <?php if($u['role'] == 'Auditor') echo 'selected'; ?>>Auditor</option>
+                                                    <option value="Procurement" <?php if($u['role'] == 'Procurement') echo 'selected'; ?>>Procurement</option>
+                                                    <option value="Supply Chain" <?php if($u['role'] == 'Supply Chain') echo 'selected'; ?>>Supply Chain</option>
+                                                    <option value="Sales Staff" <?php if($u['role'] == 'Sales Staff') echo 'selected'; ?>>Sales Staff</option>
                                                 </select>
                                             </div>
                                             <div class="d-flex justify-content-end gap-2 mt-4">
+                                                <?php if((int)$u['user_id'] !== (int)$_SESSION['user_id']): ?>
+                                                <button type="button" class="btn btn-outline-warning sleek-btn" onclick="bootstrap.Modal.getInstance(document.getElementById('editUserModal<?php echo $u['user_id']; ?>')).hide(); setTimeout(function(){ new bootstrap.Modal(document.getElementById('resetPasswordModal<?php echo $u['user_id']; ?>')).show(); }, 250);"><i class="fas fa-key me-1"></i> Reset Password</button>
+                                                <?php endif; ?>
                                                 <button type="button" class="btn btn-light sleek-btn border" data-bs-dismiss="modal">Cancel</button>
                                                 <button type="submit" class="btn btn-success sleek-btn fw-medium">Update User</button>
                                             </div>
@@ -353,6 +367,40 @@ $all_perms_json = json_encode($all_permissions);
                                 </div>
                             </div>
                         </div>
+                        <div class="modal fade" id="resetPasswordModal<?php echo $u['user_id']; ?>" tabindex="-1" aria-hidden="true">
+                            <div class="modal-dialog modal-dialog-centered">
+                                <div class="modal-content sleek-popup border-0 shadow">
+                                    <div class="modal-header border-bottom-0 pb-0">
+                                        <div>
+                                            <h5 class="modal-title fw-bold text-dark"><i class="fas fa-key text-warning me-2"></i>Force Password Reset</h5>
+                                            <p class="text-muted small mb-0">Set a one-time password for <?php echo e($u['username']); ?>.</p>
+                                        </div>
+                                        <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal"></button>
+                                    </div>
+                                    <div class="modal-body pt-3">
+                                        <form action="actions/user_handler.php" method="POST">
+                                            <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                                            <input type="hidden" name="action" value="force_password_reset">
+                                            <input type="hidden" name="user_id" value="<?php echo (int)$u['user_id']; ?>">
+                                            <div class="alert alert-warning small py-2">After signing in with this temporary password, the user will be required to create a permanent password.</div>
+                                            <div class="mb-3">
+                                                <label class="form-label text-muted small fw-bold text-uppercase">Temporary Password</label>
+                                                <input type="password" name="temporary_password" class="form-control form-control-lg bg-light" minlength="8" required autocomplete="new-password">
+                                            </div>
+                                            <div class="mb-3">
+                                                <label class="form-label text-muted small fw-bold text-uppercase">Confirm Temporary Password</label>
+                                                <input type="password" name="confirm_password" class="form-control form-control-lg bg-light" minlength="8" required autocomplete="new-password">
+                                            </div>
+                                            <div class="d-flex justify-content-end gap-2 mt-4">
+                                                <button type="button" class="btn btn-light sleek-btn border" data-bs-dismiss="modal">Cancel</button>
+                                                <button type="submit" class="btn btn-warning sleek-btn fw-medium"><i class="fas fa-save me-1"></i> Save Temporary Password</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        -->
                         <?php 
                             endwhile; 
                         } 
@@ -420,13 +468,13 @@ $all_perms_json = json_encode($all_permissions);
                     <div class="mb-3">
                         <label class="form-label text-muted small fw-bold text-uppercase">Assigned Role</label>
                         <select name="role" class="form-select form-select-lg bg-light" required>
-                            <option value="Sales">Sales / End User</option>
+                            <option value="Sales Staff">Sales Staff</option>
                             <option value="Finance">Finance</option>
                             <option value="Procurement">Procurement</option>
+                            <option value="Supply Chain">Supply Chain</option>
                             <option value="GM">General Manager</option>
                             <option value="President">President</option>
                             <option value="Admin">System Administrator</option>
-                            <option value="Auditor">Auditor</option>
                         </select>
                         <div class="form-text mt-2"><i class="fas fa-info-circle text-primary"></i> The user will receive an email to securely set their password.</div>
                     </div>
@@ -434,6 +482,75 @@ $all_perms_json = json_encode($all_permissions);
                         <button type="button" class="btn btn-light sleek-btn border" data-bs-dismiss="modal">Cancel</button>
                         <button type="submit" class="btn btn-primary sleek-btn fw-medium">Send Invite</button>
                     </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Single top-level modals: prevents an orphaned Bootstrap backdrop caused by invalid tbody markup. -->
+<div class="modal fade" id="editUserModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content sleek-popup border-0 shadow">
+            <div class="modal-header border-bottom-0 pb-0">
+                <h5 class="modal-title fw-bold text-dark"><i class="fas fa-edit text-success me-2"></i>Edit Account</h5>
+                <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body pt-3">
+                <form action="actions/user_handler.php" method="POST">
+                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                    <input type="hidden" name="action" value="update_user">
+                    <input type="hidden" name="user_id" id="edit_user_id">
+                    <div class="mb-3">
+                        <label class="form-label text-muted small fw-bold text-uppercase">Full Name</label>
+                        <input type="text" name="full_name" id="edit_full_name" class="form-control form-control-lg bg-light" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-muted small fw-bold text-uppercase">Email</label>
+                        <input type="email" name="email" id="edit_email" class="form-control form-control-lg bg-light" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-muted small fw-bold text-uppercase">Assigned Role</label>
+                        <select name="role" id="edit_role" class="form-select form-select-lg bg-light" required>
+                            <option value="Admin">System Administrator</option>
+                            <option value="President">President</option>
+                            <option value="GM">General Manager</option>
+                            <option value="Finance">Finance</option>
+                            <option value="Procurement">Procurement</option>
+                            <option value="Supply Chain">Supply Chain</option>
+                            <option value="Sales Staff">Sales Staff</option>
+                        </select>
+                    </div>
+                    <div class="d-flex justify-content-end gap-2 mt-4">
+                        <button type="button" id="openResetPasswordButton" class="btn btn-outline-warning sleek-btn"><i class="fas fa-key me-1"></i>Reset Password</button>
+                        <button type="button" class="btn btn-light sleek-btn border" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-success sleek-btn fw-medium">Update User</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="resetPasswordModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content sleek-popup border-0 shadow">
+            <div class="modal-header border-bottom-0 pb-0">
+                <div>
+                    <h5 class="modal-title fw-bold text-dark"><i class="fas fa-key text-warning me-2"></i>Force Password Reset</h5>
+                    <p class="text-muted small mb-0">Set a one-time password for <span id="reset_username" class="fw-bold"></span>.</p>
+                </div>
+                <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body pt-3">
+                <form action="actions/user_handler.php" method="POST">
+                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                    <input type="hidden" name="action" value="force_password_reset">
+                    <input type="hidden" name="user_id" id="reset_user_id">
+                    <div class="alert alert-warning small py-2">On the next sign-in, the user must set a permanent password.</div>
+                    <div class="mb-3"><label class="form-label text-muted small fw-bold text-uppercase">Temporary Password</label><input type="password" name="temporary_password" class="form-control form-control-lg bg-light" minlength="8" required autocomplete="new-password"></div>
+                    <div class="mb-3"><label class="form-label text-muted small fw-bold text-uppercase">Confirm Temporary Password</label><input type="password" name="confirm_password" class="form-control form-control-lg bg-light" minlength="8" required autocomplete="new-password"></div>
+                    <div class="d-flex justify-content-end gap-2 mt-4"><button type="button" class="btn btn-light sleek-btn border" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-warning sleek-btn fw-medium"><i class="fas fa-save me-1"></i>Save Temporary Password</button></div>
                 </form>
             </div>
         </div>
@@ -476,6 +593,32 @@ $(document).ready(function() {
 });
 
 const allPermissions = <?php echo $all_perms_json; ?>;
+
+let selectedUserForReset = null;
+
+function openEditUserModal(trigger) {
+    selectedUserForReset = {
+        id: trigger.dataset.userId,
+        username: trigger.dataset.username
+    };
+    document.getElementById('edit_user_id').value = selectedUserForReset.id;
+    document.getElementById('edit_full_name').value = trigger.dataset.fullName;
+    document.getElementById('edit_email').value = trigger.dataset.email;
+    document.getElementById('edit_role').value = trigger.dataset.role;
+    document.getElementById('openResetPasswordButton').style.display = String(selectedUserForReset.id) === '<?php echo (int)$_SESSION['user_id']; ?>' ? 'none' : '';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('editUserModal')).show();
+}
+
+document.getElementById('openResetPasswordButton').addEventListener('click', function () {
+    if (!selectedUserForReset) return;
+    document.getElementById('reset_user_id').value = selectedUserForReset.id;
+    document.getElementById('reset_username').textContent = selectedUserForReset.username;
+    const editModalElement = document.getElementById('editUserModal');
+    editModalElement.addEventListener('hidden.bs.modal', function () {
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('resetPasswordModal')).show();
+    }, { once: true });
+    bootstrap.Modal.getInstance(editModalElement).hide();
+});
 
 function openPermissionsModal(userId, userName, userPerms) {
     document.getElementById('perm_target_user_id').value = userId;

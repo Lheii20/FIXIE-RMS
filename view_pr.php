@@ -18,6 +18,14 @@ $pr = $stmt->fetch_assoc();
 
 $items_stmt = $conn->query("SELECT * FROM pr_items WHERE pr_id = $pr_id");
 
+$source_quotation = null;
+if (!empty($pr['quotation_id'])) {
+    $source_stmt = $conn->prepare("SELECT quotation_id, quotation_number, status FROM quotations WHERE quotation_id = ?");
+    $source_stmt->bind_param("i", $pr['quotation_id']);
+    $source_stmt->execute();
+    $source_quotation = $source_stmt->get_result()->fetch_assoc();
+}
+
 $role = $_SESSION['role'];
 $can_approve = in_array($role, ['GM', 'President']) && $pr['status'] == 'Pending';
 $can_convert = ($role == 'Procurement' && $pr['status'] == 'Approved');
@@ -133,6 +141,14 @@ if ($pr['status'] == 'Rejected') {
                                     <small class="text-muted d-block mb-1" style="font-size: 0.75rem;">Client Name</small>
                                     <span class="fw-bold text-dark fs-6"><?php echo htmlspecialchars($pr['client_name']); ?></span>
                                 </div>
+                                <?php if($source_quotation): ?>
+                                <div class="col-sm-6">
+                                    <small class="text-muted d-block mb-1" style="font-size: 0.75rem;">Source Quotation</small>
+                                    <a class="fw-bold text-primary text-decoration-none" href="view_quotation.php?id=<?php echo (int)$source_quotation['quotation_id']; ?>">
+                                        <i class="fas fa-link me-1"></i><?php echo htmlspecialchars($source_quotation['quotation_number']); ?>
+                                    </a>
+                                </div>
+                                <?php endif; ?>
                                 <div class="col-sm-6">
                                     <small class="text-muted d-block mb-1" style="font-size: 0.75rem;">Requested By</small>
                                     <span class="fw-medium text-dark" style="font-size: 0.9rem;"><i class="fas fa-user-circle text-muted me-1"></i> <?php echo htmlspecialchars($pr['full_name']); ?> <span class="text-muted small">(<?php echo htmlspecialchars($pr['role']); ?>)</span></span>

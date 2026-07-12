@@ -27,16 +27,21 @@ $pr_id_val = '';
 $client_name_val = '';
 $pr_amount_val = 0;
 $pr_items_json = '[]';
+$source_quotation_number = '';
 
 if (isset($_GET['pr_id'])) {
     $pr_id = intval($_GET['pr_id']);
-    $pr_query = $conn->query("SELECT client_name, amount FROM purchase_requests WHERE pr_id = $pr_id AND status = 'Approved'");
+    $pr_query = $conn->query("SELECT pr.client_name, pr.amount, q.quotation_number AS source_quotation_number
+                              FROM purchase_requests pr
+                              LEFT JOIN quotations q ON q.quotation_id = pr.quotation_id
+                              WHERE pr.pr_id = $pr_id AND pr.status = 'Approved'");
     
     if ($pr_query && $pr_query->num_rows > 0) {
         $pr_data = $pr_query->fetch_assoc();
         $pr_id_val = $pr_id;
         $client_name_val = htmlspecialchars($pr_data['client_name']);
         $pr_amount_val = floatval($pr_data['amount']);
+        $source_quotation_number = $pr_data['source_quotation_number'] ?? '';
         
         $items_query = $conn->query("SELECT category, brand, item_name, specifications, quantity, unit_price, total_price FROM pr_items WHERE pr_id = $pr_id");
         $items_arr = [];
@@ -209,6 +214,11 @@ if (isset($_GET['pr_id'])) {
                                     <label class="form-label">Client / Agency Name <span class="req-star">*</span></label>
                                     <input type="text" name="client_name" id="clientName" class="form-control soft-input" value="<?php echo $client_name_val; ?>" placeholder="e.g. Department of Education" required>
                                 </div>
+                                <?php if($source_quotation_number): ?>
+                                <div class="col-md-12">
+                                    <div class="small text-muted"><i class="fas fa-link text-primary me-1"></i>Source quotation: <strong class="text-dark"><?php echo htmlspecialchars($source_quotation_number); ?></strong></div>
+                                </div>
+                                <?php endif; ?>
                                 <div class="col-md-12 mt-3">
                                     <div class="p-3 rounded-custom" style="background-color: #f8fafc; border: 2px dashed #cbd5e1; text-align: center;">
                                         <i class="fas fa-cloud-upload-alt text-primary fs-4 mb-1 opacity-75"></i>

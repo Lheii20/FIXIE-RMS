@@ -29,6 +29,14 @@ $po_query = $stmt->get_result();
 if($po_query->num_rows == 0) die("PO Not Found.");
 $po = $po_query->fetch_assoc();
 
+$source_quotation = null;
+if (!empty($po['pr_id'])) {
+    $source_quote_stmt = $conn->prepare("SELECT q.quotation_id, q.quotation_number FROM purchase_requests pr INNER JOIN quotations q ON q.quotation_id = pr.quotation_id WHERE pr.pr_id = ?");
+    $source_quote_stmt->bind_param("i", $po['pr_id']);
+    $source_quote_stmt->execute();
+    $source_quotation = $source_quote_stmt->get_result()->fetch_assoc();
+}
+
 // Check if PO is rejected and fetch rejection reason safely
 $po_remarks = isset($po['remarks']) ? $po['remarks'] : '';
 $rejection_reason = "";
@@ -99,6 +107,9 @@ $conn->query("CREATE TABLE IF NOT EXISTS `payments` (
   `payment_date` datetime NOT NULL,
   `notes` varchar(255) DEFAULT NULL,
   `recorded_by` int(11) DEFAULT NULL,
+  `payment_method` varchar(50) DEFAULT NULL,
+  `reference_number` varchar(100) DEFAULT NULL,
+  `proof_file_path` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`payment_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
@@ -106,7 +117,7 @@ $total_paid = 0;
 $payments = [];
 $balance = $po['amount'];
 
-$stmt = $conn->prepare("SELECT * FROM payments WHERE po_id = ? ORDER BY payment_date DESC");
+$stmt = $conn->prepare("SELECT p.*, u.full_name AS recorded_by_name FROM payments p LEFT JOIN users u ON u.user_id = p.recorded_by WHERE p.po_id = ? ORDER BY p.payment_date DESC");
 $stmt->bind_param("i", $po_id);
 $stmt->execute();
 $payment_query = $stmt->get_result();
@@ -201,7 +212,7 @@ $can_upload_files = ($role == 'Procurement');
                 <?php if ($is_approver): ?>
                     <div class="d-inline-flex align-items-center gap-2 m-0 p-0">
                         <button type="button" class="btn btn-sm btn-success px-4 shadow-sm fw-bold" style="border-radius: 8px;" 
-                                onclick="confirmApprovePO(event, '<?php echo $approve_action; ?>', '<?php echo $po['po_id']; ?>', '<?php echo htmlspecialchars($po['po_number']); ?>', '<?php echo htmlspecialchars($approve_label); ?>')">
+                                onclick="<?php echo $approve_action === 'mark_delivered' ? "openDeliveryProofModal()" : "confirmApprovePO(event, '" . $approve_action . "', '" . $po['po_id'] . "', '" . htmlspecialchars($po['po_number'], ENT_QUOTES) . "', '" . htmlspecialchars($approve_label, ENT_QUOTES) . "')"; ?>">
                             <i class="fas fa-check-circle me-1"></i> <?php echo htmlspecialchars($approve_label); ?>
                         </button>
 
@@ -253,7 +264,11 @@ $can_upload_files = ($role == 'Procurement');
                             </div>
                             <div class="col-md-6">
                                 <small class="text-muted d-block mb-1" style="font-size: 0.75rem;">Quotation Ref</small>
-                                <div class="fw-medium text-dark"><?php echo htmlspecialchars($po['quotation_number']) ?: '--'; ?></div>
+                                <?php if($source_quotation): ?>
+                                    <a href="view_quotation.php?id=<?php echo (int)$source_quotation['quotation_id']; ?>" class="fw-medium text-primary text-decoration-none"><i class="fas fa-link me-1"></i><?php echo htmlspecialchars($source_quotation['quotation_number']); ?></a>
+                                <?php else: ?>
+                                    <div class="fw-medium text-dark"><?php echo htmlspecialchars($po['quotation_number']) ?: '--'; ?></div>
+                                <?php endif; ?>
                             </div>
                             <div class="col-md-6">
                                 <small class="text-muted d-block mb-1" style="font-size: 0.75rem;">Prepared By</small>
@@ -332,7 +347,8 @@ $can_upload_files = ($role == 'Procurement');
                             <thead class="bg-light text-secondary" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">
                                 <tr>
                                     <th class="ps-4 py-3 border-bottom-0">Date & Time</th>
-                                    <th class="py-3 border-bottom-0">Payment Notes</th>
+                                    <th class="py-3 border-bottom-0">Payment Details</th>
+                                    <th class="py-3 border-bottom-0">Reference &amp; Proof</th>
                                     <th class="text-end pe-4 py-3 border-bottom-0">Amount Paid</th>
                                 </tr>
                             </thead>
@@ -350,11 +366,18 @@ $can_upload_files = ($role == 'Procurement');
                                             <?php else: ?>
                                                 <span class="badge bg-warning bg-opacity-10 text-dark border border-warning me-1 px-2 py-1">Partial Payment</span>
                                             <?php endif; ?>
+                                            <div class="small text-muted mt-1"><?php echo htmlspecialchars($pay['payment_method'] ?? '--'); ?><?php if(!empty($pay['recorded_by_name'])): ?> · Recorded by <?php echo htmlspecialchars($pay['recorded_by_name']); ?><?php endif; ?></div>
+                                        </td>
+                                        <td class="py-3 align-middle">
+                                            <div class="small fw-bold text-dark text-break"><?php echo htmlspecialchars($pay['reference_number'] ?? '--'); ?></div>
+                                            <?php if(!empty($pay['proof_file_path'])): ?>
+                                                <a href="uploads/payments/<?php echo rawurlencode(basename($pay['proof_file_path'])); ?>" target="_blank" rel="noopener" class="small text-primary text-decoration-none"><i class="fas fa-paperclip me-1"></i>View proof</a>
+                                            <?php endif; ?>
                                         </td>
                                         <td class="text-end pe-4 fw-bold text-success align-middle py-3" style="font-family: monospace; font-size: 1.05rem;">+ ₱ <?php echo number_format($pay['amount_paid'], 2); ?></td>
                                     </tr>
                                 <?php endforeach; else: ?>
-                                    <tr><td colspan="3" class="text-center py-5 text-muted small"><i class="fas fa-info-circle fs-4 mb-2 d-block opacity-50"></i> No payments recorded yet.</td></tr>
+                                    <tr><td colspan="4" class="text-center py-5 text-muted small"><i class="fas fa-info-circle fs-4 mb-2 d-block opacity-50"></i> No payments recorded yet.</td></tr>
                                 <?php endif; ?>
                             </tbody>
                         </table>
@@ -363,13 +386,13 @@ $can_upload_files = ($role == 'Procurement');
                     <?php if($balance > 0.01 && $_SESSION['role'] == 'Finance'): ?>
                     <div class="card-footer bg-light p-4 border-top">
                         <h6 class="fw-bold mb-3 text-primary"><i class="fas fa-plus-circle me-2"></i> Record New Payment</h6>
-                        <form action="actions/po_handler.php" method="POST" id="paymentForm">
+                        <form action="actions/po_handler.php" method="POST" enctype="multipart/form-data" id="paymentForm">
                             <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                             <input type="hidden" name="action" value="add_payment">
                             <input type="hidden" name="po_id" value="<?php echo $po_id; ?>">
                             
                             <div class="row g-3 align-items-end">
-                                <div class="col-md-3">
+                                <div class="col-md-2">
                                     <label class="small fw-bold text-muted mb-1">Payment Type</label>
                                     <div class="btn-group w-100 shadow-sm" role="group">
                                         <input type="radio" class="btn-check" name="pay_type" id="pay_full" autocomplete="off" onclick="togglePaymentInput('full')">
@@ -380,12 +403,24 @@ $can_upload_files = ($role == 'Procurement');
                                     </div>
                                 </div>
                                 
-                                <div class="col-md-4">
+                                <div class="col-md-3">
                                     <label class="small fw-bold text-muted mb-1">Date Received</label>
                                     <input type="datetime-local" name="payment_date" class="form-control form-control-sm fw-medium shadow-sm" style="border-radius: 6px;" required value="<?php echo date('Y-m-d\TH:i'); ?>">
                                 </div>
                                 
-                                <div class="col-md-3">
+                                <div class="col-md-2">
+                                    <label class="small fw-bold text-muted mb-1">Method</label>
+                                    <select name="payment_method" class="form-select form-select-sm shadow-sm" required>
+                                        <option value="" selected disabled>Select</option>
+                                        <option value="Cash">Cash</option>
+                                        <option value="Bank Transfer">Bank Transfer</option>
+                                        <option value="GCash">GCash</option>
+                                        <option value="Cheque">Cheque</option>
+                                        <option value="Other">Other</option>
+                                    </select>
+                                </div>
+
+                                <div class="col-md-2">
                                     <label class="small fw-bold text-muted mb-1">Amount</label>
                                     <div class="input-group input-group-sm shadow-sm" style="border-radius: 6px; overflow: hidden;">
                                         <span class="input-group-text bg-white text-success fw-bold border-end-0">₱</span>
@@ -395,7 +430,18 @@ $can_upload_files = ($role == 'Procurement');
                                         <input type="hidden" name="payment_notes" id="notes_input" value="Partial Payment">
                                     </div>
                                 </div>
-                                
+
+                                <div class="col-md-3">
+                                    <label class="small fw-bold text-muted mb-1">Reference No.</label>
+                                    <input type="text" name="reference_number" class="form-control form-control-sm shadow-sm" maxlength="100" placeholder="OR / Txn no." required>
+                                </div>
+
+                                <div class="col-md-10">
+                                    <label class="small fw-bold text-muted mb-1">Payment Proof <span class="text-danger">*</span></label>
+                                    <input type="file" name="payment_proof" class="form-control form-control-sm shadow-sm" accept=".pdf,.png,.jpg,.jpeg" required>
+                                    <small class="text-muted">Upload the receipt, deposit slip, or transaction screenshot (PDF/JPG/PNG, max. 10 MB).</small>
+                                </div>
+
                                 <div class="col-md-2">
                                     <button type="submit" class="btn btn-success btn-sm fw-bold w-100 shadow-sm" style="border-radius: 6px; height: 31px;" onclick="return confirm('Save this payment?');">
                                         <i class="fas fa-save me-1"></i> Save
@@ -645,6 +691,35 @@ $can_upload_files = ($role == 'Procurement');
         </div>
     </div>
 
+    <!-- Required proof of delivery modal (Supply Chain) -->
+    <div class="modal fade" id="deliveryProofModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0" style="border-radius: 16px; overflow: hidden;">
+                <form action="actions/po_handler.php" method="POST" enctype="multipart/form-data">
+                    <div class="modal-header border-bottom-0 pb-0">
+                        <div>
+                            <h5 class="modal-title fw-bold text-dark">Confirm Delivery</h5>
+                            <p class="text-muted small mb-0">Attach proof before forwarding this PO to Finance for collection.</p>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body pt-4">
+                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                        <input type="hidden" name="action" value="mark_delivered">
+                        <input type="hidden" name="po_id" value="<?php echo (int)$po_id; ?>">
+                        <label class="form-label fw-bold small text-uppercase text-muted">Proof of Delivery <span class="text-danger">*</span></label>
+                        <input type="file" class="form-control" name="delivery_proof" accept=".pdf,.png,.jpg,.jpeg" required>
+                        <div class="form-text">Upload a signed delivery receipt, acknowledgement, or delivery screenshot (PDF/JPG/PNG, max. 10 MB).</div>
+                    </div>
+                    <div class="modal-footer border-top-0 pt-0">
+                        <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-success fw-bold">Submit Proof &amp; Mark Delivered</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- Hidden Form for SweetAlert Submission -->
     <form id="dynamicActionForm" action="actions/po_handler.php" method="POST" style="display: none;">
         <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
@@ -751,6 +826,11 @@ $can_upload_files = ($role == 'Procurement');
             .then(response => response.json())
             .then(data => { window.print(); })
             .catch(error => { console.error('Error logging print:', error); window.print(); });
+        }
+
+        function openDeliveryProofModal() {
+            const modal = new bootstrap.Modal(document.getElementById('deliveryProofModal'));
+            modal.show();
         }
 
         // Safe Approval Function for PO

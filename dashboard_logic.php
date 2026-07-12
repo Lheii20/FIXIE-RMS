@@ -338,12 +338,29 @@ if (in_array($role, $executives)) {
     }
 }
 
-$sc_stats = ['incoming_po' => 0, 'collected_po' => 0, 'dr_count' => 0, 'supplier_docs' => 0];
+$sc_stats = ['ready_for_delivery' => 0, 'delivered' => 0, 'awaiting_collection' => 0, 'completed_collections' => 0, 'delivery_proofs' => 0];
+$sc_charts = ['status_dist' => [], 'delivery_trend' => [], 'top_clients' => [], 'proof_coverage' => []];
 if ($role === 'Supply Chain') {
-    $sc_stats['incoming_po'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Funded' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
-    $sc_stats['collected_po'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status IN ('Collected', 'Delivered') AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
-    $sc_stats['dr_count'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE category = 'Delivery receipts' AND status='Active' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
-    $sc_stats['supplier_docs'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE category = 'Supplier transaction records' AND status='Active' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
+    // Supply Chain sees only operational fulfilment information, not finance figures.
+    $sc_stats['ready_for_delivery'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Funded' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
+    $sc_stats['delivered'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status IN ('Delivered', 'Partially-Collected', 'Collected') AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
+    $sc_stats['awaiting_collection'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Delivered' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
+    $sc_stats['completed_collections'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Collected' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
+    $sc_stats['delivery_proofs'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE doc_type = 'Proof of Delivery' AND status = 'Active' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
+
+    $q_sc_status = "SELECT status, COUNT(*) AS total FROM purchase_orders WHERE status IN ('Funded', 'Delivered', 'Partially-Collected', 'Collected') AND {$po_date['sql']} GROUP BY status";
+    $sc_charts['status_dist'] = fetch_chart_data($conn, $q_sc_status, $po_date['types'], $po_date['params'], false);
+
+    $q_sc_trend = "SELECT DATE(COALESCE(actual_delivery_date, date_created)) AS delivery_date, COUNT(*) AS total FROM purchase_orders WHERE status IN ('Delivered', 'Partially-Collected', 'Collected') AND {$po_date['sql']} GROUP BY delivery_date ORDER BY delivery_date DESC LIMIT 14";
+    $sc_charts['delivery_trend'] = array_reverse(fetch_chart_data($conn, $q_sc_trend, $po_date['types'], $po_date['params'], false));
+
+    $q_sc_clients = "SELECT client_name, COUNT(*) AS total FROM purchase_orders WHERE status IN ('Delivered', 'Partially-Collected', 'Collected') AND {$po_date['sql']} GROUP BY client_name ORDER BY total DESC LIMIT 5";
+    $sc_charts['top_clients'] = fetch_chart_data($conn, $q_sc_clients, $po_date['types'], $po_date['params'], false);
+
+    $sc_charts['proof_coverage'] = [
+        ['label' => 'Proofs Filed', 'total' => $sc_stats['delivery_proofs']],
+        ['label' => 'Delivered Orders', 'total' => max(0, $sc_stats['delivered'] - $sc_stats['delivery_proofs'])]
+    ];
 }
 
 $tech_stats = ['tickets' => 0, 'diagnostics' => 0, 'job_orders' => 0, 'total' => 0];
