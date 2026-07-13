@@ -49,10 +49,7 @@ if (isset($_SESSION['user_id'])) {
 }
 
 $role = $_SESSION['role'];
-$notif_stmt = $conn->prepare("SELECT COUNT(*) AS unread_count FROM notifications WHERE target_role = ? AND is_read = 0");
-$notif_stmt->bind_param("s", $role);
-$notif_stmt->execute();
-$unread_count = $notif_stmt->get_result()->fetch_assoc()['unread_count'];
+$unread_count = get_unread_notification_count($conn, (int)$_SESSION['user_id'], $role);
 
 // KUNIN KUNG MAY CAPABILITY ANG USER NA MAKITA ANG AUDIT LOGS
 $can_view_audit = false;
@@ -110,6 +107,9 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
 
 <nav class="saas-navbar shadow-sm d-print-none">
     <div class="saas-nav-container">
+        <button type="button" id="mobileNavToggle" class="mobile-nav-toggle d-print-none" aria-label="Open navigation" aria-expanded="false" aria-controls="mobileSideNav">
+            <i class="fas fa-bars"></i>
+        </button>
         
         <a href="dashboard.php" class="saas-brand">
             <img src="assets/images/fixie_logo.png" alt="Fixie Logo">
@@ -224,6 +224,51 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
         </div>
     </div>
 </nav>
+
+<!-- Mobile-only side navigation. It uses direct links so mobile users do not depend on hover dropdowns. -->
+<div id="mobileNavBackdrop" class="mobile-nav-backdrop d-print-none"></div>
+<aside id="mobileSideNav" class="mobile-side-nav d-print-none" aria-label="Mobile navigation">
+    <div class="mobile-side-nav__header">
+        <a href="dashboard.php" class="mobile-side-nav__brand">
+            <img src="assets/images/fixie_logo.png" alt="Fixie Logo">
+            <span>FIXIE DRMS</span>
+        </a>
+        <button type="button" id="mobileNavClose" class="mobile-side-nav__close" aria-label="Close navigation"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="mobile-side-nav__profile">
+        <strong><?php echo htmlspecialchars($_SESSION['fullname'] ?? 'User'); ?></strong>
+        <span><?php echo htmlspecialchars($_SESSION['role'] ?? ''); ?></span>
+    </div>
+    <div class="mobile-side-nav__section">
+        <span class="mobile-side-nav__label">Workspace</span>
+        <a href="dashboard.php" class="mobile-side-nav__link <?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>"><i class="fas fa-chart-pie"></i>Dashboard</a>
+        <a href="notifications.php" class="mobile-side-nav__link <?php echo ($current_page == 'notifications.php') ? 'active' : ''; ?>"><i class="fas fa-bell"></i>Notifications<?php if($unread_count > 0): ?> <span class="badge bg-danger ms-auto"><?php echo $unread_count; ?></span><?php endif; ?></a>
+    </div>
+    <?php if(in_array($role, $ops_roles)): ?>
+    <div class="mobile-side-nav__section">
+        <span class="mobile-side-nav__label">Operations</span>
+        <?php if($role == 'Sales Staff'): ?><a href="quotations_list.php" class="mobile-side-nav__link <?php echo (in_array($current_page, ['quotations_list.php', 'create_quotation.php', 'view_quotation.php'])) ? 'active' : ''; ?>"><i class="fas fa-file-contract"></i>Quotations</a><?php endif; ?>
+        <?php if(in_array($role, ['Sales Staff', 'Procurement', 'GM', 'President', 'Finance'])): ?><a href="pr_list.php" class="mobile-side-nav__link <?php echo (in_array($current_page, ['pr_list.php', 'create_pr.php', 'view_pr.php'])) ? 'active' : ''; ?>"><i class="fas fa-clipboard-list"></i>Purchase Requests</a><?php endif; ?>
+        <?php if(in_array($role, ['Procurement', 'GM', 'President', 'Finance', 'Supply Chain'])): ?><a href="po_list.php" class="mobile-side-nav__link <?php echo (in_array($current_page, ['po_list.php', 'create_po.php', 'view_po.php'])) ? 'active' : ''; ?>"><i class="fas fa-file-invoice"></i>Purchase Orders</a><?php endif; ?>
+    </div>
+    <?php endif; ?>
+    <div class="mobile-side-nav__section">
+        <span class="mobile-side-nav__label">Records</span>
+        <a href="documents.php" class="mobile-side-nav__link <?php echo ($current_page == 'documents.php') ? 'active' : ''; ?>"><i class="fas fa-archive"></i>Official Records</a>
+        <a href="general_docs.php" class="mobile-side-nav__link <?php echo ($current_page == 'general_docs.php') ? 'active' : ''; ?>"><i class="fas fa-building"></i>Company Files</a>
+    </div>
+    <?php if($role == 'Admin' || $can_view_audit): ?>
+    <div class="mobile-side-nav__section">
+        <span class="mobile-side-nav__label">System</span>
+        <?php if($role == 'Admin'): ?><a href="admin_users.php" class="mobile-side-nav__link <?php echo ($current_page == 'admin_users.php') ? 'active' : ''; ?>"><i class="fas fa-users"></i>User Management</a><a href="admin_requests.php" class="mobile-side-nav__link <?php echo ($current_page == 'admin_requests.php') ? 'active' : ''; ?>"><i class="fas fa-key"></i>Access Requests</a><?php endif; ?>
+        <a href="audit_logs.php" class="mobile-side-nav__link <?php echo ($current_page == 'audit_logs.php') ? 'active' : ''; ?>"><i class="fas fa-history"></i>Audit Trail</a>
+    </div>
+    <?php endif; ?>
+    <div class="mobile-side-nav__footer">
+        <a href="settings.php" class="mobile-side-nav__link"><i class="fas fa-cog"></i>Account Settings</a>
+        <a href="actions/auth.php?logout=true&csrf_token=<?php echo $_SESSION['csrf_token'] ?? ''; ?>" class="mobile-side-nav__link mobile-side-nav__link--danger"><i class="fas fa-sign-out-alt"></i>Logout</a>
+    </div>
+</aside>
 
 <div id="commandPaletteOverlay" class="cp-overlay" style="display: none;">
     <div class="cp-modal fade-in">
@@ -366,6 +411,24 @@ document.addEventListener("DOMContentLoaded", function() {
         if(document.body.classList.contains('sidebar-preload')){
             document.body.classList.remove('sidebar-preload'); 
         }
+    });
+
+    const mobileToggle = document.getElementById('mobileNavToggle');
+    const mobileClose = document.getElementById('mobileNavClose');
+    const mobileBackdrop = document.getElementById('mobileNavBackdrop');
+    const closeMobileNav = function () {
+        document.body.classList.remove('mobile-nav-open');
+        if (mobileToggle) mobileToggle.setAttribute('aria-expanded', 'false');
+    };
+    const openMobileNav = function () {
+        document.body.classList.add('mobile-nav-open');
+        if (mobileToggle) mobileToggle.setAttribute('aria-expanded', 'true');
+    };
+    if (mobileToggle) mobileToggle.addEventListener('click', openMobileNav);
+    if (mobileClose) mobileClose.addEventListener('click', closeMobileNav);
+    if (mobileBackdrop) mobileBackdrop.addEventListener('click', closeMobileNav);
+    document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape' && document.body.classList.contains('mobile-nav-open')) closeMobileNav();
     });
 });
 

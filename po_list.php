@@ -3,16 +3,23 @@ require 'config/db_connect.php';
 require 'config/functions.php';
 if(!isset($_SESSION['user_id'])) header("Location: index.php");
 
+$current_user_id = (int)$_SESSION['user_id'];
+$current_role = $_SESSION['role'];
+ensure_collaboration_tables_exist($conn);
 $search = $_GET['search'] ?? '';
-$valid_filters = ['all', 'Pending', 'In_Progress', 'Completed', 'Rejected'];
+$valid_filters = ['all', 'Pending', 'In_Progress', 'Completed', 'Rejected', 'my_tasks', 'unassigned'];
 $filter = (isset($_GET['filter']) && in_array($_GET['filter'], $valid_filters)) ? $_GET['filter'] : 'all';
 
-$sql = "SELECT * FROM purchase_orders WHERE 1=1";
+$sql = "SELECT p.*, a.assignment_id, a.assigned_to, a.assigned_role, u.full_name AS assignee_name
+        FROM purchase_orders p
+        LEFT JOIN purchase_order_task_assignments a ON a.po_id = p.po_id AND a.assignment_status = 'Active'
+        LEFT JOIN users u ON u.user_id = a.assigned_to
+        WHERE 1=1";
 $params = [];
 $types = "";
 
 if (!empty($search)) {
-    $sql .= " AND (po_number LIKE ? OR client_name LIKE ?)";
+    $sql .= " AND (p.po_number LIKE ? OR p.client_name LIKE ?)";
     $searchParam = "%$search%";
     $params[] = $searchParam;
     $params[] = $searchParam;
@@ -20,13 +27,15 @@ if (!empty($search)) {
 }
 
 if ($filter != 'all') {
-    if ($filter == 'Pending') { $sql .= " AND status = 'Pending'"; }
-    elseif ($filter == 'In_Progress') { $sql .= " AND status IN ('GM-Approved', 'Finance-Approved', 'President-Approved', 'Funded')"; }
-    elseif ($filter == 'Completed') { $sql .= " AND status = 'Collected'"; }
-    elseif ($filter == 'Rejected') { $sql .= " AND status = 'Rejected'"; }
+    if ($filter == 'Pending') { $sql .= " AND p.status = 'Pending'"; }
+    elseif ($filter == 'In_Progress') { $sql .= " AND p.status IN ('GM-Approved', 'Finance-Approved', 'President-Approved', 'Funded')"; }
+    elseif ($filter == 'Completed') { $sql .= " AND p.status = 'Collected'"; }
+    elseif ($filter == 'Rejected') { $sql .= " AND p.status = 'Rejected'"; }
+    elseif ($filter == 'my_tasks') { $sql .= " AND a.assigned_to = ?"; $params[] = $current_user_id; $types .= 'i'; }
+    elseif ($filter == 'unassigned') { $sql .= " AND a.assignment_id IS NULL"; }
 }
 
-$sql .= " ORDER BY date_created DESC";
+$sql .= " ORDER BY p.date_created DESC";
 $stmt = $conn->prepare($sql);
 if (!empty($params)) {
     $stmt->bind_param($types, ...$params);
@@ -332,6 +341,8 @@ if ($wf_query) {
                     <option value="In_Progress" <?php echo ($filter == 'In_Progress') ? 'selected' : ''; ?>>In Progress</option>
                     <option value="Completed" <?php echo ($filter == 'Completed') ? 'selected' : ''; ?>>Completed</option>
                     <option value="Rejected" <?php echo ($filter == 'Rejected') ? 'selected' : ''; ?>>Rejected</option>
+                    <option value="my_tasks" <?php echo ($filter == 'my_tasks') ? 'selected' : ''; ?>>My Tasks</option>
+                    <option value="unassigned" <?php echo ($filter == 'unassigned') ? 'selected' : ''; ?>>Unassigned Tasks</option>
                 </select>
 
                 <?php if(!empty($search) || $filter != 'all'): ?>
@@ -372,12 +383,13 @@ if ($wf_query) {
                     <table id="dataTable" class="table premium-table">
                         <thead>
                             <tr>
-                                <th style="width: 25%;">Order Details</th>
-                                <th style="width: 15%;">Amount</th>
-                                <th style="width: 20%;">Current Location</th>
-                                <th style="width: 15%;">Status</th>
-                                <th style="width: 13%;">Date Created</th>
-                                <th style="width: 12%;" class="text-end pe-4">Actions</th>
+                                <th style="width: 23%;">Order Details</th>
+                                <th style="width: 13%;">Amount</th>
+                                <th style="width: 16%;">Current Location</th>
+                                <th style="width: 14%;">Status</th>
+                                <th style="width: 14%;">Task Owner</th>
+                                <th style="width: 11%;">Date Created</th>
+                                <th style="width: 9%;" class="text-end pe-4">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -418,6 +430,14 @@ if ($wf_query) {
                                         </div>
                                     </td>
                                     <td>
+                                        <?php if (!empty($row['assigned_to'])): ?>
+                                            <div class="data-value fw-semibold text-dark"><i class="fas fa-user-check text-primary me-1"></i><?php echo htmlspecialchars($row['assignee_name']); ?></div>
+                                            <small class="text-muted"><?php echo htmlspecialchars($row['assigned_role']); ?></small>
+                                        <?php else: ?>
+                                            <span class="text-muted small"><i class="fas fa-users me-1"></i>Shared queue</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
                                         <span class="data-value d-block fw-normal"><?php echo date('M d, Y', strtotime($row['date_created'])); ?></span>
                                     </td>
                                     <td class="text-end pe-4">
@@ -439,7 +459,9 @@ if ($wf_query) {
                                                 }
                                             }
 
-                                            if ($is_approver && isset($row['is_viewed']) && $row['is_viewed'] == 1) {
+                                            $assigned_to_another = !empty($row['assigned_to']) && (int)$row['assigned_to'] !== $current_user_id;
+                                            $claim_required = $is_approver && empty($row['assigned_to']) && role_requires_task_claim($conn, $role);
+                                            if ($is_approver && !$assigned_to_another && !$claim_required && isset($row['is_viewed']) && $row['is_viewed'] == 1) {
                                                 echo '<button type="button" class="btn-quick-act btn-quick-approve" onclick="confirmApprovePO(event, \''.$approve_action.'\', \''.$row['po_id'].'\', \''.htmlspecialchars($row['po_number']).'\')"><i class="fas fa-check me-1"></i> Approve</button>';
                                                 
                                                 if ($can_reject) {

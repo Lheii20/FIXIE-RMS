@@ -130,8 +130,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
                 throw new Exception('The quotation status changed before the PR could be saved.');
             }
 
-            $conn->query("INSERT INTO notifications (target_role, message) VALUES ('GM', 'New Purchase Request Needs Approval: $pr_number')");
-            $conn->query("INSERT INTO notifications (target_role, message) VALUES ('President', 'New Purchase Request Needs Approval: $pr_number')");
+            create_role_notification($conn, 'GM', "New Purchase Request Needs Approval: $pr_number");
+            create_role_notification($conn, 'President', "New Purchase Request Needs Approval: $pr_number");
 
             log_audit_action($conn, $created_by, 'CREATE_PR', "Created PR $pr_number from quotation {$quote['quotation_number']}", null, [
                 'pr_number' => $pr_number,
@@ -169,8 +169,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
 
         log_audit_action($conn, $_SESSION['user_id'], 'APPROVE_PR', "Approved PR $pr_number", ['status' => 'Pending'], ['status' => 'Approved']);
 
-        $conn->query("INSERT INTO notifications (target_role, message) VALUES ('Procurement', 'PR $pr_number is Approved. Ready for PO Conversion.')");
-        $conn->query("INSERT INTO notifications (target_role, message) VALUES ('Sales Staff', 'Your PR $pr_number has been Approved by Management.')");
+        create_role_notification($conn, 'Procurement', "PR $pr_number is Approved. Ready for PO Conversion.");
+        create_role_notification($conn, 'Sales Staff', "Your PR $pr_number has been Approved by Management.");
 
         header("Location: ../view_pr.php?id=$pr_id&success=PR Approved Successfully");
         exit();
@@ -224,7 +224,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action'])) {
 
         // Escape para iwas error sa single quotes sa chat string
         $safe_remarks = $conn->real_escape_string($remarks);
-        $conn->query("INSERT INTO notifications (target_role, message) VALUES ('Sales Staff', 'Your PR $pr_number was Rejected by Management. Reason: $safe_remarks')");
+        create_role_notification($conn, 'Sales Staff', "Your PR $pr_number was Rejected by Management. Reason: $safe_remarks");
         log_audit_action($conn, $_SESSION['user_id'], 'REJECT_PR', "Rejected PR $pr_number. Reason: $remarks", ['status' => 'Pending'], ['status' => 'Rejected', 'remarks' => $remarks]);
 
         header("Location: ../view_pr.php?id=$pr_id&success=PR Rejected");

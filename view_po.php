@@ -10,15 +10,17 @@ $po_id = $_GET['id'] ?? 0;
 if(!is_numeric($po_id)) die("Invalid PO ID");
 
 $current_role = $_SESSION['role'];
+$current_user_id = (int)$_SESSION['user_id'];
+ensure_user_notification_states($conn, $current_user_id, $current_role);
 
-// Mark notifications as read
-$mark_sql = "UPDATE notifications 
-             SET is_read = 1 
-             WHERE target_role = ? 
-             AND is_read = 0 
-             AND (message LIKE CONCAT('%PO #', ?, '%') OR message LIKE CONCAT('%PO #', (SELECT po_number FROM purchase_orders WHERE po_id=?), '%'))";
+// Opening a PO marks only this user's matching role notification as read.
+$mark_sql = "UPDATE notification_user_states nus
+             INNER JOIN notifications n ON n.notif_id = nus.notif_id
+             SET nus.is_read = 1, nus.read_at = COALESCE(nus.read_at, NOW())
+             WHERE nus.user_id = ? AND n.target_role = ? AND nus.is_deleted = 0 AND nus.is_read = 0
+             AND (n.message LIKE CONCAT('%PO #', ?, '%') OR n.message LIKE CONCAT('%PO #', (SELECT po_number FROM purchase_orders WHERE po_id=?), '%'))";
 $stmt_mark = $conn->prepare($mark_sql);
-$stmt_mark->bind_param("sis", $current_role, $po_id, $po_id);
+$stmt_mark->bind_param("isii", $current_user_id, $current_role, $po_id, $po_id);
 $stmt_mark->execute();
 
 $stmt = $conn->prepare("SELECT p.*, u.full_name as creator_name FROM purchase_orders p LEFT JOIN users u ON p.created_by = u.user_id WHERE p.po_id = ?");
@@ -90,6 +92,15 @@ if ($is_approver && isset($po['is_viewed']) && $po['is_viewed'] == 0) {
     $conn->query("UPDATE purchase_orders SET is_viewed = 1 WHERE po_id = $po_id");
     $po['is_viewed'] = 1;
 }
+
+// Shared PO visibility with one optional accountable task owner.
+$active_task_assignment = get_active_po_task_assignment($conn, (int)$po_id);
+$eligible_task_roles = get_po_eligible_roles($conn, $status);
+$is_task_eligible = in_array($role, $eligible_task_roles, true);
+$is_task_assignee = $active_task_assignment && (int)$active_task_assignment['assigned_to'] === (int)$current_user_id;
+$task_locked_for_another_user = $active_task_assignment && !$is_task_assignee;
+$task_claim_required = $is_task_eligible && !$active_task_assignment && role_requires_task_claim($conn, $role);
+$can_execute_task = !$task_locked_for_another_user && !$task_claim_required;
 
 $items_data = [];
 $stmt_items = $conn->prepare("SELECT * FROM po_items WHERE po_id = ?");
@@ -209,7 +220,7 @@ $can_upload_files = ($role == 'Procurement');
             
             <div class="d-flex align-items-center gap-2 text-end">
                 
-                <?php if ($is_approver): ?>
+                <?php if ($is_approver && $can_execute_task): ?>
                     <div class="d-inline-flex align-items-center gap-2 m-0 p-0">
                         <button type="button" class="btn btn-sm btn-success px-4 shadow-sm fw-bold" style="border-radius: 8px;" 
                                 onclick="<?php echo $approve_action === 'mark_delivered' ? "openDeliveryProofModal()" : "confirmApprovePO(event, '" . $approve_action . "', '" . $po['po_id'] . "', '" . htmlspecialchars($po['po_number'], ENT_QUOTES) . "', '" . htmlspecialchars($approve_label, ENT_QUOTES) . "')"; ?>">
@@ -236,6 +247,41 @@ $can_upload_files = ($role == 'Procurement');
                 </div>
             </div>
         </div>
+
+        <?php if ($is_task_eligible || $active_task_assignment): ?>
+        <div class="card border-0 shadow-sm mb-4 no-print" style="border-radius: 12px;">
+            <div class="card-body py-3 px-4 d-flex flex-wrap align-items-center justify-content-between gap-3">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="rounded-circle bg-primary bg-opacity-10 text-primary d-inline-flex align-items-center justify-content-center" style="width: 38px; height: 38px;"><i class="fas fa-user-check"></i></div>
+                    <div>
+                        <div class="fw-bold text-dark" style="font-size: .9rem;">Task ownership</div>
+                        <?php if ($active_task_assignment): ?>
+                            <div class="small text-muted">Assigned to <strong><?php echo htmlspecialchars($active_task_assignment['assignee_name']); ?></strong> · <?php echo htmlspecialchars($active_task_assignment['assigned_role']); ?></div>
+                        <?php elseif ($is_task_eligible): ?>
+                            <div class="small text-muted">This is an unassigned shared task for your role.</div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <?php if ($is_task_eligible && !$active_task_assignment): ?>
+                    <form action="actions/po_handler.php" method="POST" class="m-0">
+                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
+                        <input type="hidden" name="action" value="claim_task">
+                        <input type="hidden" name="po_id" value="<?php echo (int)$po_id; ?>">
+                        <button type="submit" class="btn btn-sm btn-primary px-3 fw-bold" style="border-radius: 8px;"><i class="fas fa-hand-paper me-1"></i> Claim task</button>
+                    </form>
+                <?php elseif ($is_task_assignee): ?>
+                    <form action="actions/po_handler.php" method="POST" class="m-0">
+                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
+                        <input type="hidden" name="action" value="release_task">
+                        <input type="hidden" name="po_id" value="<?php echo (int)$po_id; ?>">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary px-3 fw-bold" style="border-radius: 8px;"><i class="fas fa-share me-1"></i> Release task</button>
+                    </form>
+                <?php endif; ?>
+            </div>
+            <?php if ($task_locked_for_another_user): ?><div class="card-footer bg-light border-0 small text-muted py-2 px-4">Only the assigned user can complete the current task. The PO remains visible to the whole department.</div><?php endif; ?>
+            <?php if ($task_claim_required): ?><div class="card-footer bg-light border-0 small text-muted py-2 px-4">Because more than one active user has this role, claim the task before taking action.</div><?php endif; ?>
+        </div>
+        <?php endif; ?>
 
         <div class="row g-4 screen-only-cards">
             <div class="col-lg-8">
@@ -383,7 +429,7 @@ $can_upload_files = ($role == 'Procurement');
                         </table>
                     </div>
                     
-                    <?php if($balance > 0.01 && $_SESSION['role'] == 'Finance'): ?>
+                    <?php if($balance > 0.01 && $_SESSION['role'] == 'Finance' && $can_execute_task): ?>
                     <div class="card-footer bg-light p-4 border-top">
                         <h6 class="fw-bold mb-3 text-primary"><i class="fas fa-plus-circle me-2"></i> Record New Payment</h6>
                         <form action="actions/po_handler.php" method="POST" enctype="multipart/form-data" id="paymentForm">
@@ -450,6 +496,8 @@ $can_upload_files = ($role == 'Procurement');
                             </div>
                         </form>
                     </div>
+                    <?php elseif($balance > 0.01 && $_SESSION['role'] == 'Finance'): ?>
+                    <div class="card-footer bg-light p-3 border-top small text-muted"><i class="fas fa-lock me-1"></i> <?php echo $task_locked_for_another_user ? 'Payment entry is reserved for the assigned Finance user.' : 'Claim this task before recording payment.'; ?></div>
                     <?php endif; ?>
                 </div>
                 <?php endif; ?>

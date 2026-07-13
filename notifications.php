@@ -10,18 +10,23 @@ if (!isset($_SESSION['user_id']) || empty($_SESSION['role'])) {
 }
 
 $role = $_SESSION['role'];
+$user_id = (int) $_SESSION['user_id'];
 
-// Fetch ONLY notifications targeted to this user's specific role, ordered by pinned first
-$stmt = $conn->prepare("SELECT *, COALESCE(is_pinned, 0) as is_pinned FROM notifications WHERE target_role = ? ORDER BY is_pinned DESC, created_at DESC");
-$stmt->bind_param("s", $role);
+// A role owns the shared queue, while this user owns their own inbox state.
+ensure_user_notification_states($conn, $user_id, $role);
+
+// Shared role notifications with personal read/pin/delete state.
+$stmt = $conn->prepare("SELECT n.*, nus.is_read, nus.is_pinned
+    FROM notifications n
+    INNER JOIN notification_user_states nus ON nus.notif_id = n.notif_id
+    WHERE n.target_role = ? AND nus.user_id = ? AND nus.is_deleted = 0
+    ORDER BY nus.is_pinned DESC, n.created_at DESC");
+$stmt->bind_param("si", $role, $user_id);
 $stmt->execute();
 $notifs = $stmt->get_result();
 
 // Count unread
-$unread_stmt = $conn->prepare("SELECT COUNT(*) as unread_count FROM notifications WHERE target_role = ? AND is_read = 0");
-$unread_stmt->bind_param("s", $role);
-$unread_stmt->execute();
-$unread_count = $unread_stmt->get_result()->fetch_assoc()['unread_count'];
+$unread_count = get_unread_notification_count($conn, $user_id, $role);
 ?>
 <!DOCTYPE html>
 <html lang="en">

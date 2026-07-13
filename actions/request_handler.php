@@ -1,6 +1,7 @@
 <?php
 session_start();
 require '../config/db_connect.php';
+require '../config/functions.php';
 
 // Ensure the request is POST
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -53,9 +54,7 @@ if ($action === 'submit_request') {
         
         // --- ADMIN NOTIFICATION TRIGGER ---
         $admin_notif_msg = "Action Required: " . $current_username . " is requesting to " . $request_type . ".";
-        $stmt_notif = $conn->prepare("INSERT INTO notifications (target_role, message, is_read, is_pinned) VALUES ('Admin', ?, 0, 0)");
-        $stmt_notif->bind_param("s", $admin_notif_msg);
-        $stmt_notif->execute();
+        create_role_notification($conn, 'Admin', $admin_notif_msg);
         // ----------------------------------
 
         // Audit Trail Entry
@@ -130,9 +129,7 @@ elseif ($action === 'manage_request') {
             $target_role = $u_data['role'];
             $target_fullname = $u_data['full_name'];
             
-            $stmt_notif = $conn->prepare("INSERT INTO notifications (target_role, message, is_read, is_pinned) VALUES (?, ?, 0, 0)");
-            $stmt_notif->bind_param("ss", $target_role, $user_notif_msg);
-            $stmt_notif->execute();
+            create_role_notification($conn, $target_role, $user_notif_msg);
         }
 
         // Audit Trail for Admin Action - FULLY READABLE FOR HUMAN (No more IDs)

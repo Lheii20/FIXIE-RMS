@@ -152,7 +152,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
             // 5. UPDATE HISTORY AND NOTIFICATIONS
             $conn->query("INSERT INTO po_history (po_id, changed_by, status_from, status_to) VALUES ($po_id, $user_id, 'New', 'Pending')");
-            $conn->query("INSERT INTO notifications (target_role, message) VALUES ('GM', 'New Purchase Order Requires Approval: PO #$po_id')");
+            create_role_notification($conn, 'GM', "New Purchase Order Requires Approval: PO #$po_id");
             
             // 6. PROCESS ATTACHED QUOTATION FILE SECURELY
             if (isset($_FILES['po_document']) && !empty($_FILES['po_document']['name'])) {
@@ -188,6 +188,34 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             header("Location: ../create_po.php?error=Transaction failed. Please try again.");
             exit();
         }
+    }
+
+    // Claim/release preserves shared visibility, while establishing one accountable owner.
+    if (in_array($action, ['claim_task', 'release_task'], true)) {
+        $po_id = (int)($_POST['po_id'] ?? 0);
+        if ($po_id < 1) {
+            header("Location: ../po_list.php?error=Invalid Purchase Order.");
+            exit();
+        }
+        try {
+            $conn->begin_transaction();
+            if ($action === 'claim_task') {
+                $assignment = claim_po_task($conn, $po_id, $user_id, $_SESSION['role']);
+                $message = 'Task claimed successfully.';
+                $audit = "Claimed PO task #$po_id as {$assignment['assigned_role']}";
+            } else {
+                release_po_task($conn, $po_id, $user_id);
+                $message = 'Task released back to the shared queue.';
+                $audit = "Released PO task #$po_id";
+            }
+            log_audit_action($conn, $user_id, strtoupper($action), $audit);
+            $conn->commit();
+            header("Location: ../view_po.php?id=$po_id&success=" . rawurlencode($message));
+        } catch (Exception $e) {
+            $conn->rollback();
+            header("Location: ../view_po.php?id=$po_id&error=" . rawurlencode($e->getMessage()));
+        }
+        exit();
     }
 
     $workflow_actions = ['approve_gm', 'approve_finance', 'approve_president', 'mark_funded', 'mark_delivered', 'reject', 'add_payment'];
@@ -249,6 +277,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 if (!$po || !in_array($po['status'], ['Delivered', 'Partially-Collected'], true)) {
                     throw new Exception('Payments can only be recorded after delivery.');
                 }
+                enforce_po_task_ownership($conn, $po_id, $user_id, $_SESSION['role']);
 
                 $paid_stmt = $conn->prepare("SELECT COALESCE(SUM(amount_paid), 0) AS total_paid FROM payments WHERE po_id = ?");
                 $paid_stmt->bind_param("i", $po_id);
@@ -278,6 +307,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 $po_update->execute();
                 if ($po_update->affected_rows !== 1) {
                     throw new Exception('The PO status changed before the payment could be saved.');
+                }
+                if ($new_status === 'Collected') {
+                    complete_po_task_assignment($conn, $po_id, $user_id, 'Collection completed');
                 }
 
                 log_audit_action($conn, $user_id, 'ADD_PAYMENT', "Recorded $notes of P$amount_paid for PO {$po['po_number']}", ['status' => $po['status']], ['status' => $new_status, 'reference_number' => $reference_number]);
@@ -329,6 +361,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             if (!$rule) {
                 throw new Exception('This action is not allowed for your role at the current PO status.');
             }
+            enforce_po_task_ownership($conn, $po_id, $user_id, $_SESSION['role']);
 
             if ($action === 'mark_delivered') {
                 $upload_dir = __DIR__ . '/../uploads/';
@@ -386,10 +419,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
             if (!empty($rule['notify_target'])) {
                 $notification = "PO {$po['po_number']} is now $new_status.";
-                $notify_stmt = $conn->prepare("INSERT INTO notifications (target_role, message) VALUES (?, ?)");
-                $notify_stmt->bind_param("ss", $rule['notify_target'], $notification);
-                $notify_stmt->execute();
+                create_role_notification($conn, $rule['notify_target'], $notification);
             }
+
+            complete_po_task_assignment($conn, $po_id, $user_id, 'Completed through ' . $action);
 
             $audit_action = $action === 'reject' ? 'REJECT_PO' : 'WORKFLOW_ACTION';
             log_audit_action($conn, $user_id, $audit_action, "PO {$po['po_number']}: {$po['status']} to $new_status", ['status' => $po['status']], ['status' => $new_status, 'remarks' => $remarks]);
