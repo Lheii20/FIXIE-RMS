@@ -14,7 +14,6 @@ if (isset($_SESSION['user_id'])) {
         session_unset();
         session_destroy();
         
-        // Sleek JavaScript-based redirect instead of PHP header to prevent "Headers Already Sent" error
         echo '<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>';
         echo '<script>
             document.addEventListener("DOMContentLoaded", function() {
@@ -37,13 +36,7 @@ if (isset($_SESSION['user_id'])) {
                 });
             });
         </script>';
-        echo '<style>
-            .sleek-swal-popup { border-radius: 20px !important; padding: 2rem !important; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25) !important; font-family: "Inter", sans-serif !important; border: none !important; }
-            .sleek-swal-title { letter-spacing: -0.5px !important; font-weight: 700 !important; color: #0f172a !important; }
-            .sleek-swal-btn { border-radius: 10px !important; padding: 0.7rem 1.8rem !important; font-weight: 600 !important; letter-spacing: 0.3px !important; transition: all 0.2s !important; }
-            .sleek-swal-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(15,23,42,0.2); }
-        </style>';
-        exit(); // Stop loading the rest of the page to prevent errors
+        exit();
     }
     $_SESSION['last_activity'] = time(); 
 }
@@ -51,7 +44,6 @@ if (isset($_SESSION['user_id'])) {
 $role = $_SESSION['role'];
 $unread_count = get_unread_notification_count($conn, (int)$_SESSION['user_id'], $role);
 
-// KUNIN KUNG MAY CAPABILITY ANG USER NA MAKITA ANG AUDIT LOGS
 $can_view_audit = false;
 if (isset($_SESSION['user_id'])) {
     $can_view_audit = has_permission($conn, $_SESSION['user_id'], 'can_view_audit_logs');
@@ -107,32 +99,35 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
 
 <nav class="saas-navbar shadow-sm d-print-none">
     <div class="saas-nav-container">
+        <!-- Mobile Menu Toggle Button (Hamburger Icon) -->
         <button type="button" id="mobileNavToggle" class="mobile-nav-toggle d-print-none" aria-label="Open navigation" aria-expanded="false" aria-controls="mobileSideNav">
             <i class="fas fa-bars"></i>
         </button>
         
+        <!-- Brand Logo -->
         <a href="dashboard.php" class="saas-brand">
             <img src="assets/images/fixie_logo.png" alt="Fixie Logo">
-            <div class="saas-brand-text d-none d-md-block">
-                <h6 class="m-0 fw-bold">FIXIE COMPUTER VENTURES</h6>
+            <div class="saas-brand-text">
+                <h6 class="m-0 fw-bold">FIXIE DRMS</h6>
             </div>
         </a>
 
-        <div class="saas-search-trigger" onclick="openCommandPalette()">
+        <!-- Search Trigger (Desktop Only) -->
+        <div class="saas-search-trigger" onclick="openCommandPalette()" role="button" tabindex="0">
             <i class="fas fa-search"></i>
             <span class="d-none d-sm-inline">Search or jump to...</span>
-            <span class="d-inline d-sm-none">Search...</span>
             <kbd class="d-none d-md-inline-block">Ctrl K</kbd>
         </div>
 
+        <!-- Desktop Navigation Menu -->
         <div class="saas-nav-menu">
             
-            <div class="d-none d-lg-flex align-items-center text-muted fw-medium border-end pe-3 me-2" style="font-size: 0.8rem;">
+            <div class="d-none d-lg-flex align-items-center text-muted fw-medium border-end pe-3 me-2 fs-095rem">
                 <i class="far fa-calendar-alt me-2 text-primary"></i><?php echo date('M d, Y'); ?>
             </div>
 
             <a href="dashboard.php" class="saas-nav-link <?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>">
-                <i class="fas fa-chart-pie me-1 d-none d-lg-inline"></i> Dashboard
+                <i class="fas fa-chart-pie"></i> Dashboard
             </a>
 
             <?php 
@@ -140,8 +135,8 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
             if(in_array($role, $ops_roles)): 
             ?>
             <div class="saas-nav-item has-dropdown">
-                <a href="#" class="saas-nav-link <?php echo (in_array($current_page, ['pr_list.php', 'create_pr.php', 'view_pr.php', 'po_list.php', 'create_po.php', 'view_po.php', 'quotations_list.php', 'create_quotation.php'])) ? 'active' : ''; ?>">
-                    <i class="fas fa-layer-group me-1 d-none d-lg-inline"></i> Operations <i class="fas fa-chevron-down ms-1" style="font-size:0.6rem;"></i>
+                <a href="#" class="saas-nav-link <?php echo (in_array($current_page, ['pr_list.php', 'create_pr.php', 'view_pr.php', 'po_list.php', 'create_po.php', 'view_po.php', 'quotations_list.php', 'create_quotation.php', 'view_quotation.php'])) ? 'active' : ''; ?>">
+                    <i class="fas fa-layer-group"></i> Operations <i class="fas fa-chevron-down ms-1 fs-xs"></i>
                 </a>
                 <div class="saas-dropdown shadow-sm">
                     <?php if($role == 'Sales Staff'): ?>
@@ -161,7 +156,7 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
 
             <div class="saas-nav-item has-dropdown">
                 <a href="#" class="saas-nav-link <?php echo (in_array($current_page, ['documents.php', 'general_docs.php'])) ? 'active' : ''; ?>">
-                    <i class="fas fa-folder-open me-1 d-none d-lg-inline"></i> Records <i class="fas fa-chevron-down ms-1" style="font-size:0.6rem;"></i>
+                    <i class="fas fa-folder-open"></i> Records <i class="fas fa-chevron-down ms-1 fs-xs"></i>
                 </a>
                 <div class="saas-dropdown shadow-sm">
                     <a href="documents.php"><i class="fas fa-archive"></i> Official Records</a>
@@ -172,7 +167,7 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
             <?php if($role == 'Admin' || $can_view_audit): ?>
             <div class="saas-nav-item has-dropdown">
                 <a href="#" class="saas-nav-link <?php echo (in_array($current_page, ['admin_users.php', 'admin_requests.php', 'audit_logs.php', 'admin_backup.php', 'admin_settings.php'])) ? 'active' : ''; ?>">
-                    <i class="fas fa-shield-alt me-1 d-none d-lg-inline"></i> <?php echo ($role == 'Admin') ? 'Admin' : 'System'; ?> <i class="fas fa-chevron-down ms-1" style="font-size:0.6rem;"></i>
+                    <i class="fas fa-shield-alt"></i> <?php echo ($role == 'Admin') ? 'Admin' : 'System'; ?> <i class="fas fa-chevron-down ms-1 fs-xs"></i>
                 </a>
                 <div class="saas-dropdown shadow-sm">
                     <?php if($role == 'Admin'): ?>
@@ -193,15 +188,17 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
             </div>
             <?php endif; ?>
 
-            <a href="notifications.php" class="saas-nav-icon <?php echo ($current_page == 'notifications.php') ? 'active' : ''; ?>" title="Notifications" style="position: relative; display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; color: #64748b; text-decoration: none; transition: color 0.2s;">
-                <i class="fas fa-bell" style="font-size: 1.25rem;"></i>
+            <!-- Notifications Icon with Badge -->
+            <a href="notifications.php" class="saas-nav-icon <?php echo ($current_page == 'notifications.php') ? 'active' : ''; ?>" title="Notifications">
+                <i class="fas fa-bell"></i>
                 <?php if ($unread_count > 0): ?>
-                    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger shadow-sm" style="font-size: 0.6rem; padding: 0.3em 0.45em; margin-top: 6px; margin-left: -8px;">
+                    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger shadow-sm nav-badge-pill">
                         <?php echo $unread_count; ?>
                     </span>
                 <?php endif; ?>
             </a>
 
+            <!-- User Profile Dropdown -->
             <div class="saas-nav-item has-dropdown">
                 <div class="saas-profile-trigger">
                     <?php if(!empty($_SESSION['avatar']) && file_exists($_SESSION['avatar'])): ?>
@@ -212,10 +209,10 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
                         </div>
                     <?php endif; ?>
                 </div>
-                <div class="saas-dropdown shadow-sm" style="right: 0; left: auto; min-width: 200px;">
+                <div class="saas-dropdown shadow-sm profile-dropdown-menu">
                     <div class="px-3 py-2 border-bottom mb-1 bg-light rounded-top">
                         <small class="d-block fw-bold text-dark text-truncate"><?php echo htmlspecialchars($_SESSION['fullname'] ?? 'User'); ?></small>
-                        <small class="text-muted" style="font-size: 0.7rem; text-transform: uppercase;"><?php echo htmlspecialchars($_SESSION['role'] ?? 'Role'); ?></small>
+                        <small class="text-muted fs-08rem text-uppercase"><?php echo htmlspecialchars($_SESSION['role'] ?? 'Role'); ?></small>
                     </div>
                     <a href="settings.php"><i class="fas fa-cog"></i> Account Settings</a>
                     <a href="actions/auth.php?logout=true&csrf_token=<?php echo $_SESSION['csrf_token'] ?? ''; ?>" class="text-danger"><i class="fas fa-sign-out-alt"></i> Logout</a>
@@ -225,8 +222,10 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
     </div>
 </nav>
 
-<!-- Mobile-only side navigation. It uses direct links so mobile users do not depend on hover dropdowns. -->
+<!-- Mobile Navigation Backdrop -->
 <div id="mobileNavBackdrop" class="mobile-nav-backdrop d-print-none"></div>
+
+<!-- Mobile Side Navigation (Hidden by default) -->
 <aside id="mobileSideNav" class="mobile-side-nav d-print-none" aria-label="Mobile navigation">
     <div class="mobile-side-nav__header">
         <a href="dashboard.php" class="mobile-side-nav__brand">
@@ -235,42 +234,53 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
         </a>
         <button type="button" id="mobileNavClose" class="mobile-side-nav__close" aria-label="Close navigation"><i class="fas fa-times"></i></button>
     </div>
+    
     <div class="mobile-side-nav__profile">
         <strong><?php echo htmlspecialchars($_SESSION['fullname'] ?? 'User'); ?></strong>
         <span><?php echo htmlspecialchars($_SESSION['role'] ?? ''); ?></span>
     </div>
+    
+    <!-- Mobile Navigation Sections -->
     <div class="mobile-side-nav__section">
         <span class="mobile-side-nav__label">Workspace</span>
         <a href="dashboard.php" class="mobile-side-nav__link <?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>"><i class="fas fa-chart-pie"></i>Dashboard</a>
-        <a href="notifications.php" class="mobile-side-nav__link <?php echo ($current_page == 'notifications.php') ? 'active' : ''; ?>"><i class="fas fa-bell"></i>Notifications<?php if($unread_count > 0): ?> <span class="badge bg-danger ms-auto"><?php echo $unread_count; ?></span><?php endif; ?></a>
+        <a href="notifications.php" class="mobile-side-nav__link <?php echo ($current_page == 'notifications.php') ? 'active' : ''; ?>"><i class="fas fa-bell"></i>Notifications<?php if($unread_count > 0): ?> <span class="badge bg-danger ms-auto">{{$unread_count}}</span><?php endif; ?></a>
     </div>
+    
     <?php if(in_array($role, $ops_roles)): ?>
     <div class="mobile-side-nav__section">
         <span class="mobile-side-nav__label">Operations</span>
-        <?php if($role == 'Sales Staff'): ?><a href="quotations_list.php" class="mobile-side-nav__link <?php echo (in_array($current_page, ['quotations_list.php', 'create_quotation.php', 'view_quotation.php'])) ? 'active' : ''; ?>"><i class="fas fa-file-contract"></i>Quotations</a><?php endif; ?>
+        <?php if($role == 'Sales Staff'): ?><a href="quotations_list.php" class="mobile-side-nav__link <?php echo (in_array($current_page, ['quotations_list.php', 'create_quotation.php', 'view_quotation.php'])) ? 'active' : ''; ?>"><i class="fas fa-file-invoice-dollar"></i>Quotations</a><?php endif; ?>
         <?php if(in_array($role, ['Sales Staff', 'Procurement', 'GM', 'President', 'Finance'])): ?><a href="pr_list.php" class="mobile-side-nav__link <?php echo (in_array($current_page, ['pr_list.php', 'create_pr.php', 'view_pr.php'])) ? 'active' : ''; ?>"><i class="fas fa-clipboard-list"></i>Purchase Requests</a><?php endif; ?>
         <?php if(in_array($role, ['Procurement', 'GM', 'President', 'Finance', 'Supply Chain'])): ?><a href="po_list.php" class="mobile-side-nav__link <?php echo (in_array($current_page, ['po_list.php', 'create_po.php', 'view_po.php'])) ? 'active' : ''; ?>"><i class="fas fa-file-invoice"></i>Purchase Orders</a><?php endif; ?>
     </div>
     <?php endif; ?>
+    
     <div class="mobile-side-nav__section">
         <span class="mobile-side-nav__label">Records</span>
         <a href="documents.php" class="mobile-side-nav__link <?php echo ($current_page == 'documents.php') ? 'active' : ''; ?>"><i class="fas fa-archive"></i>Official Records</a>
         <a href="general_docs.php" class="mobile-side-nav__link <?php echo ($current_page == 'general_docs.php') ? 'active' : ''; ?>"><i class="fas fa-building"></i>Company Files</a>
     </div>
+    
     <?php if($role == 'Admin' || $can_view_audit): ?>
     <div class="mobile-side-nav__section">
         <span class="mobile-side-nav__label">System</span>
-        <?php if($role == 'Admin'): ?><a href="admin_users.php" class="mobile-side-nav__link <?php echo ($current_page == 'admin_users.php') ? 'active' : ''; ?>"><i class="fas fa-users"></i>User Management</a><a href="admin_requests.php" class="mobile-side-nav__link <?php echo ($current_page == 'admin_requests.php') ? 'active' : ''; ?>"><i class="fas fa-key"></i>Access Requests</a><?php endif; ?>
+        <?php if($role == 'Admin'): ?><a href="admin_users.php" class="mobile-side-nav__link <?php echo ($current_page == 'admin_users.php') ? 'active' : ''; ?>"><i class="fas fa-users"></i>User Management</a><?php endif; ?>
+        <?php if($role == 'Admin'): ?><a href="admin_requests.php" class="mobile-side-nav__link <?php echo ($current_page == 'admin_requests.php') ? 'active' : ''; ?>"><i class="fas fa-key"></i>Access Requests</a><?php endif; ?>
         <a href="audit_logs.php" class="mobile-side-nav__link <?php echo ($current_page == 'audit_logs.php') ? 'active' : ''; ?>"><i class="fas fa-history"></i>Audit Trail</a>
+        <?php if($role == 'Admin'): ?><a href="admin_backup.php" class="mobile-side-nav__link <?php echo ($current_page == 'admin_backup.php') ? 'active' : ''; ?>"><i class="fas fa-database"></i>Backup</a><?php endif; ?>
+        <?php if($role == 'Admin'): ?><a href="admin_settings.php" class="mobile-side-nav__link <?php echo ($current_page == 'admin_settings.php') ? 'active' : ''; ?>"><i class="fas fa-cogs"></i>Settings</a><?php endif; ?>
     </div>
     <?php endif; ?>
+    
     <div class="mobile-side-nav__footer">
         <a href="settings.php" class="mobile-side-nav__link"><i class="fas fa-cog"></i>Account Settings</a>
         <a href="actions/auth.php?logout=true&csrf_token=<?php echo $_SESSION['csrf_token'] ?? ''; ?>" class="mobile-side-nav__link mobile-side-nav__link--danger"><i class="fas fa-sign-out-alt"></i>Logout</a>
     </div>
 </aside>
 
-<div id="commandPaletteOverlay" class="cp-overlay" style="display: none;">
+<!-- Command Palette Modal -->
+<div id="commandPaletteOverlay" class="cp-overlay init-hidden">
     <div class="cp-modal fade-in">
         <div class="cp-header">
             <i class="fas fa-search cp-icon"></i>
@@ -393,9 +403,9 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
                 <?php endif; ?>
 
             </ul>
-            <div id="cpNoResults" class="text-center py-4 text-muted" style="display: none;">
+            <div id="cpNoResults" class="text-center py-4 text-muted init-hidden">
                 <i class="fas fa-search-minus fs-4 mb-2 opacity-50"></i>
-                <p class="mb-0" style="font-size: 0.8rem;">No matching commands found.</p>
+                <p class="mb-0 fs-09rem">No matching commands found.</p>
             </div>
         </div>
         <div class="cp-footer">
@@ -413,25 +423,59 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     });
 
+    // Mobile Navigation Toggle
     const mobileToggle = document.getElementById('mobileNavToggle');
     const mobileClose = document.getElementById('mobileNavClose');
     const mobileBackdrop = document.getElementById('mobileNavBackdrop');
+    
     const closeMobileNav = function () {
         document.body.classList.remove('mobile-nav-open');
         if (mobileToggle) mobileToggle.setAttribute('aria-expanded', 'false');
     };
+    
     const openMobileNav = function () {
         document.body.classList.add('mobile-nav-open');
         if (mobileToggle) mobileToggle.setAttribute('aria-expanded', 'true');
     };
-    if (mobileToggle) mobileToggle.addEventListener('click', openMobileNav);
-    if (mobileClose) mobileClose.addEventListener('click', closeMobileNav);
-    if (mobileBackdrop) mobileBackdrop.addEventListener('click', closeMobileNav);
+    
+    if (mobileToggle) {
+        mobileToggle.addEventListener('click', openMobileNav);
+        mobileToggle.addEventListener('touchstart', function(e) {
+            e.preventDefault();
+            openMobileNav();
+        });
+    }
+    
+    if (mobileClose) {
+        mobileClose.addEventListener('click', closeMobileNav);
+        mobileClose.addEventListener('touchstart', function(e) {
+            e.preventDefault();
+            closeMobileNav();
+        });
+    }
+    
+    if (mobileBackdrop) {
+        mobileBackdrop.addEventListener('click', closeMobileNav);
+        mobileBackdrop.addEventListener('touchstart', function(e) {
+            e.preventDefault();
+            closeMobileNav();
+        });
+    }
+    
     document.addEventListener('keydown', function (event) {
-        if (event.key === 'Escape' && document.body.classList.contains('mobile-nav-open')) closeMobileNav();
+        if (event.key === 'Escape' && document.body.classList.contains('mobile-nav-open')) {
+            closeMobileNav();
+        }
+    });
+    
+    // Close mobile nav when a link is clicked
+    const mobileLinks = document.querySelectorAll('.mobile-side-nav__link');
+    mobileLinks.forEach(link => {
+        link.addEventListener('click', closeMobileNav);
     });
 });
 
+// Command Palette Functionality
 const cpOverlay = document.getElementById('commandPaletteOverlay');
 const cpInput = document.getElementById('cpInput');
 const cpList = document.getElementById('cpList');
@@ -531,9 +575,7 @@ cpOverlay.addEventListener('click', function(e) {
     }
 });
 
-// ==============================================================
-// REAL-TIME FORCE LOGOUT CHECKER (Background AJAX Polling)
-// ==============================================================
+// Real-time force logout checker
 setInterval(function() {
     let apiPath = window.location.pathname.includes('/actions/') || window.location.pathname.includes('/api/') ? '../api/check_session.php' : 'api/check_session.php';
     

@@ -147,74 +147,19 @@ $can_upload_files = ($role == 'Procurement');
 <html lang="en">
 <head>
     <title>View PO #<?php echo htmlspecialchars($po['po_number']); ?> - Fixie DRMS</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
     <link href="assets/css/style.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
-    <!-- SweetAlert2 CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        body, .main-content { font-family: 'Inter', sans-serif; }
-        .file-thumbnail { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; border: 1px solid #ddd; }
-        .file-icon { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; background: #f8f9fa; border-radius: 4px; font-size: 1.2rem; border: 1px solid #ddd; }
-        
-        .payment-card { border-left: 4px solid #198754 !important; }
-        .btn-check:checked + .btn-outline-success { background-color: #198754; color: white; border-color: #198754; }
-        .btn-check:checked + .btn-outline-warning { background-color: #ffc107; color: #000; border-color: #ffc107; }
-        
-        /* SweetAlert Sleek Overrides */
-        .sleek-popup { border-radius: 16px !important; font-family: 'Inter', sans-serif; }
-        .swal2-textarea { 
-            font-size: 0.9rem !important; 
-            border-radius: 10px !important; 
-            border: 1px solid #cbd5e1 !important; 
-            box-shadow: none !important; 
-        }
-        .swal2-textarea:focus {
-            border-color: #ef4444 !important;
-            box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1) !important;
-        }
-
-        .reject-callout {
-            background-color: #fef2f2;
-            border: 1px solid #fecaca;
-            border-left: 4px solid #ef4444;
-            border-radius: 8px;
-            padding: 12px 16px;
-            margin-top: 16px;
-        }
-
-        @media screen { .print-only-po { display: none; } }
-        
-        @media print {
-            @page { size: A4; margin: 0; }
-            body { background: white !important; color: #212529 !important; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif !important; font-size: 10pt !important; padding: 15mm !important; }
-            .sidebar, .navbar, .no-print, .screen-only-cards { display: none !important; }
-            .main-content { margin: 0 !important; width: 100% !important; padding: 0 !important; background: transparent !important; box-shadow: none !important; }
-            .print-only-po { display: block !important; width: 100%; }
-            .draft-banner { color: #FF0000 !important; background-color: transparent !important; border: 3px solid #FF0000 !important; text-align: center; font-weight: 900; font-size: 14pt; padding: 10px; margin-bottom: 25px; text-transform: uppercase; letter-spacing: 2px; border-radius: 4px; }
-            .print-header-brand { font-size: 26pt; font-weight: 900; color: #0d6efd !important; margin: 0; line-height: 1.1; letter-spacing: -0.5px; -webkit-print-color-adjust: exact; }
-            .print-header-sub { font-size: 9pt; color: #6c757d !important; margin-top: 6px; line-height: 1.4; }
-            .print-title-doc { font-size: 24pt; font-weight: 800; color: #343a40 !important; text-transform: uppercase; letter-spacing: 2px; }
-            .info-box { border: 1px solid #dee2e6; border-radius: 6px; padding: 15px; margin-bottom: 25px; }
-            .info-label { font-size: 8pt; text-transform: uppercase; color: #6c757d !important; font-weight: 700; margin-bottom: 4px; letter-spacing: 0.5px; }
-            .print-table { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 25px; border: 1px solid #dee2e6; }
-            .print-table th { background-color: #0d6efd !important; color: white !important; -webkit-print-color-adjust: exact; padding: 12px 10px; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.5px; border: 1px solid #0d6efd; }
-            .print-table td { padding: 12px 10px; border: 1px solid #dee2e6; font-size: 10pt; vertical-align: top; }
-            .print-table tfoot td { background-color: #f8f9fa !important; -webkit-print-color-adjust: exact; padding: 15px 10px; border-top: 2px solid #0d6efd; }
-            .signature-section { margin-top: 60px; page-break-inside: avoid; }
-            .sig-line { border-bottom: 1px solid #212529; margin-bottom: 8px; height: 40px; width: 80%; margin-left: auto; margin-right: auto; }
-            .sig-name { font-weight: bold; font-size: 10pt; text-transform: uppercase; color: #212529 !important; }
-            .sig-title { font-size: 8.5pt; color: #6c757d !important; }
-        }
-    </style>
 </head>
 <body>
     <?php include 'sidebar.php'; ?>
     <div class="main-content fade-in">
         
-        <div class="d-flex justify-content-between align-items-center mb-4 no-print bg-white p-3 shadow-sm border" style="border-radius: 12px !important;">
-            <a href="po_list.php" class="btn btn-sm btn-light border px-3 shadow-sm" style="font-weight: 600; border-radius: 8px;">
+        <div class="d-flex justify-content-between align-items-center mb-4 no-print bg-white p-3 shadow-sm border rounded-12-imp">
+            <a href="po_list.php" class="btn btn-sm btn-light border px-3 shadow-sm fw-600 rounded-8">
                 <i class="fas fa-arrow-left me-2"></i> Back
             </a>
             
@@ -222,39 +167,39 @@ $can_upload_files = ($role == 'Procurement');
                 
                 <?php if ($is_approver && $can_execute_task): ?>
                     <div class="d-inline-flex align-items-center gap-2 m-0 p-0">
-                        <button type="button" class="btn btn-sm btn-success px-4 shadow-sm fw-bold" style="border-radius: 8px;" 
+                        <button type="button" class="btn btn-sm btn-success px-4 shadow-sm fw-bold rounded-8" 
                                 onclick="<?php echo $approve_action === 'mark_delivered' ? "openDeliveryProofModal()" : "confirmApprovePO(event, '" . $approve_action . "', '" . $po['po_id'] . "', '" . htmlspecialchars($po['po_number'], ENT_QUOTES) . "', '" . htmlspecialchars($approve_label, ENT_QUOTES) . "')"; ?>">
                             <i class="fas fa-check-circle me-1"></i> <?php echo htmlspecialchars($approve_label); ?>
                         </button>
 
                         <?php if ($can_reject): ?>
-                            <button type="button" class="btn btn-sm btn-outline-danger px-4 shadow-sm bg-white fw-bold" style="border-radius: 8px;" 
+                            <button type="button" class="btn btn-sm btn-outline-danger px-4 shadow-sm bg-white fw-bold rounded-8" 
                                     onclick="confirmRejectPO(event, '<?php echo $po['po_id']; ?>', '<?php echo htmlspecialchars($po['po_number']); ?>')">
                                 <i class="fas fa-times-circle me-1"></i> Reject
                             </button>
                         <?php endif; ?>
                     </div>
-                    <div class="vr bg-secondary opacity-25 mx-2" style="width: 2px; height: 30px;"></div>
+                    <div class="vr bg-secondary opacity-25 mx-2 vr-divider"></div>
                 <?php endif; ?>
 
-                <button class="btn btn-sm btn-primary shadow-sm px-3 fw-bold" style="border-radius: 8px;" onclick="logAndPrint('PO #<?php echo htmlspecialchars($po['po_number']); ?>')">
+                <button class="btn btn-sm btn-primary shadow-sm px-3 fw-bold rounded-8" onclick="logAndPrint('PO #<?php echo htmlspecialchars($po['po_number']); ?>')">
                     <i class="fas fa-print me-1"></i> Print PO
                 </button>
                 
-                <div class="border-start ps-3 ms-2 text-start" style="line-height: 1.2;">
+                <div class="border-start ps-3 ms-2 text-start lh-12">
                     <span class="badge badge-status status-<?php echo str_replace([' ', '/'], '_', $po['status']); ?> px-3 py-1 mb-1 d-inline-block shadow-sm"><?php echo $po['status']; ?></span><br>
-                    <small class="text-muted fw-bold" style="font-size: 0.75rem;"><i class="fas fa-map-marker-alt text-danger opacity-75"></i> <?php echo htmlspecialchars($po['current_location']); ?></small>
+                    <small class="text-muted fw-bold fs-xs"><i class="fas fa-map-marker-alt text-danger opacity-75"></i> <?php echo htmlspecialchars($po['current_location']); ?></small>
                 </div>
             </div>
         </div>
 
         <?php if ($is_task_eligible || $active_task_assignment): ?>
-        <div class="card border-0 shadow-sm mb-4 no-print" style="border-radius: 12px;">
+        <div class="card border-0 shadow-sm mb-4 no-print rounded-12">
             <div class="card-body py-3 px-4 d-flex flex-wrap align-items-center justify-content-between gap-3">
                 <div class="d-flex align-items-center gap-3">
-                    <div class="rounded-circle bg-primary bg-opacity-10 text-primary d-inline-flex align-items-center justify-content-center" style="width: 38px; height: 38px;"><i class="fas fa-user-check"></i></div>
+                    <div class="rounded-circle bg-primary bg-opacity-10 text-primary d-inline-flex align-items-center justify-content-center box-38"><i class="fas fa-user-check"></i></div>
                     <div>
-                        <div class="fw-bold text-dark" style="font-size: .9rem;">Task ownership</div>
+                        <div class="fw-bold text-dark fs-09rem">Task ownership</div>
                         <?php if ($active_task_assignment): ?>
                             <div class="small text-muted">Assigned to <strong><?php echo htmlspecialchars($active_task_assignment['assignee_name']); ?></strong> · <?php echo htmlspecialchars($active_task_assignment['assigned_role']); ?></div>
                         <?php elseif ($is_task_eligible): ?>
@@ -267,14 +212,14 @@ $can_upload_files = ($role == 'Procurement');
                         <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
                         <input type="hidden" name="action" value="claim_task">
                         <input type="hidden" name="po_id" value="<?php echo (int)$po_id; ?>">
-                        <button type="submit" class="btn btn-sm btn-primary px-3 fw-bold" style="border-radius: 8px;"><i class="fas fa-hand-paper me-1"></i> Claim task</button>
+                        <button type="submit" class="btn btn-sm btn-primary px-3 fw-bold rounded-8"><i class="fas fa-hand-paper me-1"></i> Claim task</button>
                     </form>
                 <?php elseif ($is_task_assignee): ?>
                     <form action="actions/po_handler.php" method="POST" class="m-0">
                         <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
                         <input type="hidden" name="action" value="release_task">
                         <input type="hidden" name="po_id" value="<?php echo (int)$po_id; ?>">
-                        <button type="submit" class="btn btn-sm btn-outline-secondary px-3 fw-bold" style="border-radius: 8px;"><i class="fas fa-share me-1"></i> Release task</button>
+                        <button type="submit" class="btn btn-sm btn-outline-secondary px-3 fw-bold rounded-8"><i class="fas fa-share me-1"></i> Release task</button>
                     </form>
                 <?php endif; ?>
             </div>
@@ -286,30 +231,30 @@ $can_upload_files = ($role == 'Procurement');
         <div class="row g-4 screen-only-cards">
             <div class="col-lg-8">
                 
-                <div class="card border-0 shadow-sm mb-4" style="border-radius: 16px;">
+                <div class="card border-0 shadow-sm mb-4 rounded-16">
                     <div class="card-body p-4">
                         <div class="d-flex align-items-center mb-3 pb-2 border-bottom border-light">
-                            <div class="bg-light text-primary rounded-circle d-flex align-items-center justify-content-center me-3" style="width: 40px; height: 40px;">
+                            <div class="bg-light text-primary rounded-circle d-flex align-items-center justify-content-center me-3 box-40">
                                 <i class="fas fa-info-circle fs-5"></i>
                             </div>
-                            <h6 class="text-uppercase text-dark fw-bold m-0" style="letter-spacing: 0.5px;">Purchase Order Information</h6>
+                            <h6 class="text-uppercase text-dark fw-bold m-0 tracking-wide">Purchase Order Information</h6>
                         </div>
 
                         <div class="row g-3">
                             <div class="col-md-6">
-                                <small class="text-muted d-block mb-1" style="font-size: 0.75rem;">PO Number</small>
+                                <small class="text-muted d-block mb-1 fs-xs">PO Number</small>
                                 <div class="fs-5 fw-bold text-primary">#<?php echo htmlspecialchars($po['po_number']); ?></div>
                             </div>
                             <div class="col-md-6">
-                                <small class="text-muted d-block mb-1" style="font-size: 0.75rem;">Total Amount</small>
+                                <small class="text-muted d-block mb-1 fs-xs">Total Amount</small>
                                 <div class="fs-5 fw-bold text-dark">₱ <?php echo number_format($po['amount'], 2); ?></div>
                             </div>
                             <div class="col-md-6">
-                                <small class="text-muted d-block mb-1" style="font-size: 0.75rem;">Client Name</small>
+                                <small class="text-muted d-block mb-1 fs-xs">Client Name</small>
                                 <div class="fw-bold text-dark fs-6"><?php echo htmlspecialchars($po['client_name']); ?></div>
                             </div>
                             <div class="col-md-6">
-                                <small class="text-muted d-block mb-1" style="font-size: 0.75rem;">Quotation Ref</small>
+                                <small class="text-muted d-block mb-1 fs-xs">Quotation Ref</small>
                                 <?php if($source_quotation): ?>
                                     <a href="view_quotation.php?id=<?php echo (int)$source_quotation['quotation_id']; ?>" class="fw-medium text-primary text-decoration-none"><i class="fas fa-link me-1"></i><?php echo htmlspecialchars($source_quotation['quotation_number']); ?></a>
                                 <?php else: ?>
@@ -317,11 +262,11 @@ $can_upload_files = ($role == 'Procurement');
                                 <?php endif; ?>
                             </div>
                             <div class="col-md-6">
-                                <small class="text-muted d-block mb-1" style="font-size: 0.75rem;">Prepared By</small>
+                                <small class="text-muted d-block mb-1 fs-xs">Prepared By</small>
                                 <div class="fw-medium text-dark"><i class="fas fa-user-circle text-muted me-1"></i> <?php echo htmlspecialchars($po['creator_name']); ?></div>
                             </div>
                             <div class="col-md-6">
-                                <small class="text-muted d-block mb-1" style="font-size: 0.75rem;">Date Created</small>
+                                <small class="text-muted d-block mb-1 fs-xs">Date Created</small>
                                 <div class="fw-medium text-dark"><i class="far fa-calendar-alt text-muted me-1"></i> <?php echo date('F d, Y h:i A', strtotime($po['date_created'])); ?></div>
                             </div>
                         </div>
@@ -329,21 +274,21 @@ $can_upload_files = ($role == 'Procurement');
                         <!-- Sleek Inline Rejection Reason -->
                         <?php if(strpos($po['status'], 'Rejected') !== false && !empty($rejection_reason)): ?>
                         <div class="reject-callout">
-                            <div class="text-danger fw-bold small text-uppercase mb-1" style="letter-spacing: 0.5px;"><i class="fas fa-exclamation-triangle me-1"></i> Reason for Rejection</div>
-                            <div class="text-dark fw-medium" style="font-size: 0.9rem;">&ldquo;<?php echo nl2br(htmlspecialchars($rejection_reason)); ?>&rdquo;</div>
+                            <div class="text-danger fw-bold small text-uppercase mb-1 tracking-wide"><i class="fas fa-exclamation-triangle me-1"></i> Reason for Rejection</div>
+                            <div class="text-dark fw-medium fs-09rem">&ldquo;<?php echo nl2br(htmlspecialchars($rejection_reason)); ?>&rdquo;</div>
                         </div>
                         <?php endif; ?>
                     </div>
                 </div>
 
-                <div class="card border-0 shadow-sm mb-4" style="border-radius: 16px; overflow: hidden;">
+                <div class="card border-0 shadow-sm mb-4 rounded-16 overflow-hidden">
                     <div class="card-header bg-white fw-bold py-3 border-bottom border-light">
                         <i class="fas fa-list-alt me-2 text-primary"></i> Order Specifications
                     </div>
                     <div class="card-body p-0">
                         <div class="table-responsive">
                             <table class="table table-hover mb-0 align-middle">
-                                <thead class="bg-light text-secondary" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">
+                                <thead class="bg-light text-secondary table-header-sm">
                                     <tr>
                                         <th class="ps-4 py-3 border-bottom-0">Item Details</th>
                                         <th class="text-center py-3 border-bottom-0">Qty</th>
@@ -358,12 +303,12 @@ $can_upload_files = ($role == 'Procurement');
                                                 <div class="d-flex align-items-center gap-2 mb-1">
                                                     <span class="badge bg-light text-dark border px-2 py-1"><?php echo htmlspecialchars($item['category'] ?? 'Item'); ?></span>
                                                 </div>
-                                                <div class="fw-bold text-dark" style="font-size: 0.95rem;"><?php echo htmlspecialchars($item['item_name']); ?></div>
-                                                <div class="text-muted fst-italic mt-1" style="font-size: 0.8rem;"><?php echo nl2br(htmlspecialchars($item['specifications'] ?? '')); ?></div>
+                                                <div class="fw-bold text-dark fs-md"><?php echo htmlspecialchars($item['item_name']); ?></div>
+                                                <div class="text-muted fst-italic mt-1 fs-08rem"><?php echo nl2br(htmlspecialchars($item['specifications'] ?? '')); ?></div>
                                             </td>
                                             <td class="text-center fw-bold text-dark"><?php echo $item['quantity']; ?></td>
-                                            <td class="text-end text-muted fw-medium" style="font-family: monospace;">₱ <?php echo number_format($item['unit_price'], 2); ?></td>
-                                            <td class="text-end pe-4 fw-bold text-primary" style="font-family: monospace;">₱ <?php echo number_format($item['total_price'] ?? ($item['quantity'] * $item['unit_price']), 2); ?></td>
+                                            <td class="text-end text-muted fw-medium font-monospace">₱ <?php echo number_format($item['unit_price'], 2); ?></td>
+                                            <td class="text-end pe-4 fw-bold text-primary font-monospace">₱ <?php echo number_format($item['total_price'] ?? ($item['quantity'] * $item['unit_price']), 2); ?></td>
                                         </tr>
                                     <?php endforeach; ?>
                                 </tbody>
@@ -377,20 +322,20 @@ $can_upload_files = ($role == 'Procurement');
                 
                 if(in_array($po['status'], $payment_visible_statuses) || stripos($po['current_location'], 'Delivered') !== false || stripos($po['current_location'], 'Collection') !== false): 
                 ?>
-                <div class="card border-0 shadow-sm mb-4 payment-card" style="border-radius: 16px; overflow: hidden;">
+                <div class="card border-0 shadow-sm mb-4 payment-card rounded-16 overflow-hidden">
                     <div class="card-header bg-white fw-bold py-3 d-flex justify-content-between align-items-center border-bottom border-light">
                         <span class="fs-6 text-dark"><i class="fas fa-hand-holding-usd me-2 text-success"></i> Payment History</span>
                         
                         <?php if($balance > 0.01): ?>
-                            <span class="badge bg-warning text-dark px-3 py-2 shadow-sm" style="border-radius: 8px;">Balance: ₱ <?php echo number_format($balance, 2); ?></span>
+                            <span class="badge bg-warning text-dark px-3 py-2 shadow-sm rounded-8">Balance: ₱ <?php echo number_format($balance, 2); ?></span>
                         <?php else: ?>
-                            <span class="badge bg-success px-3 py-2 shadow-sm" style="border-radius: 8px;"><i class="fas fa-check-double me-1"></i> Fully Paid</span>
+                            <span class="badge bg-success px-3 py-2 shadow-sm rounded-8"><i class="fas fa-check-double me-1"></i> Fully Paid</span>
                         <?php endif; ?>
                     </div>
                     
                     <div class="card-body p-0">
                         <table class="table table-hover mb-0">
-                            <thead class="bg-light text-secondary" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">
+                            <thead class="bg-light text-secondary table-header-sm">
                                 <tr>
                                     <th class="ps-4 py-3 border-bottom-0">Date & Time</th>
                                     <th class="py-3 border-bottom-0">Payment Details</th>
@@ -403,7 +348,7 @@ $can_upload_files = ($role == 'Procurement');
                                     foreach($payments as $pay): ?>
                                     <tr>
                                         <td class="ps-4 py-3">
-                                            <div class="fw-bold text-dark" style="font-size: 0.9rem;"><?php echo date('M d, Y', strtotime($pay['payment_date'])); ?></div>
+                                            <div class="fw-bold text-dark fs-09rem"><?php echo date('M d, Y', strtotime($pay['payment_date'])); ?></div>
                                             <div class="text-muted small"><?php echo date('h:i A', strtotime($pay['payment_date'])); ?></div>
                                         </td>
                                         <td class="py-3 align-middle">
@@ -420,7 +365,7 @@ $can_upload_files = ($role == 'Procurement');
                                                 <a href="uploads/payments/<?php echo rawurlencode(basename($pay['proof_file_path'])); ?>" target="_blank" rel="noopener" class="small text-primary text-decoration-none"><i class="fas fa-paperclip me-1"></i>View proof</a>
                                             <?php endif; ?>
                                         </td>
-                                        <td class="text-end pe-4 fw-bold text-success align-middle py-3" style="font-family: monospace; font-size: 1.05rem;">+ ₱ <?php echo number_format($pay['amount_paid'], 2); ?></td>
+                                        <td class="text-end pe-4 fw-bold text-success align-middle py-3 font-monospace fs-105rem">+ ₱ <?php echo number_format($pay['amount_paid'], 2); ?></td>
                                     </tr>
                                 <?php endforeach; else: ?>
                                     <tr><td colspan="4" class="text-center py-5 text-muted small"><i class="fas fa-info-circle fs-4 mb-2 d-block opacity-50"></i> No payments recorded yet.</td></tr>
@@ -451,7 +396,7 @@ $can_upload_files = ($role == 'Procurement');
                                 
                                 <div class="col-md-3">
                                     <label class="small fw-bold text-muted mb-1">Date Received</label>
-                                    <input type="datetime-local" name="payment_date" class="form-control form-control-sm fw-medium shadow-sm" style="border-radius: 6px;" required value="<?php echo date('Y-m-d\TH:i'); ?>">
+                                    <input type="datetime-local" name="payment_date" class="form-control form-control-sm fw-medium shadow-sm rounded-custom" required value="<?php echo date('Y-m-d\TH:i'); ?>">
                                 </div>
                                 
                                 <div class="col-md-2">
@@ -468,7 +413,7 @@ $can_upload_files = ($role == 'Procurement');
 
                                 <div class="col-md-2">
                                     <label class="small fw-bold text-muted mb-1">Amount</label>
-                                    <div class="input-group input-group-sm shadow-sm" style="border-radius: 6px; overflow: hidden;">
+                                    <div class="input-group input-group-sm shadow-sm rounded-custom overflow-hidden">
                                         <span class="input-group-text bg-white text-success fw-bold border-end-0">₱</span>
                                         <input type="number" step="0.01" name="amount_paid" id="amount_input" class="form-control fw-bold text-success border-start-0 ps-0" max="<?php echo $balance; ?>" required>
                                         
@@ -489,7 +434,7 @@ $can_upload_files = ($role == 'Procurement');
                                 </div>
 
                                 <div class="col-md-2">
-                                    <button type="submit" class="btn btn-success btn-sm fw-bold w-100 shadow-sm" style="border-radius: 6px; height: 31px;" onclick="return confirm('Save this payment?');">
+                                    <button type="submit" class="btn btn-success btn-sm fw-bold w-100 shadow-sm btn-save-pay" onclick="return confirm('Save this payment?');">
                                         <i class="fas fa-save me-1"></i> Save
                                     </button>
                                 </div>
@@ -504,7 +449,7 @@ $can_upload_files = ($role == 'Procurement');
             </div>
 
             <div class="col-lg-4">
-                <div class="card border-0 shadow-sm mb-4" style="border-radius: 16px;">
+                <div class="card border-0 shadow-sm mb-4 rounded-16">
                     <div class="card-header bg-white fw-bold py-3 d-flex justify-content-between align-items-center border-bottom border-light">
                         <span><i class="fas fa-folder-open me-2 text-warning"></i> Attachments</span>
                     </div>
@@ -525,11 +470,11 @@ $can_upload_files = ($role == 'Procurement');
                                     $isPdf = ($ext == 'pdf');
                                 ?>
                                     <li class="mb-2 p-2 bg-light rounded border d-flex align-items-center justify-content-between">
-                                        <div class="d-flex align-items-center gap-2" style="overflow: hidden;">
+                                        <div class="d-flex align-items-center gap-2 overflow-hidden">
                                             <?php if($isImage): ?>
-                                                <img src="<?php echo $secureLink; ?>" class="file-thumbnail bg-white" onclick="viewFile('<?php echo $secureLink; ?>', 'image')" style="cursor: pointer;">
+                                                <img src="<?php echo $secureLink; ?>" class="file-thumbnail bg-white" onclick="viewFile('<?php echo $secureLink; ?>', 'image')">
                                             <?php elseif($isPdf): ?>
-                                                <div class="file-icon text-danger bg-white shadow-sm" onclick="viewFile('<?php echo $secureLink; ?>', 'pdf')" style="cursor: pointer;"><i class="fas fa-file-pdf"></i></div>
+                                                <div class="file-icon text-danger bg-white shadow-sm" onclick="viewFile('<?php echo $secureLink; ?>', 'pdf')"><i class="fas fa-file-pdf"></i></div>
                                             <?php else: ?>
                                                 <div class="file-icon text-primary bg-white shadow-sm"><i class="fas fa-file-alt"></i></div>
                                             <?php endif; ?>
@@ -539,7 +484,7 @@ $can_upload_files = ($role == 'Procurement');
                                                    onclick="viewFile('<?php echo $secureLink; ?>', '<?php echo $isImage ? 'image' : ($isPdf ? 'pdf' : 'other'); ?>'); return false;">
                                                     <?php echo htmlspecialchars($doc['file_name']); ?>
                                                 </a>
-                                                <small class="text-muted" style="font-size: 0.7rem;"><?php echo strtoupper($ext); ?></small>
+                                                <small class="text-muted fs-xs"><?php echo strtoupper($ext); ?></small>
                                             </div>
                                         </div>
                                         
@@ -569,25 +514,25 @@ $can_upload_files = ($role == 'Procurement');
                             <input type="hidden" name="doc_type" value="Generic">
                             
                             <div id="previewContainer" class="mb-3 d-none text-center bg-light p-2 rounded border">
-                                <img id="uploadPreview" src="#" alt="Preview" class="img-fluid rounded shadow-sm" style="max-height: 150px;">
+                                <img id="uploadPreview" src="#" alt="Preview" class="img-fluid rounded shadow-sm preview-thumb-box">
                                 <div class="small text-muted mt-1 fst-italic">Image Preview</div>
                             </div>
 
                             <label class="form-label small fw-bold text-primary">Upload New File</label>
                             <div class="input-group">
-                                <input type="file" name="document" class="form-control form-control-sm" style="border-radius: 6px 0 0 6px;" required onchange="previewSelectedFile(this)">
-                                <button class="btn btn-sm btn-primary fw-bold" style="border-radius: 0 6px 6px 0;">Upload</button>
+                                <input type="file" name="document" class="form-control form-control-sm preview-img-box" required onchange="previewSelectedFile(this)">
+                                <button class="btn btn-sm btn-primary fw-bold preview-btn-box">Upload</button>
                             </div>
                         </form>
                         <?php endif; ?>
                     </div>
                 </div>
 
-                <div class="card border-0 shadow-sm" style="border-radius: 16px;">
+                <div class="card border-0 shadow-sm rounded-16">
                     <div class="card-header bg-white fw-bold py-3 border-bottom border-light">
                         <i class="fas fa-history me-2 text-muted"></i> Activity Log
                     </div>
-                    <div class="list-group list-group-flush" style="max-height: 350px; overflow-y: auto;">
+                    <div class="list-group list-group-flush scrollable-350">
                         <?php
                         $hist_sql = "SELECT h.*, u.full_name FROM po_history h JOIN users u ON h.changed_by = u.user_id WHERE po_id = ? ORDER BY timestamp DESC";
                         $stmt = $conn->prepare($hist_sql);
@@ -599,16 +544,16 @@ $can_upload_files = ($role == 'Procurement');
                             <div class="list-group-item border-0 border-bottom px-4 py-3">
                                 <div class="d-flex justify-content-between mb-1">
                                     <span class="fw-bold small text-dark"><?php echo htmlspecialchars($row['full_name']); ?></span>
-                                    <small class="text-muted" style="font-size: 0.75rem;"><i class="far fa-clock me-1"></i><?php echo date('M d, H:i', strtotime($row['timestamp'])); ?></small>
+                                    <small class="text-muted fs-xs"><i class="far fa-clock me-1"></i><?php echo date('M d, H:i', strtotime($row['timestamp'])); ?></small>
                                 </div>
                                 <div class="small mt-1 d-flex align-items-center">
-                                    <span class="badge bg-secondary px-2" style="font-size: 0.65rem;"><?php echo htmlspecialchars($row['status_from']); ?></span>
+                                    <span class="badge bg-secondary px-2 fs-065rem"><?php echo htmlspecialchars($row['status_from']); ?></span>
                                     <i class="fas fa-angle-right mx-2 text-muted"></i>
-                                    <span class="badge <?php echo (strpos($row['status_to'], 'Rejected') !== false) ? 'bg-danger' : 'bg-success'; ?> px-2" style="font-size: 0.65rem;"><?php echo htmlspecialchars($row['status_to']); ?></span>
+                                    <span class="badge <?php echo (strpos($row['status_to'], 'Rejected') !== false) ? 'bg-danger' : 'bg-success'; ?> px-2 fs-065rem"><?php echo htmlspecialchars($row['status_to']); ?></span>
                                 </div>
                                 
                                 <?php if (!empty($row['remarks'])): ?>
-                                    <div class="mt-2 text-dark fst-italic" style="font-size: 0.8rem; background: #fef2f2; padding: 8px 12px; border-left: 3px solid #ef4444; border-radius: 6px;">
+                                    <div class="mt-2 text-dark fst-italic remarks-box">
                                         "<?php echo nl2br(htmlspecialchars($row['remarks'])); ?>"
                                     </div>
                                 <?php endif; ?>
@@ -625,7 +570,7 @@ $can_upload_files = ($role == 'Procurement');
                 <div class="draft-banner">DRAFT COPY ONLY - NOT VALID FOR PURCHASING</div>
             <?php endif; ?>
 
-            <div class="d-flex justify-content-between align-items-start" style="border-bottom: 3px solid #0d6efd; padding-bottom: 20px; margin-bottom: 30px;">
+            <div class="d-flex justify-content-between align-items-start print-header-border">
                 <div>
                     <h1 class="print-header-brand">Fixie Computer Ventures</h1>
                     <div class="print-header-sub">
@@ -636,36 +581,36 @@ $can_upload_files = ($role == 'Procurement');
                 </div>
                 <div class="text-end">
                     <div class="print-title-doc">PURCHASE ORDER</div>
-                    <div style="font-size: 13pt; margin-top: 8px; font-weight: 500;">
-                        PO Number: <strong style="color: #0d6efd !important;">#<?php echo htmlspecialchars($po['po_number']); ?></strong>
+                    <div class="print-po-text">
+                        PO Number: <strong class="text-primary-print">#<?php echo htmlspecialchars($po['po_number']); ?></strong>
                     </div>
                 </div>
             </div>
 
             <div class="row g-4 mb-4">
                 <div class="col-7">
-                    <div class="info-box h-100" style="background-color: #f8f9fa !important; -webkit-print-color-adjust: exact;">
+                    <div class="info-box h-100 bg-print-light">
                         <div class="info-label">Vendor / Billed To:</div>
-                        <h4 class="fw-bold m-0 text-dark" style="font-size: 14pt;"><?php echo htmlspecialchars($po['client_name']); ?></h4>
+                        <h4 class="fw-bold m-0 text-dark fs-14pt"><?php echo htmlspecialchars($po['client_name']); ?></h4>
                         <?php if($po['quotation_number']): ?>
-                            <div class="mt-2" style="font-size: 9.5pt; color: #495057;"><strong>Quotation Ref:</strong> <?php echo htmlspecialchars($po['quotation_number']); ?></div>
+                            <div class="mt-2 fs-95pt-muted"><strong>Quotation Ref:</strong> <?php echo htmlspecialchars($po['quotation_number']); ?></div>
                         <?php endif; ?>
                     </div>
                 </div>
                 <div class="col-5">
                     <div class="info-box h-100">
-                        <table style="width: 100%; font-size: 9.5pt;">
+                        <table class="w-100-fs-95">
                             <tr>
-                                <td class="info-label" style="padding-bottom: 10px; width: 45%;">Date Issued:</td>
-                                <td style="text-align: right; font-weight: bold; padding-bottom: 10px; color: #212529; border-bottom: 1px solid #eee;"><?php echo date('F d, Y', strtotime($po['date_created'])); ?></td>
+                                <td class="info-label pb-10-w-45">Date Issued:</td>
+                                <td class="print-td-right"><?php echo date('F d, Y', strtotime($po['date_created'])); ?></td>
                             </tr>
                             <tr>
-                                <td class="info-label" style="padding: 10px 0;">Status:</td>
-                                <td style="text-align: right; font-weight: bold; padding: 10px 0; color: #0d6efd !important; border-bottom: 1px solid #eee;"><?php echo htmlspecialchars($po['status']); ?></td>
+                                <td class="info-label py-10px">Status:</td>
+                                <td class="print-td-right-primary"><?php echo htmlspecialchars($po['status']); ?></td>
                             </tr>
                             <tr>
-                                <td class="info-label" style="padding-top: 10px;">Prepared By:</td>
-                                <td style="text-align: right; font-weight: bold; padding-top: 10px; color: #212529;"><?php echo htmlspecialchars($po['creator_name']); ?></td>
+                                <td class="info-label pt-10px">Prepared By:</td>
+                                <td class="print-td-right-pt"><?php echo htmlspecialchars($po['creator_name']); ?></td>
                             </tr>
                         </table>
                     </div>
@@ -675,31 +620,31 @@ $can_upload_files = ($role == 'Procurement');
             <table class="print-table">
                 <thead>
                     <tr>
-                        <th style="text-align: center; width: 5%;">#</th>
-                        <th style="text-align: left; width: 50%;">ITEM DESCRIPTION & SPECIFICATIONS</th>
-                        <th style="text-align: center; width: 10%;">QTY</th>
-                        <th style="text-align: right; width: 15%;">UNIT PRICE</th>
-                        <th style="text-align: right; width: 20%;">TOTAL</th>
+                        <th class="w-5-pct-center">#</th>
+                        <th class="w-50-pct-left">ITEM DESCRIPTION & SPECIFICATIONS</th>
+                        <th class="w-10-pct-center">QTY</th>
+                        <th class="w-15-pct-right">UNIT PRICE</th>
+                        <th class="w-20-pct-right">TOTAL</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php $ctr = 1; foreach($items_data as $item): ?>
                     <tr>
-                        <td style="text-align: center; color: #6c757d; font-weight: bold;"><?php echo $ctr++; ?></td>
+                        <td class="print-td-ctr-muted"><?php echo $ctr++; ?></td>
                         <td>
-                            <div style="font-weight: bold; color: #000; font-size: 10.5pt;"><?php echo htmlspecialchars($item['item_name']); ?></div>
-                            <div style="color: #495057; font-size: 9pt; margin-top: 4px; line-height: 1.4;"><?php echo nl2br(htmlspecialchars($item['specifications'] ?? '')); ?></div>
+                            <div class="print-item-title"><?php echo htmlspecialchars($item['item_name']); ?></div>
+                            <div class="print-item-specs"><?php echo nl2br(htmlspecialchars($item['specifications'] ?? '')); ?></div>
                         </td>
-                        <td style="text-align: center; font-weight: 500;"><?php echo $item['quantity']; ?></td>
-                        <td style="text-align: right; white-space: nowrap;">₱ <?php echo number_format($item['unit_price'], 2); ?></td>
-                        <td style="text-align: right; font-weight: bold; color: #000; white-space: nowrap;">₱ <?php echo number_format($item['total_price'] ?? ($item['quantity'] * $item['unit_price']), 2); ?></td>
+                        <td class="print-td-ctr-500"><?php echo $item['quantity']; ?></td>
+                        <td class="print-td-r-nowrap">₱ <?php echo number_format($item['unit_price'], 2); ?></td>
+                        <td class="print-td-r-bold-nowrap">₱ <?php echo number_format($item['total_price'] ?? ($item['quantity'] * $item['unit_price']), 2); ?></td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
                 <tfoot>
                     <tr>
-                        <td colspan="4" style="text-align: right; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">Grand Total</td>
-                        <td style="text-align: right; font-weight: 900; font-size: 14pt; color: #0d6efd !important; white-space: nowrap;">₱ <?php echo number_format($po['amount'], 2); ?></td>
+                        <td colspan="4" class="print-tf-label">Grand Total</td>
+                        <td class="print-tf-total">₱ <?php echo number_format($po['amount'], 2); ?></td>
                     </tr>
                 </tfoot>
             </table>
@@ -728,12 +673,12 @@ $can_upload_files = ($role == 'Procurement');
     <!-- File Preview Modal -->
     <div class="modal fade" id="previewModal" tabindex="-1">
         <div class="modal-dialog modal-lg modal-dialog-centered">
-            <div class="modal-content" style="border-radius: 16px; overflow: hidden; border: none;">
+            <div class="modal-content modal-16px-clean">
                 <div class="modal-header border-bottom-0 pb-0">
                     <h5 class="modal-title fw-bold text-dark">File Preview</h5>
                     <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal"></button>
                 </div>
-                <div class="modal-body text-center p-0 bg-light mt-3" id="previewBody" style="min-height: 400px; display: flex; align-items: center; justify-content: center;">
+                <div class="modal-body text-center p-0 bg-light mt-3 preview-body-flex" id="previewBody">
                 </div>
             </div>
         </div>
@@ -742,7 +687,7 @@ $can_upload_files = ($role == 'Procurement');
     <!-- Required proof of delivery modal (Supply Chain) -->
     <div class="modal fade" id="deliveryProofModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content border-0" style="border-radius: 16px; overflow: hidden;">
+            <div class="modal-content border-0 rounded-16-hidden">
                 <form action="actions/po_handler.php" method="POST" enctype="multipart/form-data">
                     <div class="modal-header border-bottom-0 pb-0">
                         <div>
@@ -769,7 +714,7 @@ $can_upload_files = ($role == 'Procurement');
     </div>
 
     <!-- Hidden Form for SweetAlert Submission -->
-    <form id="dynamicActionForm" action="actions/po_handler.php" method="POST" style="display: none;">
+    <form id="dynamicActionForm" action="actions/po_handler.php" method="POST" class="d-none">
         <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
         <input type="hidden" name="action" id="dynamicAction">
         <input type="hidden" name="po_id" id="dynamicPoId">
@@ -781,7 +726,6 @@ $can_upload_files = ($role == 'Procurement');
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     
     <script>
-        // SweetAlert2 Toast Notification Configuration (Moved to bottom-end)
         const Toast = Swal.mixin({
             toast: true,
             position: 'bottom-end',
@@ -795,7 +739,6 @@ $can_upload_files = ($role == 'Procurement');
             }
         });
 
-        // Trigger Toasts based on PHP GET parameters (Alert Banners removed)
         <?php if(isset($_GET['success'])): ?>
             Toast.fire({
                 icon: 'success',
@@ -839,9 +782,9 @@ $can_upload_files = ($role == 'Procurement');
             modalBody.innerHTML = '<div class="spinner-border text-primary" role="status"></div>';
             
             if (type === 'image') {
-                modalBody.innerHTML = `<img src="${path}" class="img-fluid" style="max-height: 80vh;">`;
+                modalBody.innerHTML = `<img src="${path}" class="img-fluid max-h-80vh">`;
             } else if (type === 'pdf') {
-                modalBody.innerHTML = `<iframe src="${path}" width="100%" height="600px" style="border:none;"></iframe>`;
+                modalBody.innerHTML = `<iframe src="${path}" width="100%" height="600px" class="border-none"></iframe>`;
             } else {
                 modalBody.innerHTML = `<div class="p-5"><i class="fas fa-file-download fa-3x text-muted mb-3"></i><p>This file type cannot be previewed.</p><a href="${path}" download class="btn btn-primary fw-bold">Download File</a></div>`;
             }
@@ -881,14 +824,13 @@ $can_upload_files = ($role == 'Procurement');
             modal.show();
         }
 
-        // Safe Approval Function for PO
         function confirmApprovePO(e, actionKey, id, poNumber, btnLabel) {
             e.preventDefault();
             e.stopPropagation();
 
             Swal.fire({
                 title: 'Approve Order?',
-                html: "<span class='text-muted' style='font-size: 0.9rem;'>Confirm approval for PO <b>" + poNumber + "</b>?</span>",
+                html: "<span class='text-muted fs-09rem'>Confirm approval for PO <b>" + poNumber + "</b>?</span>",
                 icon: 'success',
                 showCancelButton: true,
                 confirmButtonText: '<i class="fas fa-check me-1"></i> Yes, ' + btnLabel,
@@ -909,14 +851,13 @@ $can_upload_files = ($role == 'Procurement');
             });
         }
 
-        // Strict Rejection Function for PO
         function confirmRejectPO(e, id, poNumber) {
             e.preventDefault();
             e.stopPropagation();
 
             Swal.fire({
                 title: 'Reject Order',
-                html: "<span class='text-muted' style='font-size: 0.9rem;'>Please state the reason for rejecting <b>" + poNumber + "</b>:</span>",
+                html: "<span class='text-muted fs-09rem'>Please state the reason for rejecting <b>" + poNumber + "</b>:</span>",
                 icon: 'warning',
                 input: 'textarea',
                 inputPlaceholder: 'Enter your reason here (Required)...',
