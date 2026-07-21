@@ -1,6 +1,22 @@
 <?php 
 session_start();
 if(isset($_SESSION['user_id'])){ header("Location: dashboard.php"); exit(); }
+
+// Toast Message Logic
+$toastError = '';
+$toastSuccess = '';
+
+if(isset($_GET['error'])) {
+    if($_GET['error'] == 'ForceLoggedOutByAdmin') $toastError = "Your session was terminated by an Administrator.";
+    else if($_GET['error'] == 'AccountLockedWaitAdmin') $toastError = "This account is currently locked or suspended.";
+    else if($_GET['error'] == 'TooManyAttemptsWait5Mins') $toastError = "Security threshold reached. Please try again later.";
+    else if($_GET['error'] == 'InvalidCredentials' || $_GET['error'] == 'WrongCredentials') $toastError = "Wrong credentials.";
+    else $toastError = htmlspecialchars($_GET['error']);
+}
+
+if(isset($_GET['success'])) {
+    $toastSuccess = htmlspecialchars($_GET['success']);
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -12,12 +28,14 @@ if(isset($_SESSION['user_id'])){ header("Location: dashboard.php"); exit(); }
     <link href="assets/css/style.css" rel="stylesheet">
     <link href="assets/css/custom_fixie.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    
 </head>
 <body class="auth-page">
 
     <div class="auth-wrapper">
         
-        <!-- Left Side: Dynamic Branding -->
+        <!-- Left Side: Dynamic Branding with Animated Gradient BG -->
         <div class="brand-panel">
             <div class="brand-center-content">
                 <!-- Transparent Logo with Hover Animation -->
@@ -42,20 +60,6 @@ if(isset($_SESSION['user_id'])){ header("Location: dashboard.php"); exit(); }
                         <p>Please enter your credentials to access the system.</p>
                     </div>
 
-                    <?php if(isset($_GET['error'])): ?>
-                        <?php
-                            $err_msg = "Authentication Failed. Please verify your credentials.";
-                            if($_GET['error'] == 'ForceLoggedOutByAdmin') $err_msg = "Your session was terminated by an Administrator.";
-                            else if($_GET['error'] == 'AccountLockedWaitAdmin') $err_msg = "This account is currently locked or suspended.";
-                            else if($_GET['error'] == 'TooManyAttemptsWait5Mins') $err_msg = "Security threshold reached. Please try again later.";
-                            else if($_GET['error'] == 'InvalidCredentials') $err_msg = "The username or password provided is incorrect.";
-                        ?>
-                        <div class="alert-system alert-error">
-                            <i class="fas fa-exclamation-triangle mt-1"></i>
-                            <div><?php echo htmlspecialchars($err_msg); ?></div>
-                        </div>
-                    <?php endif; ?>
-
                     <form action="actions/auth.php" method="POST">
                         
                         <!-- Floating Label for Username/Email -->
@@ -64,10 +68,11 @@ if(isset($_SESSION['user_id'])){ header("Location: dashboard.php"); exit(); }
                             <label for="auth_username">Username or Email</label>
                         </div>
 
-                        <!-- Floating Label for Password -->
-                        <div class="form-floating-custom mb-2">
-                            <input type="password" id="auth_password" name="password" placeholder=" " required autocomplete="current-password">
+                        <!-- Floating Label for Password with Eye Toggle Icon -->
+                        <div class="form-floating-custom mb-2 position-relative">
+                            <input type="password" id="auth_password" name="password" placeholder=" " required autocomplete="current-password" style="padding-right: 40px;">
                             <label for="auth_password">Password</label>
+                            <i class="fas fa-eye position-absolute" id="togglePassword" style="right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #64748b; z-index: 10;"></i>
                         </div>
                         
                         <a href="forgot_password.php" class="forgot-pass" tabindex="-1">Forgot Password?</a>
@@ -133,7 +138,7 @@ if(isset($_SESSION['user_id'])){ header("Location: dashboard.php"); exit(); }
 
                     <div class="text-center mt-4">
                         <div class="timer-display" id="timerDisplay">Token valid for 05:00</div>
-                        <button type="button" id="btnResend" onclick="sendVerificationCode()" class="btn btn-link p-0 fw-bold text-decoration-none init-hidden link-resend">Resend Token</button>
+                        <button type="button" id="btnResend" onclick="sendVerificationCode()" class="btn-link p-0 fw-bold text-decoration-none init-hidden link-resend">Resend Token</button>
                     </div>
 
                     <button type="button" class="btn-text-only border-0 text-muted mt-2" onclick="switchView('view-email')">
@@ -145,8 +150,51 @@ if(isset($_SESSION['user_id'])){ header("Location: dashboard.php"); exit(); }
         </div>
     </div>
 
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
     <!-- Backend Interaction Logic -->
     <script>
+        // System-matched Toast Notification Trigger (Bottom Right)
+        const toastError = "<?php echo $toastError; ?>";
+        const toastSuccess = "<?php echo $toastSuccess; ?>";
+
+        if(toastError || toastSuccess) {
+            const Toast = Swal.mixin({
+                toast: true,
+                position: 'bottom-end',
+                showConfirmButton: false,
+                timer: 4000,
+                timerProgressBar: true,
+                customClass: {
+                    popup: 'sleek-popup small-toast shadow-sm border'
+                }
+            });
+            
+            if(toastError) {
+                Toast.fire({ icon: 'error', title: toastError });
+            } else if(toastSuccess) {
+                Toast.fire({ icon: 'success', title: toastSuccess });
+            }
+            
+            window.history.replaceState(null, null, window.location.pathname);
+        }
+
+        // Toggle Password Visibility
+        document.getElementById('togglePassword').addEventListener('click', function () {
+            const pwdInput = document.getElementById('auth_password');
+            if (pwdInput.type === 'password') {
+                pwdInput.type = 'text';
+                this.classList.remove('fa-eye');
+                this.classList.add('fa-eye-slash');
+            } else {
+                pwdInput.type = 'password';
+                this.classList.remove('fa-eye-slash');
+                this.classList.add('fa-eye');
+            }
+        });
+
+        // Setup OTP logic
         let countdownInterval;
 
         function switchView(viewId) {

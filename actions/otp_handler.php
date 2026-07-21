@@ -1,6 +1,7 @@
 <?php
 session_start();
 require '../config/db_connect.php';
+require '../config/mailer.php';
 
 // I-load ang PHPMailer
 use PHPMailer\PHPMailer\PHPMailer;
@@ -32,7 +33,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $user = $stmt->get_result()->fetch_assoc();
 
         if ($user) {
-            $conn->query("UPDATE otp_auth_tokens SET status = 'Expired' WHERE email = '$email' AND status = 'Pending'");
+            $expire_stmt = $conn->prepare("UPDATE otp_auth_tokens SET status = 'Expired' WHERE email = ? AND status = 'Pending'");
+            $expire_stmt->bind_param("s", $email);
+            $expire_stmt->execute();
             $otp_code = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
             
             $insert = $conn->prepare("INSERT INTO otp_auth_tokens (user_id, email, otp_code, expires_at) VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL 5 MINUTE))");
@@ -41,15 +44,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($insert->execute()) {
                 $mail = new PHPMailer(true);
                 try {
-                    $mail->isSMTP();
-                    $mail->Host       = 'smtp.gmail.com'; 
-                    $mail->SMTPAuth   = true;
-                    $mail->Username   = 'tamayolhei5@gmail.com';     
-                    $mail->Password   = 'wewnzrsryelddatr';   
-                    $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-                    $mail->Port       = 587;
-
-                    $mail->setFrom('no-reply@fixieventures.com', 'Fixie DRMS System');
+                    drms_configure_mailer($mail, [
+                        'from' => getenv('DRMS_MAIL_FROM') ?: 'no-reply@fixieventures.com',
+                        'from_name' => 'Fixie DRMS System'
+                    ]);
                     $mail->addAddress($email);
 
                     $mail->isHTML(false);

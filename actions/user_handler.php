@@ -2,6 +2,7 @@
 session_start();
 require '../config/db_connect.php';
 require '../config/functions.php';
+require '../config/mailer.php';
 
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
@@ -129,17 +130,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             
             $mail = new PHPMailer(true);
             try {
-                $mail->isSMTP();
-                $mail->Host       = 'smtp.gmail.com';
-                $mail->SMTPAuth   = true;
-                $mail->Username   = 'tamayolhei5@gmail.com'; 
-                $mail->Password   = 'wewnzrsryelddatr';      
-                $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
-                $mail->Port       = 465;
-                
-                $mail->SMTPOptions = array('ssl' => array('verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true));
-                
-                $mail->setFrom('tamayolhei5@gmail.com', 'Fixie DRMS Security');
+                drms_configure_mailer($mail, ['from_name' => 'Fixie DRMS Security']);
                 $mail->addAddress($email, $fullname);
                 $mail->Subject = 'Welcome to Fixie DRMS - Secure Account Setup Required';
                 $mail->isHTML(true);

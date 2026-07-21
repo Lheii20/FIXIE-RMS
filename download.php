@@ -11,37 +11,84 @@ if (!isset($_GET['file'])) {
     exit("No file specified.");
 }
 
-$file = basename($_GET['file']); 
-$type = $_GET['type'] ?? 'doc'; 
+$file = basename($_GET['file']);
+$type = $_GET['type'] ?? 'doc';
 $role = $_SESSION['role'] ?? '';
+$userId = (int) $_SESSION['user_id'];
 
-// Ihiwalay ang path para sa mga avatars at documents
+if ($file === '') {
+    http_response_code(400);
+    exit("Invalid file.");
+}
+
+$allowed_types = ['doc', 'avatar', 'payment_proof', 'quotation_proof'];
+if (!in_array($type, $allowed_types, true)) {
+    http_response_code(400);
+    exit("Invalid file type.");
+}
+
 if ($type === 'avatar') {
     $filepath = 'uploads/avatars/' . $file;
+} elseif ($type === 'payment_proof') {
+    $filepath = 'uploads/payments/' . $file;
+} elseif ($type === 'quotation_proof') {
+    $filepath = 'uploads/pos/' . $file;
 } else {
     $filepath = 'uploads/' . $file;
 }
 
-if (!file_exists($filepath)) {
+if (!file_exists($filepath) || !is_file($filepath)) {
     http_response_code(404);
     exit("File not found.");
 }
 
-// ==========================================
-// IDOR PROTECTION: STRICT ACCESS CONTROL
-// DATA PRIVACY FIX: Admin no longer has "Super-Viewer" access.
-// ==========================================
-if ($type !== 'avatar') {
-    // Ang GM at President ay may Executive Privilege sa lahat ng folders.
-    $is_executive = in_array($role, ['GM', 'President']);
-    
+if ($type === 'payment_proof') {
+    $stmt = $conn->prepare("SELECT po_id, recorded_by FROM payments WHERE proof_file_path = ? LIMIT 1");
+    $stmt->bind_param("s", $file);
+    $stmt->execute();
+    $payment = $stmt->get_result()->fetch_assoc();
+    if (!$payment) {
+        http_response_code(403);
+        exit("Access Denied.");
+    }
+
+    $allowed_roles = ['Admin', 'Finance', 'GM', 'President'];
+    $is_allowed_role = in_array($role, $allowed_roles, true);
+    $is_recorder = ((int) ($payment['recorded_by'] ?? 0) === $userId);
+    if (!$is_allowed_role && !$is_recorder) {
+        http_response_code(403);
+        exit("Access Denied.");
+    }
+}
+
+if ($type === 'quotation_proof') {
+    $stmt = $conn->prepare("SELECT quotation_id, created_by FROM quotations WHERE po_file_path = ? LIMIT 1");
+    $stmt->bind_param("s", $file);
+    $stmt->execute();
+    $quotation = $stmt->get_result()->fetch_assoc();
+    if (!$quotation) {
+        http_response_code(403);
+        exit("Access Denied.");
+    }
+
+    $allowed_roles = ['Admin', 'Sales Staff', 'Procurement', 'GM', 'President', 'Finance'];
+    $is_allowed_role = in_array($role, $allowed_roles, true);
+    $is_creator = ((int) ($quotation['created_by'] ?? 0) === $userId);
+    if (!$is_allowed_role && !$is_creator) {
+        http_response_code(403);
+        exit("Access Denied.");
+    }
+}
+
+if ($type === 'doc') {
+    $is_executive = in_array($role, ['GM', 'President'], true);
+
     if (!$is_executive) {
         $allowed = false;
         $doc_found = false;
         $doc_category = null;
         $uploader_id = null;
 
-        // 1. Hanapin ang category at uploader via doc_id kung available
         if (isset($_GET['doc_id']) && ctype_digit($_GET['doc_id'])) {
             $doc_id = intval($_GET['doc_id']);
             $stmt = $conn->prepare("SELECT category, uploaded_by FROM documents WHERE doc_id = ? LIMIT 1");
@@ -55,7 +102,6 @@ if ($type !== 'avatar') {
             }
         }
 
-        // 2. Fallback: Hanapin via file_name kung tinangkang hulaan ang URL nang walang doc_id
         if (!$doc_found) {
             $stmt = $conn->prepare("SELECT category, uploaded_by FROM documents WHERE file_name = ? OR file_path LIKE ? LIMIT 1");
             $like_file = "%" . $file;
@@ -69,16 +115,12 @@ if ($type !== 'avatar') {
             }
         }
 
-        // 3. I-evaluate ang Access ng User o Admin
         if ($doc_found) {
             if (empty($doc_category)) {
-                // Kung walang category, ito ay General Document (Company Files) na accessible sa lahat
                 $allowed = true;
-            } elseif ($uploader_id == $_SESSION['user_id']) {
-                // Pinapayagan kung ang mismong user/admin ang nag-upload ng file
+            } elseif ((int) $uploader_id === $userId) {
                 $allowed = true;
             } else {
-                // Kung ito ay Official Record, i-check kung explicitly authorized ang Role sa sub_category
                 $stmt = $conn->prepare("SELECT assigned_to_role FROM document_categories WHERE sub_category = ? LIMIT 1");
                 $stmt->bind_param("s", $doc_category);
                 $stmt->execute();
@@ -98,7 +140,6 @@ if ($type !== 'avatar') {
             }
         }
 
-        // 4. I-block kung hindi authorized (Kasama ang Admin na walang explicit access)
         if (!$allowed) {
             http_response_code(403);
             exit("Access Denied: Data Privacy Violation. You only have metadata access. You do not have permission to view or download the contents of this confidential document.");
@@ -106,12 +147,9 @@ if ($type !== 'avatar') {
     }
 }
 
-// ==========================================
-// LOGGING & FILE SERVING
-// ==========================================
-if ($type !== 'avatar' && isset($_SESSION['user_id']) && isset($_GET['doc_id']) && ctype_digit($_GET['doc_id'])) {
+if ($type === 'doc' && isset($_GET['doc_id']) && ctype_digit($_GET['doc_id'])) {
     require_once 'config/functions.php';
-    log_document_action($conn, $_SESSION['user_id'], 'DOWNLOAD_DOC', intval($_GET['doc_id']), "Downloaded document: $file", $_SERVER['REQUEST_URI'] ?? null);
+    log_document_action($conn, $userId, 'DOWNLOAD_DOC', intval($_GET['doc_id']), "Downloaded document: $file", $_SERVER['REQUEST_URI'] ?? null);
 }
 
 $finfo = finfo_open(FILEINFO_MIME_TYPE);
@@ -121,8 +159,7 @@ finfo_close($finfo);
 header("Content-Type: " . $mimeType);
 header("Content-Length: " . filesize($filepath));
 
-// I-inline ang display para sa mga images at PDF, ibabagsak naman as attachment ang docs, excel, atbp.
-if (in_array($mimeType, ['image/jpeg', 'image/png', 'image/gif', 'application/pdf'])) {
+if (in_array($mimeType, ['image/jpeg', 'image/png', 'image/gif', 'application/pdf'], true)) {
     header("Content-Disposition: inline; filename=\"" . $file . "\"");
 } else {
     header("Content-Disposition: attachment; filename=\"" . $file . "\"");
@@ -136,3 +173,4 @@ flush();
 readfile($filepath);
 exit;
 ?>
+

@@ -32,13 +32,13 @@ if(isset($_POST['login'])){
     }
 
     $input_username = trim($_POST['username']); // Ito ay pwedeng username o email
-$password = $_POST['password'];
+    $password = $_POST['password'];
 
-// I-check kung ang nilagay ay nag-ma-match sa 'username' OR sa 'email'
-$stmt_user = $conn->prepare("SELECT * FROM users WHERE username = ? OR email = ? LIMIT 1");
-$stmt_user->bind_param("ss", $input_username, $input_username);
-$stmt_user->execute();
-$user = $stmt_user->get_result()->fetch_assoc();
+    // I-check kung ang nilagay ay nag-ma-match sa 'username' OR sa 'email'
+    $stmt_user = $conn->prepare("SELECT * FROM users WHERE username = ? OR email = ? LIMIT 1");
+    $stmt_user->bind_param("ss", $input_username, $input_username);
+    $stmt_user->execute();
+    $user = $stmt_user->get_result()->fetch_assoc();
 
     if($user){
         if(password_verify($password, $user['password_hash'])){
@@ -77,16 +77,16 @@ $user = $stmt_user->get_result()->fetch_assoc();
 
         } else {
             $stmt_fail = $conn->prepare("INSERT INTO login_attempts (ip_address, username, attempt_time) VALUES (?, ?, NOW())");
-            $stmt_fail->bind_param("ss", $ip_address, $username);
+            $stmt_fail->bind_param("ss", $ip_address, $input_username); // FIXED null error
             $stmt_fail->execute();
-            header("Location: ../index.php?error=InvalidCredentials");
+            header("Location: ../index.php?error=WrongCredentials");
             exit();
         }
     } else {
         $stmt_fail = $conn->prepare("INSERT INTO login_attempts (ip_address, username, attempt_time) VALUES (?, ?, NOW())");
-        $stmt_fail->bind_param("ss", $ip_address, $username);
+        $stmt_fail->bind_param("ss", $ip_address, $input_username); // FIXED null error
         $stmt_fail->execute();
-        header("Location: ../index.php?error=InvalidCredentials");
+        header("Location: ../index.php?error=WrongCredentials");
         exit();
     }
 }
@@ -201,8 +201,6 @@ if(isset($_GET['logout'])){
     exit();
 }
 
-// ... (Iyong mga nakaraang login logic sa taas) ...
-
 // I-load ang PHPMailer para sa Forgot Password
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
@@ -212,6 +210,7 @@ use PHPMailer\PHPMailer\Exception;
 // ==========================================
 if (isset($_POST['forgot_password']) || (isset($_POST['action']) && $_POST['action'] === 'forgot_password')) {
     require_once '../config/db_connect.php';
+    require_once '../config/mailer.php';
     require_once '../libs/src/Exception.php';
     require_once '../libs/src/PHPMailer.php';
     require_once '../libs/src/SMTP.php';
@@ -241,25 +240,23 @@ if (isset($_POST['forgot_password']) || (isset($_POST['action']) && $_POST['acti
         $expires = date("Y-m-d H:i:s", strtotime('+1 hour'));
 
         // Alisin ang lumang token ng user na ito at i-save ang bago
-        $conn->query("DELETE FROM password_resets WHERE email = '$email'");
+        $stmt_delete = $conn->prepare("DELETE FROM password_resets WHERE email = ?");
+        $stmt_delete->bind_param("s", $email);
+        $stmt_delete->execute();
         $stmt2 = $conn->prepare("INSERT INTO password_resets (email, token, expires_at) VALUES (?, ?, ?)");
         $stmt2->bind_param("sss", $email, $token, $expires);
         $stmt2->execute();
 
         // 4. I-setup ang Email Content at i-send via PHPMailer
-        $reset_link = "http://" . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF'], 2) . "/reset_password.php?token=" . $token;
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $reset_link = $scheme . "://" . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF'], 2) . "/reset_password.php?token=" . $token;
         
         $mail = new PHPMailer(true);
         try {
-            $mail->isSMTP();
-            $mail->Host       = 'smtp.gmail.com'; 
-            $mail->SMTPAuth   = true;
-            $mail->Username   = 'tamayolhei5@gmail.com';     
-            $mail->Password   = 'wewnzrsryelddatr';   
-            $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-            $mail->Port       = 587;
-
-            $mail->setFrom('no-reply@fixieventures.com', 'Fixie DRMS Security');
+            drms_configure_mailer($mail, [
+                'from' => getenv('DRMS_MAIL_FROM') ?: 'no-reply@fixieventures.com',
+                'from_name' => 'Fixie DRMS Security'
+            ]);
             $mail->addAddress($email);
 
             $mail->isHTML(true);
@@ -308,15 +305,23 @@ if (isset($_POST['reset_password_submit']) || (isset($_POST['action']) && $_POST
 
     if ($res->num_rows > 0) {
         $email = $res->fetch_assoc()['email'];
+
+        if (!preg_match('/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/', $new_pass)) {
+            header("Location: ../reset_password.php?token=$token&error=" . urlencode("Password must be at least 8 characters with uppercase, lowercase, and number."));
+            exit();
+        }
+
         $hashed_password = password_hash($new_pass, PASSWORD_DEFAULT);
 
         // I-update ang password sa users table
-        $update_stmt = $conn->prepare("UPDATE users SET password = ? WHERE email = ?");
+        $update_stmt = $conn->prepare("UPDATE users SET password_hash = ? WHERE email = ?"); // Ensure it updates password_hash, not password
         $update_stmt->bind_param("ss", $hashed_password, $email);
         $update_stmt->execute();
 
         // Burahin ang nagamit na token
-        $conn->query("DELETE FROM password_resets WHERE email = '$email'");
+        $stmt_delete = $conn->prepare("DELETE FROM password_resets WHERE email = ?");
+        $stmt_delete->bind_param("s", $email);
+        $stmt_delete->execute();
 
         header("Location: ../index.php?success=" . urlencode("Password successfully reset. You may now log in."));
         exit();
@@ -325,5 +330,4 @@ if (isset($_POST['reset_password_submit']) || (isset($_POST['action']) && $_POST
         exit();
     }
 }
-?>
 ?>

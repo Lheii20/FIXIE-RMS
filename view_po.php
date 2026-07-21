@@ -362,7 +362,7 @@ $can_upload_files = ($role == 'Procurement');
                                         <td class="py-3 align-middle">
                                             <div class="small fw-bold text-dark text-break"><?php echo htmlspecialchars($pay['reference_number'] ?? '--'); ?></div>
                                             <?php if(!empty($pay['proof_file_path'])): ?>
-                                                <a href="uploads/payments/<?php echo rawurlencode(basename($pay['proof_file_path'])); ?>" target="_blank" rel="noopener" class="small text-primary text-decoration-none"><i class="fas fa-paperclip me-1"></i>View proof</a>
+                                                <a href="download.php?type=payment_proof&file=<?php echo rawurlencode(basename($pay['proof_file_path'])); ?>" target="_blank" rel="noopener" class="small text-primary text-decoration-none"><i class="fas fa-paperclip me-1"></i>View proof</a>
                                             <?php endif; ?>
                                         </td>
                                         <td class="text-end pe-4 fw-bold text-success align-middle py-3 font-monospace fs-105rem">+ ₱ <?php echo number_format($pay['amount_paid'], 2); ?></td>
@@ -464,7 +464,7 @@ $can_upload_files = ($role == 'Procurement');
                             if($docs->num_rows > 0):
                                 while($doc = $docs->fetch_assoc()):
                                     $fileNameOnly = basename($doc['file_path']);
-                                    $secureLink = "download.php?file=" . $fileNameOnly;
+                                    $secureLink = "download.php?file=" . rawurlencode($fileNameOnly) . "&doc_id=" . intval($doc['doc_id']);
                                     $ext = strtolower(pathinfo($doc['file_name'], PATHINFO_EXTENSION));
                                     $isImage = in_array($ext, ['jpg', 'jpeg', 'png', 'gif']);
                                     $isPdf = ($ext == 'pdf');
