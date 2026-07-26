@@ -115,6 +115,30 @@ function fetch_chart_data($conn, $sql, $types, $params, $single = false) {
     return $single ? [] : [];
 }
 
+// ====================================================
+// SHARED DISPOSAL REPORT (DSS) IMPLEMENTATION
+// ====================================================
+$q_disp_cat = "SELECT d.category, COUNT(*) as cnt FROM documents d WHERE d.disposition_status = 'Ready for Disposition' AND {$doc_date['sql']} GROUP BY d.category ORDER BY cnt DESC LIMIT 5";
+$disp_cat_data = fetch_chart_data($conn, $q_disp_cat, $doc_date['types'], $doc_date['params'], false);
+
+$q_disp_action = "SELECT COALESCE(p.action_after_retention, 'Review Required') as action_type, COUNT(d.doc_id) as cnt FROM documents d LEFT JOIN document_categories dc ON d.category = dc.sub_category LEFT JOIN retention_policies p ON dc.policy_id = p.policy_id WHERE d.disposition_status = 'Ready for Disposition' AND {$doc_date['sql']} GROUP BY p.action_after_retention";
+$disp_action_data = fetch_chart_data($conn, $q_disp_action, $doc_date['types'], $doc_date['params'], false);
+
+$q_disp_hist = "SELECT DATE(timestamp) as disp_date, 
+                SUM(CASE WHEN action_type = 'ARCHIVE_FILE' THEN 1 ELSE 0 END) as archived_count,
+                SUM(CASE WHEN action_type IN ('DELETE', 'DELETE_DOC', 'DELETE_FILE', 'DESTROY_FILE') THEN 1 ELSE 0 END) as destroyed_count
+                FROM audit_logs 
+                WHERE action_type IN ('ARCHIVE_FILE', 'DELETE', 'DELETE_DOC', 'DELETE_FILE', 'DESTROY_FILE') AND {$audit_date['sql']}
+                GROUP BY disp_date ORDER BY disp_date DESC LIMIT 14";
+$disp_hist_data = array_reverse(fetch_chart_data($conn, $q_disp_hist, $audit_date['types'], $audit_date['params'], false));
+
+$shared_disposal_dss = [
+    'by_category' => $disp_cat_data,
+    'by_action' => $disp_action_data,
+    'history' => $disp_hist_data
+];
+
+
 // ==========================================
 // ROLE-SPECIFIC KPI STATS & ADMIN ANALYTICS
 // ==========================================
@@ -154,6 +178,8 @@ if ($role === 'Admin') {
     
     $admin_insights_data['total_files_all'] = get_count($conn, "SELECT COUNT(*) FROM documents", '', []);
 
+    $admin_charts['disposal'] = $shared_disposal_dss;
+
     // ==========================================
     // SYSTEM STORAGE CALCULATOR
     // ==========================================
@@ -181,15 +207,12 @@ if ($is_sales_staff) {
     $sales_stats['approved'] = get_count($conn, "SELECT COUNT(*) FROM purchase_requests WHERE status IN ('Approved', 'Converted_to_PO') AND {$pr_date['sql']}", $pr_date['types'], $pr_date['params']);
     $sales_stats['rejected'] = get_count($conn, "SELECT COUNT(*) FROM purchase_requests WHERE status = 'Rejected' AND {$pr_date['sql']}", $pr_date['types'], $pr_date['params']);
     
-    // UPDATED: Now queries for "Pending Approval" instead of "Pending PO"
     $sales_stats['pending_quotations'] = get_count($conn, "SELECT COUNT(*) FROM quotations WHERE status = 'Pending Approval' AND {$q_date['sql']}", $q_date['types'], $q_date['params']);
     $sales_stats['received_client_po'] = get_count($conn, "SELECT COUNT(*) FROM quotations WHERE status = 'PO Received' AND {$q_date['sql']}", $q_date['types'], $q_date['params']);
 
-    // 1. PR Status Distribution (For Polar Area)
     $q_pr_status = "SELECT status, COUNT(*) as count FROM purchase_requests WHERE {$pr_date['sql']} GROUP BY status";
     $sales_charts['pr_status'] = fetch_chart_data($conn, $q_pr_status, $pr_date['types'], $pr_date['params'], false);
 
-    // 2. Daily Pipeline Volume (Submitted vs Approved PRs)
     $q_sales_trend = "
         SELECT DATE(date_created) as t_date, 
                COUNT(*) as submitted_prs,
@@ -202,11 +225,9 @@ if ($is_sales_staff) {
     $raw_sales_trend = fetch_chart_data($conn, $q_sales_trend, $pr_date['types'], $pr_date['params'], false);
     $sales_charts['trend'] = array_reverse($raw_sales_trend);
 
-    // 3. Top Clients by Transaction Count (Radar Chart)
     $q_top_clients_sales = "SELECT client_name, COUNT(*) as total_tx FROM purchase_requests WHERE status != 'Rejected' AND {$pr_date['sql']} GROUP BY client_name ORDER BY total_tx DESC LIMIT 5";
     $sales_charts['top_clients'] = fetch_chart_data($conn, $q_top_clients_sales, $pr_date['types'], $pr_date['params'], false);
 
-    // 4. Top Requested Categories
     $standard_cats = [
         '01' => ['name' => 'Hardware', 'qty' => 0],
         '02' => ['name' => 'CCTVs', 'qty' => 0],
@@ -225,20 +246,19 @@ if ($is_sales_staff) {
         if (isset($standard_cats[$code])) {
             $standard_cats[$code]['qty'] += $qty;
         } else {
-            // Fallback mapper if old strings exist in DB instead of code
             $mapped = false;
             foreach($standard_cats as $k => $v) {
                 if (stripos($code, $v['name']) !== false) {
                     $standard_cats[$k]['qty'] += $qty; $mapped = true; break;
                 }
             }
-            if (!$mapped) {
-                 if(stripos($code, 'cctv') !== false) $standard_cats['02']['qty'] += $qty;
-                 elseif(stripos($code, 'peripheral') !== false) $standard_cats['03']['qty'] += $qty;
-                 elseif(stripos($code, 'office') !== false) $standard_cats['04']['qty'] += $qty;
-                 elseif(stripos($code, 'wifi') !== false || stripos($code, 'lan') !== false) $standard_cats['05']['qty'] += $qty;
-                 elseif(stripos($code, 'print') !== false) $standard_cats['06']['qty'] += $qty;
-                 else $standard_cats['01']['qty'] += $qty; // Default fallback to Hardware
+            if (!$mapped) { 
+                if(stripos($code, 'cctv') !== false) $standard_cats['02']['qty'] += $qty;
+                elseif(stripos($code, 'peripheral') !== false) $standard_cats['03']['qty'] += $qty;
+                elseif(stripos($code, 'office') !== false) $standard_cats['04']['qty'] += $qty;
+                elseif(stripos($code, 'wifi') !== false || stripos($code, 'lan') !== false) $standard_cats['05']['qty'] += $qty;
+                elseif(stripos($code, 'print') !== false) $standard_cats['06']['qty'] += $qty;
+                else $standard_cats['01']['qty'] += $qty; // Default fallback to Hardware
             }
         }
     }
@@ -252,7 +272,6 @@ if ($is_sales_staff) {
     }
     $sales_charts['top_cats'] = $final_top_cats;
     
-    // Insights Data
     $q_rejected = "SELECT pr_number, client_name FROM purchase_requests WHERE status = 'Rejected' AND {$pr_date['sql']} ORDER BY date_created DESC LIMIT 1";
     $sales_charts['latest_rejected'] = fetch_chart_data($conn, $q_rejected, $pr_date['types'], $pr_date['params'], true);
     
@@ -280,7 +299,6 @@ if ($role === 'Procurement') {
     $raw_trend = fetch_chart_data($conn, $q_trend, $po_date['types'], $po_date['params'], false);
     $proc_charts['trend'] = array_reverse($raw_trend);
 
-    // Categories mapping for Procurement
     $standard_cats_proc = [
         '01' => ['name' => 'Hardware', 'spent' => 0],
         '02' => ['name' => 'CCTVs', 'spent' => 0],
@@ -289,8 +307,10 @@ if ($role === 'Procurement') {
         '05' => ['name' => 'WIFI / LAN', 'spent' => 0],
         '06' => ['name' => 'Printers', 'spent' => 0]
     ];
+
     $q_cats = "SELECT pi.category as cat_code, SUM(pi.total_price) as spent FROM po_items pi JOIN purchase_orders p ON pi.po_id = p.po_id WHERE p.status NOT IN ('Rejected', 'Invalid') AND {$po_date['sql']} GROUP BY pi.category";
     $cat_res_proc = fetch_chart_data($conn, $q_cats, $po_date['types'], $po_date['params'], false);
+
     foreach($cat_res_proc as $r) {
         $code = str_pad($r['cat_code'], 2, '0', STR_PAD_LEFT);
         $spent = (float)$r['spent'];
@@ -306,6 +326,7 @@ if ($role === 'Procurement') {
             if (!$mapped) $standard_cats_proc['01']['spent'] += $spent;
         }
     }
+
     $final_proc_cats = [];
     foreach($standard_cats_proc as $data) { $final_proc_cats[] = ['cat_name' => $data['name'], 'spent' => $data['spent']]; }
     $proc_charts['top_cats'] = $final_proc_cats;
@@ -340,8 +361,8 @@ if (in_array($role, $executives)) {
 
 $sc_stats = ['ready_for_delivery' => 0, 'delivered' => 0, 'awaiting_collection' => 0, 'completed_collections' => 0, 'delivery_proofs' => 0];
 $sc_charts = ['status_dist' => [], 'delivery_trend' => [], 'top_clients' => [], 'proof_coverage' => []];
+
 if ($role === 'Supply Chain') {
-    // Supply Chain sees only operational fulfilment information, not finance figures.
     $sc_stats['ready_for_delivery'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Funded' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
     $sc_stats['delivered'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status IN ('Delivered', 'Partially-Collected', 'Collected') AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
     $sc_stats['awaiting_collection'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Delivered' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
@@ -393,7 +414,6 @@ if (!in_array($role, ['Admin', 'Finance']) && !in_array($role, $executives)) {
 $rbac_categories = [];
 $all_cats = [];
 $cat_query = $conn->query("SELECT sub_category, assigned_to_role FROM document_categories");
-
 if ($cat_query) {
     while ($row = $cat_query->fetch_assoc()) {
         $all_cats[] = $row['sub_category'];
@@ -407,10 +427,33 @@ if ($cat_query) {
     }
 }
 
+// ====================================================
+// GM-EXCLUSIVE CONFIDENTIAL FOLDER LOGIC (DASHBOARD WIDGETS)
+// ====================================================
 $is_top_mgmt = in_array($role, ['Admin', 'GM', 'President']);
-$user_categories = $is_top_mgmt ? $all_cats : ($rbac_categories[$role] ?? []);
-$recent_dashboard_files = null;
+$user_categories = [];
 
+if ($is_top_mgmt) {
+    if ($role === 'GM') {
+        $user_categories = $all_cats;
+    } else {
+        // Automatically hide the Finalized Scans categories from Admin and President
+        $gm_cats = [];
+        $q_gm_cats = $conn->query("SELECT sub_category FROM document_categories WHERE parent_category = 'Finalized Scans'");
+        if ($q_gm_cats) {
+            while($r = $q_gm_cats->fetch_assoc()) $gm_cats[] = $r['sub_category'];
+        }
+        foreach($all_cats as $c) {
+            if (!in_array($c, $gm_cats)) {
+                $user_categories[] = $c;
+            }
+        }
+    }
+} else {
+    $user_categories = $rbac_categories[$role] ?? [];
+}
+
+$recent_dashboard_files = null;
 if (!empty($user_categories) && !in_array($role, ['Finance', 'Admin'])) {
     $placeholders = implode(',', array_fill(0, count($user_categories), '?'));
     $q_str = "
@@ -432,7 +475,6 @@ if (!empty($user_categories) && !in_array($role, ['Finance', 'Admin'])) {
     }
 }
 
-$gm_charts = [];
 if (in_array($role, $executives)) {
     $q_life = "SELECT SUM(CASE WHEN status = 'Active' THEN 1 ELSE 0 END) as active_docs, SUM(CASE WHEN status = 'Archived' THEN 1 ELSE 0 END) as archived_docs, SUM(CASE WHEN disposition_status = 'Ready for Disposition' THEN 1 ELSE 0 END) as ready_disp FROM documents WHERE {$doc_date['sql']}";
     $gm_charts['lifecycle'] = fetch_chart_data($conn, $q_life, $doc_date['types'], $doc_date['params'], true);
@@ -452,6 +494,7 @@ if (in_array($role, $executives)) {
             UNION ALL SELECT DATE(timestamp), 0, 0, 0, 0, 1 FROM po_history WHERE status_to LIKE '%Approved%' AND {$po_hist_date['sql']}
         ) as combined GROUP BY a_date ORDER BY a_date DESC LIMIT 15
     ";
+    
     $act_types = $pr_date['types'] . $q_date['types'] . $po_date['types'] . $payment_date['types'] . $po_hist_date['types'] . $doc_date['types'] . $po_hist_date['types'];
     $act_params = array_merge($pr_date['params'], $q_date['params'], $po_date['params'], $payment_date['params'], $po_hist_date['params'], $doc_date['params'], $po_hist_date['params']);
     $raw_activity = fetch_chart_data($conn, $q_activity_trend, $act_types, $act_params, false);
@@ -462,15 +505,58 @@ if (in_array($role, $executives)) {
 
     $q_uncollected = "SELECT SUM(amount) as total_uncollected, COUNT(*) as count_uncollected FROM purchase_orders WHERE status IN ('Delivered', 'Partially-Collected') AND {$po_date['sql']}";
     $gm_charts['uncollected'] = fetch_chart_data($conn, $q_uncollected, $po_date['types'], $po_date['params'], true);
-
+    
     $q_aging = "SELECT p.po_number, p.status, p.current_location, TIMESTAMPDIFF(HOUR, COALESCE((SELECT MAX(timestamp) FROM po_history ph WHERE ph.po_id = p.po_id), p.date_created), NOW()) as hours_stagnant FROM purchase_orders p WHERE p.status NOT IN ('Collected', 'Rejected', 'Invalid') AND {$po_date['sql']} ORDER BY hours_stagnant DESC LIMIT 1";
     $gm_charts['aging_po'] = fetch_chart_data($conn, $q_aging, $po_date['types'], $po_date['params'], true);
-
+    
     $q_quote_conv = "SELECT COUNT(*) as total_quotes, SUM(CASE WHEN status IN ('PO Received', 'Converted to PR') THEN 1 ELSE 0 END) as converted_quotes FROM quotations WHERE {$q_date['sql']}";
     $gm_charts['quote_conversion'] = fetch_chart_data($conn, $q_quote_conv, $q_date['types'], $q_date['params'], true);
 
     $q_top_client = "SELECT client_name, COUNT(*) as tx_count FROM purchase_orders WHERE {$po_date['sql']} GROUP BY client_name ORDER BY tx_count DESC LIMIT 1";
     $gm_charts['top_client'] = fetch_chart_data($conn, $q_top_client, $po_date['types'], $po_date['params'], true);
+
+    $q_retrieval = "SELECT description, COUNT(*) as freq, action_type
+                    FROM audit_logs
+                    WHERE action_type IN ('DOWNLOAD_DOC', 'VIEW_RECORD')
+                    AND {$audit_date['sql']}
+                    GROUP BY description, action_type
+                    ORDER BY freq DESC LIMIT 7";
+    $retrieval_data = fetch_chart_data($conn, $q_retrieval, $audit_date['types'], $audit_date['params'], false);
+
+    $clean_retrieval = [];
+    foreach($retrieval_data as $row) {
+        $label = $row['description'];
+        if ($row['action_type'] == 'DOWNLOAD_DOC') {
+            $label = str_replace('Downloaded document: ', '', $label);
+            $label = preg_replace('/^\d+_[a-z0-9]+_/', '', $label);
+        } else if ($row['action_type'] == 'VIEW_RECORD') {
+            $label = str_replace('Viewed details of ', '', $label);
+            $label = str_replace('Viewed record details in ', '', $label);
+            $label = preg_replace('/ \| Parameters.*/', '', $label);
+        }
+        
+        if (strlen($label) > 35) $label = substr($label, 0, 32) . '...';
+
+        $found = false;
+        foreach($clean_retrieval as &$existing) {
+            if($existing['label'] === $label) {
+                $existing['count'] += $row['freq'];
+                $found = true;
+                break;
+            }
+        }
+        if(!$found) {
+            $clean_retrieval[] = [
+                'label' => $label,
+                'count' => $row['freq'],
+                'type'  => $row['action_type']
+            ];
+        }
+    }
+    usort($clean_retrieval, function($a, $b) { return $b['count'] <=> $a['count']; });
+    $gm_charts['retrieval_freq'] = array_slice($clean_retrieval, 0, 7);
+
+    $gm_charts['disposal'] = $shared_disposal_dss;
 }
 
 $finance_charts = [];
@@ -518,7 +604,6 @@ if ($role === 'Finance') {
     $in_data = fetch_chart_data($conn, $q_in, '', []);
     $q_out = "SELECT DATE_FORMAT(date_created, '%Y-%m') as m, SUM(amount) as val FROM purchase_requests WHERE status IN ('Approved', 'Converted_to_PO') GROUP BY m";
     $out_data = fetch_chart_data($conn, $q_out, '', []);
-
     $cf_months = [];
     foreach($in_data as $row) { $cf_months[$row['m']] = ['inflow' => $row['val'], 'outflow' => 0]; }
     foreach($out_data as $row) { if(!isset($cf_months[$row['m']])) { $cf_months[$row['m']] = ['inflow'=>0, 'outflow'=>0]; } $cf_months[$row['m']]['outflow'] = $row['val']; }
@@ -554,4 +639,5 @@ if ($period == 'custom' && !empty($_GET['start']) && !empty($_GET['end'])) {
     $e_display = date('M d, Y', strtotime($_GET['end']));
     $active_filter_text = ($s_display == $e_display) ? $s_display : "$s_display to $e_display";
 }
+
 ?>

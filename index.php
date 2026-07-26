@@ -104,7 +104,7 @@ if(isset($_GET['success'])) {
 
                     <button type="button" id="btnSendCode" class="btn-corporate btn-primary-alt mt-2" onclick="sendVerificationCode()">
                         <span class="spinner-mini"></span>
-                        <span class="btn-label">Transmit Code</span>
+                        <span class="btn-label">Send Code</span>
                     </button>
 
                     <button type="button" class="btn-text-only border-0 text-muted" onclick="switchView('view-traditional')">

@@ -178,6 +178,26 @@
                 <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-headset text-rose"></i> Support Requests Workload</h6></div><div class="chart-box"><canvas id="adminRequestsChart"></canvas></div></div></div>
             </div>
 
+            <!-- DISPOSAL REPORT (DSS) FOR ADMIN (SWAPPED) -->
+            <div class="row g-3 mb-3 align-items-stretch">
+                <div class="col-lg-4">
+                    <div class="corp-widget h-100">
+                        <div class="corp-widget-header">
+                            <h6 class="corp-widget-title"><i class="fas fa-tasks text-warning"></i> Pending Disposition</h6>
+                        </div>
+                        <div class="chart-box"><canvas id="adminDisposalActionChart"></canvas></div>
+                    </div>
+                </div>
+                <div class="col-lg-8">
+                    <div class="corp-widget h-100">
+                        <div class="corp-widget-header">
+                            <h6 class="corp-widget-title"><i class="fas fa-history text-danger"></i> Disposal Report (DSS): Historical Actions</h6>
+                        </div>
+                        <div class="chart-box"><canvas id="adminDisposalHistoryChart"></canvas></div>
+                    </div>
+                </div>
+            </div>
+
         <!-- ============================================== -->
         <!-- EXECUTIVE DASHBOARD SECTION -->
         <!-- ============================================== -->
@@ -192,6 +212,7 @@
             <?php 
                 $insights = []; 
                 $total_pending = $exec_stats['pending_pr'] + $exec_stats['pending_po'];
+                
                 $insights[] = [
                     'status' => ($total_pending > 0) ? 'danger' : 'success', 
                     'icon' => ($total_pending > 0) ? 'fa-signature' : 'fa-check-circle', 
@@ -201,6 +222,7 @@
 
                 $uncoll_amt = $gm_charts['uncollected']['total_uncollected'] ?? 0; 
                 $uncoll_cnt = $gm_charts['uncollected']['count_uncollected'] ?? 0;
+                
                 $insights[] = [
                     'status' => ($uncoll_amt > 0) ? 'warning' : 'success', 
                     'icon' => ($uncoll_amt > 0) ? 'fa-file-invoice-dollar' : 'fa-check-double', 
@@ -210,6 +232,7 @@
 
                 $aging_po = $gm_charts['aging_po'] ?? null; 
                 $hrs_stag = isset($aging_po['hours_stagnant']) ? (int)$aging_po['hours_stagnant'] : 0;
+                
                 $insights[] = [
                     'status' => ($hrs_stag >= 48) ? 'danger' : 'info', 
                     'icon' => ($hrs_stag >= 48) ? 'fa-hourglass-half' : 'fa-clock', 
@@ -270,8 +293,8 @@
                     'title' => ($disp_count > 0) ? 'Retention Compliance Alert' : 'Fully Compliant Records', 
                     'desc' => ($disp_count > 0) ? "<strong>{$disp_count}</strong> historical records have reached maturity and are ready for disposition. Immediate action is advised." : "All active and archived records are well within their legal retention limits."
                 ];
-            ?>
 
+            ?>
             <div class="row g-3 mb-3 align-items-stretch">
                 <div class="col-lg-8">
                     <div class="corp-widget h-100">
@@ -303,6 +326,47 @@
                 <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-folder-open text-info"></i> Record Volume Distribution</h6></div><div class="chart-box"><canvas id="gmVolumeChart"></canvas></div></div></div>
                 <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-project-diagram text-rose"></i> Processing Bottleneck (Avg Hrs)</h6></div><div class="chart-box"><canvas id="gmTurnaroundChart"></canvas></div></div></div>
                 <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-chart-pie text-emerald"></i> Document Lifecycle</h6></div><div class="chart-box"><canvas id="gmLifecycleChart"></canvas></div></div></div>
+            </div>
+
+            <div class="row g-3 mb-3 align-items-stretch">
+                <div class="col-lg-8">
+                    <div class="corp-widget h-100">
+                        <div class="corp-widget-header">
+                            <h6 class="corp-widget-title"><i class="fas fa-search-location text-warning"></i> Retrieval Frequency Report (DSS)</h6>
+                        </div>
+                        <div class="chart-box"><canvas id="gmRetrievalChart"></canvas></div>
+                    </div>
+                </div>
+                <div class="col-lg-4">
+                    <div class="corp-widget h-100">
+                        <div class="corp-widget-header mb-3">
+                            <h6 class="corp-widget-title text-dark"><i class="fas fa-info-circle text-info"></i> Frequency Analysis</h6>
+                        </div>
+                        <div class="p-3 bg-light rounded-custom border border-light text-muted fs-sm" style="line-height: 1.6;">
+                            This Decision Support System (DSS) report identifies the most frequently accessed and downloaded records across the organization. High retrieval rates on specific documents may indicate operational priority, frequent audits, or critical active transactions that require management attention.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- DISPOSAL REPORT (DSS) FOR EXECUTIVES (SWAPPED) -->
+            <div class="row g-3 mb-3 align-items-stretch">
+                <div class="col-lg-4">
+                    <div class="corp-widget h-100">
+                        <div class="corp-widget-header">
+                            <h6 class="corp-widget-title"><i class="fas fa-tasks text-warning"></i> Pending Disposition</h6>
+                        </div>
+                        <div class="chart-box"><canvas id="gmDisposalActionChart"></canvas></div>
+                    </div>
+                </div>
+                <div class="col-lg-8">
+                    <div class="corp-widget h-100">
+                        <div class="corp-widget-header">
+                            <h6 class="corp-widget-title"><i class="fas fa-history text-danger"></i> Disposal Report (DSS): Historical Actions</h6>
+                        </div>
+                        <div class="chart-box"><canvas id="gmDisposalHistoryChart"></canvas></div>
+                    </div>
+                </div>
             </div>
 
         <!-- ============================================== -->
@@ -357,7 +421,6 @@
                     'desc' => ($p_po > 0) ? "You currently have <strong>{$p_po}</strong> purchase orders flagged as GM-Approved waiting for your financial validation." : "No pending purchase orders waiting for finance approval."
                 ];
             ?>
-
             <div class="row g-3 mb-3 align-items-stretch">
                 <div class="col-lg-8">
                     <div class="corp-widget h-100">
@@ -448,7 +511,6 @@
                     'desc' => ($p_po > 0) ? "There are <strong>{$p_po}</strong> encoded purchase orders waiting for executive or finance approval." : "All your encoded purchase orders have been fully processed and approved."
                 ];
             ?>
-
             <div class="row g-3 mb-3 align-items-stretch">
                 <div class="col-lg-8">
                     <div class="corp-widget h-100">
@@ -528,7 +590,6 @@
                     'desc' => "<strong>{$completed}</strong> order(s) in the selected period have reached the Collected stage."
                 ];
             ?>
-
             <div class="row g-3 mb-3 align-items-stretch">
                 <div class="col-lg-8">
                     <div class="corp-widget h-100">
@@ -610,7 +671,6 @@
                     ]; 
                 }
             ?>
-
             <div class="row g-3 mb-3 align-items-stretch">
                 <div class="col-lg-8">
                     <div class="corp-widget h-100">
@@ -662,7 +722,7 @@
                                         <tr <?php echo (!isset($is_sales_staff) || !$is_sales_staff) ? "style='cursor: pointer;' onclick=\"window.location.href='view_po.php?id={$doc['id']}';\"" : ""; ?>>
                                             <td class="ps-4 fw-bold text-primary">#<?php echo htmlspecialchars($doc['number']); ?></td>
                                             <td class="fw-medium"><?php echo htmlspecialchars($doc['client_name']); ?></td>
-                                            <td class="fw-bold">₱<?php echo number_format($doc['amount'], 2); ?></td>
+                                            <td class="fw-bold">₱ <?php echo number_format($doc['amount'], 2); ?></td>
                                             <td><span class="badge bg-light text-dark border px-2"><?php echo $doc['status']; ?></span></td>
                                             <?php if(!isset($is_sales_staff) || !$is_sales_staff): ?>
                                                 <td><small class="text-muted"><i class="fas fa-map-marker-alt text-danger"></i> <?php echo htmlspecialchars($doc['current_location']); ?></small></td>
@@ -701,6 +761,7 @@
             </div>
             <?php endif; ?>
         <?php endif; ?>
+
     </div>
 
     <!-- ============================================== -->
@@ -721,6 +782,7 @@
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             if (typeof scData === 'undefined' || typeof Chart === 'undefined') return;
+
             const renderChart = function (id, config, hasData) {
                 const canvas = document.getElementById(id); if (!canvas) return; const container = canvas.parentElement;
                 if (!hasData) { 
@@ -738,10 +800,13 @@
 
             const trend = scData.delivery_trend || [];
             renderChart('scDeliveryTrendChart', { type: 'line', data: { labels: trend.map(row => row.delivery_date), datasets: [{ label: 'Delivered Orders', data: trend.map(row => Number(row.total)), borderColor: '#2563eb', backgroundColor: 'rgba(37, 99, 235, 0.12)', borderWidth: 3, fill: true, tension: 0.4, pointBackgroundColor: '#fff', pointBorderColor: '#2563eb', pointBorderWidth: 2, pointRadius: 4 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { precision: 0 }, grid: { borderDash: [4, 4], color: '#f1f5f9' } } } } }, trend.length > 0);
+            
             const statuses = scData.status_dist || [];
             renderChart('scStatusChart', { type: 'doughnut', data: { labels: statuses.map(row => row.status), datasets: [{ data: statuses.map(row => Number(row.total)), backgroundColor: ['#f59e0b', '#2563eb', '#8b5cf6', '#10b981'], borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '72%', plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 14 } } } } }, statuses.length > 0);
+            
             const clients = scData.top_clients || [];
             renderChart('scClientChart', { type: 'bar', data: { labels: clients.map(row => row.client_name), datasets: [{ label: 'Delivered Orders', data: clients.map(row => Number(row.total)), backgroundColor: '#0ea5e9', borderRadius: 6, barPercentage: 0.65 }] }, options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { precision: 0 }, grid: { borderDash: [4, 4], color: '#f1f5f9' } }, y: { grid: { display: false } } } } }, clients.length > 0);
+            
             const proofs = scData.proof_coverage || [];
             renderChart('scProofChart', { type: 'doughnut', data: { labels: proofs.map(row => row.label), datasets: [{ data: proofs.map(row => Number(row.total)), backgroundColor: ['#10b981', '#e2e8f0'], borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '72%', plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 14 } } } } }, proofs.some(row => Number(row.total) > 0));
         });
@@ -825,6 +890,7 @@
                 window.location.href = currentUrl.toString(); 
             });
         });
+
         function closeDropdown() { 
             var dd = bootstrap.Dropdown.getInstance(document.getElementById('filterDropdown')); 
             if (dd) dd.hide(); 
@@ -882,11 +948,13 @@
                 
                 new Chart(ctxTr, { type: 'line', data: { labels: trLabels.length ? trLabels : ['No Date'], datasets: [{ label: 'System Actions', data: trData, borderColor: '#3b82f6', backgroundColor: gradTr, borderWidth: 3, fill: true, tension: 0.4, pointBackgroundColor: '#ffffff', pointBorderColor: '#3b82f6', pointBorderWidth: 2, pointRadius: 4, pointHoverRadius: 6 }] }, options: { maintainAspectRatio: false, interaction: { intersect: false, mode: 'index' }, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, grid: { borderDash: [4, 4], color: '#f1f5f9' }, border: { display: false } }, x: { grid: { display: false }, border: { display: false } } } } });
             }
+
             if(document.getElementById('adminRolesChart') && typeof adminData !== 'undefined') {
                 const rLabels = adminData.roles.map(r => r.role); 
                 const rData = adminData.roles.map(r => r.user_count);
                 new Chart(document.getElementById('adminRolesChart'), { type: 'doughnut', data: { labels: rLabels.length ? rLabels : ['No Roles'], datasets: [{ data: rData, backgroundColor: ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#0ea5e9', '#64748b'], hoverOffset: 6 }] }, options: { cutout: '65%', maintainAspectRatio: false, layout: { padding: 10 }, plugins: { legend: { position: 'right', labels: { usePointStyle: true, padding: 15, font: {size: 11} } } } } });
             }
+
             if(document.getElementById('adminActiveUsersChart') && typeof adminData !== 'undefined') {
                 const ctxUsers = document.getElementById('adminActiveUsersChart').getContext('2d'); 
                 let horizGrad = ctxUsers.createLinearGradient(0, 0, 300, 0); 
@@ -896,12 +964,66 @@
                 const uData = adminData.active_users.map(u => u.activity_count);
                 new Chart(ctxUsers, { type: 'bar', data: { labels: uLabels.length ? uLabels : ['No Users'], datasets: [{ label: 'Total Actions', data: uData, backgroundColor: horizGrad, borderRadius: 6, barPercentage: 0.65 }] }, options: { indexAxis: 'y', maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, grid: { borderDash: [4, 4], color: '#f1f5f9' } }, y: { grid: { display: false }, ticks: {font: {size: 10}} } } } });
             }
+
             if(document.getElementById('adminRequestsChart') && typeof adminData !== 'undefined') {
                 const reqLabels = adminData.requests.map(r => r.status); 
                 const reqData = adminData.requests.map(r => r.req_count);
                 const reqColors = reqLabels.map(l => l === 'Pending' ? 'rgba(245, 158, 11, 0.7)' : (l === 'Approved' ? 'rgba(16, 185, 129, 0.7)' : 'rgba(239, 68, 68, 0.7)')); 
                 const reqBorders = reqLabels.map(l => l === 'Pending' ? '#f59e0b' : (l === 'Approved' ? '#10b981' : '#ef4444'));
                 new Chart(document.getElementById('adminRequestsChart'), { type: 'polarArea', data: { labels: reqLabels.length ? reqLabels : ['No Requests'], datasets: [{ data: reqData, backgroundColor: reqColors, borderColor: reqBorders, borderWidth: 2 }] }, options: { maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8, font: {size: 10} } } }, scales: { r: { ticks: { display: false }, grid: { color: '#e2e8f0' } } } } });
+            }
+
+            // --- ADMIN DISPOSAL REPORT (DSS) CHARTS ---
+            if(typeof adminData !== 'undefined' && adminData.disposal) {
+                if(document.getElementById('adminDisposalHistoryChart')) {
+                    const ctxHist = document.getElementById('adminDisposalHistoryChart').getContext('2d');
+                    const dHist = adminData.disposal.history;
+                    const hLabels = dHist.map(h => { let d = new Date(h.disp_date); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); });
+                    const archData = dHist.map(h => h.archived_count);
+                    const destData = dHist.map(h => h.destroyed_count);
+
+                    new Chart(ctxHist, {
+                        type: 'bar',
+                        data: {
+                            labels: hLabels.length ? hLabels : ['No Record'],
+                            datasets: [
+                                { label: 'Archived Documents', data: archData, backgroundColor: 'rgba(99, 102, 241, 0.8)', borderRadius: 4 },
+                                { label: 'Destroyed / Deleted', data: destData, backgroundColor: 'rgba(239, 68, 68, 0.8)', borderRadius: 4 }
+                            ]
+                        },
+                        options: {
+                            maintainAspectRatio: false,
+                            interaction: { intersect: false, mode: 'index' },
+                            plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: {size: 11} } } },
+                            scales: {
+                                y: { beginAtZero: true, grid: { borderDash: [4, 4], color: '#f1f5f9' }, border: {display: false}, ticks: {stepSize: 1} },
+                                x: { grid: { display: false }, border: {display: false} }
+                            }
+                        }
+                    });
+                }
+                if(document.getElementById('adminDisposalActionChart')) {
+                    const ctxAction = document.getElementById('adminDisposalActionChart').getContext('2d');
+                    const dAction = adminData.disposal.by_action;
+                    const aLabels = dAction.map(a => a.action_type);
+                    const aData = dAction.map(a => a.cnt);
+
+                    const colorMap = { 'Archive': 'rgba(99, 102, 241, 0.8)', 'Destroy': 'rgba(239, 68, 68, 0.8)', 'Review Required': 'rgba(245, 158, 11, 0.8)' };
+                    const bgColors = aLabels.map(l => colorMap[l] || 'rgba(100, 116, 139, 0.8)');
+
+                    new Chart(ctxAction, {
+                        type: 'doughnut',
+                        data: {
+                            labels: aLabels.length ? aLabels : ['No Record'],
+                            datasets: [{ data: aData, backgroundColor: bgColors, hoverOffset: 6, borderWidth: 2 }]
+                        },
+                        options: {
+                            cutout: '70%',
+                            maintainAspectRatio: false,
+                            plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 15, font: {size: 11} } } }
+                        }
+                    });
+                }
             }
 
             // ==============================================
@@ -926,13 +1048,16 @@
                 
                 new Chart(ctxAct, { type: 'line', data: { labels: fLabels.length ? fLabels : ['No Date'], datasets: [ { label: 'Purchase Orders', data: poData, borderColor: '#3b82f6', backgroundColor: gradPO, borderWidth: 2, fill: true, tension: 0.4, pointRadius: 0, pointHoverRadius: 6 }, { label: 'Files & Records Uploaded', data: docData, borderColor: '#f43f5e', backgroundColor: gradDoc, borderWidth: 2, fill: true, tension: 0.4, pointRadius: 0, pointHoverRadius: 6 }, { label: 'Payments & Fulfillment', data: finFulfillData, borderColor: '#10b981', backgroundColor: 'transparent', borderWidth: 2, fill: false, tension: 0.4, pointRadius: 0, pointHoverRadius: 6 }, { label: 'Workflow Approvals', data: approvalData, borderColor: '#8b5cf6', backgroundColor: 'transparent', borderWidth: 2, fill: false, tension: 0.4, pointRadius: 0, pointHoverRadius: 6 }, { label: 'PRs & Quotations', data: reqQuoteData, borderColor: '#f59e0b', backgroundColor: 'transparent', borderWidth: 2, borderDash: [5, 5], fill: false, tension: 0.4, pointRadius: 0, pointHoverRadius: 6 } ] }, options: { maintainAspectRatio: false, interaction: { intersect: false, mode: 'index' }, plugins: { legend: { display: true, position: 'top', labels: { usePointStyle: true, boxWidth: 8, font: {size: 11}, padding: 25 } }, tooltip: { callbacks: { title: function(context) { return context[0].label; } } } }, scales: { y: { beginAtZero: true, grid: { borderDash: [4, 4], color: '#f1f5f9', drawBorder: false }, border: { display: false }, ticks: { font: {size:11}, padding: 10, stepSize: 1 } }, x: { grid: { display: false }, border: { display: false }, ticks: { font: {size:11}, maxRotation: 45, autoSkip: true, maxTicksLimit: 10, padding: 10 } } } } });
             }
+
             if(document.getElementById('gmLifecycleChart') && typeof gmData !== 'undefined') {
                 new Chart(document.getElementById('gmLifecycleChart'), { type: 'pie', data: { labels: ['Active', 'Archived', 'Disposition'], datasets: [{ data: [ gmData.lifecycle.active_docs, gmData.lifecycle.archived_docs, gmData.lifecycle.ready_disp ], backgroundColor: ['#10b981', '#6366f1', '#f43f5e'], hoverBackgroundColor: ['#059669', '#4f46e5', '#e11d48'], borderWidth: 2, borderColor: '#ffffff', hoverOffset: 6 }] }, options: { maintainAspectRatio: false, layout: { padding: 10 }, plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20, font: {size: 12} } } } } });
             }
+
             if(document.getElementById('gmVolumeChart') && typeof gmData !== 'undefined') {
                 const vLabels = gmData.volume.map(v => v.category || 'Uncategorized'); const vData = gmData.volume.map(v => v.count);
                 new Chart(document.getElementById('gmVolumeChart'), { type: 'doughnut', data: { labels: vLabels.length ? vLabels : ['Uncategorized'], datasets: [{ data: vData, backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#0ea5e9', '#64748b'], hoverBackgroundColor: ['#2563eb', '#059669', '#d97706', '#7c3aed', '#db2777', '#0284c7', '#475569'], borderWidth: 3, borderColor: '#ffffff', hoverOffset: 6 }] }, options: { cutout: '65%', maintainAspectRatio: false, layout: { padding: 10 }, plugins: { legend: { position: 'right', labels: { usePointStyle: true, padding: 15, font: {size: 11} } } } } });
             }
+
             if(document.getElementById('gmTurnaroundChart') && typeof gmData !== 'undefined') {
                 const ctxTurn = document.getElementById('gmTurnaroundChart').getContext('2d'); 
                 let horizGradient = ctxTurn.createLinearGradient(0, 0, 300, 0); 
@@ -945,6 +1070,106 @@
                 new Chart(ctxTurn, { type: 'bar', data: { labels: tLabels.length ? tLabels : ['No Record'], datasets: [{ label: 'Avg Hours Spent', data: tData, backgroundColor: horizGradient, borderRadius: 6, barPercentage: 0.65 }] }, options: { indexAxis: 'y', maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, grid: { borderDash: [4, 4], color: '#f1f5f9' }, border: { display: false }, title: { display: true, text: 'Average Hours', font: {size: 11, weight: '600'}, color: '#94a3b8' } }, y: { grid: { display: false }, border: { display: false }, ticks: { font: {size: 11, weight: '600'} } } } } });
             }
 
+            // Initialization for Retrieval Frequency Chart (DSS)
+            if(document.getElementById('gmRetrievalChart') && typeof gmData !== 'undefined' && gmData.retrieval_freq) {
+                const ctxRet = document.getElementById('gmRetrievalChart').getContext('2d');
+                const retLabels = gmData.retrieval_freq.map(r => r.label);
+                const retData = gmData.retrieval_freq.map(r => r.count);
+                const retBgColors = gmData.retrieval_freq.map(r => r.type === 'DOWNLOAD_DOC' ? 'rgba(16, 185, 129, 0.8)' : 'rgba(59, 130, 246, 0.8)');
+
+                new Chart(ctxRet, {
+                    type: 'bar',
+                    data: {
+                        labels: retLabels.length ? retLabels : ['No Record'],
+                        datasets: [{
+                            label: 'Access Frequency',
+                            data: retData,
+                            backgroundColor: retBgColors,
+                            borderRadius: 4,
+                            barPercentage: 0.6
+                        }]
+                    },
+                    options: {
+                        indexAxis: 'y', 
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(ctx) { return ctx.raw + ' Accesses'; }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                beginAtZero: true,
+                                grid: { borderDash: [4, 4], color: '#f1f5f9' },
+                                border: { display: false },
+                                ticks: { precision: 0 }
+                            },
+                            y: {
+                                grid: { display: false },
+                                border: { display: false },
+                                ticks: { font: {size: 11}, color: '#64748b' }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // --- EXECUTIVE DISPOSAL REPORT (DSS) CHARTS ---
+            if(typeof gmData !== 'undefined' && gmData.disposal) {
+                if(document.getElementById('gmDisposalHistoryChart')) {
+                    const ctxHist = document.getElementById('gmDisposalHistoryChart').getContext('2d');
+                    const dHist = gmData.disposal.history;
+                    const hLabels = dHist.map(h => { let d = new Date(h.disp_date); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); });
+                    const archData = dHist.map(h => h.archived_count);
+                    const destData = dHist.map(h => h.destroyed_count);
+
+                    new Chart(ctxHist, {
+                        type: 'bar',
+                        data: {
+                            labels: hLabels.length ? hLabels : ['No Record'],
+                            datasets: [
+                                { label: 'Archived Documents', data: archData, backgroundColor: 'rgba(99, 102, 241, 0.8)', borderRadius: 4 },
+                                { label: 'Destroyed / Deleted', data: destData, backgroundColor: 'rgba(239, 68, 68, 0.8)', borderRadius: 4 }
+                            ]
+                        },
+                        options: {
+                            maintainAspectRatio: false,
+                            interaction: { intersect: false, mode: 'index' },
+                            plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: {size: 11} } } },
+                            scales: {
+                                y: { beginAtZero: true, grid: { borderDash: [4, 4], color: '#f1f5f9' }, border: {display: false}, ticks: {stepSize: 1} },
+                                x: { grid: { display: false }, border: {display: false} }
+                            }
+                        }
+                    });
+                }
+                if(document.getElementById('gmDisposalActionChart')) {
+                    const ctxAction = document.getElementById('gmDisposalActionChart').getContext('2d');
+                    const dAction = gmData.disposal.by_action;
+                    const aLabels = dAction.map(a => a.action_type);
+                    const aData = dAction.map(a => a.cnt);
+
+                    const colorMap = { 'Archive': 'rgba(99, 102, 241, 0.8)', 'Destroy': 'rgba(239, 68, 68, 0.8)', 'Review Required': 'rgba(245, 158, 11, 0.8)' };
+                    const bgColors = aLabels.map(l => colorMap[l] || 'rgba(100, 116, 139, 0.8)');
+
+                    new Chart(ctxAction, {
+                        type: 'doughnut',
+                        data: {
+                            labels: aLabels.length ? aLabels : ['No Record'],
+                            datasets: [{ data: aData, backgroundColor: bgColors, hoverOffset: 6, borderWidth: 2 }]
+                        },
+                        options: {
+                            cutout: '70%',
+                            maintainAspectRatio: false,
+                            plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 15, font: {size: 11} } } }
+                        }
+                    });
+                }
+            }
+
             // ==============================================
             // FINANCE CHARTS 
             // ==============================================
@@ -954,15 +1179,18 @@
                 let gradPred = ctxFinRev.createLinearGradient(0, 0, 0, 400); gradPred.addColorStop(0, 'rgba(139, 92, 246, 0.4)'); gradPred.addColorStop(1, 'rgba(139, 92, 246, 0.0)');
                 new Chart(ctxFinRev, { type: 'line', data: { labels: finData.revenue_labels, datasets: [ { label: 'Actual Revenue', data: finData.revenue_actuals, borderColor: '#3b82f6', backgroundColor: gradActual, borderWidth: 3, fill: true, tension: 0.4, pointBackgroundColor: '#ffffff', pointBorderColor: '#3b82f6', pointBorderWidth: 2, pointRadius: 4, pointHoverRadius: 6 }, { label: 'Predicted Trend', data: finData.revenue_predicteds, borderColor: '#8b5cf6', backgroundColor: gradPred, borderWidth: 3, borderDash: [5, 5], fill: true, tension: 0.4, pointBackgroundColor: '#ffffff', pointBorderColor: '#8b5cf6', pointBorderWidth: 2, pointRadius: 4, pointHoverRadius: 6 } ] }, options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: {size: 12, family: 'Inter'} } }, tooltip: { backgroundColor: 'rgba(15, 23, 42, 0.95)', titleFont: { size: 13, family: 'Inter' }, bodyFont: { size: 12, family: 'Inter' }, callbacks: { label: function(ctx) { return ctx.dataset.label + ': ₱ ' + ctx.parsed.y.toLocaleString(undefined, {minimumFractionDigits: 2}); } } } }, scales: { y: { grid: { borderDash: [4, 4], color: '#f1f5f9' }, border: {display: false}, ticks: { callback: function(val) { return '₱ ' + val.toLocaleString(); } } }, x: { grid: { display: false }, border: {display: false} } } } });
             }
+
             if(document.getElementById('finCashflowChart') && typeof finData !== 'undefined') {
                 const ctxCF = document.getElementById('finCashflowChart').getContext('2d');
                 new Chart(ctxCF, { type: 'line', data: { labels: finData.cf_labels, datasets: [ { label: 'Inflow', data: finData.cf_in, borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', fill: true, tension: 0.4, borderWidth: 2, pointRadius: 3 }, { label: 'Outflow', data: finData.cf_out, borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', fill: true, tension: 0.4, borderWidth: 2, pointRadius: 3 } ] }, options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8, font: {size: 10} } }, tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ₱ ' + ctx.parsed.y.toLocaleString(undefined, {minimumFractionDigits: 2}); } } } }, scales: { y: { grid: { borderDash: [4, 4], color: '#f1f5f9' }, border: {display: false}, ticks: { font: {size: 10}, callback: function(val) { if(val >= 1000) return '₱ ' + (val/1000) + 'k'; return '₱ ' + val; } } }, x: { grid: { display: false }, ticks: { font: {size: 10} } } } } });
             }
+
             if(document.getElementById('finMomChart') && typeof finData !== 'undefined') {
                 const ctxMom = document.getElementById('finMomChart').getContext('2d'); 
                 const momColors = finData.mom_pct.map(val => val >= 0 ? 'rgba(16, 185, 129, 0.8)' : 'rgba(239, 68, 68, 0.8)');
                 new Chart(ctxMom, { type: 'bar', data: { labels: finData.mom_labels, datasets: [{ label: 'Growth (%)', data: finData.mom_pct, backgroundColor: momColors, borderRadius: 4, barPercentage: 0.6 }] }, options: { maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: function(ctx) { return (ctx.parsed.y > 0 ? '+' : '') + ctx.parsed.y + '% MoM'; } } } }, scales: { y: { grid: { borderDash: [4, 4], color: '#f1f5f9' }, border: {display: false}, ticks: { font: {size: 10}, callback: function(val) { return val + '%'; } } }, x: { grid: { display: false }, ticks: { font: {size: 10} } } } } });
             }
+
             if(document.getElementById('finTopClientsRadarChart') && typeof finData !== 'undefined') {
                 const ctxTopRadar = document.getElementById('finTopClientsRadarChart').getContext('2d');
                 new Chart(ctxTopRadar, { type: 'radar', data: { labels: finData.tc_labels.length ? finData.tc_labels : ['No Clients'], datasets: [ { label: 'Collected', data: finData.tc_col, backgroundColor: 'rgba(59, 130, 246, 0.3)', borderColor: '#3b82f6', pointBackgroundColor: '#3b82f6', borderWidth: 2 }, { label: 'Outstanding', data: finData.tc_uncol, backgroundColor: 'rgba(245, 158, 11, 0.3)', borderColor: '#f59e0b', pointBackgroundColor: '#f59e0b', borderWidth: 2 } ] }, options: { maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8, font: {size: 10} } }, tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ₱ ' + ctx.parsed.r.toLocaleString(undefined, {minimumFractionDigits: 2}); } } } }, scales: { r: { ticks: { display: false }, grid: { color: '#e2e8f0' }, pointLabels: { font: { size: 9, family: 'Inter' }, color: '#64748b' } } } } });
@@ -982,11 +1210,13 @@
                 
                 new Chart(ctxProcTrend, { type: 'line', data: { labels: ptLabels.length ? ptLabels : ['No Date'], datasets: [{ label: 'POs Created', data: ptData, borderColor: '#3b82f6', backgroundColor: gradPt, borderWidth: 3, fill: true, tension: 0.4, pointBackgroundColor: '#ffffff', pointBorderColor: '#3b82f6', pointBorderWidth: 2, pointRadius: 4, pointHoverRadius: 6 }] }, options: { maintainAspectRatio: false, interaction: { intersect: false, mode: 'index' }, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, grid: { borderDash: [4, 4], color: '#f1f5f9' }, border: { display: false }, ticks: {stepSize: 1} }, x: { grid: { display: false }, border: { display: false } } } } });
             }
+
             if(document.getElementById('procStatusChart') && typeof procData !== 'undefined') {
                 const psLabels = procData.status_dist.map(s => s.status); 
                 const psData = procData.status_dist.map(s => s.count);
                 new Chart(document.getElementById('procStatusChart'), { type: 'doughnut', data: { labels: psLabels.length ? psLabels : ['No Data'], datasets: [{ data: psData, backgroundColor: ['#f59e0b', '#3b82f6', '#10b981', '#8b5cf6', '#64748b', '#ef4444'], hoverOffset: 6 }] }, options: { cutout: '65%', maintainAspectRatio: false, layout: { padding: 10 }, plugins: { legend: { position: 'right', labels: { usePointStyle: true, padding: 15, font: {size: 11} } } } } });
             }
+
             if(document.getElementById('procCategoryChart') && typeof procData !== 'undefined') {
                 const ctxCat = document.getElementById('procCategoryChart').getContext('2d'); 
                 let gradCat = ctxCat.createLinearGradient(0, 0, 300, 0); 
@@ -998,6 +1228,7 @@
                 
                 new Chart(ctxCat, { type: 'bar', data: { labels: pcLabels.length ? pcLabels : ['No Record'], datasets: [{ label: 'Total Spent (₱)', data: pcData, backgroundColor: gradCat, borderRadius: 6, barPercentage: 0.65 }] }, options: { indexAxis: 'y', maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: function(ctx) { return '₱ ' + ctx.parsed.x.toLocaleString(undefined, {minimumFractionDigits: 2}); } } } }, scales: { x: { beginAtZero: true, grid: { borderDash: [4, 4], color: '#f1f5f9' }, border: { display: false }, ticks: { callback: function(val) { if(val >= 1000) return '₱ ' + (val/1000) + 'k'; return '₱ ' + val; } } }, y: { grid: { display: false }, border: { display: false }, ticks: { font: {size: 10} } } } } });
             }
+
             if(document.getElementById('procBrandChart') && typeof procData !== 'undefined') {
                 const pbLabels = procData.top_brands.map(b => b.brand); 
                 const pbData = procData.top_brands.map(b => b.spent);
@@ -1023,6 +1254,7 @@
                 
                 new Chart(ctxSalesTrend, { type: 'line', data: { labels: stLabels.length ? stLabels : ['No Date'], datasets: [ { label: 'Submitted PRs', data: submittedData, borderColor: '#3b82f6', backgroundColor: gradSub, borderWidth: 3, fill: true, tension: 0.4, pointRadius: 3, pointHoverRadius: 6 }, { label: 'Approved PRs', data: approvedData, borderColor: '#10b981', backgroundColor: gradApp, borderWidth: 3, fill: true, tension: 0.4, pointRadius: 3, pointHoverRadius: 6 } ] }, options: { maintainAspectRatio: false, interaction: { intersect: false, mode: 'index' }, plugins: { legend: { position: 'top', labels: { usePointStyle: true, boxWidth: 8, font: {size: 11}, padding: 20 } } }, scales: { y: { beginAtZero: true, grid: { borderDash: [4, 4], color: '#f1f5f9' }, border: { display: false }, ticks: { stepSize: 1 } }, x: { grid: { display: false }, border: { display: false } } } } });
             }
+
             if(document.getElementById('salesPrStatusChart') && typeof salesData !== 'undefined') {
                 const spLabels = salesData.pr_status.map(s => s.status); 
                 const spData = salesData.pr_status.map(s => s.count);
@@ -1035,11 +1267,13 @@
                 
                 new Chart(document.getElementById('salesPrStatusChart'), { type: 'polarArea', data: { labels: spLabels.length ? spLabels.map(s => s.replace(/_/g, ' ')) : ['No Data'], datasets: [{ data: spData, backgroundColor: spBgColors, borderColor: spBorderColors, borderWidth: 2 }] }, options: { maintainAspectRatio: false, layout: { padding: 10 }, plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 15, font: {size: 11} } } }, scales: { r: { ticks: { display: false }, grid: { color: '#e2e8f0' } } } } });
             }
+
             if(document.getElementById('salesTopCatChart') && typeof salesData !== 'undefined') {
                 const scLabels = salesData.top_cats.map(c => c.cat_name); 
                 const scData = salesData.top_cats.map(c => c.total_qty);
                 new Chart(document.getElementById('salesTopCatChart'), { type: 'pie', data: { labels: scLabels, datasets: [{ label: 'Quantity Requested', data: scData, backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#0ea5e9', '#f43f5e'], hoverOffset: 6, borderWidth: 2, borderColor: '#ffffff' }] }, options: { maintainAspectRatio: false, layout: { padding: 10 }, plugins: { legend: { position: 'right', labels: { usePointStyle: true, padding: 15, font: {size: 11} } }, tooltip: { callbacks: { label: function(ctx) { return ctx.label + ': ' + ctx.parsed + ' items'; } } } } } });
             }
+
             if(document.getElementById('salesTopClientsChart') && typeof salesData !== 'undefined') {
                 const tcLabels = salesData.top_clients.map(c => c.client_name); 
                 const tcData = salesData.top_clients.map(c => c.total_tx);

@@ -39,6 +39,160 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $user_id = $_SESSION['user_id'];
     $source = $_POST['source'] ?? '';
 
+    // ==========================================
+    // AJAX FETCH PARA SA EXISTING KEYWORDS
+    // ==========================================
+    if ($action === 'get_keywords') {
+        header('Content-Type: application/json');
+        
+        // Linisin ang anumang sobrang spaces o errors bago mag-bato ng JSON
+        if (ob_get_length()) ob_clean(); 
+        
+        $cat = trim($_POST['category'] ?? '');
+        
+        // 1. KUNIN ANG MGA DEFAULT CORE RULES NATIN
+        $default_rules = [
+            'Purchase Orders' => ['purchase order', 'po number', 'po#', 'po '],
+            'Purchase Requests' => ['purchase request', 'pr number', 'pr#', 'pr '],
+            'Quotations' => ['quotation', 'quote', 'qtn '],
+            'Invoices' => ['invoice', 'inv#', 'billing statement'],
+            'Contracts & Agreements' => ['contract', 'agreement', 'terms and conditions', 'nda', 'memorandum'],
+            'Service Tickets' => ['service ticket', 'ticket#', 'issue #', 'maintenance report'],
+            'Job Orders' => ['job order', 'jo#', 'work order'],
+            'Internal Memos' => ['internal memo', 'memorandum', 'internal notice']
+        ];
+        
+        // 2. KUNIN ANG MGA DINAGDAG MO SA DATABASE
+        $stmt = $conn->prepare("SELECT classification_keywords FROM document_categories WHERE sub_category = ? LIMIT 1");
+        $stmt->bind_param("s", $cat);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        
+        $db_keywords = "";
+        if ($row = $res->fetch_assoc()) {
+            $db_keywords = $row['classification_keywords'];
+        }
+        
+        // 3. PAGSAMAHIN SILA PARA MAKITA SA MODAL
+        $combined = [];
+        if (isset($default_rules[$cat])) {
+            $combined = $default_rules[$cat];
+        }
+        if (!empty($db_keywords)) {
+            $db_arr = array_map('trim', explode(',', $db_keywords));
+            $combined = array_merge($combined, $db_arr);
+        }
+        
+        // Tanggalin ang mga naulit (duplicates) at i-format nang maayos
+        $clean_combined = array_unique(array_filter($combined));
+        $final_string = implode(', ', $clean_combined);
+        
+        echo json_encode(['status' => 'success', 'keywords' => $final_string]);
+        exit();
+    }
+
+    // START: Rule-Based Automatic Document Classification (PRODUCTION VERSION)
+    if ($action === 'analyze_document') {
+        header('Content-Type: application/json');
+        
+        if (!isset($_FILES['document']) || $_FILES['document']['error'] !== UPLOAD_ERR_OK) {
+            echo json_encode(['status' => 'none']);
+            exit();
+        }
+
+        $file = $_FILES['document'];
+        $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        $tmpPath = $file['tmp_name'];
+        
+        // SMART FALLBACK: Palaging isama ang filename para sa mga encoded PDFs at Images
+        $extractedText = $file['name'] . " "; 
+
+        // 1. Native Text Extraction Base
+        if ($ext === 'docx') {
+            if (class_exists('ZipArchive')) {
+                $zip = new ZipArchive;
+                if ($zip->open($tmpPath) === TRUE) {
+                    if (($index = $zip->locateName('word/document.xml')) !== false) {
+                        $data = $zip->getFromIndex($index);
+                        $data = str_replace('<', ' <', $data); 
+                        $extractedText .= " " . strip_tags($data);
+                    }
+                    $zip->close();
+                }
+            }
+        } elseif (in_array($ext, ['txt', 'csv'])) {
+            $extractedText .= " " . file_get_contents($tmpPath);
+        } elseif ($ext === 'pdf') {
+            require_once '../config/PdfToText.php';
+            $extractedText .= " " . PdfToText::extract($tmpPath);
+        }
+
+        // 2. Text Normalization
+        $extractedText = strtolower($extractedText);
+        $extractedText = preg_replace('/[_\-\s]+/', ' ', $extractedText);
+
+        // 1. DEFAULT CORE RULES (Hindi mawawala ang mga ito)
+        $rules = [
+            'Purchase Orders' => ['purchase order', 'po number', 'po#', 'po '],
+            'Purchase Requests' => ['purchase request', 'pr number', 'pr#', 'pr '],
+            'Quotations' => ['quotation', 'quote', 'qtn '],
+            'Invoices' => ['invoice', 'inv#', 'billing statement'],
+            'Contracts & Agreements' => ['contract', 'agreement', 'terms and conditions', 'nda', 'memorandum'],
+            'Service Tickets' => ['service ticket', 'ticket#', 'issue #', 'maintenance report'],
+            'Job Orders' => ['job order', 'jo#', 'work order'],
+            'Internal Memos' => ['internal memo', 'memorandum', 'internal notice']
+        ];
+
+        // 2. DYNAMIC DATABASE RULES (Idadagdag ang mga bago mong nilagay sa UI)
+        $rule_query = $conn->query("SELECT sub_category, classification_keywords FROM document_categories WHERE classification_keywords IS NOT NULL AND classification_keywords != ''");
+        
+        if ($rule_query) {
+            while ($row = $rule_query->fetch_assoc()) {
+                // STRICTLY use sub_category only. Iwasan ang pag-suggest ng Parent folder.
+                $target_folder = trim($row['sub_category']);
+                
+                if (!empty($target_folder)) {
+                    $keys = array_map('trim', explode(',', $row['classification_keywords']));
+                    $clean_keys = array_filter($keys);
+                    
+                    if (!empty($clean_keys)) {
+                        if (!isset($rules[$target_folder])) {
+                            $rules[$target_folder] = [];
+                        }
+                        // Pagsamahin ang mga default at bagong keywords
+                        $rules[$target_folder] = array_merge($rules[$target_folder], $clean_keys);
+                    }
+                }
+            }
+        }
+
+        $suggested_category = null;
+        foreach ($rules as $category => $keywords) {
+            foreach ($keywords as $keyword) {
+                // I-check kung may laman ang keyword at kung nahanap ba ito sa text
+                if ($keyword !== '' && strpos($extractedText, strtolower($keyword)) !== false) {
+                    $suggested_category = $category;
+                    break 2; // Huminto agad sa unang match para tipid sa memory
+                }
+            }
+        }
+
+        if ($suggested_category) {
+            // Siguruhing nag-e-exist pa rin ang folder bago i-suggest
+            $stmt = $conn->prepare("SELECT id FROM document_categories WHERE sub_category = ? OR parent_category = ? LIMIT 1");
+            $stmt->bind_param("ss", $suggested_category, $suggested_category);
+            $stmt->execute();
+            if ($stmt->get_result()->num_rows > 0) {
+                echo json_encode(['status' => 'success', 'suggested_category' => $suggested_category]);
+                exit();
+            }
+        }
+        
+        echo json_encode(['status' => 'none']);
+        exit();
+    }
+    // END: Rule-Based Automatic Document Classification
+
     function getRedirectUrl($conn, $doc_id = null, $po_id = null, $source = '') {
         if ($source === 'dashboard') {
             return "../dashboard.php?tab=retention";

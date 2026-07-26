@@ -8,46 +8,6 @@ if(!isset($_SESSION['user_id'])) {
 }
 
 // ==========================================
-// AUTO-MIGRATION: CONCURRENCY & GDRIVE-STYLE SHARING
-// ==========================================
-$check_lock = $conn->query("SHOW COLUMNS FROM documents LIKE 'is_locked'");
-if ($check_lock && $check_lock->num_rows == 0) {
-    $conn->query("ALTER TABLE documents ADD COLUMN is_locked TINYINT(1) DEFAULT 0, ADD COLUMN locked_by INT DEFAULT NULL, ADD COLUMN locked_at DATETIME DEFAULT NULL");
-}
-$check_share = $conn->query("SHOW COLUMNS FROM documents LIKE 'access_type'");
-if ($check_share && $check_share->num_rows == 0) {
-    $conn->query("ALTER TABLE documents ADD COLUMN access_type VARCHAR(50) DEFAULT 'Folder Default', ADD COLUMN file_permissions JSON DEFAULT NULL");
-}
-
-// ==========================================
-// AUTO-MIGRATION: LEGAL HOLD FEATURE
-// ==========================================
-$check_legal_hold = $conn->query("SHOW COLUMNS FROM documents LIKE 'is_legal_hold'");
-if ($check_legal_hold && $check_legal_hold->num_rows == 0) {
-    $conn->query("ALTER TABLE documents ADD COLUMN is_legal_hold TINYINT(1) DEFAULT 0, ADD COLUMN legal_hold_reason TEXT DEFAULT NULL, ADD COLUMN legal_hold_by INT DEFAULT NULL, ADD COLUMN legal_hold_at DATETIME DEFAULT NULL");
-}
-
-// ==========================================
-// DATA MIGRATION: 1NF NORMALIZATION (Run Once)
-// ==========================================
-$check_mig = $conn->query("SELECT COUNT(*) as cnt FROM category_role_access");
-if ($check_mig && $check_mig->fetch_assoc()['cnt'] == 0) {
-    $res = $conn->query("SELECT id, assigned_to_role FROM document_categories WHERE assigned_to_role IS NOT NULL AND assigned_to_role != ''");
-    if ($res) {
-        $stmt_mig = $conn->prepare("INSERT IGNORE INTO category_role_access (category_id, role_name) VALUES (?, ?)");
-        while ($row = $res->fetch_assoc()) {
-            $roles = array_map('trim', explode(',', $row['assigned_to_role']));
-            foreach ($roles as $r) {
-                if (!empty($r)) {
-                    $stmt_mig->bind_param("is", $row['id'], $r);
-                    $stmt_mig->execute();
-                }
-            }
-        }
-    }
-}
-
-// ==========================================
 // URL PARAMETER CLEANUP
 // ==========================================
 function cleanMalformedGetParam($paramName) {
@@ -75,7 +35,6 @@ $is_top_mgmt = has_permission($conn, $_SESSION['user_id'], 'can_view_all_folders
 $can_manage = has_permission($conn, $_SESSION['user_id'], 'can_manage_folders'); 
 $can_view_disposition = has_permission($conn, $_SESSION['user_id'], 'can_view_disposition'); 
 
-// FIX: Alamin kung sino lang ang pwedeng maka-click ng PO Link
 $can_view_po = in_array($role, ['Admin', 'GM', 'President', 'Finance', 'Procurement', 'Supply Chain']);
 
 function getAssignedParentFoldersForRole($conn, $role) {
@@ -128,7 +87,7 @@ function redirectDocumentsWithMessage($type, $message, $parent = '') {
 }
 
 $policies = [];
-$pol_query = $conn->query("SELECT * FROM retention_policies ORDER BY retention_years ASC");
+$pol_query = $conn->query("SELECT * FROM retention_policies ORDER BY active_years ASC");
 if ($pol_query) {
     while ($p = $pol_query->fetch_assoc()) {
         $policies[] = $p;
@@ -152,6 +111,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 
     if ($_POST['action'] === 'toggle_legal_hold') {
+        if ($role === 'Admin') redirectDocumentsWithMessage("error", "System Administrators cannot modify documents.");
+        
         if (!$is_top_mgmt && !$can_manage) {
             redirectDocumentsWithMessage("error", "You do not have permission to manage Legal Holds.");
         }
@@ -159,36 +120,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $current_state = intval($_POST['current_state']);
         $return_url = $_POST['return_url'] ?? 'documents.php';
         
-        $stmt = $conn->prepare("SELECT file_name FROM documents WHERE doc_id = ?");
+        $stmt = $conn->prepare("SELECT file_name, rename_history FROM documents WHERE doc_id = ?");
         $stmt->bind_param("i", $doc_id);
         $stmt->execute();
         $doc_info = $stmt->get_result()->fetch_assoc();
+
+        // Kunin ang pangalan ng nag-a-action para sa Activity History
+        $u_stmt = $conn->query("SELECT full_name FROM users WHERE user_id = ".$_SESSION['user_id']);
+        $actor = $u_stmt->fetch_assoc()['full_name'] ?? 'System';
+        $history = json_decode($doc_info['rename_history'] ?? '[]', true) ?: [];
 
         if ($current_state == 0) {
             $reason = trim($_POST['legal_hold_reason']);
             if (empty($reason)) redirectDocumentsWithMessage("error", "Reason is required for Legal Hold.");
             
+            // I-record ang "Apply Hold" sa JSON
+            array_unshift($history, ['type' => 'hold_apply', 'reason' => $reason, 'date' => date('Y-m-d H:i:s'), 'by' => $actor]);
+            $history_json = json_encode($history);
+
             $uid = $_SESSION['user_id'];
-            $upd = $conn->prepare("UPDATE documents SET is_legal_hold = 1, legal_hold_reason = ?, legal_hold_by = ?, legal_hold_at = NOW() WHERE doc_id = ?");
-            $upd->bind_param("sii", $reason, $uid, $doc_id);
+            $upd = $conn->prepare("UPDATE documents SET is_legal_hold = 1, legal_hold_reason = ?, legal_hold_by = ?, legal_hold_at = NOW(), rename_history = ? WHERE doc_id = ?");
+            $upd->bind_param("sisi", $reason, $uid, $history_json, $doc_id);
             $upd->execute();
-            if (function_exists('log_audit_action')) log_audit_action($conn, $uid, 'APPLY_LEGAL_HOLD', "Applied Legal Hold on Document: " . $doc_info['file_name'] . " (Reason: $reason)");
             
+            if (function_exists('log_audit_action')) log_audit_action($conn, $uid, 'APPLY_LEGAL_HOLD', "Applied Legal Hold on Document: " . $doc_info['file_name'] . " (Reason: $reason)");
             header("Location: " . $return_url . (strpos($return_url, '?') ? '&' : '?') . "success=" . urlencode("Legal Hold applied successfully. Standard retention policies are now overridden."));
             exit();
         } else {
+            // I-record ang "Remove Hold" sa JSON
+            array_unshift($history, ['type' => 'hold_remove', 'date' => date('Y-m-d H:i:s'), 'by' => $actor]);
+            $history_json = json_encode($history);
+
             $uid = $_SESSION['user_id'];
-            $upd = $conn->prepare("UPDATE documents SET is_legal_hold = 0, legal_hold_reason = NULL, legal_hold_by = NULL, legal_hold_at = NULL WHERE doc_id = ?");
-            $upd->bind_param("i", $doc_id);
+            $upd = $conn->prepare("UPDATE documents SET is_legal_hold = 0, legal_hold_reason = NULL, legal_hold_by = NULL, legal_hold_at = NULL, rename_history = ? WHERE doc_id = ?");
+            $upd->bind_param("si", $history_json, $doc_id);
             $upd->execute();
-            if (function_exists('log_audit_action')) log_audit_action($conn, $uid, 'REMOVE_LEGAL_HOLD', "Removed Legal Hold from Document: " . $doc_info['file_name']);
             
+            if (function_exists('log_audit_action')) log_audit_action($conn, $uid, 'REMOVE_LEGAL_HOLD', "Removed Legal Hold from Document: " . $doc_info['file_name']);
             header("Location: " . $return_url . (strpos($return_url, '?') ? '&' : '?') . "success=" . urlencode("Legal Hold removed successfully. Auto-deletion/archiving logic restored."));
             exit();
         }
     }
+    
 
     if ($_POST['action'] === 'share_document') {
+        if ($role === 'Admin') redirectDocumentsWithMessage("error", "System Administrators cannot share documents.");
+        
         $doc_id = intval($_POST['doc_id']);
         $access_type = ($_POST['access_type'] === 'Restricted') ? 'Restricted' : 'Folder Default';
         $return_url = $_POST['return_url'] ?? 'documents.php';
@@ -220,29 +197,90 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             log_audit_action($conn, $_SESSION['user_id'], 'UPDATE_DOCUMENT', "Updated sharing settings for Document: " . $d_chk['file_name']);
         }
         
-        header("Location: " . $return_url);
+        $sep = strpos($return_url, '?') !== false ? '&' : '?';
+        header("Location: " . $return_url . $sep . "success=" . urlencode("Share settings updated successfully."));
+        exit();
+    }
+
+    if ($_POST['action'] === 'rename_file') {
+        if ($role === 'Admin') redirectDocumentsWithMessage("error", "System Administrators cannot modify documents.");
+        
+        $doc_id = intval($_POST['doc_id']);
+        $new_name = trim($_POST['new_name']);
+        $return_url = $_POST['return_url'] ?? 'documents.php';
+        
+        if(empty($new_name)) {
+            header("Location: " . $return_url . (strpos($return_url, '?') ? '&' : '?') . "error=" . urlencode("Filename cannot be empty."));
+            exit();
+        }
+
+        // 1. Kunin ang lumang pangalan
+        $stmt = $conn->prepare("SELECT file_name, rename_history FROM documents WHERE doc_id = ?");
+        $stmt->bind_param("i", $doc_id);
+        $stmt->execute();
+        $doc_info = $stmt->get_result()->fetch_assoc();
+        
+        if ($doc_info['file_name'] !== $new_name) {
+            // 2. Kunin ang pangalan ng nag-rename
+            $u_stmt = $conn->query("SELECT full_name FROM users WHERE user_id = ".$_SESSION['user_id']);
+            $renamer = $u_stmt->fetch_assoc()['full_name'] ?? 'System';
+
+            // 3. I-update ang JSON history
+            $history = json_decode($doc_info['rename_history'] ?? '[]', true) ?: [];
+            array_unshift($history, [
+                'old_name' => $doc_info['file_name'],
+                'new_name' => $new_name,
+                'date' => date('Y-m-d H:i:s'),
+                'by' => $renamer
+            ]);
+            $history_json = json_encode($history);
+
+            // 4. I-save sa database
+            $upd = $conn->prepare("UPDATE documents SET file_name = ?, rename_history = ? WHERE doc_id = ?");
+            $upd->bind_param("ssi", $new_name, $history_json, $doc_id);
+            $upd->execute();
+            
+            if (function_exists('log_audit_action')) {
+                log_audit_action($conn, $_SESSION['user_id'], 'RENAME_DOCUMENT', "Renamed file from " . $doc_info['file_name'] . " to " . $new_name);
+            }
+        }
+        
+        header("Location: " . $return_url . (strpos($return_url, '?') ? '&' : '?') . "success=" . urlencode("File renamed successfully."));
         exit();
     }
 
     if ($_POST['action'] === 'toggle_lock') {
+        if ($role === 'Admin') redirectDocumentsWithMessage("error", "System Administrators cannot lock/unlock documents.");
+        
         $doc_id = intval($_POST['doc_id']);
         $current_state = intval($_POST['current_state']); 
         $target_state = $current_state ? 0 : 1;
         $return_url = $_POST['return_url'] ?? 'documents.php';
         
-        $stmt = $conn->prepare("SELECT is_locked, locked_by, file_name FROM documents WHERE doc_id = ?");
+        $stmt = $conn->prepare("SELECT is_locked, locked_by, file_name, rename_history FROM documents WHERE doc_id = ?");
         $stmt->bind_param("i", $doc_id);
         $stmt->execute();
         $doc_info = $stmt->get_result()->fetch_assoc();
         
+        // Kunin ang pangalan ng nag-a-action
+        $u_stmt = $conn->query("SELECT full_name FROM users WHERE user_id = ".$_SESSION['user_id']);
+        $actor = $u_stmt->fetch_assoc()['full_name'] ?? 'System';
+        $history = json_decode($doc_info['rename_history'] ?? '[]', true) ?: [];
+
         if ($target_state == 1) {
             if ($doc_info['is_locked']) {
                 redirectDocumentsWithMessage("error", "File is already locked by someone else.");
             }
+            
+            // I-record ang "Lock"
+            array_unshift($history, ['type' => 'lock', 'date' => date('Y-m-d H:i:s'), 'by' => $actor]);
+            $history_json = json_encode($history);
+
             $uid = $_SESSION['user_id'];
-            $upd = $conn->prepare("UPDATE documents SET is_locked = 1, locked_by = ?, locked_at = NOW() WHERE doc_id = ?");
-            $upd->bind_param("ii", $uid, $doc_id);
+            $upd = $conn->prepare("UPDATE documents SET is_locked = 1, locked_by = ?, locked_at = NOW(), rename_history = ? WHERE doc_id = ?");
+            $upd->bind_param("isi", $uid, $history_json, $doc_id);
             $upd->execute();
+            
             if (function_exists('log_audit_action')) log_audit_action($conn, $uid, 'CHECK_OUT', "Checked out (Locked) Document: " . $doc_info['file_name']);
             header("Location: " . $return_url);
             exit();
@@ -251,9 +289,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if ($doc_info['locked_by'] != $uid && !$is_top_mgmt) { 
                 redirectDocumentsWithMessage("error", "Only the user who locked the file or Management can unlock it.");
             }
-            $upd = $conn->prepare("UPDATE documents SET is_locked = 0, locked_by = NULL, locked_at = NULL WHERE doc_id = ?");
-            $upd->bind_param("i", $doc_id);
+
+            // I-record ang "Unlock"
+            array_unshift($history, ['type' => 'unlock', 'date' => date('Y-m-d H:i:s'), 'by' => $actor]);
+            $history_json = json_encode($history);
+
+            $upd = $conn->prepare("UPDATE documents SET is_locked = 0, locked_by = NULL, locked_at = NULL, rename_history = ? WHERE doc_id = ?");
+            $upd->bind_param("si", $history_json, $doc_id);
             $upd->execute();
+            
             if (function_exists('log_audit_action')) log_audit_action($conn, $uid, 'CHECK_IN', "Checked in (Unlocked) Document: " . $doc_info['file_name']);
             header("Location: " . $return_url);
             exit();
@@ -267,16 +311,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
         $policy_id = intval($_POST['policy_id']);
         $policy_name = trim($_POST['policy_name']);
-        $years = intval($_POST['retention_years']);
-        $action_after = $_POST['action_after_retention'];
+        $act_years = intval($_POST['active_years']);
+        $act_months = intval($_POST['active_months']);
+        $arch_years = intval($_POST['archive_years']);
+        $arch_months = intval($_POST['archive_months']);
+        $action_after = 'Review for permanent deletion';
         
-        if ($years < 1) {
-            header("Location: documents.php?error=" . urlencode("Retention period must be at least 1 year."));
+        if (($act_years + $arch_years + $act_months + $arch_months) < 1) {
+            header("Location: documents.php?error=" . urlencode("Total retention period must be at least 1 month."));
             exit();
         }
 
-        $stmt_edit = $conn->prepare("UPDATE retention_policies SET policy_name=?, retention_years=?, action_after_retention=? WHERE policy_id=?");
-        $stmt_edit->bind_param("sisi", $policy_name, $years, $action_after, $policy_id);
+        $stmt_edit = $conn->prepare("UPDATE retention_policies SET policy_name=?, active_years=?, active_months=?, archive_years=?, archive_months=?, action_after_retention=? WHERE policy_id=?");
+        $stmt_edit->bind_param("siiiisi", $policy_name, $act_years, $act_months, $arch_years, $arch_months, $action_after, $policy_id);
         if ($stmt_edit->execute()) {
             if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'UPDATE_POLICY', "Updated Policy ID: $policy_id to $years Years ($action_after).");
             header("Location: documents.php?success=" . urlencode("Retention Policy updated successfully."));
@@ -287,11 +334,131 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     }
 
+    if ($_POST['action'] === 'create_policy') {
+        if (!has_permission($conn, $_SESSION['user_id'], 'can_edit_policies')) {
+            header("Location: documents.php?error=" . urlencode("You do not have permission to edit Retention Policies."));
+            exit();
+        }
+
+        $policy_name = trim($_POST['policy_name'] ?? '');
+        $act_years = intval($_POST['active_years'] ?? 0);
+        $act_months = intval($_POST['active_months'] ?? 0);
+        $arch_years = intval($_POST['archive_years'] ?? 0);
+        $arch_months = intval($_POST['archive_months'] ?? 0);
+        $action_after = 'Review for permanent deletion';
+
+        if ($policy_name === '') {
+            header("Location: documents.php?error=" . urlencode("Policy name is required."));
+            exit();
+        }
+        if ($act_years < 0 || $act_months < 0 || $arch_years < 0 || $arch_months < 0) {
+            header("Location: documents.php?error=" . urlencode("Retention values must be zero or greater."));
+            exit();
+        }
+
+        $stmt_create_policy = $conn->prepare("INSERT INTO retention_policies (policy_name, active_years, active_months, archive_years, archive_months, action_after_retention) VALUES (?, ?, ?, ?, ?, ?)");
+        $stmt_create_policy->bind_param("siiiis", $policy_name, $act_years, $act_months, $arch_years, $arch_months, $action_after);
+
+        if ($stmt_create_policy->execute()) {
+            if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'CREATE_POLICY', "Created Policy: $policy_name ($years Yrs, $months Mos).");
+            header("Location: documents.php?success=" . urlencode("Retention Policy created successfully."));
+            exit();
+        } else {
+            header("Location: documents.php?error=" . urlencode("Failed to create policy."));
+            exit();
+        }
+    }
+
+    // =============== DAGDAG NA CODE PARA SA DELETE POLICY ===============
+    if ($_POST['action'] === 'delete_policy') {
+        if (!has_permission($conn, $_SESSION['user_id'], 'can_edit_policies')) {
+            header("Location: documents.php?error=" . urlencode("You do not have permission to edit Retention Policies."));
+            exit();
+        }
+
+        $policy_id = intval($_POST['policy_id']);
+
+        // 1. Suriin kung may folder na gumagamit pa ng policy na ito
+        $chk = $conn->prepare("SELECT COUNT(*) as cnt FROM document_categories WHERE policy_id = ?");
+        $chk->bind_param("i", $policy_id);
+        $chk->execute();
+        $in_use = $chk->get_result()->fetch_assoc()['cnt'];
+
+        if ($in_use > 0) {
+            header("Location: documents.php?error=" . urlencode("Cannot delete policy. It is currently assigned to $in_use folder(s). Please reassign them first."));
+            exit();
+        }
+
+        // 2. Kapag walang gumagamit, tuluyang burahin
+        $stmt_del = $conn->prepare("DELETE FROM retention_policies WHERE policy_id = ?");
+        $stmt_del->bind_param("i", $policy_id);
+
+        if ($stmt_del->execute()) {
+            if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'DELETE_POLICY', "Permanently deleted Retention Policy ID: $policy_id.");
+            header("Location: documents.php?success=" . urlencode("Retention Policy deleted successfully."));
+            exit();
+        } else {
+            header("Location: documents.php?error=" . urlencode("Failed to delete policy."));
+            exit();
+        }
+    }
+    // ====================================================================
+
+    // ==========================================
+    // ACTION: UPDATE FOLDER KEYWORDS
+    // ==========================================
+    // ==========================================
+    // ACTION: FETCH & UPDATE FOLDER KEYWORDS
+    // ==========================================
+    
+    // 1. FETCH (AJAX) - Kukuha ng existing keywords para ipakita sa text box
+    if (isset($_POST['action']) && $_POST['action'] === 'get_keywords') {
+        header('Content-Type: application/json');
+        $cat = trim($_POST['category'] ?? '');
+        
+        // STRICT: Hahanapin lang eksakto ang folder name
+        $stmt = $conn->prepare("SELECT classification_keywords FROM document_categories WHERE sub_category = ? LIMIT 1");
+        $stmt->bind_param("s", $cat);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        
+        if ($row = $res->fetch_assoc()) {
+            echo json_encode(['status' => 'success', 'keywords' => $row['classification_keywords']]);
+        } else {
+            echo json_encode(['status' => 'none']);
+        }
+        exit(); // Pipigilan nitong mag-load ang HTML para pure JSON lang ang ibato
+    }
+
+    // 2. UPDATE (FORM SUBMIT) - Magse-save ng bago o in-edit na keywords
+    if (isset($_POST['action']) && $_POST['action'] === 'update_keywords') {
+        $cat_name = trim($_POST['category_name'] ?? '');
+        $keywords = trim($_POST['classification_keywords'] ?? '');
+        
+        if (!empty($cat_name)) {
+            // STRICT: I-u-update lang eksakto ang sub-folder (walang OR parent_category)
+            $stmt_update = $conn->prepare("UPDATE document_categories SET classification_keywords = ? WHERE sub_category = ?");
+            $stmt_update->bind_param("ss", $keywords, $cat_name);
+            $stmt_update->execute();
+            
+            // I-rebuild ang URL para hindi ka umalis sa kasalukuyan mong folder at magpakita ng TOAST
+            $params = $_GET; 
+            unset($params['success'], $params['error']); // Linisin ang mga lumang notifications
+            $params['success'] = "Keywords successfully updated for " . $cat_name; // Idagdag ang bagong Toast Message
+            
+            $new_qs = http_build_query($params);
+            header("Location: documents.php?" . $new_qs);
+            exit();
+        }
+    }
+    // ==========================================
+
     if ($_POST['action'] === 'create_folder') {
         $parent = trim($_POST['parent_category'] ?? '');
         $sub = trim($_POST['new_folder_name'] ?? '');
         $folder_policy = !empty($_POST['folder_policy']) ? intval($_POST['folder_policy']) : null;
         $is_new_parent = ($parent === 'NEW_PARENT_FOLDER');
+        $keywords = trim($_POST['classification_keywords'] ?? ''); // Kukunin ang keywords mula sa UI
         
         $roles_to_assign = [];
 
@@ -306,6 +473,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             } else {
                 $roles_to_assign = isset($_POST['assigned_roles']) ? array_map('trim', $_POST['assigned_roles']) : [];
             }
+
             $sub = '';
             $folder_policy = null;
         } else {
@@ -321,6 +489,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     if (strcasecmp($assigned_parent, $parent) === 0) { $is_allowed_parent = true; break; }
                 }
                 if (!$is_allowed_parent) redirectDocumentsWithMessage("error", "You can only create sub-folders inside your assigned Parent Folders.");
+                
                 $roles_to_assign[] = $role;
             } else {
                 $roles_to_assign = isset($_POST['assigned_roles']) ? array_map('trim', $_POST['assigned_roles']) : [];
@@ -329,8 +498,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if ($folder_policy === null) redirectDocumentsWithMessage("error", "Retention Policy is required when creating a sub-folder.", $parent);
         }
 
-        $stmt_create = $conn->prepare("INSERT INTO document_categories (parent_category, sub_category, policy_id) VALUES (?, ?, ?)");
-        $stmt_create->bind_param("ssi", $parent, $sub, $folder_policy);
+        $stmt_create = $conn->prepare("INSERT INTO document_categories (parent_category, sub_category, policy_id, classification_keywords) VALUES (?, ?, ?, ?)");
+        $stmt_create->bind_param("ssis", $parent, $sub, $folder_policy, $keywords);
         
         if ($stmt_create->execute()) {
             $new_category_id = $stmt_create->insert_id;
@@ -353,6 +522,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
         redirectDocumentsWithMessage("error", "Failed to create folder.", $parent);
     }
+
+    // =============== DAGDAG NA CODE PARA SA EDIT FOLDER POLICY ===============
+    if ($_POST['action'] === 'edit_folder_policy') {
+        if (!$can_manage && !$is_top_mgmt) {
+            redirectDocumentsWithMessage("error", "You do not have permission to edit folders.", $_POST['parent_name']);
+        }
+        $parent_name = trim($_POST['parent_name']);
+        $sub_name = trim($_POST['sub_name']);
+        $new_policy_id = intval($_POST['new_policy_id']);
+
+        if ($new_policy_id <= 0) {
+            redirectDocumentsWithMessage("error", "Invalid policy selected.", $parent_name);
+        }
+
+        // I-update ang policy id ng sub-category sa database
+        $stmt_upd = $conn->prepare("UPDATE document_categories SET policy_id = ? WHERE parent_category = ? AND sub_category = ?");
+        $stmt_upd->bind_param("iss", $new_policy_id, $parent_name, $sub_name);
+        if ($stmt_upd->execute()) {
+            if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'UPDATE_FOLDER', "Changed retention policy for folder: $sub_name under $parent_name");
+            redirectDocumentsWithMessage("success", "Folder retention policy updated successfully.", $parent_name);
+        } else {
+            redirectDocumentsWithMessage("error", "Failed to update folder policy.", $parent_name);
+        }
+    }
+    // =========================================================================
 
     if ($can_manage) {
         if ($_POST['action'] === 'delete_folder') {
@@ -379,6 +573,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $stmt_ids->bind_param("s", $parent_name);
                     $stmt_ids->execute();
                     $res_ids = $stmt_ids->get_result();
+
                     $ids_to_delete = [];
                     while ($row_id = $res_ids->fetch_assoc()) {
                         $ids_to_delete[] = $row_id['id'];
@@ -387,11 +582,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     if (!empty($ids_to_delete)) {
                         $id_list = implode(',', $ids_to_delete);
                         $conn->query("DELETE FROM category_role_access WHERE category_id IN ($id_list)");
-
                         $del = $conn->prepare("DELETE FROM document_categories WHERE parent_category = ?");
                         $del->bind_param("s", $parent_name);
                         $del->execute();
                     }
+
                     if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'DELETE_FOLDER', "Permanently deleted Main Parent Folder: " . $parent_name);
                     header("Location: documents.php?success=" . urlencode("Main Folder deleted successfully."));
                     exit();
@@ -414,11 +609,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     if ($row_id = $res_ids->fetch_assoc()) {
                         $del_id = $row_id['id'];
                         $conn->query("DELETE FROM category_role_access WHERE category_id = $del_id");
-
+                        
                         $del = $conn->prepare("DELETE FROM document_categories WHERE id = ?");
                         $del->bind_param("i", $del_id);
                         $del->execute();
                     }
+
                     if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'DELETE_FOLDER', "Permanently deleted Sub-folder: " . $sub_name . " under " . $parent_name);
                     header("Location: documents.php?parent=" . urlencode($parent_name) . "&success=" . urlencode("Sub-folder deleted successfully."));
                     exit();
@@ -430,6 +626,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     }
 }
+
 
 // ==========================================
 // FOLDER FETCHING
@@ -571,7 +768,17 @@ if ($sort === 'date_asc') $order_by = "d.uploaded_at ASC";
 elseif ($sort === 'name_asc') $order_by = "d.file_name ASC";
 elseif ($sort === 'name_desc') $order_by = "d.file_name DESC";
 
-if ($view_disposition && !$can_view_disposition) {
+// ----------------------------------------------------
+// SYSTEM ADMINISTRATOR HARD REDIRECT
+// ----------------------------------------------------
+if ($role === 'Admin') {
+    if ($view_disposition || $view_archives || $view_shared) {
+        header("Location: documents.php?error=" . urlencode("Unauthorized Access: System Administrators are restricted from viewing document directories."));
+        exit();
+    }
+}
+
+if ($view_disposition && !$can_view_disposition && $role !== 'Admin') {
     header("Location: documents.php?error=" . urlencode("Unauthorized Access: You do not have permission to view documents ready for disposition."));
     exit();
 }
@@ -654,15 +861,18 @@ if (empty($view_archives) && empty($view_disposition) && empty($view_shared) && 
 }
 
 $hide_upload_button = $view_archives || $view_disposition || $view_shared;
-if (!has_permission($conn, $_SESSION['user_id'], 'can_upload_documents')) {
+if (!has_permission($conn, $_SESSION['user_id'], 'can_upload_documents') || $role === 'Admin') {
     $hide_upload_button = true;
 }
 
 // ==========================================
 // DOCUMENTS QUERIES (UNIFIED RBAC & SHARE CHECK)
 // ==========================================
+$disposition_docs = null;
 if ($view_disposition) {
-    $disp_where = ["d.disposition_status = 'Ready for Disposition'"];
+    $disp_where = ["(d.disposition_status = 'Ready for Disposition' OR DATE_ADD(DATE_ADD(d.uploaded_at, INTERVAL (COALESCE(p.active_years, 0) + COALESCE(p.archive_years, 0)) YEAR), INTERVAL (COALESCE(p.active_months, 0) + COALESCE(p.archive_months, 0)) MONTH) <= NOW())"];
+    $disp_where[] = "d.is_legal_hold = 0";
+    
     $disp_params = [];
     $disp_types = "";
     
@@ -693,7 +903,7 @@ if ($view_disposition) {
     
     $disp_query_sql = "
         SELECT d.*, p.policy_name, p.action_after_retention, u.full_name, 
-               DATE_ADD(d.uploaded_at, INTERVAL COALESCE(p.retention_years, 0) YEAR) AS retention_date,
+               DATE_ADD(DATE_ADD(d.uploaded_at, INTERVAL (COALESCE(p.active_years, 0) + COALESCE(p.archive_years, 0)) YEAR), INTERVAL (COALESCE(p.active_months, 0) + COALESCE(p.archive_months, 0)) MONTH) AS retention_date,
                locker.full_name AS locked_by_name
         FROM documents d
         LEFT JOIN document_categories dc ON d.category = dc.sub_category
@@ -703,10 +913,13 @@ if ($view_disposition) {
         WHERE $disp_where_clause
         ORDER BY retention_date ASC";
         
-    $stmt_disp = $conn->prepare($disp_query_sql);
-    if (!empty($disp_params)) $stmt_disp->bind_param($disp_types, ...$disp_params);
-    $stmt_disp->execute();
-    $disposition_docs = $stmt_disp->get_result();
+    // SECURITY: Prevent backend from fetching actual documents if role is Admin
+    if ($role !== 'Admin') {
+        $stmt_disp = $conn->prepare($disp_query_sql);
+        if (!empty($disp_params)) $stmt_disp->bind_param($disp_types, ...$disp_params);
+        $stmt_disp->execute();
+        $disposition_docs = $stmt_disp->get_result();
+    }
 }
 
 $where = [];
@@ -774,10 +987,14 @@ $query = "SELECT d.*, p.po_number, p.client_name, p.amount, p.status as po_statu
           WHERE $whereClause 
           ORDER BY $order_by";
 
-$stmt = $conn->prepare($query);
-if(!empty($params)) $stmt->bind_param($types, ...$params);
-$stmt->execute();
-$documents = $stmt->get_result();
+$documents = null;
+// SECURITY: Do not fetch actual documents if Admin
+if ($role !== 'Admin') {
+    $stmt = $conn->prepare($query);
+    if(!empty($params)) $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $documents = $stmt->get_result();
+}
 
 $toastMsg = '';
 $toastType = '';
@@ -789,7 +1006,6 @@ if(isset($_GET['success'])) {
     $toastMsg = htmlspecialchars($_GET['error']);
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -824,7 +1040,8 @@ if(isset($_GET['success'])) {
         /* The Header & Filter areas */
         .header-section {
             flex-shrink: 0;
-            z-index: 10;
+            z-index: 20; /* TINAASAN PARA PALAGING NASA IABABAW NG FOLDERS */
+            position: relative;
         }
 
         /* Folders (if any) */
@@ -980,6 +1197,29 @@ if(isset($_GET['success'])) {
         .bottom-pagination-bar .page-item.disabled .page-link {
             color: #cbd5e1 !important;
         }
+
+        .folder-card {
+            z-index: 1; 
+            position: relative;
+        }
+        .folder-card:hover {
+            z-index: 10 !important; /* Aangat kapag hinover */
+        }
+        .folder-card:focus-within {
+            z-index: 15 !important; /* MAS MATAAS para hinding-hindi matatabunan ng hover kapag nakabukas ang dropdown */
+        }
+        .action-dropdown .dropdown-menu {
+            z-index: 1050 !important; 
+        }
+
+        /* SLEEK 3-DOTS HOVER INDICATOR */
+        .btn-dots, .hover-circle {
+            border-radius: 50% !important;
+            transition: background-color 0.2s ease !important;
+        }
+        .btn-dots:hover, .hover-circle:hover {
+            background-color: rgba(100, 116, 139, 0.15) !important; /* Subtle gray hover */
+        }
     </style>
 </head>
 <body class="bg-f8f9fa">
@@ -1007,48 +1247,69 @@ if(isset($_GET['success'])) {
             </div>
             
             <div class="d-flex gap-2 align-items-center">
-                <a href="documents.php?shared=1" class="btn <?php echo $view_shared ? 'btn-info text-white' : 'btn-white bg-white border text-dark'; ?> fw-medium px-3 text-nowrap shadow-sm rounded-3" title="View files explicitly shared with me">
-                    <i class="fas fa-user-friends <?php echo $view_shared ? 'text-white' : 'text-info'; ?> me-2"></i> Shared with Me
-                </a>
-                <?php if ($can_manage && empty($parent_filter) && empty($type_filter) && !$view_archives && !$view_disposition && !$view_shared): ?>
-                    <button class="btn btn-primary fw-medium px-4 text-nowrap shadow-sm rounded-3" data-bs-toggle="modal" data-bs-target="#createParentFolderModal">
-                        <i class="fas fa-folder-plus me-2"></i> Create Parent Folder
-                    </button>
-                <?php elseif (!empty($parent_filter) && empty($type_filter) && !$view_archives && !$view_disposition && !$view_shared && $can_manage): ?>
-                    <button class="btn btn-primary fw-medium px-4 text-nowrap shadow-sm rounded-3" data-bs-toggle="modal" data-bs-target="#createSubFolderModal">
-                        <i class="fas fa-folder-plus me-2"></i> Create Sub-folder
-                    </button>
-                <?php elseif (!empty($type_filter) && !$hide_upload_button): ?>
-                    <button class="btn btn-primary fw-medium px-4 text-nowrap shadow-sm rounded-3" data-bs-toggle="modal" data-bs-target="#uploadModal">
-                        <i class="fas fa-upload me-2"></i> Upload File
+                
+                <!-- GLOBAL UPLOAD BUTTON (Sleek, Prominent, Pill-shaped) -->
+                <?php if (!$hide_upload_button): ?>
+                    <button class="btn btn-primary fw-bold px-4 py-2 shadow-sm rounded-pill d-flex align-items-center transition-all" data-bs-toggle="modal" data-bs-target="#uploadModal">
+                        <i class="fas fa-cloud-upload-alt me-2 fs-6"></i> <span>Upload File</span>
                     </button>
                 <?php endif; ?>
 
+                <!-- 3-DOTS OPTIONS MENU -->
                 <div class="dropdown">
-                    <button class="btn bg-white border text-dark shadow-sm dropdown-toggle fw-medium px-3 rounded-3" type="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-boundary="body">
-                        <i class="fas fa-cog text-dark me-2"></i> Options
+                    <button class="btn bg-transparent border-0 shadow-none d-flex align-items-center justify-content-center hover-circle" type="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-boundary="body" style="width: 40px; height: 40px; transition: all 0.2s;" title="More Actions">
+                        <i class="fas fa-ellipsis-v text-dark fs-5"></i>
                     </button>
-                    <ul class="dropdown-menu dropdown-menu-end shadow-sm rounded-3">
-                        <li>
-                            <a class="dropdown-item fw-medium py-2 <?php echo $view_archives ? 'active text-dark' : 'text-dark'; ?>" href="documents.php?view_archives=1">
-                                <i class="fas fa-archive text-dark me-2"></i> View Archives
-                            </a>
-                        </li>
+                    
+                    <ul class="dropdown-menu dropdown-menu-end shadow-sm rounded-3 mt-2 border-0" style="min-width: 220px;">
                         
-                        <?php if ($can_view_disposition): ?>
-                        <li>
-                            <a class="dropdown-item fw-medium py-2 <?php echo $view_disposition ? 'active text-dark' : 'text-dark'; ?>" href="documents.php?disposition=1">
-                                <i class="fas fa-trash-alt text-dark me-2"></i> Ready for Disposition
-                            </a>
-                        </li>
+                        <!-- Folder Creation Buttons Moved Inside -->
+                        <?php if ($can_manage && empty($parent_filter) && empty($type_filter) && !$view_archives && !$view_disposition && !$view_shared): ?>
+                            <li>
+                                <button type="button" class="dropdown-item fw-medium py-2 text-dark" data-bs-toggle="modal" data-bs-target="#createParentFolderModal">
+                                    <i class="fas fa-folder-plus text-primary me-2 w-15px"></i> New Main Folder
+                                </button>
+                            </li>
+                        <?php elseif (!empty($parent_filter) && empty($type_filter) && !$view_archives && !$view_disposition && !$view_shared && $can_manage): ?>
+                            <li>
+                                <button type="button" class="dropdown-item fw-medium py-2 text-dark" data-bs-toggle="modal" data-bs-target="#createSubFolderModal">
+                                    <i class="fas fa-folder-plus text-primary me-2 w-15px"></i> New Sub-folder
+                                </button>
+                            </li>
                         <?php endif; ?>
 
+                        <!-- Shared With Me Moved Inside -->
+                        <?php if ($role !== 'Admin'): ?>
+                            <li>
+                                <a class="dropdown-item fw-medium py-2 <?php echo $view_shared ? 'active text-white bg-info' : 'text-dark'; ?>" href="documents.php?shared=1">
+                                    <i class="fas fa-user-friends <?php echo $view_shared ? 'text-white' : 'text-info'; ?> me-2 w-15px"></i> Shared with Me
+                                </a>
+                            </li>
+                            
+                            <li>
+                                <a class="dropdown-item fw-medium py-2 <?php echo $view_archives ? 'active text-white bg-secondary' : 'text-dark'; ?>" href="documents.php?view_archives=1">
+                                    <i class="fas fa-archive <?php echo $view_archives ? 'text-white' : 'text-secondary'; ?> me-2 w-15px"></i> View Archives
+                                </a>
+                            </li>
+                            
+                            <?php if ($can_view_disposition): ?>
+                            <li>
+                                <a class="dropdown-item fw-medium py-2 <?php echo $view_disposition ? 'active text-white bg-warning' : 'text-dark'; ?>" href="documents.php?disposition=1">
+                                    <i class="fas fa-trash-alt <?php echo $view_disposition ? 'text-white' : 'text-warning'; ?> me-2 w-15px"></i> Ready for Disposition
+                                </a>
+                            </li>
+                            <?php endif; ?>
+                            
+                            <?php if (has_permission($conn, $_SESSION['user_id'], 'can_edit_policies')): ?>
+                            <?php endif; ?>
+                        <?php endif; ?>
+
+                        <!-- Edit Retention Policies -->
                         <?php if (has_permission($conn, $_SESSION['user_id'], 'can_edit_policies')): ?>
-                        <li><hr class="dropdown-divider"></li>
                         <li>
-                            <a class="dropdown-item fw-medium py-2 text-dark" href="#" data-bs-toggle="modal" data-bs-target="#editPoliciesModal">
-                                <i class="fas fa-balance-scale text-dark me-2"></i> Edit Retention Policies
-                            </a>
+                            <button type="button" class="dropdown-item fw-medium py-2 text-dark" data-bs-toggle="modal" data-bs-target="#editPoliciesModal">
+                                <i class="fas fa-balance-scale text-danger me-2 w-15px"></i> Retention Policies
+                            </button>
                         </li>
                         <?php endif; ?>
                     </ul>
@@ -1080,7 +1341,7 @@ if(isset($_GET['success'])) {
                 
                 <div class="input-group input-group-sm sleek-search shadow-sm rounded-3" style="width: 380px;">
                     <span class="input-group-text bg-white border-0 text-muted"><i class="fas fa-search"></i></span>
-                    <input type="text" name="search" id="documentSearchInput" class="form-control border-0 shadow-none px-2" placeholder="Search in Drive..." value="<?php echo htmlspecialchars($search); ?>">
+                    <input type="text" name="search" id="documentSearchInput" class="form-control border-0 shadow-none px-2" placeholder="Search" value="<?php echo htmlspecialchars($search); ?>">
                     
                     <button class="btn bg-white border-0 text-muted shadow-none px-3" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Sort options" data-bs-boundary="body">
                         <i class="fas fa-sort-amount-down"></i>
@@ -1099,9 +1360,9 @@ if(isset($_GET['success'])) {
     <!-- END HEADER -->
 
     <?php if (!$view_archives && !$view_disposition && !$view_shared && empty($search)): ?>
-        
+         
         <?php if (empty($parent_filter) && empty($type_filter)): ?>
-            <div class="folders-section mb-2">
+            <div class="folders-section mt-3 mb-2">
                 <div class="row g-3">
                     <?php 
                     $visible_parents = 0;
@@ -1127,20 +1388,20 @@ if(isset($_GET['success'])) {
                                 </div>
                                 <div class="ms-3 flex-grow-1">
                                     <h6 class="mb-1 fw-bold text-dark text-truncate" style="max-width: 180px;"><?php echo htmlspecialchars($p); ?></h6>
-                                    <p class="text-muted small mb-0"><i class="fas fa-file-alt me-1"></i><?php echo $fileCount; ?> active files</p>
+                                    <p class="text-muted small mb-0"><i class="fas fa-file-alt me-1"></i><?php echo $role === 'Admin' ? 'Restricted' : $fileCount . ' active files'; ?></p>
                                 </div>
                             </div>
                             <?php if($can_manage): ?>
                             <div class="action-dropdown dropdown position-absolute top-0 end-0 m-2 mt-3 me-3">
-                                <button class="btn-dots dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-boundary="window" onclick="event.stopPropagation();"><i class="fas fa-ellipsis-v"></i></button>
-                                <ul class="dropdown-menu dropdown-menu-end shadow-sm" onclick="event.stopPropagation();">
+                                <button class="btn-dots dropdown-toggle border-0 bg-transparent shadow-none" type="button" data-bs-toggle="dropdown" data-bs-boundary="body" onclick="event.stopPropagation();"><i class="fas fa-ellipsis-v"></i></button>
+                                <ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 rounded-3 mt-1" onclick="event.stopPropagation();">
                                     <li>
-                                        <form action="documents.php" method="POST" onsubmit="return confirm('WARNING: Are you sure you want to permanently delete this Main Folder? ALL Sub-folders inside it must be completely empty first.');">
+                                        <form action="documents.php" method="POST" class="m-0">
                                             <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                                             <input type="hidden" name="action" value="delete_folder">
                                             <input type="hidden" name="delete_type" value="parent">
                                             <input type="hidden" name="parent_name" value="<?php echo htmlspecialchars($p); ?>">
-                                            <button type="submit" class="dropdown-item fw-medium text-dark"><i class="fas fa-trash-alt text-dark me-2"></i> Delete Main Folder</button>
+                                            <button type="button" class="dropdown-item fw-medium text-dark" onclick="confirmFolderDelete(this, 'main')"><i class="fas fa-trash-alt text-danger me-2"></i> Delete Main Folder</button>
                                         </form>
                                     </li>
                                 </ul>
@@ -1162,7 +1423,7 @@ if(isset($_GET['success'])) {
         <?php endif; ?>
 
         <?php if (!empty($parent_filter) && empty($type_filter) && isset($parent_folders[$parent_filter])): ?>
-            <div class="folders-section mb-2">
+            <div class="folders-section mt-3 mb-2">
                 <div class="row g-3">
                     <?php 
                     $subs = $parent_folders[$parent_filter];
@@ -1171,6 +1432,14 @@ if(isset($_GET['success'])) {
                         if (!$is_top_mgmt && !in_array($s, $user_categories)) continue;
                         $visible_subs++;
                         $fileCount = getSubFolderCount($s, $db_counts);
+                        
+                        // Kukunin natin ang kasalukuyang policy ng folder na ito
+                        $current_pol_name = "No Policy Assigned";
+                        $q_pol = $conn->prepare("SELECT p.policy_name FROM document_categories dc LEFT JOIN retention_policies p ON dc.policy_id = p.policy_id WHERE dc.parent_category = ? AND dc.sub_category = ? LIMIT 1");
+                        $q_pol->bind_param("ss", $parent_filter, $s);
+                        $q_pol->execute();
+                        $r_pol = $q_pol->get_result()->fetch_assoc();
+                        if($r_pol && $r_pol['policy_name']) { $current_pol_name = $r_pol['policy_name']; }
                     ?>
                     <div class="col-md-3 col-sm-6">
                         <div class="folder-card p-3 h-100 position-relative" onclick="window.location='documents.php?parent=<?php echo urlencode($parent_filter); ?>&type=<?php echo urlencode($s); ?>'">
@@ -1181,22 +1450,37 @@ if(isset($_GET['success'])) {
                                 <h6 class="mb-0 fw-bold text-dark text-truncate flex-grow-1" style="font-size: 0.95rem;"><?php echo htmlspecialchars($s); ?></h6>
                             </div>
                             <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top border-light">
-                                <span class="text-muted small fw-medium"><?php echo $fileCount; ?> items</span>
+                                <span class="text-muted small fw-medium"><?php echo $role === 'Admin' ? 'Restricted' : $fileCount . ' items'; ?></span>
                                 <i class="fas fa-chevron-right text-primary opacity-50 small"></i>
                             </div>
                             
                             <?php if($can_manage): ?>
                             <div class="action-dropdown dropdown position-absolute top-0 end-0 m-2 mt-3 me-2">
-                                <button class="btn-dots bg-transparent border-0 dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-boundary="window" onclick="event.stopPropagation();"><i class="fas fa-ellipsis-v small"></i></button>
-                                <ul class="dropdown-menu dropdown-menu-end shadow-sm" style="min-width: 200px;" onclick="event.stopPropagation();">
+                                <button class="btn-dots bg-transparent border-0 shadow-none dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-boundary="body" onclick="event.stopPropagation();"><i class="fas fa-ellipsis-v small"></i></button>
+                                <ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 rounded-3 mt-1" style="min-width: 200px;" onclick="event.stopPropagation();">
+                                    
+                                    <!-- DAGDAG: CHANGE POLICY BUTTON -->
                                     <li>
-                                        <form action="documents.php" method="POST" onsubmit="return confirm('Are you sure you want to delete this sub-folder? It must be empty.');">
+                                        <button type="button" class="dropdown-item fw-medium text-primary" onclick="openEditFolderModal('<?php echo htmlspecialchars(addslashes($parent_filter)); ?>', '<?php echo htmlspecialchars(addslashes($s)); ?>', '<?php echo htmlspecialchars(addslashes($current_pol_name)); ?>')">
+                                            <i class="fas fa-exchange-alt text-primary me-2"></i> Change Policy
+                                        </button>
+                                    </li>
+                                    <li>
+                                        <a class="dropdown-item fw-medium py-2 text-primary" href="#" onclick="event.preventDefault(); openEditKeywordsModal('<?php echo htmlspecialchars(addslashes($s)); ?>');">
+                                            <i class="fas fa-tags text-primary me-2 w-15px"></i> Edit Keywords
+                                        </a>
+                                    </li>
+                                    
+                                    <li><hr class="dropdown-divider"></li>
+
+                                    <li>
+                                        <form action="documents.php" method="POST" class="m-0">
                                             <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                                             <input type="hidden" name="action" value="delete_folder">
                                             <input type="hidden" name="delete_type" value="sub">
                                             <input type="hidden" name="parent_name" value="<?php echo htmlspecialchars($parent_filter); ?>">
                                             <input type="hidden" name="sub_name" value="<?php echo htmlspecialchars($s); ?>">
-                                            <button type="submit" class="dropdown-item fw-medium text-dark"><i class="fas fa-trash-alt text-dark me-2"></i> Delete Folder</button>
+                                            <button type="button" class="dropdown-item fw-medium text-dark" onclick="confirmFolderDelete(this, 'sub')"><i class="fas fa-trash-alt text-danger me-2"></i> Delete Folder</button>
                                         </form>
                                     </li>
                                 </ul>
@@ -1216,383 +1500,358 @@ if(isset($_GET['success'])) {
                 </div>
             </div>
         <?php endif; ?>
+
     <?php endif; ?>
 
     <?php if ($view_disposition || (!empty($type_filter)) || $view_archives || $view_shared || !empty($search)): ?>
         
-        <?php if($view_disposition): ?>
-            <div class="file-list-container shadow-sm">
-                <table id="documentsTable" class="table table-hover align-middle mb-0 w-100">
-                    <thead>
-                        <tr>
-                            <th class="ps-4">Document Details</th>
-                            <th>Required Action</th>
-                            <th>Retention Date</th>
-                            <th class="text-end pe-4">Options</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php if($disposition_docs->num_rows > 0): while($doc = $disposition_docs->fetch_assoc()): 
-                            $ext = strtolower(pathinfo($doc['file_name'], PATHINFO_EXTENSION));
-                            $is_img = in_array($ext, ['jpg','jpeg','png','gif']);
-                            
-                            $is_restricted = ($doc['access_type'] === 'Restricted');
-                            $file_permissions = json_decode($doc['file_permissions'] ?? '{}', true) ?: [];
-                            $is_mine = ($doc['uploaded_by'] == $_SESSION['user_id']);
-                            
-                            $is_legal_hold = (bool)$doc['is_legal_hold'];
-                            $legal_hold_reason = htmlspecialchars($doc['legal_hold_reason'] ?? '');
-
-                            $has_file_access = true;
-                            if ($is_restricted && !$is_system_admin && !$is_mine && !isset($file_permissions['user_'.$_SESSION['user_id']])) {
-                                $has_file_access = false;
-                            }
-                        ?>
-                        <tr class="<?php echo $has_file_access ? 'cursor-pointer file-row-title' : ''; ?>" <?php if($has_file_access): ?>onclick="openDocumentViewer('<?php echo htmlspecialchars(addslashes($doc['file_path']), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['file_name']), ENT_QUOTES); ?>', <?php echo $is_img ? 'true' : 'false'; ?>)"<?php endif; ?>>
-                            <td class="ps-4 py-3">
-                                <div class="d-flex align-items-center">
-                                    <div class="file-icon-md bg-light text-primary me-3 border transition-all rounded-3 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
-                                        <?php 
-                                            if(!$has_file_access) echo '<i class="fas fa-lock text-danger fs-5"></i>';
-                                            elseif($is_img) echo '<i class="far fa-image text-info fs-5"></i>';
-                                            elseif($ext == 'pdf') echo '<i class="fas fa-file-pdf text-danger fs-5"></i>';
-                                            elseif(in_array($ext, ['doc','docx'])) echo '<i class="fas fa-file-word text-primary fs-5"></i>';
-                                            elseif(in_array($ext, ['xls','xlsx'])) echo '<i class="fas fa-file-excel text-success fs-5"></i>';
-                                            else echo '<i class="fas fa-file text-secondary fs-5"></i>';
-                                        ?>
-                                    </div>
-                                    <div>
-                                        <div class="d-flex align-items-center">
-                                            <h6 class="mb-1 text-dark fw-bold text-wrap" style="max-width: 300px;"><?php echo htmlspecialchars($doc['file_name']); ?></h6>
-                                            <?php if($is_restricted): ?>
-                                                <span class="badge bg-danger bg-opacity-10 text-danger border border-danger px-2 py-1 ms-2" style="font-size: 0.7rem; font-weight: 600;" title="File-Level Restriction Applied">
-                                                    <i class="fas fa-user-shield"></i> Restricted
-                                                </span>
-                                            <?php endif; ?>
-                                            <?php if($is_legal_hold): ?>
-                                                <span class="badge bg-danger bg-opacity-10 text-danger border border-danger px-2 py-1 ms-2" style="font-size: 0.7rem; font-weight: 600;" title="Legal Hold: <?php echo $legal_hold_reason; ?>">
-                                                    <i class="fas fa-balance-scale"></i> Legal Hold
-                                                </span>
-                                            <?php endif; ?>
-                                        </div>
-                                        <span class="text-muted small"><i class="fas fa-folder text-secondary me-1"></i> <?php echo htmlspecialchars($doc['category']); ?></span>
-                                    </div>
-                                </div>
-                            </td>
-                            <td onclick="event.stopPropagation();">
-                                <span class="badge bg-warning text-dark border border-warning px-2 py-1">
-                                    <?php echo htmlspecialchars($doc['action_after_retention'] ?? 'Review required'); ?>
-                                </span>
-                            </td>
-                            <td onclick="event.stopPropagation();">
-                                <div class="text-danger fw-bold"><i class="fas fa-clock me-1"></i> <?php echo date('M d, Y', strtotime($doc['retention_date'])); ?></div>
-                                <div class="text-muted small">Expired</div>
-                            </td>
-                            <td class="text-end pe-4" onclick="event.stopPropagation();">
-                                <div class="d-flex justify-content-end gap-2">
-                                    <?php if ($has_file_access): ?>
-                                        <?php if ($is_legal_hold): ?>
-                                            <span class="badge bg-danger bg-opacity-10 text-danger border border-danger px-3 py-2" title="Action blocked by Legal Hold: <?php echo $legal_hold_reason; ?>">
-                                                <i class="fas fa-balance-scale me-1"></i> Blocked by Hold
-                                            </span>
-                                        <?php else: ?>
-                                            <?php if (has_permission($conn, $_SESSION['user_id'], 'can_archive_documents')): ?>
-                                            <form action="actions/upload_handler.php" method="POST" class="d-inline" onsubmit="return confirm('Confirm Archiving of this document?');">
-                                                <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                                                <input type="hidden" name="action" value="archive">
-                                                <input type="hidden" name="doc_id" value="<?php echo $doc['doc_id']; ?>">
-                                                <input type="hidden" name="source" value="disposition">
-                                                <button type="submit" class="btn btn-sm btn-secondary text-white fw-medium shadow-sm" title="Archive" onclick="event.stopPropagation();">
-                                                    <i class="fas fa-archive me-1"></i> Archive
-                                                </button>
-                                            </form>
-                                            <?php endif; ?>
-
-                                            <?php if (has_permission($conn, $_SESSION['user_id'], 'can_delete_documents')): ?>
-                                            <form action="actions/upload_handler.php" method="POST" class="d-inline" onsubmit="return confirm('PERMANENT DELETION: Are you absolutely sure? This cannot be undone.');">
-                                                <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                                                <input type="hidden" name="action" value="delete">
-                                                <input type="hidden" name="doc_id" value="<?php echo $doc['doc_id']; ?>">
-                                                <input type="hidden" name="source" value="disposition">
-                                                <button type="submit" class="btn btn-sm btn-danger text-white fw-medium shadow-sm" title="Destroy File" onclick="event.stopPropagation();">
-                                                    <i class="fas fa-fire me-1"></i> Destroy
-                                                </button>
-                                            </form>
-                                            <?php endif; ?>
-                                        <?php endif; ?>
-                                    <?php else: ?>
-                                        <span class="badge bg-danger bg-opacity-10 text-danger border border-danger px-3 py-2">
-                                            <i class="fas fa-ban me-1"></i> Restricted
-                                        </span>
-                                    <?php endif; ?>
-                                </div>
-                            </td>
-                        </tr>
-                        <?php endwhile; endif; ?>
-                    </tbody>
-                </table>
+        <?php if ($role === 'Admin'): ?>
+            <div class="col-12 text-center py-5 bg-white border rounded-4 shadow-sm mt-3 flex-grow-1">
+                <div class="mb-3"><i class="fas fa-shield-alt text-muted opacity-50 fa-4x"></i></div>
+                <h5 class="text-dark fw-bold">Document Access Restricted</h5>
+                <p class="text-muted mb-0">As a System Administrator, you can view and manage the folder structure, but you are not authorized to view, access, or manage the actual documents inside.</p>
             </div>
-
         <?php else: ?>
-            <div class="file-list-container shadow-sm">
-                <table id="documentsTable" class="table table-hover align-middle mb-0 w-100">
-                    <thead>
-                        <tr>
-                            <th class="ps-4">File Name</th>
-                            <th>Link / Reference</th>
-                            <th>Uploaded By</th>
-                            <th>Date Added</th>
-                            <th class="text-end pe-4">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php if($documents->num_rows > 0): while($doc = $documents->fetch_assoc()): 
-                            $ext = strtolower(pathinfo($doc['file_name'], PATHINFO_EXTENSION));
-                            $is_img = in_array($ext, ['jpg','jpeg','png','gif']);
-                            
-                            $is_locked = (bool)$doc['is_locked'];
-                            $locked_by = $doc['locked_by'];
-                            $locked_by_name = htmlspecialchars($doc['locked_by_name'] ?? '');
 
-                            $is_legal_hold = (bool)$doc['is_legal_hold'];
-                            $legal_hold_reason = htmlspecialchars($doc['legal_hold_reason'] ?? '');
-                            
-                            $is_mine = ($doc['uploaded_by'] == $_SESSION['user_id']);
-                            $is_lock_owner = ($locked_by == $_SESSION['user_id']);
-                            $can_override_lock = in_array($_SESSION['role'], ['Admin', 'GM', 'President']);
-                            $is_locked_by_other = ($is_locked && !$is_lock_owner);
+            <?php if($view_disposition): ?>
+                <div class="file-list-container shadow-sm">
+                    <table id="documentsTable" class="table table-hover align-middle mb-0 w-100">
+                        <thead>
+                            <tr>
+                                <th class="ps-4">Document Details</th>
+                                <th>Required Action</th>
+                                <th>Retention Date</th>
+                                <th class="text-end pe-4">Options</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if($disposition_docs && $disposition_docs->num_rows > 0): while($doc = $disposition_docs->fetch_assoc()): 
+                                $ext = strtolower(pathinfo($doc['file_name'], PATHINFO_EXTENSION));
+                                $is_img = in_array($ext, ['jpg','jpeg','png','gif']);
+                                
+                                $is_restricted = ($doc['access_type'] === 'Restricted');
+                                $file_permissions = json_decode($doc['file_permissions'] ?? '{}', true) ?: [];
+                                $is_mine = ($doc['uploaded_by'] == $_SESSION['user_id']);
+                                
+                                $is_legal_hold = (bool)$doc['is_legal_hold'];
+                                $legal_hold_reason = htmlspecialchars($doc['legal_hold_reason'] ?? '');
 
-                            $access_type = $doc['access_type'] ?? 'Folder Default';
-                            $file_permissions = json_decode($doc['file_permissions'] ?? '{}', true) ?: [];
-                            
-                            $my_file_role = 'None';
-                            if ($is_mine || $is_top_mgmt) {
-                                $my_file_role = 'Editor';
-                            } else {
-                                if (isset($file_permissions['user_'.$_SESSION['user_id']])) {
-                                    $my_file_role = $file_permissions['user_'.$_SESSION['user_id']];
-                                } else if ($access_type === 'Folder Default' && in_array($doc['category'], $user_categories)) {
-                                    $my_file_role = 'Editor'; 
+                                $has_file_access = true;
+                                if ($is_restricted && !$is_system_admin && !$is_mine && !isset($file_permissions['user_'.$_SESSION['user_id']])) {
+                                    $has_file_access = false;
                                 }
-                            }
-                            
-                            $has_file_access = ($my_file_role !== 'None');
-                            $can_edit_file = in_array($my_file_role, ['Editor']);
-                        ?>
-                        <tr class="<?php echo $has_file_access ? 'cursor-pointer file-row-title' : ''; ?>" <?php if($has_file_access): ?>onclick="openDocumentViewer('<?php echo htmlspecialchars(addslashes($doc['file_path']), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['file_name']), ENT_QUOTES); ?>', <?php echo $is_img ? 'true' : 'false'; ?>)"<?php endif; ?>>
-                            <td class="ps-4 py-3">
-                                <div class="d-flex align-items-center">
-                                    <div class="file-icon-md bg-light text-primary me-3 border transition-all rounded-3 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
-                                        <?php 
-                                            if(!$has_file_access) echo '<i class="fas fa-lock text-danger fs-5"></i>';
-                                            elseif($is_img) echo '<i class="far fa-image text-info fs-5"></i>';
-                                            elseif($ext == 'pdf') echo '<i class="fas fa-file-pdf text-danger fs-5"></i>';
-                                            elseif(in_array($ext, ['doc','docx'])) echo '<i class="fas fa-file-word text-primary fs-5"></i>';
-                                            elseif(in_array($ext, ['xls','xlsx'])) echo '<i class="fas fa-file-excel text-success fs-5"></i>';
-                                            else echo '<i class="fas fa-file text-secondary fs-5"></i>';
-                                        ?>
+                            ?>
+                            <tr class="<?php echo $has_file_access ? 'cursor-pointer file-row-title' : ''; ?>" <?php if($has_file_access): ?>onclick="openDocumentViewer('<?php echo htmlspecialchars(addslashes($doc['file_path']), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['file_name']), ENT_QUOTES); ?>', <?php echo $is_img ? 'true' : 'false'; ?>)"<?php endif; ?>>
+                                <td class="ps-4 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="file-icon-md bg-light text-primary me-3 border transition-all rounded-3 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
+                                            <?php 
+                                                if(!$has_file_access) echo '<i class="fas fa-lock text-danger fs-5"></i>';
+                                                elseif($is_img) echo '<i class="far fa-image text-info fs-5"></i>';
+                                                elseif($ext == 'pdf') echo '<i class="fas fa-file-pdf text-danger fs-5"></i>';
+                                                elseif(in_array($ext, ['doc','docx'])) echo '<i class="fas fa-file-word text-primary fs-5"></i>';
+                                                elseif(in_array($ext, ['xls','xlsx'])) echo '<i class="fas fa-file-excel text-success fs-5"></i>';
+                                                else echo '<i class="fas fa-file text-secondary fs-5"></i>';
+                                            ?>
+                                        </div>
+                                        <div>
+                                            <div class="d-flex align-items-center">
+                                                <div class="d-inline-block" style="max-width: 420px;">
+                                                    <h6 class="mb-0 text-dark fw-bold text-truncate d-inline-block align-middle w-100" title="<?php echo htmlspecialchars($doc['file_name']); ?>">
+                                                        <?php echo htmlspecialchars($doc['file_name']); ?>
+                                                    </h6>
+                                                </div>
+                                                
+                                                <?php if($is_legal_hold): ?>
+                                                    <span class="badge bg-danger bg-opacity-10 text-danger border border-danger px-2 py-1 ms-2" style="font-size: 0.7rem; font-weight: 600;" title="Legal Hold: <?php echo $legal_hold_reason; ?>">
+                                                        <i class="fas fa-balance-scale"></i> Legal Hold
+                                                    </span>
+                                                <?php endif; ?>
+                                            </div>
+                                            <span class="text-muted small"><i class="fas fa-folder text-secondary me-1"></i> <?php echo htmlspecialchars($doc['category']); ?></span>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <div class="d-flex align-items-center">
-                                            <h6 class="mb-1 text-dark fw-bold text-wrap" style="max-width: 300px;"><?php echo htmlspecialchars($doc['file_name']); ?></h6>
-                                            
-                                            <?php if($is_locked): ?>
-                                                <span class="badge bg-warning bg-opacity-10 text-warning border border-warning px-2 py-1 ms-2" style="font-size: 0.7rem; font-weight: 600;" title="Currently being worked on">
-                                                    <i class="fas fa-lock"></i> Locked by <?php echo $is_lock_owner ? 'You' : explode(' ', trim($locked_by_name))[0]; ?>
+                                </td>
+                                <td onclick="event.stopPropagation();">
+                                    <span class="badge bg-warning text-dark border border-warning px-2 py-1">
+                                        <?php echo htmlspecialchars($doc['action_after_retention'] ?? 'Review required'); ?>
+                                    </span>
+                                </td>
+                                <td onclick="event.stopPropagation();">
+                                    <div class="text-danger fw-bold"><i class="fas fa-clock me-1"></i> <?php echo date('M d, Y', strtotime($doc['retention_date'])); ?></div>
+                                    <div class="text-muted small">Expired</div>
+                                </td>
+                                <td class="text-end pe-4" onclick="event.stopPropagation();">
+                                    <div class="d-flex justify-content-end gap-2">
+                                        <?php if ($has_file_access): ?>
+                                            <?php if ($is_legal_hold): ?>
+                                                <span class="badge bg-danger bg-opacity-10 text-danger border border-danger px-3 py-2" title="Action blocked by Legal Hold: <?php echo $legal_hold_reason; ?>">
+                                                    <i class="fas fa-balance-scale me-1"></i> Managed by Policy
                                                 </span>
-                                            <?php endif; ?>
+                                            <?php else: ?>
+        <form action="actions/upload_handler.php" method="POST" class="m-0">
+    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+    <input type="hidden" name="action" value="delete">
+    <input type="hidden" name="doc_id" value="<?php echo $doc['doc_id']; ?>">
+    <button type="button" class="btn btn-sm btn-danger fw-bold shadow-sm px-3 py-1" onclick="confirmDispositionDelete(this)">
+        <i class="fas fa-trash-alt me-1"></i> Permanently Delete
+    </button>
+</form>
+    <?php endif; ?>
+<?php else: ?>
+                                            <span class="badge bg-danger bg-opacity-10 text-danger border border-danger px-3 py-2">
+                                                <i class="fas fa-ban me-1"></i> Restricted
+                                            </span>
+                                        <?php endif; ?>
+                                    </div>
+                                </td>
+                            </tr>
+                            <?php endwhile; endif; ?>
+                        </tbody>
+                    </table>
+                </div>
 
-                                            <?php if($access_type === 'Restricted'): ?>
-                                                <span class="badge bg-danger bg-opacity-10 text-danger border border-danger px-2 py-1 ms-2" style="font-size: 0.7rem; font-weight: 600;" title="Restricted Access">
-                                                    <i class="fas fa-user-shield"></i> Restricted
-                                                </span>
-                                            <?php endif; ?>
+            <?php else: ?>
+                <div class="file-list-container shadow-sm">
+                    <table id="documentsTable" class="table table-hover align-middle mb-0 w-100">
+                        <thead>
+                            <tr>
+                                <th class="ps-4">File Name</th>
+                                <th>Link / Reference</th>
+                                <th>Uploaded By</th>
+                                <th>Date Added</th>
+                                <th class="text-end pe-4">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if($documents && $documents->num_rows > 0): while($doc = $documents->fetch_assoc()): 
+                                $ext = strtolower(pathinfo($doc['file_name'], PATHINFO_EXTENSION));
+                                $is_img = in_array($ext, ['jpg','jpeg','png','gif']);
+                                
+                                $is_locked = (bool)$doc['is_locked'];
+                                $locked_by = $doc['locked_by'];
+                                $locked_by_name = htmlspecialchars($doc['locked_by_name'] ?? '');
 
-                                            <?php if($is_legal_hold): ?>
-                                                <span class="badge bg-danger bg-opacity-10 text-danger border border-danger px-2 py-1 ms-2" style="font-size: 0.7rem; font-weight: 600;" title="Legal Hold: <?php echo $legal_hold_reason; ?>">
-                                                    <i class="fas fa-balance-scale"></i> Legal Hold
-                                                </span>
+                                $is_legal_hold = (bool)$doc['is_legal_hold'];
+                                $legal_hold_reason = htmlspecialchars($doc['legal_hold_reason'] ?? '');
+                                
+                                $is_mine = ($doc['uploaded_by'] == $_SESSION['user_id']);
+                                $is_lock_owner = ($locked_by == $_SESSION['user_id']);
+                                $can_override_lock = in_array($_SESSION['role'], ['Admin', 'GM', 'President']);
+                                $is_locked_by_other = ($is_locked && !$is_lock_owner);
+
+                                $access_type = $doc['access_type'] ?? 'Folder Default';
+                                $file_permissions = json_decode($doc['file_permissions'] ?? '{}', true) ?: [];
+                                
+                                $my_file_role = 'None';
+                                if ($is_mine || $is_top_mgmt) {
+                                    $my_file_role = 'Editor';
+                                } else {
+                                    if (isset($file_permissions['user_'.$_SESSION['user_id']])) {
+                                        $my_file_role = $file_permissions['user_'.$_SESSION['user_id']];
+                                    } else if ($access_type === 'Folder Default' && in_array($doc['category'], $user_categories)) {
+                                        $my_file_role = 'Editor'; 
+                                    }
+                                }
+                                
+                                $has_file_access = ($my_file_role !== 'None');
+                                $can_edit_file = in_array($my_file_role, ['Editor']);
+                            ?>
+                            <tr class="<?php echo $has_file_access ? 'cursor-pointer file-row-title' : ''; ?>" <?php if($has_file_access): ?>onclick="openDocumentViewer('<?php echo htmlspecialchars(addslashes($doc['file_path']), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['file_name']), ENT_QUOTES); ?>', <?php echo $is_img ? 'true' : 'false'; ?>)"<?php endif; ?>>
+                                <td class="ps-4 py-3">
+                                    <div class="d-flex align-items-center">
+                                        <div class="file-icon-md bg-light text-primary me-3 border transition-all rounded-3 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
+                                            <?php 
+                                                if(!$has_file_access) echo '<i class="fas fa-lock text-danger fs-5"></i>';
+                                                elseif($is_img) echo '<i class="far fa-image text-info fs-5"></i>';
+                                                elseif($ext == 'pdf') echo '<i class="fas fa-file-pdf text-danger fs-5"></i>';
+                                                elseif(in_array($ext, ['doc','docx'])) echo '<i class="fas fa-file-word text-primary fs-5"></i>';
+                                                elseif(in_array($ext, ['xls','xlsx'])) echo '<i class="fas fa-file-excel text-success fs-5"></i>';
+                                                else echo '<i class="fas fa-file text-secondary fs-5"></i>';
+                                            ?>
+                                        </div>
+                                        <div>
+                                            <div class="d-flex align-items-center">
+                                                <h6 class="mb-0 text-dark fw-bold text-truncate d-inline-block align-middle" style="max-width: 420px;" title="<?php echo htmlspecialchars($doc['file_name']); ?>">
+                                                    <?php echo htmlspecialchars($doc['file_name']); ?>
+                                                </h6>
+                                                
+                                                <?php if($is_locked): ?>
+                                                    <span class="badge bg-warning bg-opacity-10 text-warning border border-warning px-2 py-1 ms-2" style="font-size: 0.7rem; font-weight: 600;" title="Currently being worked on">
+                                                        <i class="fas fa-lock"></i> Locked by <?php echo $is_lock_owner ? 'You' : explode(' ', trim($locked_by_name))[0]; ?>
+                                                    </span>
+                                                <?php endif; ?>
+
+                                                <?php if($is_legal_hold): ?>
+                                                    <span class="badge bg-danger bg-opacity-10 text-danger border border-danger px-2 py-1 ms-2" style="font-size: 0.7rem; font-weight: 600;" title="Legal Hold: <?php echo $legal_hold_reason; ?>">
+                                                        <i class="fas fa-balance-scale"></i> Legal Hold
+                                                    </span>
+                                                <?php endif; ?>
+                                            </div>
+                                            <span class="text-muted small"><i class="fas fa-folder text-secondary me-1"></i> <?php echo htmlspecialchars($doc['category']); ?></span>
+                                            <?php if ($doc['current_version'] > 1): ?>
+                                                <span class="badge bg-light text-primary border ms-2" style="font-size: 0.7rem;">v<?php echo number_format($doc['current_version'], 1); ?></span>
                                             <?php endif; ?>
                                         </div>
-                                        <span class="text-muted small"><i class="fas fa-folder text-secondary me-1"></i> <?php echo htmlspecialchars($doc['category']); ?></span>
                                     </div>
-                                </div>
-                            </td>
-                            <td onclick="event.stopPropagation();">
-                                <?php if($doc['po_id']): ?>
-                                    <?php if($can_view_po): ?>
-                                        <a href="view_po.php?id=<?php echo $doc['po_id']; ?>" class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle text-decoration-none px-2 py-1" onclick="event.stopPropagation();">
-                                            <i class="fas fa-link me-1"></i> <?php echo htmlspecialchars($doc['po_number']); ?>
-                                        </a>
+                                </td>
+                                <td onclick="event.stopPropagation();">
+                                    <?php if($doc['po_id']): ?>
+                                        <?php if($can_view_po): ?>
+                                            <a href="view_po.php?id=<?php echo $doc['po_id']; ?>" class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle text-decoration-none px-2 py-1" onclick="event.stopPropagation();">
+                                                <i class="fas fa-link me-1"></i> <?php echo htmlspecialchars($doc['po_number']); ?>
+                                            </a>
+                                        <?php else: ?>
+                                            <span class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle px-2 py-1">
+                                                <i class="fas fa-hashtag me-1"></i> <?php echo htmlspecialchars($doc['po_number']); ?>
+                                            </span>
+                                        <?php endif; ?>
+                                        <div class="text-muted small mt-1"><?php echo htmlspecialchars($doc['client_name']); ?></div>
                                     <?php else: ?>
-                                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle px-2 py-1">
-                                            <i class="fas fa-hashtag me-1"></i> <?php echo htmlspecialchars($doc['po_number']); ?>
-                                        </span>
+                                        <span class="text-muted small border px-2 py-1 rounded-2 bg-light">Independent File</span>
                                     <?php endif; ?>
-                                    <div class="text-muted small mt-1"><?php echo htmlspecialchars($doc['client_name']); ?></div>
-                                <?php else: ?>
-                                    <span class="text-muted small border px-2 py-1 rounded-2 bg-light">Independent File</span>
-                                <?php endif; ?>
-                            </td>
-                            <td onclick="event.stopPropagation();">
-                                <div class="fw-medium text-dark"><?php echo htmlspecialchars($doc['full_name']); ?></div>
-                            </td>
-                            <td onclick="event.stopPropagation();">
-                                <div class="text-dark fw-medium"><?php echo date('M d, Y', strtotime($doc['uploaded_at'])); ?></div>
-                                <div class="text-muted small"><?php echo date('h:i A', strtotime($doc['uploaded_at'])); ?></div>
-                            </td>
-                            <td class="text-end pe-4 position-relative">
-                                <div class="action-dropdown dropdown">
-                                    <button class="btn-dots dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-boundary="window" onclick="event.stopPropagation();"><i class="fas fa-ellipsis-v"></i></button>
-                                    <ul class="dropdown-menu dropdown-menu-end shadow-sm" onclick="event.stopPropagation();">
-                                        
-                                        <?php if ($has_file_access): ?>
-                                            <li>
-                                                <a class="dropdown-item fw-medium text-dark" href="<?php echo htmlspecialchars($doc['file_path']); ?>" download>
-                                                    <i class="fas fa-download text-dark me-2"></i> Download
-                                                </a>
-                                            </li>
-                                            <li>
-                                                <button type="button" class="dropdown-item fw-medium text-dark" onclick="openVersionModal(<?php echo $doc['doc_id']; ?>, '<?php echo htmlspecialchars(addslashes($doc['file_name'])); ?>', <?php echo $can_edit_file ? 'true' : 'false'; ?>)">
-                                                    <i class="fas fa-code-branch text-dark me-2"></i> Version History
-                                                </button>
-                                            </li>
+                                </td>
+                                <td onclick="event.stopPropagation();">
+                                    <div class="fw-medium text-dark"><?php echo htmlspecialchars($doc['full_name']); ?></div>
+                                </td>
+                                <td onclick="event.stopPropagation();">
+                                    <div class="text-dark fw-medium"><?php echo date('M d, Y', strtotime($doc['uploaded_at'])); ?></div>
+                                    <div class="text-muted small"><?php echo date('h:i A', strtotime($doc['uploaded_at'])); ?></div>
+                                </td>
+                                <td class="text-end pe-4 position-relative">
+                                    <div class="action-dropdown dropdown">
+                                        <button class="btn-dots bg-transparent border-0 shadow-none dropdown-toggle d-inline-flex align-items-center justify-content-center" type="button" data-bs-toggle="dropdown" data-bs-boundary="body" style="width: 35px; height: 35px;" onclick="event.stopPropagation();">
+                                            <i class="fas fa-ellipsis-v text-dark"></i>
+                                        </button>
+                                        <ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 rounded-3 mt-1" onclick="event.stopPropagation();">
                                             
-                                            <?php if (!$view_archives && $can_edit_file): ?>
-                                            <li><hr class="dropdown-divider"></li>
-                                            
-                                            <?php if (!$is_locked): ?>
+                                            <?php if ($has_file_access): ?>
                                                 <li>
-                                                    <form action="documents.php" method="POST">
-                                                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                                                        <input type="hidden" name="action" value="toggle_lock">
-                                                        <input type="hidden" name="doc_id" value="<?php echo $doc['doc_id']; ?>">
-                                                        <input type="hidden" name="current_state" value="0">
-                                                        <input type="hidden" name="return_url" value="<?php echo htmlspecialchars($_SERVER['REQUEST_URI']); ?>">
-                                                        <button type="submit" class="dropdown-item fw-medium text-dark">
-                                                            <i class="fas fa-lock text-dark me-2"></i> Check-out (Lock File)
-                                                        </button>
-                                                    </form>
+                                                    <button type="button" class="dropdown-item fw-medium text-dark" 
+                                                            onclick="viewFileDetails('<?php echo htmlspecialchars(addslashes($doc['file_name']), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['category']), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['file_path']), ENT_QUOTES); ?>', '<?php echo date('M d, Y h:i A', strtotime($doc['uploaded_at'])); ?>', '<?php echo htmlspecialchars(addslashes($doc['full_name']), ENT_QUOTES); ?>', '<?php echo base64_encode($doc['rename_history'] ?? '[]'); ?>')">
+                                                        <i class="fas fa-info-circle text-primary me-2"></i> View Details
+                                                    </button>
                                                 </li>
-                                            <?php elseif ($is_lock_owner || $can_override_lock): ?>
+                                                <?php if ($can_edit_file && !$is_locked): ?>
                                                 <li>
-                                                    <form action="documents.php" method="POST">
-                                                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                                                        <input type="hidden" name="action" value="toggle_lock">
-                                                        <input type="hidden" name="doc_id" value="<?php echo $doc['doc_id']; ?>">
-                                                        <input type="hidden" name="current_state" value="1">
-                                                        <input type="hidden" name="return_url" value="<?php echo htmlspecialchars($_SERVER['REQUEST_URI']); ?>">
-                                                        <button type="submit" class="dropdown-item fw-medium text-dark">
-                                                            <i class="fas fa-unlock text-dark me-2"></i> Check-in (Unlock)
-                                                        </button>
-                                                    </form>
+                                                    <button type="button" class="dropdown-item fw-medium text-dark" onclick="renameFile(<?php echo $doc['doc_id']; ?>, '<?php echo htmlspecialchars(addslashes($doc['file_name']), ENT_QUOTES); ?>')">
+                                                        <i class="fas fa-edit text-warning me-2"></i> Rename File
+                                                    </button>
                                                 </li>
-                                            <?php endif; ?>
-                                            
-                                            <?php if ($is_mine || $is_top_mgmt): ?>
-                                            <li>
-                                                <button type="button" class="dropdown-item fw-medium text-dark" 
-                                                        onclick="openShareModal(<?php echo $doc['doc_id']; ?>, '<?php echo htmlspecialchars(addslashes($doc['file_name'])); ?>', '<?php echo htmlspecialchars($doc['access_type']); ?>', '<?php echo htmlspecialchars(addslashes($doc['file_permissions'] ?? '{}')); ?>', '<?php echo htmlspecialchars(addslashes($doc['full_name'])); ?>')">
-                                                    <i class="fas fa-user-plus text-dark me-2"></i> Share Settings
-                                                </button>
-                                            </li>
-                                            <?php endif; ?>
-
-                                            <?php if ($can_manage || $is_top_mgmt): ?>
+                                                <?php endif; ?>
                                                 <li><hr class="dropdown-divider"></li>
-                                                <?php if (!$is_legal_hold): ?>
+                                                <li>
+                                                    <a class="dropdown-item fw-medium text-dark" href="<?php echo htmlspecialchars($doc['file_path']); ?>" download>
+                                                        <i class="fas fa-download text-success me-2"></i> Download
+                                                    </a>
+                                                </li>
+                                                <li>
+                                                    <button type="button" class="dropdown-item fw-medium text-dark" onclick="openVersionModal(<?php echo $doc['doc_id']; ?>, '<?php echo htmlspecialchars(addslashes($doc['file_name'])); ?>', <?php echo $can_edit_file ? 'true' : 'false'; ?>)">
+                                                        <i class="fas fa-code-branch text-info me-2"></i> Version History
+                                                    </button>
+                                                </li>
+                                                
+                                                <?php if (!$view_archives && $can_edit_file): ?>
+                                                <li><hr class="dropdown-divider"></li>
+                                                
+                                                <?php if (!$is_locked): ?>
                                                     <li>
-                                                        <button type="button" class="dropdown-item fw-medium text-dark" onclick="openLegalHoldModal(<?php echo $doc['doc_id']; ?>, '<?php echo htmlspecialchars(addslashes($doc['file_name'])); ?>')">
-                                                            <i class="fas fa-balance-scale text-dark me-2"></i> Apply Legal Hold
-                                                        </button>
-                                                    </li>
-                                                <?php else: ?>
-                                                    <li>
-                                                        <form action="documents.php" method="POST" onsubmit="return confirm('Remove Legal Hold from this document? Standard retention policies will resume.');">
+                                                        <form action="documents.php" method="POST" class="m-0">
                                                             <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                                                            <input type="hidden" name="action" value="toggle_legal_hold">
+                                                            <input type="hidden" name="action" value="toggle_lock">
+                                                            <input type="hidden" name="doc_id" value="<?php echo $doc['doc_id']; ?>">
+                                                            <input type="hidden" name="current_state" value="0">
+                                                            <input type="hidden" name="return_url" value="<?php echo htmlspecialchars($_SERVER['REQUEST_URI']); ?>">
+                                                            <button type="button" class="dropdown-item fw-medium text-dark" onclick="confirmToggleLock(this, 'lock')">
+                                                                <i class="fas fa-lock text-danger me-2"></i> Check-out (Lock File)
+                                                            </button>
+                                                        </form>
+                                                    </li>
+                                                <?php elseif ($is_lock_owner || $can_override_lock): ?>
+                                                    <li>
+                                                        <form action="documents.php" method="POST" class="m-0">
+                                                            <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                                                            <input type="hidden" name="action" value="toggle_lock">
                                                             <input type="hidden" name="doc_id" value="<?php echo $doc['doc_id']; ?>">
                                                             <input type="hidden" name="current_state" value="1">
                                                             <input type="hidden" name="return_url" value="<?php echo htmlspecialchars($_SERVER['REQUEST_URI']); ?>">
-                                                            <button type="submit" class="dropdown-item fw-medium text-dark">
-                                                                <i class="fas fa-balance-scale-left text-dark me-2"></i> Remove Legal Hold
+                                                            <button type="button" class="dropdown-item fw-medium text-dark" onclick="confirmToggleLock(this, 'unlock')">
+                                                                <i class="fas fa-unlock text-success me-2"></i> Check-in (Unlock)
                                                             </button>
                                                         </form>
                                                     </li>
                                                 <?php endif; ?>
-                                            <?php endif; ?>
-
-                                            <?php endif; ?>
-
-                                            <?php if($can_edit_file): ?>
-                                                <?php if($view_archives && has_permission($conn, $_SESSION['user_id'], 'can_archive_documents')): ?>
-                                                <li><hr class="dropdown-divider"></li>
-                                                <li>
-                                                    <form action="actions/upload_handler.php" method="POST">
-                                                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                                                        <input type="hidden" name="action" value="restore">
-                                                        <input type="hidden" name="doc_id" value="<?php echo $doc['doc_id']; ?>">
-                                                        <button type="submit" class="dropdown-item fw-medium text-dark"><i class="fas fa-undo-alt text-dark me-2"></i> Restore Active</button>
-                                                    </form>
-                                                </li>
-                                                <?php endif; ?>
                                                 
-                                                <?php if(!$view_archives && has_permission($conn, $_SESSION['user_id'], 'can_archive_documents')): ?>
-                                                <li><hr class="dropdown-divider"></li>
+                                                <?php if ($is_mine || $is_top_mgmt): ?>
                                                 <li>
-                                                    <?php if ($is_legal_hold): ?>
-                                                        <span class="dropdown-item fw-medium text-muted" title="Cannot archive: Legal Hold is active" style="cursor: not-allowed;">
-                                                            <i class="fas fa-archive text-muted me-2"></i> Archive File
-                                                        </span>
-                                                    <?php else: ?>
-                                                        <form action="actions/upload_handler.php" method="POST" onsubmit="return confirm('Archive this document?');">
-                                                            <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                                                            <input type="hidden" name="action" value="archive">
-                                                            <input type="hidden" name="doc_id" value="<?php echo $doc['doc_id']; ?>">
-                                                            <button type="submit" class="dropdown-item fw-medium text-dark <?php echo $is_locked_by_other && !$can_override_lock ? 'disabled text-muted' : ''; ?>"><i class="fas fa-archive text-dark me-2"></i> Archive File</button>
-                                                        </form>
-                                                    <?php endif; ?>
+                                                    <button type="button" class="dropdown-item fw-medium text-dark" 
+                                                            onclick="openShareModal(<?php echo $doc['doc_id']; ?>, '<?php echo htmlspecialchars(addslashes($doc['file_name'])); ?>', '<?php echo htmlspecialchars($doc['access_type']); ?>', '<?php echo htmlspecialchars(addslashes($doc['file_permissions'] ?? '{}')); ?>', '<?php echo htmlspecialchars(addslashes($doc['full_name'])); ?>')">
+                                                        <i class="fas fa-user-plus text-primary me-2"></i> Share Settings
+                                                    </button>
                                                 </li>
                                                 <?php endif; ?>
 
-                                                <?php if(has_permission($conn, $_SESSION['user_id'], 'can_delete_documents')): ?>
-                                                <li>
-                                                    <?php if ($is_legal_hold): ?>
-                                                        <span class="dropdown-item fw-medium text-muted" title="Cannot delete: Legal Hold is active" style="cursor: not-allowed;">
-                                                            <i class="fas fa-trash-alt text-muted me-2"></i> Permanent Delete
-                                                        </span>
+                                                <?php if ($can_manage || $is_top_mgmt): ?>
+                                                    <li><hr class="dropdown-divider"></li>
+                                                    <?php if (!$is_legal_hold): ?>
+                                                        <li>
+                                                            <button type="button" class="dropdown-item fw-medium text-dark" onclick="openLegalHoldModal(<?php echo $doc['doc_id']; ?>, '<?php echo htmlspecialchars(addslashes($doc['file_name'])); ?>')">
+                                                                <i class="fas fa-balance-scale text-danger me-2"></i> Apply Legal Hold
+                                                            </button>
+                                                        </li>
                                                     <?php else: ?>
-                                                        <form action="actions/upload_handler.php" method="POST" onsubmit="return confirm('Permanently delete this document? This cannot be undone.');">
-                                                            <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                                                            <input type="hidden" name="action" value="delete">
-                                                            <input type="hidden" name="doc_id" value="<?php echo $doc['doc_id']; ?>">
-                                                            <button type="submit" class="dropdown-item fw-medium text-dark <?php echo $is_locked_by_other && !$can_override_lock ? 'disabled text-muted' : ''; ?>"><i class="fas fa-trash-alt text-dark me-2"></i> Permanent Delete</button>
-                                                        </form>
+                                                        <li>
+                                                            <form action="documents.php" method="POST" class="m-0">
+                                                                <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                                                                <input type="hidden" name="action" value="toggle_legal_hold">
+                                                                <input type="hidden" name="doc_id" value="<?php echo $doc['doc_id']; ?>">
+                                                                <input type="hidden" name="current_state" value="1">
+                                                                <input type="hidden" name="return_url" value="<?php echo htmlspecialchars($_SERVER['REQUEST_URI']); ?>">
+                                                                <button type="button" class="dropdown-item fw-medium text-dark" onclick="confirmRemoveLegalHold(this)">
+                                                                    <i class="fas fa-balance-scale-left text-secondary me-2"></i> Remove Legal Hold
+                                                                </button>
+                                                            </form>
+                                                        </li>
                                                     <?php endif; ?>
-                                                </li>
                                                 <?php endif; ?>
+
+                                                <?php endif; ?>
+
+                                                <?php if($can_edit_file): ?>
+                                                    <?php if($view_archives && has_permission($conn, $_SESSION['user_id'], 'can_archive_documents')): ?>
+                                                    <li><hr class="dropdown-divider"></li>
+                                                    <li>
+                                                        <form action="actions/upload_handler.php" method="POST">
+                                                            <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                                                            <input type="hidden" name="action" value="restore">
+                                                            <input type="hidden" name="doc_id" value="<?php echo $doc['doc_id']; ?>">
+                                                            <button type="submit" class="dropdown-item fw-medium text-dark"><i class="fas fa-undo-alt text-success me-2"></i> Restore Active</button>
+                                                        </form>
+                                                    </li>
+                                                    <?php endif; ?>
+                                                <?php endif; ?>
+
+                                            <?php else: ?>
+                                                <li>
+                                                    <span class="dropdown-item fw-medium text-muted" style="cursor: not-allowed;">
+                                                        <i class="fas fa-ban text-danger me-2 opacity-75"></i> Access Restricted
+                                                    </span>
+                                                </li>
                                             <?php endif; ?>
-
-                                        <?php else: ?>
-                                            <li>
-                                                <span class="dropdown-item fw-medium text-muted" style="cursor: not-allowed;">
-                                                    <i class="fas fa-ban text-dark me-2 opacity-75"></i> Access Restricted
-                                                </span>
-                                            </li>
-                                        <?php endif; ?>
-                                    </ul>
-                                </div>
-                            </td>
-                        </tr>
-                        <?php endwhile; endif; ?>
-                    </tbody>
-                </table>
-            </div>
+                                        </ul>
+                                    </div>
+                                </td>
+                            </tr>
+                            <?php endwhile; endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
         <?php endif; ?>
-
     <?php endif; ?>
 </div>
 
+<?php if ($role !== 'Admin'): ?>
 <!-- NEW: VERSION CONTROL MODAL -->
 <div class="modal fade sleek-modal" id="versionControlModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-lg">
@@ -1647,45 +1906,55 @@ if(isset($_GET['success'])) {
 <!-- IN-SYSTEM DOCUMENT VIEWER MODAL -->
 <div class="modal fade" id="documentViewerModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-fullscreen">
-        <div class="modal-content border-0" style="background-color: rgba(15, 23, 42, 0.95); backdrop-filter: blur(8px);">
-            <div class="d-flex justify-content-between align-items-center px-4 py-3 position-absolute top-0 w-100" style="z-index: 1060; background: linear-gradient(180deg, rgba(0,0,0,0.5) 0%, transparent 100%); pointer-events: none;">
-                <div class="d-flex align-items-center text-white" style="pointer-events: auto;">
-                    <i class="fas fa-file-alt fs-5 me-3 text-secondary"></i>
-                    <h6 class="fw-medium mb-0 text-truncate" id="viewerFileName" style="max-width: 400px; text-shadow: 0 1px 3px rgba(0,0,0,0.5);">Document Preview</h6>
+        <div class="modal-content border-0 bg-transparent">
+            
+            <!-- Modern Dark Glass Overlay -->
+            <div class="position-absolute w-100 h-100" style="background-color: rgba(15, 23, 42, 0.75); backdrop-filter: blur(5px); z-index: 1040;"></div>
+            
+            <!-- Sleek White Header Bar -->
+            <div class="d-flex justify-content-between align-items-center px-4 py-3 position-absolute top-0 w-100 shadow-sm" style="z-index: 1060; background: #ffffff;">
+                <div class="d-flex align-items-center text-dark">
+                    <div class="bg-primary bg-opacity-10 text-primary rounded-circle d-flex align-items-center justify-content-center me-3" style="width: 36px; height: 36px;">
+                        <i class="fas fa-file-alt"></i>
+                    </div>
+                    <h6 class="fw-bold mb-0 text-truncate letter-spacing-tight" id="viewerFileName" style="max-width: 500px;">Document Preview</h6>
                 </div>
-                <div class="d-flex gap-3 align-items-center" style="pointer-events: auto;">
-                    <a id="viewerDownloadBtn" href="#" download class="text-white text-decoration-none" title="Download" style="opacity: 0.8; transition: opacity 0.2s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.8'">
-                        <i class="fas fa-download fs-5"></i>
+                <div class="d-flex gap-3 align-items-center">
+                    <a id="viewerDownloadBtn" href="#" download class="btn btn-sm btn-outline-primary fw-bold px-4 rounded-pill shadow-sm transition-all">
+                        <i class="fas fa-download me-1"></i> Download
                     </a>
-                    <button type="button" class="btn btn-link text-white shadow-none p-0 ms-3 text-decoration-none" data-bs-dismiss="modal" title="Close" style="opacity: 0.8; transition: opacity 0.2s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.8'">
-                        <i class="fas fa-times fs-4"></i>
+                    <button type="button" class="btn btn-light rounded-circle shadow-none d-flex align-items-center justify-content-center border" data-bs-dismiss="modal" title="Close" style="width: 36px; height: 36px; transition: all 0.2s;">
+                        <i class="fas fa-times fs-5 text-secondary"></i>
                     </button>
                 </div>
             </div>
 
-            <div class="modal-body p-0 d-flex justify-content-center align-items-center overflow-hidden" style="height: 100vh; touch-action: none;">
+            <div class="modal-body p-0 d-flex justify-content-center align-items-center overflow-hidden" style="height: 100vh; touch-action: none; position: relative; z-index: 1050; padding-top: 60px !important;">
+                
+                <!-- Modern Loader -->
                 <div id="viewerLoader" class="position-absolute text-center" style="z-index: 1040;">
-                    <div class="spinner-border text-light opacity-50 mb-3" role="status" style="width: 2.5rem; height: 2.5rem; border-width: 0.15em;"></div>
-                    <div class="fw-bold text-white opacity-50 text-uppercase" style="font-size: 0.75rem; letter-spacing: 2px;">Loading Document</div>
+                    <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem; border-width: 0.2em;"></div>
+                    <div class="fw-bold text-white text-uppercase letter-spacing-tight" style="font-size: 0.85rem; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">Loading Document...</div>
                 </div>
 
                 <div id="viewerContentWrapper" style="transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1); transform-origin: center center; display:flex; justify-content:center; align-items:center; width: 100%; height: 100%;">
-                    <img id="documentViewerImage" src="" draggable="false" class="shadow-lg rounded-2" style="display:none; max-width: 90vw; max-height: 85vh; object-fit: contain;" />
-                    <iframe id="documentViewerFrame" src="" class="shadow-lg rounded-3 bg-white border-0" style="display:none; width: 80vw; height: 85vh;"></iframe>
+                    <img id="documentViewerImage" src="" draggable="false" class="shadow-lg" style="display:none; max-width: 90vw; max-height: 85vh; object-fit: contain;" />
+                    <iframe id="documentViewerFrame" src="" class="shadow-lg bg-white" style="display:none; width: 85vw; height: 85vh; border: none;"></iframe>
                 </div>
-            </div>
+            </div> <!-- DITO YUNG NAWAWALANG DIV KAYA NASIRA ANG SYSTEM -->
 
+            <!-- Modern White Pill Zoom Controls -->
             <div class="position-absolute bottom-0 start-50 translate-middle-x mb-4" style="z-index: 1060;" id="zoomControlsContainer">
-                <div class="d-flex align-items-center border border-secondary border-opacity-50 rounded-pill px-3 py-2 shadow-lg" style="background-color: rgba(30, 41, 59, 0.95) !important;">
-                    <button type="button" class="btn btn-link text-white shadow-none p-1 text-decoration-none" onclick="zoomViewer('out')" title="Zoom Out" style="opacity: 0.8;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.8'">
+                <div class="d-flex align-items-center bg-white rounded-pill px-2 py-1 shadow">
+                    <button type="button" class="btn btn-link text-secondary shadow-none p-2 text-decoration-none" onclick="zoomViewer('out')" title="Zoom Out">
                         <i class="fas fa-minus fs-6"></i>
                     </button>
-                    <span id="viewerZoomLevel" class="text-white fw-medium px-3" style="font-size: 0.875rem; min-width: 60px; text-align: center; cursor: default;">100%</span>
-                    <button type="button" class="btn btn-link text-white shadow-none p-1 text-decoration-none" onclick="zoomViewer('in')" title="Zoom In" style="opacity: 0.8;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.8'">
+                    <span id="viewerZoomLevel" class="text-dark fw-bold px-3 fs-sm" style="min-width: 65px; text-align: center; cursor: default;">100%</span>
+                    <button type="button" class="btn btn-link text-secondary shadow-none p-2 text-decoration-none" onclick="zoomViewer('in')" title="Zoom In">
                         <i class="fas fa-plus fs-6"></i>
                     </button>
-                    <div class="border-start border-secondary opacity-50 mx-2" style="height: 18px;"></div>
-                    <button type="button" class="btn btn-link text-white shadow-none p-1 text-decoration-none" onclick="zoomViewer('reset')" title="Fit to Screen" style="opacity: 0.8;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.8'">
+                    <div class="border-start mx-1" style="height: 18px;"></div>
+                    <button type="button" class="btn btn-link text-secondary shadow-none p-2 text-decoration-none" onclick="zoomViewer('reset')" title="Fit to Screen">
                         <i class="fas fa-expand fs-6"></i>
                     </button>
                 </div>
@@ -1697,66 +1966,108 @@ if(isset($_GET['success'])) {
 <!-- SHARE MODAL -->
 <div class="modal fade sleek-modal" id="shareDocumentModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content shadow-lg border-0">
-            <div class="modal-header border-bottom-0 pb-0">
-                <h5 class="modal-title fw-bold text-dark fs-5"><i class="fas fa-share-alt text-primary me-2"></i>Share Settings</h5>
-                <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal"></button>
+        <div class="modal-content shadow-lg border-0" style="border-radius: 12px; overflow: hidden;">
+            
+            <!-- Minimalist Header -->
+            <div class="modal-header border-bottom border-light pb-3 pt-4 px-4 bg-white">
+                <div class="w-100">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="modal-title fw-bold text-dark fs-5 letter-spacing-tight">Share Document</h5>
+                        <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal"></button>
+                    </div>
+                    <!-- Inline Document Info -->
+                    <div class="d-flex align-items-center bg-f8f9fa rounded-3 p-2 px-3 border border-light">
+                        <i class="fas fa-file-alt text-primary fs-5 me-3"></i>
+                        <div class="overflow-hidden w-100">
+                            <h6 class="mb-0 fw-bold text-dark text-truncate fs-sm" id="shareDocName" title="Document Name">Document Name</h6>
+                            <div class="text-muted fs-xs fw-medium mt-1" id="shareDocOwner">Owner: User</div>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <div class="modal-body pt-3">
+            
+            <div class="modal-body p-0 bg-white">
                 <form action="documents.php" method="POST" id="shareForm">
                     <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                     <input type="hidden" name="action" value="share_document">
                     <input type="hidden" name="doc_id" id="shareDocId">
                     <input type="hidden" name="return_url" value="<?php echo htmlspecialchars($_SERVER['REQUEST_URI']); ?>">
                     
-                    <div class="mb-3">
-                        <div class="d-flex align-items-center mb-2">
-                            <div class="bg-light text-primary rounded-circle d-flex justify-content-center align-items-center me-3" style="width: 40px; height: 40px;">
-                                <i class="fas fa-file-alt"></i>
+                    <!-- General Access -->
+                    <div class="p-4 border-bottom border-light">
+                        <h6 class="fw-bold fs-xs text-muted text-uppercase letter-spacing-tight mb-3">General Access</h6>
+                        <div class="d-flex align-items-start">
+                            <div class="bg-light text-secondary rounded-circle d-flex justify-content-center align-items-center me-3 mt-1 flex-shrink-0 border shadow-sm" style="width: 42px; height: 42px;">
+                                <i class="fas fa-link"></i>
                             </div>
-                            <div class="overflow-hidden">
-                                <h6 class="mb-0 fw-bold text-truncate" id="shareDocName" style="max-width: 350px;">Document Name</h6>
-                                <small class="text-muted" id="shareDocOwner">Owner: User</small>
+                            <div class="w-100">
+                                <!-- CUSTOM MODERN DROPDOWN FOR GENERAL ACCESS -->
+                                <div class="dropdown custom-general-access-dropdown w-100">
+                                    <!-- Hidden input na nagpapasa sa Database at binabasa ng JS -->
+                                    <input type="hidden" name="access_type" id="shareAccessType" value="Folder Default">
+                                    
+                                    <button class="btn btn-light bg-f8f9fa text-dark fs-sm fw-bold text-start rounded-3 shadow-none d-flex justify-content-between align-items-center w-100 border border-light py-2" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="transition: all 0.2s;">
+                                        <span id="generalAccessSelectedText">Folder Default (Inherit Permissions)</span>
+                                        <i class="fas fa-chevron-down text-secondary" style="font-size: 12px;"></i>
+                                    </button>
+                                    
+                                    <!-- Ang Floating Modern Dropdown Menu -->
+                                    <ul class="dropdown-menu dropdown-menu-start shadow-lg border-0 rounded-4 mt-1 p-2 w-100">
+                                        <li><button type="button" class="dropdown-item rounded-3 fs-sm fw-medium py-2 mb-1" onclick="updateGeneralAccessSelection('Folder Default', 'Folder Default (Inherit Permissions)')"><i class="fas fa-folder-open text-primary me-2 w-15px"></i> Folder Default (Inherit Permissions)</button></li>
+                                        <li><button type="button" class="dropdown-item rounded-3 fs-sm fw-medium py-2" onclick="updateGeneralAccessSelection('Restricted', 'Restricted (Only selected people)')"><i class="fas fa-user-shield text-danger me-2 w-15px"></i> Restricted (Only selected people)</button></li>
+                                    </ul>
+                                </div>
+                                <div class="form-text fs-xs mt-2 text-muted fw-medium" id="shareAccessHelpText">
+                                    Inherits permissions based on the parent folder's department assignment.
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    <div class="mb-4">
-                        <label class="form-label fw-bold small text-muted text-uppercase letter-spacing-tight">General Access</label>
-                        <select name="access_type" id="shareAccessType" class="form-select form-select-sm shadow-none" onchange="toggleShareList()">
-                            <option value="Folder Default">Folder Default (Inherit Permissions)</option>
-                            <option value="Restricted">Restricted (Only selected people)</option>
-                        </select>
-                        <div class="form-text small mt-1" id="shareAccessHelpText">Inherits permissions based on the parent folder's department assignment.</div>
-                    </div>
-
+                    <!-- Restricted Users Section -->
                     <div id="restrictedUsersSection" class="d-none">
-                        <label class="form-label fw-bold small text-muted text-uppercase letter-spacing-tight mb-2 d-flex justify-content-between align-items-center">
-                            <span>People with Access</span>
-                        </label>
-                        <div class="border rounded-3" style="max-height: 250px; overflow-y: auto;">
+                        <div class="px-4 pt-3 pb-2 border-bottom border-light bg-light">
+                            <h6 class="fw-bold fs-xs text-muted text-uppercase letter-spacing-tight mb-0">People with Access</h6>
+                        </div>
+                        <div class="px-2" style="max-height: 260px; overflow-y: auto;">
                             <?php foreach ($all_users as $u): ?>
-                            <div class="d-flex justify-content-between align-items-center p-2 border-bottom user-share-row">
+                            <div class="d-flex justify-content-between align-items-center p-3 border-bottom border-light hover-bg-light transition-all rounded-2 my-1 mx-1">
                                 <div class="d-flex align-items-center">
-                                    <div class="avatar-circle box-32 fs-xs me-2"><?php echo strtoupper(substr($u['full_name'], 0, 1)); ?></div>
-                                    <div class="lh-12">
-                                        <div class="fw-bold fs-sm text-dark"><?php echo htmlspecialchars($u['full_name']); ?></div>
-                                        <div class="fs-xs text-muted"><?php echo htmlspecialchars($u['role']); ?></div>
+                                    <div class="rounded-circle d-flex justify-content-center align-items-center me-3 fw-bold text-white shadow-sm" style="width: 36px; height: 36px; font-size: 13px; background-color: #64748b;">
+                                        <?php echo strtoupper(substr($u['full_name'], 0, 1)); ?>
+                                    </div>
+                                    <div class="lh-sm">
+                                        <div class="fw-bold fs-sm text-dark mb-1"><?php echo htmlspecialchars($u['full_name']); ?></div>
+                                        <div class="fs-xs text-muted fw-medium"><?php echo htmlspecialchars($u['role']); ?></div>
                                     </div>
                                 </div>
-                                <select name="user_roles[<?php echo $u['user_id']; ?>]" class="form-select form-select-sm w-auto shadow-none border-0 bg-light fs-xs fw-medium text-secondary">
-                                    <option value="None">No Access</option>
-                                    <option value="Viewer">Viewer</option>
-                                    <option value="Editor">Editor</option>
-                                </select>
+                                <!-- CUSTOM MODERN DROPDOWN -->
+                                <div class="dropdown custom-role-dropdown" data-user-id="<?php echo $u['user_id']; ?>">
+                                    <!-- Hidden input na nagpapasa sa Database -->
+                                    <input type="hidden" name="user_roles[<?php echo $u['user_id']; ?>]" id="role_input_<?php echo $u['user_id']; ?>" value="None">
+                                    
+                                    <!-- Ang sleek pill button na mukhang Select Box -->
+                                    <button class="btn btn-sm btn-white bg-white text-dark fs-xs fw-bold text-start rounded-pill shadow-none d-flex justify-content-between align-items-center" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="border: 1px solid #cbd5e1; width: 140px; padding: 6px 16px; transition: all 0.2s;">
+                                        <span class="selected-role-text">No Access</span>
+                                        <i class="fas fa-chevron-down text-secondary" style="font-size: 10px;"></i>
+                                    </button>
+                                    
+                                    <!-- Ang Floating Modern Dropdown Menu -->
+                                    <ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 rounded-4 mt-1 p-2" style="min-width: 140px;">
+                                        <li><button type="button" class="dropdown-item rounded-3 fs-xs fw-medium py-2 mb-1" onclick="updateRoleSelection(<?php echo $u['user_id']; ?>, 'None', 'No Access')">No Access</button></li>
+                                        <li><button type="button" class="dropdown-item rounded-3 fs-xs fw-medium py-2 mb-1" onclick="updateRoleSelection(<?php echo $u['user_id']; ?>, 'Viewer', 'Viewer')">Viewer</button></li>
+                                        <li><button type="button" class="dropdown-item rounded-3 fs-xs fw-medium py-2" onclick="updateRoleSelection(<?php echo $u['user_id']; ?>, 'Editor', 'Editor')">Editor</button></li>
+                                    </ul>
+                                </div>
                             </div>
                             <?php endforeach; ?>
                         </div>
                     </div>
 
-                    <div class="d-flex justify-content-end gap-2 mt-4">
-                        <button type="button" class="btn btn-light sleek-btn-sm" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-primary sleek-btn-sm px-4">Save Changes</button>
+                    <!-- Footer Buttons -->
+                    <div class="d-flex justify-content-end gap-2 p-3 bg-light border-top border-light">
+                        <button type="button" class="btn btn-light fw-bold px-4 py-2 rounded-pill border bg-white text-dark shadow-sm fs-sm" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary fw-bold px-4 py-2 rounded-pill shadow-sm fs-sm">Save Settings</button>
                     </div>
                 </form>
             </div>
@@ -1805,29 +2116,112 @@ if(isset($_GET['success'])) {
 </div>
 
 <!-- UPLOAD MODAL -->
-<?php if (!empty($type_filter) && !$hide_upload_button): ?>
+<?php if (!$hide_upload_button): ?>
 <div class="modal fade sleek-modal" id="uploadModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content shadow-lg border-0">
             <div class="modal-header bg-light border-bottom-0 pb-3 pt-4 px-4 rounded-top-4">
                 <div>
                     <h5 class="modal-title fw-bold text-dark fs-5"><i class="fas fa-cloud-upload-alt text-primary me-2"></i>Upload Record</h5>
-                    <p class="text-muted mb-0 fs-xs mt-1">Indexing to: <span class="fw-bold text-primary"><?php echo htmlspecialchars($type_filter); ?></span></p>
+                    <p class="text-muted mb-0 fs-xs mt-1">Select a target folder or scan the document.</p>
                 </div>
                 <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal" style="margin-top: -15px;"></button>
             </div>
             <div class="modal-body p-4 bg-f8f9fa rounded-bottom-4">
                 <form action="actions/upload_handler.php" method="POST" enctype="multipart/form-data">
                     <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                    <input type="hidden" name="category" value="<?php echo htmlspecialchars($type_filter); ?>">
+                    <input type="file" name="document" id="uploadDocumentInput" class="d-none" required>
                     
                     <div class="mb-3">
-                        <label class="form-label text-muted fs-xs fw-bold text-uppercase">Select File <span class="text-danger">*</span></label>
-                        <div class="border border-dashed p-4 text-center rounded-3 bg-white position-relative" style="border-color: #cbd5e1 !important; border-style: dashed !important; border-width: 2px !important;">
-                            <i class="fas fa-file-import text-primary fs-2 mb-2 opacity-75"></i>
-                            <div class="fs-sm text-dark fw-medium mb-1">Click to browse or drag file here</div>
-                            <div class="fs-xs text-muted mb-3">PDF, DOCX, XLSX, JPG, PNG (Max 5MB)</div>
-                            <input type="file" name="document" class="form-control border-0 shadow-none bg-light fs-sm mx-auto" required style="max-width: 250px;">
+                        <label class="form-label text-muted fs-xs fw-bold text-uppercase">Target Folder <span class="text-danger">*</span></label>
+                        <select name="category" id="uploadCategorySelect" class="form-select shadow-none bg-white fw-medium" required>
+                            <option value="">Select Target Folder</option>
+                            <?php 
+                            if (!empty($parent_filter) && isset($parent_folders[$parent_filter])) {
+                                // 1. KUNG NASA LOOB NG MAIN FOLDER: Ipapakita lang ang mga sub-folders nito
+                                echo '<optgroup label="'.htmlspecialchars($parent_filter).'">';
+                                foreach($parent_folders[$parent_filter] as $s) {
+                                    if ($is_top_mgmt || in_array($s, $user_categories)) {
+                                        $selected = ($type_filter === $s) ? 'selected' : '';
+                                        echo '<option value="'.htmlspecialchars($s).'" '.$selected.'>'.htmlspecialchars($s).'</option>';
+                                    }
+                                }
+                                echo '</optgroup>';
+                            } else {
+                                // 2. KUNG NASA LABAS (DASHBOARD): Ipapakita lahat ng main folders at sub-folders nila
+                                foreach($parent_folders as $p => $subs) {
+                                    echo '<optgroup label="'.htmlspecialchars($p).'">';
+                                    foreach($subs as $s) {
+                                        if ($is_top_mgmt || in_array($s, $user_categories)) {
+                                            $selected = ($type_filter === $s) ? 'selected' : '';
+                                            echo '<option value="'.htmlspecialchars($s).'" '.$selected.'>'.htmlspecialchars($s).'</option>';
+                                        }
+                                    }
+                                    echo '</optgroup>';
+                                }
+                            }
+                            ?>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label text-muted fs-xs fw-bold text-uppercase">Choose Input Method <span class="text-danger">*</span></label>
+                        <div class="border border-light rounded-4 bg-white p-3 shadow-sm">
+                            <div class="row g-2">
+                                <div class="col-12 col-md-6">
+                                    <button type="button" id="uploadBrowseBtn" class="btn btn-outline-primary w-100 py-2 fw-semibold">
+                                        <i class="fas fa-folder-open me-1"></i> Browse Files
+                                    </button>
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <button type="button" id="uploadCameraBtn" class="btn btn-primary w-100 py-2 fw-semibold">
+                                        <i class="fas fa-camera me-1"></i> Use Camera
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="uploadChosenFileText" class="fs-xs text-muted mt-3">No file selected yet.</div>
+
+                            <!-- START: Document Classification UI -->
+                            <div id="classificationSuggestion" class="d-none mt-3 p-3 rounded-3 bg-primary bg-opacity-10 border border-primary border-opacity-25 shadow-sm">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="spinner-border spinner-border-sm text-primary d-none" id="classificationLoader" role="status"></div>
+                                        <i class="fas fa-magic text-primary" id="classificationIcon"></i>
+                                        <div class="lh-1 text-start">
+                                            <span class="fs-xs fw-bold text-primary text-uppercase letter-spacing-tight d-block mb-1">Suggested Folder</span>
+                                            <span class="fs-sm fw-bold text-dark" id="suggestedFolderName">Scanning...</span>
+                                        </div>
+                                    </div>
+                                    <div id="classificationActions" class="d-none">
+                                        <button type="button" class="btn btn-sm btn-light border fw-medium fs-xs px-2 py-1 me-1 shadow-sm text-secondary" id="btnRejectSuggestion">Ignore</button>
+                                        <button type="button" class="btn btn-sm btn-primary fw-bold fs-xs px-2 py-1 shadow-sm" id="btnAcceptSuggestion">Apply</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- END: Document Classification UI -->
+
+                        </div>
+                    </div>
+
+                    <div id="cameraPanel" class="d-none mb-3">
+                        <div class="border rounded-4 bg-dark overflow-hidden shadow-sm">
+                            <div class="ratio ratio-4x3 bg-black">
+                                <video id="cameraVideo" class="w-100 h-100 object-fit-cover" autoplay playsinline muted></video>
+                                <img id="cameraPreviewImage" class="w-100 h-100 object-fit-cover d-none" alt="Captured photo preview">
+                                <canvas id="cameraCanvas" class="d-none"></canvas>
+                            </div>
+                        </div>
+                        <div id="cameraStatusMessage" class="small text-muted mt-2"></div>
+                        <div class="d-flex flex-wrap gap-2 mt-3">
+                            <button type="button" id="capturePhotoBtn" class="btn btn-dark flex-grow-1 py-2 fw-semibold">
+                                <i class="fas fa-circle me-1"></i> Capture Photo
+                            </button>
+                            <button type="button" id="retakePhotoBtn" class="btn btn-outline-secondary flex-grow-1 py-2 fw-semibold d-none">
+                                <i class="fas fa-redo me-1"></i> Retake
+                            </button>
+                            <button type="button" id="usePhotoBtn" class="btn btn-success flex-grow-1 py-2 fw-semibold d-none">
+                                <i class="fas fa-check me-1"></i> Use Photo
+                            </button>
                         </div>
                     </div>
 
@@ -1847,79 +2241,150 @@ if(isset($_GET['success'])) {
         </div>
     </div>
 </div>
+
+
 <?php endif; ?>
+
+<?php endif; ?> <!-- End If Non-Admin For Restricted Modals -->
 
 <!-- EDIT RETENTION POLICIES MODAL -->
 <?php if (has_permission($conn, $_SESSION['user_id'], 'can_edit_policies')): ?>
 <div class="modal fade sleek-modal" id="editPoliciesModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-lg">
-        <div class="modal-content shadow-lg border-0">
-            <div class="modal-header bg-light border-bottom-0 pb-3 pt-4 px-4 rounded-top-4">
-                <div>
-                    <h5 class="modal-title fw-bold text-dark fs-5"><i class="fas fa-balance-scale text-primary me-2"></i>Retention Policies</h5>
-                    <p class="text-muted mb-0 fs-xs mt-1">Configure legal compliance and data lifecycle rules.</p>
-                </div>
-                <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal" style="margin-top: -15px;"></button>
+        <div class="modal-content border-0 shadow" style="border-radius: 12px; overflow: hidden;">
+            <div class="modal-header bg-light border-bottom">
+                <h5 class="modal-title fw-bold text-dark"><i class="fas fa-balance-scale me-2 text-primary"></i> Retention Policies Dictionary</h5>
+                <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body p-4 bg-f8f9fa rounded-bottom-4">
-                <div class="table-responsive">
-                    <table class="table table-hover bg-white border rounded-3 overflow-hidden shadow-sm">
-                        <thead class="bg-light">
-                            <tr>
-                                <th class="fs-xs text-muted text-uppercase fw-bold border-0">Policy Name</th>
-                                <th class="fs-xs text-muted text-uppercase fw-bold border-0">Retention Period</th>
-                                <th class="fs-xs text-muted text-uppercase fw-bold border-0">Action After Expiry</th>
-                                <th class="fs-xs text-muted text-uppercase fw-bold border-0 text-end">Edit</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($policies as $pol): ?>
-                            <tr>
-                                <td class="fw-medium text-dark align-middle border-light"><?php echo htmlspecialchars($pol['policy_name']); ?></td>
-                                <td class="align-middle border-light"><span class="badge bg-primary bg-opacity-10 text-primary px-2"><?php echo $pol['retention_years']; ?> Years</span></td>
-                                <td class="align-middle border-light"><span class="badge bg-warning bg-opacity-10 text-warning px-2"><?php echo htmlspecialchars($pol['action_after_retention']); ?></span></td>
-                                <td class="text-end align-middle border-light">
-                                    <button class="btn btn-sm btn-light border shadow-none" onclick="editPolicy(<?php echo $pol['policy_id']; ?>, '<?php echo htmlspecialchars(addslashes($pol['policy_name'])); ?>', <?php echo $pol['retention_years']; ?>, '<?php echo htmlspecialchars(addslashes($pol['action_after_retention'])); ?>')">
-                                        <i class="fas fa-edit text-secondary"></i>
-                                    </button>
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
+            <div class="modal-body pt-3 pb-4 bg-white">
+                
+                <!-- TRIGGER BUTTON AT HEADER -->
+                <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+                    <h6 class="fw-bold text-dark mb-0">Existing Policies</h6>
+                    <button class="btn btn-sm btn-primary fw-bold shadow-sm" type="button" data-bs-toggle="collapse" data-bs-target="#collapseCreatePolicy" aria-expanded="false" aria-controls="collapseCreatePolicy">
+                        <i class="fas fa-plus me-1"></i> Add New Policy
+                    </button>
                 </div>
 
-                <div id="editPolicyFormContainer" class="d-none mt-4 p-3 border rounded-3 bg-white shadow-sm">
-                    <h6 class="fw-bold text-dark mb-3 fs-sm"><i class="fas fa-pen me-2 text-primary"></i>Modify Policy</h6>
-                    <form action="documents.php" method="POST">
-                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                        <input type="hidden" name="action" value="edit_policy">
-                        <input type="hidden" name="policy_id" id="editPolId">
-                        
-                        <div class="row g-3">
-                            <div class="col-md-4">
-                                <label class="form-label fs-xs fw-bold text-muted text-uppercase">Policy Name</label>
-                                <input type="text" name="policy_name" id="editPolName" class="form-control form-control-sm shadow-none" required>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label fs-xs fw-bold text-muted text-uppercase">Retention Years</label>
-                                <input type="number" name="retention_years" id="editPolYears" class="form-control form-control-sm shadow-none" min="1" required>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label fs-xs fw-bold text-muted text-uppercase">Action After Expiry</label>
-                                <select name="action_after_retention" id="editPolAction" class="form-select form-select-sm shadow-none">
-                                    <option value="Review before archive">Review before archive</option>
-                                    <option value="Auto-archive">Auto-archive</option>
-                                    <option value="Review for permanent deletion">Review for permanent deletion</option>
-                                    <option value="Auto-delete">Auto-delete</option>
-                                </select>
-                            </div>
-                            <div class="col-12 text-end mt-3">
-                                <button type="button" class="btn btn-sm btn-light border px-3" onclick="document.getElementById('editPolicyFormContainer').classList.add('d-none')">Cancel</button>
-                                <button type="submit" class="btn btn-sm btn-success px-4 ms-2 shadow-sm fw-bold">Save Changes</button>
+                <!-- NAKA-HIDE NA CREATE FORM (Lalabas lang pag pinindot ang button) -->
+                <div class="collapse mb-4" id="collapseCreatePolicy">
+                    <div class="card border border-primary border-opacity-25 shadow-sm rounded-3">
+                        <div class="card-body p-4 bg-primary bg-opacity-10">
+                            <h6 class="fw-bold text-primary mb-3"><i class="fas fa-folder-plus me-2"></i>New Policy Details</h6>
+                            <form action="documents.php" method="POST">
+                                <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                                <input type="hidden" name="action" value="create_policy">
+                                <div class="row g-3">
+                                    <div class="col-12">
+                                        <label class="form-label fw-semibold small text-secondary text-uppercase">Policy Name</label>
+                                        <input type="text" name="policy_name" class="form-control bg-white fw-medium shadow-none border-0" placeholder="e.g. HR Files" required>
+                                    </div>
+                                    <div class="col-md-3 col-6">
+                                        <label class="form-label fw-semibold small text-secondary text-uppercase">Active (Yrs)</label>
+                                        <input type="number" name="active_years" class="form-control bg-white fw-bold text-primary shadow-none border-0" min="0" value="0" required>
+                                    </div>
+                                    <div class="col-md-3 col-6">
+                                        <label class="form-label fw-semibold small text-secondary text-uppercase">Active (Mos)</label>
+                                        <input type="number" name="active_months" class="form-control bg-white fw-bold text-primary shadow-none border-0" min="0" max="11" value="0" required>
+                                    </div>
+                                    <div class="col-md-3 col-6">
+                                        <label class="form-label fw-semibold small text-secondary text-uppercase">Archive (Yrs)</label>
+                                        <input type="number" name="archive_years" class="form-control bg-white fw-bold text-danger shadow-none border-0" min="0" value="0" required>
+                                    </div>
+                                    <div class="col-md-3 col-6">
+                                        <label class="form-label fw-semibold small text-secondary text-uppercase">Archive (Mos)</label>
+                                        <input type="number" name="archive_months" class="form-control bg-white fw-bold text-danger shadow-none border-0" min="0" max="11" value="0" required>
+                                    </div>
+                                    <div class="col-12 text-end mt-4">
+                                        <button type="button" class="btn btn-light fw-medium border px-3 me-2" data-bs-toggle="collapse" data-bs-target="#collapseCreatePolicy">Cancel</button>
+                                        <button type="submit" class="btn btn-primary fw-bold px-4 shadow-sm">Save Policy</button>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="accordion" id="policiesAccordion">
+                    <?php foreach($policies as $idx => $pol): 
+                        // Kunin ang mga folders na naka-connect sa policy na ito
+                        $pol_id = $pol['policy_id'];
+                        $linked_folders = [];
+                        $q_linked = $conn->query("SELECT parent_category, sub_category FROM document_categories WHERE policy_id = $pol_id");
+                        if ($q_linked) {
+                            while($lf = $q_linked->fetch_assoc()) {
+                                $linked_folders[] = $lf['parent_category'] . ' > ' . $lf['sub_category'];
+                            }
+                        }
+                        $linked_folders_json = htmlspecialchars(json_encode($linked_folders), ENT_QUOTES, 'UTF-8');
+                    ?>
+                    <div class="accordion-item border mb-2 rounded-3 overflow-hidden bg-white">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed bg-light fw-bold text-dark" type="button" data-bs-toggle="collapse" data-bs-target="#collapsePol<?php echo $pol['policy_id']; ?>" aria-expanded="false">
+                                <div class="d-flex w-100 justify-content-between align-items-center pe-3">
+                                    <span><i class="fas fa-shield-alt text-primary me-2"></i> <?php echo htmlspecialchars($pol['policy_name']); ?></span>
+                                    <span class="badge bg-white text-dark border shadow-sm" style="font-size: 0.75rem;">
+                                        Act: <?php echo (int)$pol['active_years']; ?>Y <?php echo (int)$pol['active_months']; ?>M | 
+                                        Arc: <?php echo (int)$pol['archive_years']; ?>Y <?php echo (int)$pol['archive_months']; ?>M
+                                    </span>
+                                </div>
+                            </button>
+                        </h2>
+                        <div id="collapsePol<?php echo $pol['policy_id']; ?>" class="accordion-collapse collapse" data-bs-parent="#policiesAccordion">
+                            <div class="accordion-body">
+                                <form action="documents.php" method="POST">
+                                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                                    <input type="hidden" name="action" value="edit_policy">
+                                    <input type="hidden" name="policy_id" value="<?php echo $pol['policy_id']; ?>">
+                                    <div class="row g-3">
+                                        <div class="col-md-12">
+                                            <label class="form-label small fw-bold text-muted text-uppercase">Policy Identifier Name</label>
+                                            <input type="text" name="policy_name" class="form-control bg-light fw-medium" value="<?php echo htmlspecialchars($pol['policy_name']); ?>" required>
+                                        </div>
+                                        <div class="col-md-3 col-6">
+                                            <label class="form-label fw-semibold small text-secondary text-uppercase">Active (Yrs)</label>
+                                            <input type="number" name="active_years" class="form-control bg-light fw-bold text-primary" value="<?php echo (int)$pol['active_years']; ?>" min="0" required>
+                                        </div>
+                                        <div class="col-md-3 col-6">
+                                            <label class="form-label fw-semibold small text-secondary text-uppercase">Active (Mos)</label>
+                                            <input type="number" name="active_months" class="form-control bg-light fw-bold text-primary" value="<?php echo (int)$pol['active_months']; ?>" min="0" max="11" required>
+                                        </div>
+                                        <div class="col-md-3 col-6">
+                                            <label class="form-label fw-semibold small text-secondary text-uppercase">Archive (Yrs)</label>
+                                            <input type="number" name="archive_years" class="form-control bg-light fw-bold text-danger" value="<?php echo (int)$pol['archive_years']; ?>" min="0" required>
+                                        </div>
+                                        <div class="col-md-3 col-6">
+                                            <label class="form-label fw-semibold small text-secondary text-uppercase">Archive (Mos)</label>
+                                            <input type="number" name="archive_months" class="form-control bg-light fw-bold text-danger" value="<?php echo (int)$pol['archive_months']; ?>" min="0" max="11" required>
+                                        </div>
+                                        
+                                        <div class="col-12 mt-3 d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <button type="button" class="btn btn-sm btn-outline-info px-3 py-2 fw-medium shadow-sm me-2" onclick="viewConnectedFolders(this)" data-folders="<?php echo $linked_folders_json; ?>">
+                                                    <i class="fas fa-eye me-1"></i> View Connected Folders
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-outline-danger px-3 py-2 fw-medium shadow-sm" onclick="confirmDeletePolicy(<?php echo $pol['policy_id']; ?>)">
+                                                    <i class="fas fa-trash-alt me-1"></i> Delete Policy
+                                                </button>
+                                            </div>
+                                            <button type="submit" class="btn btn-sm btn-primary px-3 py-2 fw-medium shadow-sm">
+                                                <i class="fas fa-save me-1"></i> Update Policy Settings
+                                            </button>
+                                        </div>
+                                    </div>
+                                </form>
+                                
+                                <!-- HIDDEN FORM PARA SA DELETE POLICY -->
+                                <form id="deletePolicyForm_<?php echo $pol['policy_id']; ?>" action="documents.php" method="POST" class="d-none">
+                                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                                    <input type="hidden" name="action" value="delete_policy">
+                                    <input type="hidden" name="policy_id" value="<?php echo $pol['policy_id']; ?>">
+                                </form>
+                                
                             </div>
                         </div>
-                    </form>
+                    </div>
+                    <?php endforeach; ?>
                 </div>
             </div>
         </div>
@@ -2008,10 +2473,16 @@ if(isset($_GET['success'])) {
                             <option value="">-- Select Legal Policy --</option>
                             <?php foreach ($policies as $pol): ?>
                                 <option value="<?php echo $pol['policy_id']; ?>">
-                                    <?php echo htmlspecialchars($pol['policy_name']); ?> (<?php echo $pol['retention_years']; ?> Years)
+                                    <?php echo htmlspecialchars($pol['policy_name']); ?> (Act: <?php echo $pol['active_years']; ?>Y <?php echo $pol['active_months']; ?>M, Arc: <?php echo $pol['archive_years']; ?>Y <?php echo $pol['archive_months']; ?>M)
                                 </option>
                             <?php endforeach; ?>
                         </select>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label fw-bold small text-muted text-uppercase letter-spacing-tight">Auto-Classification Keywords <span class="text-muted fw-normal fs-xs">(Optional)</span></label>
+                        <textarea name="classification_keywords" class="form-control shadow-none bg-light fs-sm" rows="2" placeholder="e.g. invoice, billing, receipt (comma separated)"></textarea>
+                        <div class="form-text fs-xs mt-1"><i class="fas fa-magic text-primary me-1"></i> Files containing these words will be auto-suggested to this folder during upload.</div>
                     </div>
 
                     <div class="d-flex justify-content-end gap-2">
@@ -2025,6 +2496,86 @@ if(isset($_GET['success'])) {
 </div>
 <?php endif; ?>
 
+<!-- CHANGE FOLDER POLICY MODAL -->
+<?php if (!empty($parent_filter) && empty($type_filter) && $can_manage): ?>
+<div class="modal fade sleek-modal" id="editFolderPolicyModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content shadow-lg border-0">
+            <div class="modal-header border-bottom-0 pb-0">
+                <h5 class="modal-title fw-bold text-dark fs-5"><i class="fas fa-exchange-alt text-primary me-2"></i>Change Folder Policy</h5>
+                <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body pt-3">
+                <form action="documents.php" method="POST">
+                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                    <input type="hidden" name="action" value="edit_folder_policy">
+                    <input type="hidden" name="parent_name" id="efParentName">
+                    <input type="hidden" name="sub_name" id="efSubName">
+                    
+                    <div class="alert bg-light border text-muted fs-sm mb-3">
+                        Updating policy for folder: <br><span class="fw-bold text-dark fs-6" id="efFolderNameDisplay"></span><br>
+                        <span class="d-inline-block mt-1">Current Policy: <strong class="text-primary" id="efCurrentPolicyDisplay"></strong></span>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label fw-bold small text-muted text-uppercase letter-spacing-tight">Assign New Policy <span class="text-danger">*</span></label>
+                        <select name="new_policy_id" class="form-select shadow-none bg-light" required>
+                            <option value="">-- Select New Policy --</option>
+                            <?php foreach ($policies as $pol): ?>
+                                <option value="<?php echo $pol['policy_id']; ?>">
+                                    <?php echo htmlspecialchars($pol['policy_name']); ?> (Act: <?php echo $pol['active_years']; ?>Y <?php echo $pol['active_months']; ?>M, Arc: <?php echo $pol['archive_years']; ?>Y <?php echo $pol['archive_months']; ?>M)
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <div class="d-flex justify-content-end gap-2">
+                        <button type="button" class="btn btn-light sleek-btn-sm" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary sleek-btn-sm px-4">Save Changes</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
+<!-- EDIT KEYWORDS MODAL -->
+<div class="modal fade sleek-modal" id="editKeywordsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content shadow-lg border-0">
+            <div class="modal-header bg-light border-bottom-0 pb-3 pt-4 px-4 rounded-top-4">
+                <div>
+                    <h5 class="modal-title fw-bold text-dark fs-5"><i class="fas fa-tags text-primary me-2"></i>Edit Keywords</h5>
+                    <p class="text-muted mb-0 fs-xs mt-1">Folder: <span class="fw-bold text-primary" id="ekFolderNameDisplay"></span></p>
+                </div>
+                <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal" style="margin-top: -15px;"></button>
+            </div>
+            <div class="modal-body p-4 bg-f8f9fa rounded-bottom-4">
+                <form action="documents.php<?php echo !empty($_SERVER['QUERY_STRING']) ? '?'.$_SERVER['QUERY_STRING'] : ''; ?>" method="POST">
+                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                    <input type="hidden" name="action" value="update_keywords">
+                    <input type="hidden" name="category_name" id="ekCategoryName">
+                    
+                    <div class="mb-4">
+                        <label class="form-label fw-bold small text-muted text-uppercase letter-spacing-tight">Auto-Classification Keywords</label>
+                        <div class="position-relative">
+                            <textarea name="classification_keywords" id="ekKeywordsInput" class="form-control shadow-none bg-white fs-sm" rows="3" placeholder="e.g. invoice, billing, receipt (comma separated)" disabled></textarea>
+                            <div class="spinner-border spinner-border-sm text-primary position-absolute" id="ekLoader" style="top: 15px; right: 15px; display: none;" role="status"></div>
+                        </div>
+                        <div class="form-text fs-xs mt-2"><i class="fas fa-info-circle text-primary me-1"></i> Add, edit, or remove keywords. Separate multiple keywords using commas.</div>
+                    </div>
+                    
+                    <div class="d-flex justify-content-end gap-2">
+                        <button type="button" class="btn btn-light bg-white border fw-medium px-4 shadow-sm rounded-3" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary fw-bold px-4 shadow-sm rounded-3"><i class="fas fa-save me-2"></i>Save Changes</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
 
 <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -2034,25 +2585,34 @@ if(isset($_GET['success'])) {
 
 <script>
     $(document).ready(function() {
-        $('#documentsTable').DataTable({
-            "order": [],
-            "pageLength": 15,
-            "lengthChange": true,
-            "lengthMenu": [[10, 15, 25, 50, 100], [10, 15, 25, 50, 100]], 
-            "searching": false, 
-            "info": true,
-            // DOM Structure: Table inside scroll container, Info/Length/Paginate in bottom fixed bar
-            "dom": '<"table-scroll-container"t><"bottom-pagination-bar"ilp>',
-            "language": {
-                "emptyTable": "<div class='text-center p-5 text-muted'><i class='fas fa-folder-open fa-3x mb-3 opacity-50'></i><br><h5>No documents found</h5><p class='mb-0 fs-sm'>Upload a file to get started.</p></div>",
-                "info": "Showing _START_ to _END_ of _TOTAL_ items",
-                "lengthMenu": "Items per page _MENU_",
-                "paginate": {
-                    "previous": "<i class='fas fa-chevron-left'></i>",
-                    "next": "<i class='fas fa-chevron-right'></i>"
+        if (document.getElementById('documentsTable')) {
+            $('#documentsTable').DataTable({
+                "order": [],
+                "pageLength": 15,
+                "lengthChange": true,
+                "lengthMenu": [[10, 15, 25, 50, 100], [10, 15, 25, 50, 100]], 
+                "searching": false, 
+                "info": true,
+                // DOM Structure: Table inside scroll container, Info/Length/Paginate in bottom fixed bar
+                "dom": '<"table-scroll-container"t><"bottom-pagination-bar"ilp>',
+                "language": {
+                    "emptyTable": "<div class='text-center p-5 text-muted'><i class='fas fa-folder-open fa-3x mb-3 opacity-50'></i><br><h5>No documents found</h5><p class='mb-0 fs-sm'>Upload a file to get started.</p></div>",
+                    "info": "Showing _START_ to _END_ of _TOTAL_ items",
+                    "lengthMenu": "Items per page _MENU_",
+                    "paginate": {
+                        "previous": "<i class='fas fa-chevron-left'></i>",
+                        "next": "<i class='fas fa-chevron-right'></i>"
+                    }
+                },
+                "drawCallback": function(settings) {
+                    // Ensure table wrapper always fills remaining height
+                    $('.dataTables_wrapper').css('height', '100%');
                 }
-            }
-        });
+            });
+
+            // Trigger DataTables redraw on window resize to fix scrolling bounds
+            $(window).on('resize', function() { table.columns.adjust(); });
+        }
 
         const Toast = Swal.mixin({
             toast: true,
@@ -2072,6 +2632,340 @@ if(isset($_GET['success'])) {
         }
     });
 
+    <?php if ($role !== 'Admin'): ?>
+    let uploadCameraStream = null;
+    let capturedPhotoUrl = '';
+
+    function uploadModalElements() {
+        return {
+            modal: document.getElementById('uploadModal'),
+            fileInput: document.getElementById('uploadDocumentInput'),
+            browseBtn: document.getElementById('uploadBrowseBtn'),
+            cameraBtn: document.getElementById('uploadCameraBtn'),
+            chosenFileText: document.getElementById('uploadChosenFileText'),
+            cameraPanel: document.getElementById('cameraPanel'),
+            cameraVideo: document.getElementById('cameraVideo'),
+            cameraPreviewImage: document.getElementById('cameraPreviewImage'),
+            cameraCanvas: document.getElementById('cameraCanvas'),
+            cameraStatusMessage: document.getElementById('cameraStatusMessage'),
+            capturePhotoBtn: document.getElementById('capturePhotoBtn'),
+            retakePhotoBtn: document.getElementById('retakePhotoBtn'),
+            usePhotoBtn: document.getElementById('usePhotoBtn')
+        };
+    }
+
+    function setUploadStatus(message, isError = false) {
+        const { cameraStatusMessage } = uploadModalElements();
+        if (!cameraStatusMessage) return;
+        cameraStatusMessage.textContent = message;
+        cameraStatusMessage.classList.toggle('text-danger', isError);
+        cameraStatusMessage.classList.toggle('text-muted', !isError);
+    }
+
+    function setChosenFileText(text) {
+        const { chosenFileText } = uploadModalElements();
+        if (chosenFileText) {
+            chosenFileText.textContent = text;
+        }
+    }
+
+    function clearCapturedPhotoUrl() {
+        if (capturedPhotoUrl) {
+            URL.revokeObjectURL(capturedPhotoUrl);
+            capturedPhotoUrl = '';
+        }
+    }
+
+    function stopUploadCameraStream() {
+        if (uploadCameraStream) {
+            uploadCameraStream.getTracks().forEach(track => track.stop());
+            uploadCameraStream = null;
+        }
+        const { cameraVideo } = uploadModalElements();
+        if (cameraVideo) {
+            cameraVideo.srcObject = null;
+        }
+    }
+
+    function resetUploadCameraPanel() {
+        const { cameraPanel, cameraVideo, cameraPreviewImage, capturePhotoBtn, retakePhotoBtn, usePhotoBtn } = uploadModalElements();
+        if (!cameraPanel) return;
+
+        stopUploadCameraStream();
+        clearCapturedPhotoUrl();
+
+        cameraPanel.classList.add('d-none');
+        if (cameraVideo) cameraVideo.classList.remove('d-none');
+        if (cameraPreviewImage) {
+            cameraPreviewImage.classList.add('d-none');
+            cameraPreviewImage.removeAttribute('src');
+        }
+        if (capturePhotoBtn) capturePhotoBtn.classList.remove('d-none');
+        if (retakePhotoBtn) retakePhotoBtn.classList.add('d-none');
+        if (usePhotoBtn) usePhotoBtn.classList.add('d-none');
+        setUploadStatus('');
+    }
+
+    function getCapturedFileName() {
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        return `camera-capture-${stamp}.jpg`;
+    }
+
+    function setFileInputFromBlob(blob) {
+        const { fileInput } = uploadModalElements();
+        if (!fileInput) return null;
+
+        const file = new File([blob], getCapturedFileName(), { type: 'image/jpeg' });
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(file);
+        fileInput.files = dataTransfer.files;
+        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+        return file;
+    }
+
+    async function startUploadCamera() {
+        const { fileInput, cameraPanel, cameraVideo, cameraPreviewImage, capturePhotoBtn, retakePhotoBtn, usePhotoBtn } = uploadModalElements();
+        if (!cameraPanel || !cameraVideo) return;
+
+        resetUploadCameraPanel();
+        if (fileInput) {
+            fileInput.value = '';
+        }
+        setChosenFileText('No file selected yet.');
+        cameraPanel.classList.remove('d-none');
+        setUploadStatus('Requesting camera access...');
+
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            setUploadStatus('Camera is not supported in this browser. Use Browse Files instead.', true);
+            return;
+        }
+
+        const constraintsList = [
+            { video: { facingMode: { ideal: 'environment' } }, audio: false },
+            { video: true, audio: false }
+        ];
+
+        let lastError = null;
+        for (const constraints of constraintsList) {
+            try {
+                uploadCameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+                break;
+            } catch (error) {
+                lastError = error;
+                uploadCameraStream = null;
+            }
+        }
+
+        if (!uploadCameraStream) {
+            const errorName = lastError && lastError.name ? lastError.name : 'Error';
+            const friendlyMessage = errorName === 'NotAllowedError' || errorName === 'PermissionDeniedError'
+                ? 'Camera permission was denied. You can still use Browse Files.'
+                : errorName === 'NotFoundError' || errorName === 'OverconstrainedError'
+                    ? 'No usable camera was found on this device. Use Browse Files instead.'
+                    : 'Unable to open the camera right now. Use Browse Files instead.';
+            setUploadStatus(friendlyMessage, true);
+            return;
+        }
+
+        cameraVideo.srcObject = uploadCameraStream;
+        try {
+            await cameraVideo.play();
+        } catch (error) {
+            // Some browsers resolve the stream but still require a user gesture before playback.
+        }
+
+        if (cameraPreviewImage) cameraPreviewImage.classList.add('d-none');
+        if (capturePhotoBtn) capturePhotoBtn.classList.remove('d-none');
+        if (retakePhotoBtn) retakePhotoBtn.classList.add('d-none');
+        if (usePhotoBtn) usePhotoBtn.classList.add('d-none');
+        setUploadStatus('Live camera ready. Capture a photo when you are ready.');
+    }
+
+    function captureUploadPhoto() {
+        const { cameraVideo, cameraPreviewImage, cameraCanvas, capturePhotoBtn, retakePhotoBtn, usePhotoBtn } = uploadModalElements();
+        if (!cameraVideo || !cameraCanvas || !cameraPreviewImage) return;
+
+        if (!cameraVideo.videoWidth || !cameraVideo.videoHeight) {
+            setUploadStatus('Camera preview is not ready yet. Please try again.', true);
+            return;
+        }
+
+        cameraCanvas.width = cameraVideo.videoWidth;
+        cameraCanvas.height = cameraVideo.videoHeight;
+        const context = cameraCanvas.getContext('2d');
+        if (!context) {
+            setUploadStatus('Unable to access the camera canvas. Please try again.', true);
+            return;
+        }
+        context.drawImage(cameraVideo, 0, 0, cameraCanvas.width, cameraCanvas.height);
+
+        cameraCanvas.toBlob(function(blob) {
+            if (!blob) {
+                setUploadStatus('Unable to capture the photo. Please try again.', true);
+                return;
+            }
+
+            clearCapturedPhotoUrl();
+            const file = setFileInputFromBlob(blob);
+            if (!file) {
+                setUploadStatus('Unable to prepare the captured photo for upload.', true);
+                return;
+            }
+
+            capturedPhotoUrl = URL.createObjectURL(file);
+            cameraPreviewImage.src = capturedPhotoUrl;
+            cameraPreviewImage.classList.remove('d-none');
+            cameraVideo.classList.add('d-none');
+            if (capturePhotoBtn) capturePhotoBtn.classList.add('d-none');
+            if (retakePhotoBtn) retakePhotoBtn.classList.remove('d-none');
+            if (usePhotoBtn) usePhotoBtn.classList.remove('d-none');
+            setUploadStatus('Photo captured. Review it, then choose Use Photo or Retake.');
+        }, 'image/jpeg', 0.92);
+    }
+
+    function useCapturedUploadPhoto() {
+        const { fileInput } = uploadModalElements();
+        if (!fileInput || !fileInput.files || !fileInput.files.length) {
+            setUploadStatus('Capture a photo first before using it.', true);
+            return;
+        }
+
+        setChosenFileText(`Selected file: ${fileInput.files[0].name}`);
+        setUploadStatus('Captured photo selected for upload.');
+        stopUploadCameraStream();
+        
+        analyzeDocument(fileInput.files[0]); // Added Document Analysis
+    }
+
+    function browseUploadFiles() {
+        const { fileInput } = uploadModalElements();
+        if (!fileInput) return;
+
+        resetUploadCameraPanel();
+        fileInput.click();
+    }
+
+    function handleUploadFileSelection(event) {
+        const file = event.target.files && event.target.files[0];
+        if (!file) {
+            setChosenFileText('No file selected yet.');
+            document.getElementById('classificationSuggestion').classList.add('d-none');
+            return;
+        }
+
+        setChosenFileText(`Selected file: ${file.name}`);
+        if (!file.type.startsWith('image/')) {
+            resetUploadCameraPanel();
+        }
+        
+        analyzeDocument(file); // Added Document Analysis
+    }
+
+    // START: Document Classification AJAX Engine
+    function analyzeDocument(file) {
+        const suggestionBox = document.getElementById('classificationSuggestion');
+        const loader = document.getElementById('classificationLoader');
+        const icon = document.getElementById('classificationIcon');
+        const nameDisplay = document.getElementById('suggestedFolderName');
+        const actions = document.getElementById('classificationActions');
+        
+        // Reset UI to scanning state
+        suggestionBox.classList.remove('d-none', 'bg-success', 'border-success');
+        suggestionBox.classList.add('bg-primary', 'border-primary');
+        icon.classList.replace('fa-check-circle', 'fa-magic');
+        icon.classList.replace('text-success', 'text-primary');
+        nameDisplay.classList.remove('text-success');
+        
+        loader.classList.remove('d-none');
+        icon.classList.add('d-none');
+        actions.classList.add('d-none');
+        nameDisplay.innerText = "Analyzing document content...";
+
+        let formData = new FormData();
+        formData.append('action', 'analyze_document');
+        formData.append('document', file);
+        formData.append('csrf_token', '<?php echo $_SESSION['csrf_token']; ?>');
+
+        $.ajax({
+            url: 'actions/upload_handler.php',
+            type: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            success: function(response) {
+                // ==========================================
+                // ==========================================
+                console.warn("=== PHP TEXT EXTRACTION DEBUG ===");
+                console.warn("FILE HAS BEEN PARSED.");
+                console.warn("EXTRACTED TEXT:\n", response.debug_text ? response.debug_text : "[BLANK / NO TEXT FOUND]");
+                console.warn("=================================");
+
+                loader.classList.add('d-none');
+                icon.classList.remove('d-none');
+                
+                if (response.status === 'success' && response.suggested_category) {
+                    nameDisplay.innerText = response.suggested_category;
+                    actions.classList.remove('d-none');
+                    
+                    document.getElementById('btnAcceptSuggestion').onclick = function() {
+                        const catSelect = document.getElementById('uploadCategorySelect');
+                        if (catSelect) {
+                            // Check kung nasa listahan ng dropdown ang suggested folder
+                            let optExists = Array.from(catSelect.options).some(opt => opt.value === response.suggested_category);
+                            
+                            if (optExists) {
+                                // Kung nasa listahan, piliin ito nang normal
+                                catSelect.value = response.suggested_category;
+                            } else {
+                                // Kung WALA sa listahan (dahil nasa ibang folder ka), idadagdag natin ito dynamically!
+                                let newOption = new Option(response.suggested_category + ' (Auto-Suggested)', response.suggested_category, true, true);
+                                catSelect.add(newOption);
+                            }
+                        }
+                        
+                        // Visual success feedback
+                        suggestionBox.classList.replace('bg-primary', 'bg-success');
+                        suggestionBox.classList.replace('border-primary', 'border-success');
+                        icon.classList.replace('fa-magic', 'fa-check-circle');
+                        icon.classList.replace('text-primary', 'text-success');
+                        nameDisplay.classList.add('text-success');
+                        actions.classList.add('d-none');
+                    };
+                    
+                    document.getElementById('btnRejectSuggestion').onclick = function() {
+                        suggestionBox.classList.add('d-none');
+                    };
+                } else {
+                    suggestionBox.classList.add('d-none'); // Hide quietly if no rule matches
+                }
+            },
+            error: function(xhr) {
+                console.error("=== SERVER CRASH LOG ===");
+                console.error("Namatay ang PHP script. Ito ang error mula sa server:");
+                console.error(xhr.responseText); // Ipi-print nito ang totoong PHP Fatal Error
+                suggestionBox.classList.add('d-none');
+            }
+        });
+    }
+    // END: Document Classification AJAX Engine
+
+    const uploadModal = document.getElementById('uploadModal');
+    if (uploadModal) {
+        const { fileInput, browseBtn, cameraBtn, capturePhotoBtn, retakePhotoBtn, usePhotoBtn } = uploadModalElements();
+        if (browseBtn) browseBtn.addEventListener('click', browseUploadFiles);
+        if (cameraBtn) cameraBtn.addEventListener('click', startUploadCamera);
+        if (capturePhotoBtn) capturePhotoBtn.addEventListener('click', captureUploadPhoto);
+        if (retakePhotoBtn) retakePhotoBtn.addEventListener('click', startUploadCamera);
+        if (usePhotoBtn) usePhotoBtn.addEventListener('click', useCapturedUploadPhoto);
+        if (fileInput) fileInput.addEventListener('change', handleUploadFileSelection);
+
+        uploadModal.addEventListener('hidden.bs.modal', function () {
+            resetUploadCameraPanel();
+            if (fileInput) fileInput.value = '';
+            setChosenFileText('No file selected yet.');
+        });
+    }
+
     let currentZoom = 1;
     let isDragging = false;
     let startX, startY, translateX = 0, translateY = 0;
@@ -2086,6 +2980,9 @@ if(isset($_GET['success'])) {
         const frameViewer = document.getElementById('documentViewerFrame');
         const zoomControls = document.getElementById('zoomControlsContainer');
         
+        let unsupportedMsg = document.getElementById('viewerUnsupportedMsg');
+        if (unsupportedMsg) unsupportedMsg.style.display = 'none';
+        
         loader.style.display = 'block';
         imgViewer.style.display = 'none';
         frameViewer.style.display = 'none';
@@ -2095,6 +2992,9 @@ if(isset($_GET['success'])) {
         translateY = 0;
         updateTransform();
         document.getElementById('viewerZoomLevel').innerText = '100%';
+
+        const ext = fileName.split('.').pop().toLowerCase();
+        const isPdf = (ext === 'pdf');
 
         if (isImage) {
             zoomControls.style.display = 'block';
@@ -2119,10 +3019,35 @@ if(isset($_GET['success'])) {
                 isDragging = false;
                 imgViewer.style.cursor = currentZoom > 1 ? 'grab' : 'default';
             };
-        } else {
+        } else if (isPdf) {
             zoomControls.style.display = 'none';
             frameViewer.onload = function() { loader.style.display = 'none'; frameViewer.style.display = 'block'; };
             frameViewer.src = filePath + '#toolbar=0&navpanes=0&scrollbar=0'; 
+        } else {
+            // KAPAG DOCX O EXCEL (Hindi kayang i-preview ng local browser)
+            zoomControls.style.display = 'none';
+            loader.style.display = 'none';
+            
+            if (!unsupportedMsg) {
+                unsupportedMsg = document.createElement('div');
+                unsupportedMsg.id = 'viewerUnsupportedMsg';
+                unsupportedMsg.className = 'text-center';
+                unsupportedMsg.style.zIndex = '1050';
+                document.getElementById('viewerContentWrapper').appendChild(unsupportedMsg);
+            }
+            unsupportedMsg.style.display = 'block';
+            unsupportedMsg.innerHTML = `
+                <div class="p-5 rounded-4 shadow-lg bg-white border text-dark text-center" style="max-width: 420px;">
+                    <div class="bg-primary bg-opacity-10 text-primary rounded-circle d-inline-flex align-items-center justify-content-center mb-4" style="width: 80px; height: 80px;">
+                        <i class="fas fa-file-word fa-3x"></i>
+                    </div>
+                    <h5 class="fw-bold mb-2">Preview Not Available</h5>
+                    <p class="text-muted fs-sm mb-4">Local browsers cannot view MS Office files directly. Please download the file to view its contents safely.</p>
+                    <a href="${filePath}" download="${fileName}" class="btn btn-primary fw-bold px-4 py-2 rounded-pill shadow-sm w-100 transition-all">
+                        <i class="fas fa-download me-2"></i> Download File
+                    </a>
+                </div>
+            `;
         }
 
         new bootstrap.Modal(document.getElementById('documentViewerModal')).show();
@@ -2152,6 +3077,9 @@ if(isset($_GET['success'])) {
         translateX = 0;
         translateY = 0;
         updateTransform();
+        
+        let unsupportedMsg = document.getElementById('viewerUnsupportedMsg');
+        if (unsupportedMsg) unsupportedMsg.style.display = 'none';
     });
 
     function openVersionModal(docId, fileName, canEdit) {
@@ -2220,21 +3148,38 @@ if(isset($_GET['success'])) {
         document.getElementById('shareDocName').innerText = fileName;
         document.getElementById('shareDocOwner').innerText = 'Owner: ' + ownerName;
         
-        const accessSelect = document.getElementById('shareAccessType');
-        accessSelect.value = accessType;
+        // I-update ang Hidden Input at Custom Text ng General Access
+        const accessInput = document.getElementById('shareAccessType');
+        accessInput.value = accessType;
+        const accessText = (accessType === 'Restricted') ? 'Restricted (Only selected people)' : 'Folder Default (Inherit Permissions)';
+        document.getElementById('generalAccessSelectedText').innerText = accessText;
         
         const perms = JSON.parse(filePermissionsStr || '{}');
         
-        document.querySelectorAll('select[name^="user_roles"]').forEach(select => {
-            select.value = 'None'; 
-            const userId = select.name.match(/\[(\d+)\]/)[1];
+        document.querySelectorAll('input[name^="user_roles"]').forEach(input => {
+            input.value = 'None'; 
+            const userId = input.name.match(/\[(\d+)\]/)[1];
+            let roleText = 'No Access';
+            
             if (perms['user_' + userId]) {
-                select.value = perms['user_' + userId];
+                input.value = perms['user_' + userId];
+                roleText = perms['user_' + userId];
             }
+            
+            // I-update ang text ng pill button
+            const textSpan = document.querySelector('.custom-role-dropdown[data-user-id="'+userId+'"] .selected-role-text');
+            if(textSpan) textSpan.innerText = roleText;
         });
 
         toggleShareList();
         new bootstrap.Modal(document.getElementById('shareDocumentModal')).show();
+    }
+
+    // Bagong function para sa custom General Access dropdown
+    function updateGeneralAccessSelection(value, text) {
+        document.getElementById('shareAccessType').value = value;
+        document.getElementById('generalAccessSelectedText').innerText = text;
+        toggleShareList(); // I-trigger ang pag-hide/show ng users list
     }
 
     function toggleShareList() {
@@ -2253,10 +3198,19 @@ if(isset($_GET['success'])) {
             help.classList.add('text-muted');
             help.classList.remove('text-danger');
             
-            document.querySelectorAll('select[name^="user_roles"]').forEach(select => {
-                select.value = 'None';
+            document.querySelectorAll('input[name^="user_roles"]').forEach(input => {
+                input.value = 'None';
+                const userId = input.name.match(/\[(\d+)\]/)[1];
+                const textSpan = document.querySelector('.custom-role-dropdown[data-user-id="'+userId+'"] .selected-role-text');
+                if(textSpan) textSpan.innerText = 'No Access';
             });
         }
+    }
+
+    // Function na nag-a-update ng text at value kapag pumili sa bagong custom dropdown
+    function updateRoleSelection(userId, value, text) {
+        document.getElementById('role_input_' + userId).value = value;
+        document.querySelector('.custom-role-dropdown[data-user-id="' + userId + '"] .selected-role-text').innerText = text;
     }
 
     function openLegalHoldModal(docId, fileName) {
@@ -2264,6 +3218,7 @@ if(isset($_GET['success'])) {
         document.getElementById('holdDocName').value = fileName;
         new bootstrap.Modal(document.getElementById('legalHoldModal')).show();
     }
+    <?php endif; ?>
 
     <?php if (has_permission($conn, $_SESSION['user_id'], 'can_edit_policies')): ?>
     function editPolicy(id, name, years, action) {
@@ -2275,6 +3230,501 @@ if(isset($_GET['success'])) {
         document.getElementById('editPolicyFormContainer').scrollIntoView({ behavior: 'smooth' });
     }
     <?php endif; ?>
+
+    function confirmRemoveLegalHold(buttonElement) {
+        const form = $(buttonElement).closest('form');
+        
+        Swal.fire({
+            title: '<span class="fs-5 fw-bold text-dark letter-spacing-tight mt-2">Remove Legal Hold?</span>',
+            html: '<p class="text-muted fs-sm mb-0">Standard auto-deletion and archiving retention policies will resume for this document.</p>',
+            icon: 'warning',
+            width: 360,
+            padding: '1.5rem',
+            showCancelButton: true,
+            confirmButtonText: 'Remove Hold',
+            cancelButtonText: 'Cancel',
+            customClass: {
+                popup: 'rounded-4 shadow-lg border-0',
+                confirmButton: 'btn btn-primary btn-sm fw-bold px-4 rounded-pill w-100',
+                cancelButton: 'btn btn-light btn-sm fw-medium px-4 rounded-pill border w-100 bg-white text-dark',
+                actions: 'd-flex w-100 mt-4 gap-2 flex-row-reverse'
+            },
+            buttonsStyling: false,
+            focusCancel: true
+        }).then((result) => {
+            if (result.isConfirmed) {
+                form.submit();
+            }
+        });
+    }
+
+    function confirmToggleLock(buttonElement, actionType) {
+        const form = $(buttonElement).closest('form');
+        
+        let titleText = actionType === 'lock' ? 'Lock Document?' : 'Unlock Document?';
+        let descText = actionType === 'lock' 
+            ? 'This prevents others from editing or uploading new versions until you unlock it.' 
+            : 'This will allow other authorized users to edit or upload new versions again.';
+        let iconType = actionType === 'lock' ? 'warning' : 'info';
+        let confirmText = actionType === 'lock' ? 'Lock File' : 'Unlock File';
+        let confirmBtnClass = actionType === 'lock' 
+            ? 'btn btn-danger btn-sm fw-bold px-4 rounded-pill w-100' 
+            : 'btn btn-success btn-sm fw-bold px-4 rounded-pill w-100';
+
+        Swal.fire({
+            title: `<span class="fs-5 fw-bold text-dark letter-spacing-tight mt-2">${titleText}</span>`,
+            html: `<p class="text-muted fs-sm mb-0">${descText}</p>`,
+            icon: iconType,
+            width: 360,
+            padding: '1.5rem',
+            showCancelButton: true,
+            confirmButtonText: confirmText,
+            cancelButtonText: 'Cancel',
+            customClass: {
+                popup: 'rounded-4 shadow-lg border-0',
+                confirmButton: confirmBtnClass,
+                cancelButton: 'btn btn-light btn-sm fw-medium px-4 rounded-pill border w-100 bg-white text-dark',
+                actions: 'd-flex w-100 mt-4 gap-2 flex-row-reverse'
+            },
+            buttonsStyling: false,
+            focusCancel: true
+        }).then((result) => {
+            if (result.isConfirmed) {
+                form.submit();
+            }
+        });
+    }
+
+
+    function confirmDispositionDelete(buttonElement) {
+        const form = $(buttonElement).closest('form');
+        
+        Swal.fire({
+            title: '<span class="fs-5 fw-bold text-dark letter-spacing-tight mt-2">Permanently Delete?</span>',
+            html: '<p class="text-muted fs-sm mb-0">This document will be deleted from the database. This cannot be undone.</p>',
+            icon: 'warning',
+            width: 360,
+            padding: '1.5rem',
+            showCancelButton: true,
+            confirmButtonText: 'Delete',
+            cancelButtonText: 'Cancel',
+            customClass: {
+                popup: 'rounded-4 shadow-lg border-0',
+                confirmButton: 'btn btn-danger btn-sm fw-bold px-4 rounded-pill w-100',
+                cancelButton: 'btn btn-light btn-sm fw-medium px-4 rounded-pill border w-100 bg-white text-dark',
+                actions: 'd-flex w-100 mt-4 gap-2 flex-row-reverse'
+            },
+            buttonsStyling: false,
+            focusCancel: true
+        }).then((result) => {
+            if (result.isConfirmed) {
+                form.submit();
+            }
+        });
+    }
+
+    function confirmDeletePolicy(policyId) {
+        Swal.fire({
+            title: '<span class="fs-5 fw-bold text-dark letter-spacing-tight mt-2">Delete Policy?</span>',
+            html: '<p class="text-muted fs-sm mb-0">If this is assigned to a folder, the deletion will be safely blocked.</p>',
+            icon: 'warning',
+            width: 360,
+            padding: '1.5rem',
+            showCancelButton: true,
+            confirmButtonText: 'Delete',
+            cancelButtonText: 'Cancel',
+            customClass: {
+                popup: 'rounded-4 shadow-lg border-0',
+                confirmButton: 'btn btn-danger btn-sm fw-bold px-4 rounded-pill w-100',
+                cancelButton: 'btn btn-light btn-sm fw-medium px-4 rounded-pill border w-100 bg-white text-dark',
+                actions: 'd-flex w-100 mt-4 gap-2 flex-row-reverse'
+            },
+            buttonsStyling: false,
+            focusCancel: true
+        }).then((result) => {
+            if (result.isConfirmed) {
+                document.getElementById('deletePolicyForm_' + policyId).submit();
+            }
+        });
+    }
+
+    function confirmFolderDelete(buttonElement, folderType) {
+        const form = $(buttonElement).closest('form');
+        
+        let titleText = folderType === 'main' ? 'Delete Main Folder?' : 'Delete Sub-folder?';
+        let descText = folderType === 'main' 
+            ? 'All sub-folders inside must be completely empty first.' 
+            : 'This folder must be completely empty before deletion.';
+
+        Swal.fire({
+            title: `<span class="fs-5 fw-bold text-dark letter-spacing-tight mt-2">${titleText}</span>`,
+            html: `<p class="text-muted fs-sm mb-0">${descText}</p>`,
+            icon: 'warning',
+            width: 360,
+            padding: '1.5rem',
+            showCancelButton: true,
+            confirmButtonText: 'Delete',
+            cancelButtonText: 'Cancel',
+            customClass: {
+                popup: 'rounded-4 shadow-lg border-0',
+                confirmButton: 'btn btn-danger btn-sm fw-bold px-4 rounded-pill w-100',
+                cancelButton: 'btn btn-light btn-sm fw-medium px-4 rounded-pill border w-100 bg-white text-dark',
+                actions: 'd-flex w-100 mt-4 gap-2 flex-row-reverse'
+            },
+            buttonsStyling: false,
+            focusCancel: true
+        }).then((result) => {
+            if (result.isConfirmed) {
+                form.submit();
+            }
+        });
+    }
+
+    function openEditFolderModal(parentName, subName, currentPolicy) {
+        document.getElementById('efParentName').value = parentName;
+        document.getElementById('efSubName').value = subName;
+        document.getElementById('efFolderNameDisplay').innerText = subName;
+        document.getElementById('efCurrentPolicyDisplay').innerText = currentPolicy;
+        new bootstrap.Modal(document.getElementById('editFolderPolicyModal')).show();
+    }
+
+    function viewConnectedFolders(btnElement) {
+        let folders = JSON.parse(btnElement.getAttribute('data-folders'));
+        if (folders.length === 0) {
+            Swal.fire({
+                title: 'No Connected Folders',
+                text: 'This policy is currently not assigned to any folder. It is safe to delete.',
+                icon: 'success',
+                confirmButtonColor: '#3b82f6',
+                customClass: { popup: 'sleek-popup', confirmButton: 'btn btn-primary shadow-sm px-4' },
+                buttonsStyling: false
+            });
+            return;
+        }
+
+        let folderListHtml = '<ul class="text-start mb-0" style="max-height: 200px; overflow-y: auto;">';
+        folders.forEach(f => {
+            folderListHtml += `<li><strong>${f}</strong></li>`;
+        });
+        folderListHtml += '</ul>';
+
+        Swal.fire({
+            title: 'Connected Folders',
+            html: `<p class="text-muted fs-sm mb-2">This policy is assigned to ${folders.length} folder(s):</p>` + folderListHtml,
+            icon: 'info',
+            confirmButtonColor: '#3b82f6',
+            customClass: { popup: 'sleek-popup', confirmButton: 'btn btn-primary shadow-sm px-4' },
+            buttonsStyling: false
+        });
+    }
+
+    function openEditKeywordsModal(categoryName) {
+        document.getElementById('ekFolderNameDisplay').innerText = categoryName;
+        document.getElementById('ekCategoryName').value = categoryName;
+        
+        const input = document.getElementById('ekKeywordsInput');
+        const loader = document.getElementById('ekLoader');
+        
+        // Reset the UI and show loading spinner
+        input.value = '';
+        input.disabled = true;
+        loader.style.display = 'block';
+        
+        // Prepare data to send
+        let formData = new FormData();
+        formData.append('action', 'get_keywords');
+        formData.append('category', categoryName);
+        
+        // KUNIN ANG CSRF TOKEN PARA HINDI MAHARANG NG SECURITY
+        const csrfToken = document.querySelector('input[name="csrf_token"]').value;
+        formData.append('csrf_token', csrfToken);
+        
+        // Fetch current keywords mula sa malinis na API file
+        $.ajax({
+            url: 'actions/upload_handler.php', 
+            type: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            success: function(response) {
+                loader.style.display = 'none';
+                input.disabled = false;
+                
+                // Kapag may nahanap na keywords, ilagay sa text box
+                if (response.status === 'success' && response.keywords) {
+                    input.value = response.keywords;
+                }
+            },
+            error: function(xhr) {
+                loader.style.display = 'none';
+                input.disabled = false;
+                console.error("AJAX Error: Server blocked the request or failed.", xhr.responseText);
+            }
+        });
+        
+        new bootstrap.Modal(document.getElementById('editKeywordsModal')).show();
+    }
+
+    // ==========================================
+    // AUTO-CLOSE DROPDOWN FIX
+    // ==========================================
+    document.addEventListener('DOMContentLoaded', function() {
+        const actionDropdowns = document.querySelectorAll('.action-dropdown .dropdown-toggle');
+        
+        actionDropdowns.forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                // Hanapin ang lahat ng ibang 3-dots dropdowns at isara sila
+                actionDropdowns.forEach(function(otherBtn) {
+                    if (otherBtn !== btn) {
+                        const bsDropdown = bootstrap.Dropdown.getInstance(otherBtn);
+                        // Kung bukas ang iba, i-hide ito
+                        if (bsDropdown) {
+                            bsDropdown.hide();
+                        }
+                    }
+                });
+            });
+        });
+    });
+
+    // ==========================================
+    // VIEW DETAILS & ACTIVITY TIMELINE
+    // ==========================================
+    function viewFileDetails(fileName, category, filePath, uploadedAt, uploadedBy, renameHistoryBase64) {
+        
+        // Ligtas na ide-decode ang Base64 pabalik sa JSON string!
+        let renameHistoryJson = '[]';
+        try { 
+            renameHistoryJson = atob(renameHistoryBase64); 
+        } catch(e) { console.error("History Decode Error:", e); }
+
+        fetch(filePath, { method: 'HEAD' }).then(response => {
+            let bytes = response.headers.get('content-length');
+            let sizeFormatted = 'Unknown Size';
+            if (bytes) {
+                let kb = bytes / 1024;
+                sizeFormatted = kb >= 1024 ? (kb / 1024).toFixed(2) + ' MB' : kb.toFixed(2) + ' KB';
+            }
+            renderDetailsModal(fileName, category, sizeFormatted, uploadedAt, uploadedBy, renameHistoryJson);
+        }).catch(() => {
+            renderDetailsModal(fileName, category, 'Unknown Size', uploadedAt, uploadedBy, renameHistoryJson);
+        });
+    }
+
+    // ==========================================
+    // RENAME FUNCTION (SWEETALERT PROMPT)
+    // ==========================================
+    function renameFile(docId, currentName) {
+        Swal.fire({
+            title: '<span class="fs-5 fw-bold text-dark letter-spacing-tight mt-2">Rename File</span>',
+            html: `
+                <form id="renameForm_${docId}" action="documents.php" method="POST" class="text-start mt-3">
+                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                    <input type="hidden" name="action" value="rename_file">
+                    <input type="hidden" name="doc_id" value="${docId}">
+                    <input type="hidden" name="return_url" value="${window.location.href}">
+                    <label class="form-label text-muted fs-xs fw-bold text-uppercase">New File Name</label>
+                    <input type="text" name="new_name" class="form-control shadow-none bg-light" value="${currentName}" required>
+                </form>
+            `,
+            icon: 'info',
+            width: 400,
+            padding: '1.5rem',
+            showCancelButton: true,
+            confirmButtonText: 'Save Changes',
+            cancelButtonText: 'Cancel',
+            customClass: {
+                popup: 'rounded-4 shadow-lg border-0',
+                confirmButton: 'btn btn-primary btn-sm fw-bold px-4 rounded-pill w-100',
+                cancelButton: 'btn btn-light btn-sm fw-medium px-4 rounded-pill border w-100 bg-white text-dark',
+                actions: 'd-flex w-100 mt-4 gap-2 flex-row-reverse'
+            },
+            buttonsStyling: false
+        }).then((result) => {
+            if (result.isConfirmed) {
+                document.getElementById('renameForm_' + docId).submit();
+            }
+        });
+    }
+
+    function renderDetailsModal(fileName, category, sizeFormatted, uploadedAt, uploadedBy, renameHistoryJson) {
+        let historyArray = [];
+        try { historyArray = JSON.parse(renameHistoryJson || '[]'); } catch(e) {}
+
+        // DYNAMIC FILE TYPE & ICON LOGIC (GDrive Style)
+        let ext = fileName.split('.').pop().toLowerCase();
+        let fileType = "Document";
+        let iconClass = "fas fa-file-alt text-secondary";
+        
+        if (['pdf'].includes(ext)) { fileType = "PDF Document"; iconClass = "fas fa-file-pdf text-danger"; }
+        else if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) { fileType = "Image File"; iconClass = "fas fa-image text-info"; }
+        else if (['doc', 'docx'].includes(ext)) { fileType = "Word Document"; iconClass = "fas fa-file-word text-primary"; }
+        else if (['xls', 'xlsx', 'csv'].includes(ext)) { fileType = "Excel Spreadsheet"; iconClass = "fas fa-file-excel text-success"; }
+        else if (['ppt', 'pptx'].includes(ext)) { fileType = "PowerPoint"; iconClass = "fas fa-file-powerpoint text-warning"; }
+        else if (['zip', 'rar'].includes(ext)) { fileType = "Compressed Archive"; iconClass = "fas fa-file-archive text-secondary"; }
+
+        // DETERMINE LAST MODIFIED DATE
+        let lastModified = uploadedAt;
+        if (historyArray.length > 0) {
+            let lastActDate = new Date(historyArray[0].date);
+            lastModified = lastActDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+        }
+
+        // GDRIVE-STYLE ACTIVITY TIMELINE DYNAMIC RENDERER
+        let timelineHTML = '';
+        if (historyArray.length === 0) {
+            timelineHTML = '<div class="text-muted fs-sm py-5 text-center"><i class="fas fa-history fs-3 mb-2 opacity-25"></i><br>No recent activity.</div>';
+        } else {
+            historyArray.forEach((act) => {
+                let dateObj = new Date(act.date);
+                let formattedDate = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                
+                let actTitle = '';
+                let actContent = '';
+                let dotColor = 'bg-primary';
+
+                // Determine Action Layout Base on JSON "type"
+                if (act.type === 'lock') {
+                    actTitle = 'Checked out the item';
+                    dotColor = 'bg-warning';
+                    actContent = '<div class="fs-xs text-muted"><i class="fas fa-lock me-1"></i> Locked for exclusive editing</div>';
+                } 
+                else if (act.type === 'unlock') {
+                    actTitle = 'Checked in the item';
+                    dotColor = 'bg-success';
+                    actContent = '<div class="fs-xs text-muted"><i class="fas fa-unlock me-1"></i> Unlocked and available</div>';
+                } 
+                else if (act.type === 'hold_apply') {
+                    actTitle = 'Applied Legal Hold';
+                    dotColor = 'bg-danger';
+                    actContent = `<div class="bg-danger bg-opacity-10 rounded-3 p-2 border border-danger border-opacity-25 mt-1">
+                                    <div class="fs-xs text-danger fw-bold"><i class="fas fa-balance-scale me-1"></i> Reason: ${act.reason}</div>
+                                  </div>`;
+                } 
+                else if (act.type === 'hold_remove') {
+                    actTitle = 'Removed Legal Hold';
+                    dotColor = 'bg-secondary';
+                    actContent = '<div class="fs-xs text-muted"><i class="fas fa-balance-scale-left me-1"></i> Standard policies resumed</div>';
+                } 
+                else {
+                    // Fallback to Rename logic
+                    actTitle = 'Renamed an item';
+                    dotColor = 'bg-primary';
+                    actContent = `<div class="bg-light rounded-3 p-2 border mt-1" style="border-color: #dadce0 !important;">
+                                    <div class="fs-xs text-muted text-decoration-line-through mb-1">${act.old_name}</div>
+                                    <div class="fs-sm text-dark fw-medium"><i class="${iconClass} me-2"></i>${act.new_name}</div>
+                                  </div>`;
+                }
+
+                timelineHTML += `
+                    <div class="position-relative ps-4 pb-4" style="border-left: 2px solid #e8eaed; margin-left: 8px;">
+                        <div class="position-absolute ${dotColor} rounded-circle" style="width: 10px; height: 10px; left: -6px; top: 5px; outline: 3px solid #fff;"></div>
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="fs-sm fw-bold text-dark">${act.by}</span>
+                            <span class="fs-xs text-muted">${formattedDate}</span>
+                        </div>
+                        <div class="fs-sm text-dark">${actTitle}</div>
+                        ${actContent}
+                    </div>
+                `;
+            });
+        }
+
+        Swal.fire({
+            html: `
+                <div class="text-start" style="margin-top: -10px;">
+                    <!-- GDRIVE STYLE HEADER -->
+                    <div class="d-flex align-items-center mb-4 pb-3 border-bottom">
+                        <div class="fs-1 me-3">
+                            <i class="${iconClass}"></i>
+                        </div>
+                        <div class="overflow-hidden">
+                            <h5 class="fw-bold text-dark mb-0 text-truncate" title="${fileName}">${fileName}</h5>
+                        </div>
+                    </div>
+
+                    <!-- TAB INDICATORS -->
+                    <ul class="nav nav-tabs nav-justified border-bottom-0 mb-3" style="border-bottom: 1px solid #dadce0 !important;">
+                        <li class="nav-item">
+                            <button type="button" id="btn-tab-details" class="nav-link active fw-semibold fs-sm border-0 bg-transparent w-100" 
+                                style="color: #0b57d0; border-bottom: 3px solid #0b57d0 !important; border-radius: 0;"
+                                onclick="document.getElementById('pane-details').classList.remove('d-none'); document.getElementById('pane-activity').classList.add('d-none'); 
+                                this.style.color = '#0b57d0'; this.style.borderBottom = '3px solid #0b57d0'; 
+                                let actBtn = document.getElementById('btn-tab-activity'); actBtn.style.color = '#5f6368'; actBtn.style.borderBottom = 'none';">Details</button>
+                        </li>
+                        <li class="nav-item">
+                            <button type="button" id="btn-tab-activity" class="nav-link fw-semibold fs-sm border-0 bg-transparent w-100" 
+                                style="color: #5f6368; border-bottom: none; border-radius: 0;"
+                                onclick="document.getElementById('pane-activity').classList.remove('d-none'); document.getElementById('pane-details').classList.add('d-none'); 
+                                this.style.color = '#0b57d0'; this.style.borderBottom = '3px solid #0b57d0'; 
+                                let detBtn = document.getElementById('btn-tab-details'); detBtn.style.color = '#5f6368'; detBtn.style.borderBottom = 'none';">Activity</button>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content" style="max-height: 380px; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin;">
+                        
+                        <!-- DETAILS PANE -->
+                        <div id="pane-details" class="px-2 pb-2 mt-2">
+                            <h6 class="fw-bold fs-sm mb-3" style="color: #3c4043;">System Properties</h6>
+                            
+                            <div class="d-flex mb-3">
+                                <div class="fs-sm" style="width: 90px; color: #5f6368;">Type</div>
+                                <div class="fs-sm text-dark fw-medium flex-grow-1">${fileType}</div>
+                            </div>
+                            <div class="d-flex mb-3">
+                                <div class="fs-sm" style="width: 90px; color: #5f6368;">Size</div>
+                                <div class="fs-sm text-dark fw-medium flex-grow-1">${sizeFormatted}</div>
+                            </div>
+                            <div class="d-flex mb-3">
+                                <div class="fs-sm" style="width: 90px; color: #5f6368;">Location</div>
+                                <div class="fs-sm text-dark fw-medium flex-grow-1 d-flex align-items-center">
+                                    <i class="fas fa-folder text-secondary me-2"></i> ${category}
+                                </div>
+                            </div>
+                            <div class="d-flex mb-3 mt-4">
+                                <div class="fs-sm" style="width: 90px; color: #5f6368;">Owner</div>
+                                <div class="fs-sm text-dark fw-medium flex-grow-1 d-flex align-items-center">
+                                    <div class="rounded-circle text-white d-flex align-items-center justify-content-center me-2" style="width: 24px; height: 24px; background-color: #8ab4f8; font-size: 12px;">
+                                        ${uploadedBy.charAt(0).toUpperCase()}
+                                    </div>
+                                    ${uploadedBy}
+                                </div>
+                            </div>
+                            <div class="d-flex mb-3">
+                                <div class="fs-sm" style="width: 90px; color: #5f6368;">Modified</div>
+                                <div class="fs-sm text-dark fw-medium flex-grow-1">${lastModified}</div>
+                            </div>
+                            <div class="d-flex mb-3">
+                                <div class="fs-sm" style="width: 90px; color: #5f6368;">Created</div>
+                                <div class="fs-sm text-dark fw-medium flex-grow-1">${uploadedAt}</div>
+                            </div>
+                        </div>
+
+                        <!-- ACTIVITY PANE -->
+                        <div id="pane-activity" class="d-none px-2 pt-3">
+                            ${timelineHTML}
+                            <div class="position-relative ps-4 pb-1" style="border-left: 2px solid #e8eaed; margin-left: 8px;">
+                                <div class="position-absolute bg-secondary rounded-circle" style="width: 10px; height: 10px; left: -6px; top: 5px; outline: 3px solid #fff;"></div>
+                                <div class="fs-sm fw-bold text-dark mb-1">Item uploaded</div>
+                                <div class="fs-xs text-muted">${uploadedAt}</div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            `,
+            width: 440,
+            padding: '1.25rem',
+            showConfirmButton: false,
+            showCancelButton: true,
+            cancelButtonText: 'Done',
+            customClass: {
+                popup: 'rounded-4 shadow-lg border-0',
+                cancelButton: 'btn btn-light fw-bold px-4 py-2 rounded-pill w-100 mt-2 border',
+            },
+            buttonsStyling: false
+        });
+    }
 </script>
 </body>
 </html>
