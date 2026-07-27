@@ -44,25 +44,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     // ==========================================
     if ($action === 'get_keywords') {
         header('Content-Type: application/json');
-        
-        // Linisin ang anumang sobrang spaces o errors bago mag-bato ng JSON
         if (ob_get_length()) ob_clean(); 
         
         $cat = trim($_POST['category'] ?? '');
         
-        // 1. KUNIN ANG MGA DEFAULT CORE RULES NATIN
-        $default_rules = [
-            'Purchase Orders' => ['purchase order', 'po number', 'po#', 'po '],
-            'Purchase Requests' => ['purchase request', 'pr number', 'pr#', 'pr '],
-            'Quotations' => ['quotation', 'quote', 'qtn '],
-            'Invoices' => ['invoice', 'inv#', 'billing statement'],
-            'Contracts & Agreements' => ['contract', 'agreement', 'terms and conditions', 'nda', 'memorandum'],
-            'Service Tickets' => ['service ticket', 'ticket#', 'issue #', 'maintenance report'],
-            'Job Orders' => ['job order', 'jo#', 'work order'],
-            'Internal Memos' => ['internal memo', 'memorandum', 'internal notice']
-        ];
-        
-        // 2. KUNIN ANG MGA DINAGDAG MO SA DATABASE
         $stmt = $conn->prepare("SELECT classification_keywords FROM document_categories WHERE sub_category = ? LIMIT 1");
         $stmt->bind_param("s", $cat);
         $stmt->execute();
@@ -73,21 +58,53 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $db_keywords = $row['classification_keywords'];
         }
         
-        // 3. PAGSAMAHIN SILA PARA MAKITA SA MODAL
         $combined = [];
-        if (isset($default_rules[$cat])) {
-            $combined = $default_rules[$cat];
-        }
         if (!empty($db_keywords)) {
-            $db_arr = array_map('trim', explode(',', $db_keywords));
-            $combined = array_merge($combined, $db_arr);
+            $combined = array_map('trim', explode(',', $db_keywords));
         }
         
-        // Tanggalin ang mga naulit (duplicates) at i-format nang maayos
         $clean_combined = array_unique(array_filter($combined));
         $final_string = implode(', ', $clean_combined);
         
         echo json_encode(['status' => 'success', 'keywords' => $final_string]);
+        exit();
+    }
+
+    // ==========================================
+    // DAGDAG: REAL-TIME KEYWORD CONFLICT CHECKER (AJAX)
+    // ==========================================
+    if ($action === 'check_keyword_conflicts') {
+        header('Content-Type: application/json');
+        if (ob_get_length()) ob_clean(); 
+        
+        $cat_name = trim($_POST['category'] ?? '');
+        $keywords = trim($_POST['keywords'] ?? '');
+        
+        $input_keys = array_filter(array_map('trim', array_map('strtolower', explode(',', $keywords))));
+        $conflicts = [];
+
+        if (!empty($input_keys)) {
+            // PURE DATABASE CHECK ONLY. Wala nang naka-hardcode na system defaults.
+            $chk_query = $conn->prepare("SELECT sub_category, classification_keywords FROM document_categories WHERE sub_category != ? AND classification_keywords IS NOT NULL AND classification_keywords != ''");
+            $chk_query->bind_param("s", $cat_name);
+            $chk_query->execute();
+            $chk_res = $chk_query->get_result();
+
+            while ($row = $chk_res->fetch_assoc()) {
+                $db_keys = array_filter(array_map('trim', array_map('strtolower', explode(',', $row['classification_keywords']))));
+                foreach ($input_keys as $ik) {
+                    if (in_array($ik, $db_keys)) {
+                        $conflicts[] = "<b>'" . strtoupper($ik) . "'</b> is already used in <b>" . $row['sub_category'] . "</b>";
+                    }
+                }
+            }
+        }
+
+        if (!empty($conflicts)) {
+            echo json_encode(['status' => 'conflict', 'messages' => array_unique($conflicts)]);
+        } else {
+            echo json_encode(['status' => 'clear']);
+        }
         exit();
     }
 
@@ -106,6 +123,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         
         // SMART FALLBACK: Palaging isama ang filename para sa mga encoded PDFs at Images
         $extractedText = $file['name'] . " "; 
+        
+        // DAGDAG: Tanggapin ang text mula sa Client-Side OCR (para sa images)
+        if (!empty($_POST['ocr_text'])) {
+            $extractedText .= " " . $_POST['ocr_text'];
+        }
 
         // 1. Native Text Extraction Base
         if ($ext === 'docx') {
@@ -123,27 +145,21 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         } elseif (in_array($ext, ['txt', 'csv'])) {
             $extractedText .= " " . file_get_contents($tmpPath);
         } elseif ($ext === 'pdf') {
-            require_once '../config/PdfToText.php';
-            $extractedText .= " " . PdfToText::extract($tmpPath);
+            // CRASH FIX: Patakbuhin lang ang lumang PHP extractor kung WALANG naipasang text ang PDF.js mula sa frontend
+            if (empty(trim($_POST['ocr_text'] ?? ''))) {
+                require_once '../config/PdfToText.php';
+                $extractedText .= " " . PdfToText::extract($tmpPath);
+            }
         }
 
         // 2. Text Normalization
+        // CRASH PREVENTER: Linisin muna ang mga "binary garbage" bago linisin ang spaces para hindi mag-crash ang PHP
+        $extractedText = preg_replace('/[^\x20-\x7E]/', ' ', $extractedText); 
         $extractedText = strtolower($extractedText);
         $extractedText = preg_replace('/[_\-\s]+/', ' ', $extractedText);
 
-        // 1. DEFAULT CORE RULES (Hindi mawawala ang mga ito)
-        $rules = [
-            'Purchase Orders' => ['purchase order', 'po number', 'po#', 'po '],
-            'Purchase Requests' => ['purchase request', 'pr number', 'pr#', 'pr '],
-            'Quotations' => ['quotation', 'quote', 'qtn '],
-            'Invoices' => ['invoice', 'inv#', 'billing statement'],
-            'Contracts & Agreements' => ['contract', 'agreement', 'terms and conditions', 'nda', 'memorandum'],
-            'Service Tickets' => ['service ticket', 'ticket#', 'issue #', 'maintenance report'],
-            'Job Orders' => ['job order', 'jo#', 'work order'],
-            'Internal Memos' => ['internal memo', 'memorandum', 'internal notice']
-        ];
-
-        // 2. DYNAMIC DATABASE RULES (Idadagdag ang mga bago mong nilagay sa UI)
+        // PURE DYNAMIC DATABASE RULES ONLY (Wala nang naka-hardcode na default rules)
+        $rules = [];
         $rule_query = $conn->query("SELECT sub_category, classification_keywords FROM document_categories WHERE classification_keywords IS NOT NULL AND classification_keywords != ''");
         
         if ($rule_query) {
@@ -166,15 +182,44 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
         }
 
+        $scores = [];
+        $highest_score = 0;
         $suggested_category = null;
+
         foreach ($rules as $category => $keywords) {
+            $scores[$category] = 0;
+            
             foreach ($keywords as $keyword) {
-                // I-check kung may laman ang keyword at kung nahanap ba ito sa text
-                if ($keyword !== '' && strpos($extractedText, strtolower($keyword)) !== false) {
-                    $suggested_category = $category;
-                    break 2; // Huminto agad sa unang match para tipid sa memory
+                $keyword = trim(strtolower($keyword));
+                if ($keyword === '') continue;
+
+                // Use lookarounds to enforce strict word boundaries including symbols like '#'
+                $pattern = '/(?<=^|\W)' . preg_quote($keyword, '/') . '(?=$|\W)/i';
+                
+                // CRASH-PROOF: Pigilan ang Fatal Error kung mabibigo ang regex dahil sa binary chars.
+                // Ang @preg_match_all ay nagre-return ng bilang kung ilang beses nag-match, at `false` kung pumalya.
+                $occurrences = @preg_match_all($pattern, $extractedText);
+                
+                if ($occurrences !== false && $occurrences > 0) {
+                    // Weighting: Multi-word phrases (e.g., "purchase order") carry strong weight (3 pts) 
+                    // Short acronyms or single words (e.g., "po", "invoice") carry lower weight (1 pt)
+                    $word_count = str_word_count($keyword);
+                    $weight = ($word_count > 1) ? 3 : 1; 
+                    
+                    $scores[$category] += ($occurrences * $weight);
                 }
             }
+            
+            // Track the category with the highest confidence score
+            if ($scores[$category] > $highest_score) {
+                $highest_score = $scores[$category];
+                $suggested_category = $category;
+            }
+        }
+
+        // Confidence Threshold: Lowered to 1 since Regex boundaries already prevent substring false positives
+        if ($highest_score < 1) {
+            $suggested_category = null; 
         }
 
         if ($suggested_category) {
@@ -183,12 +228,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $stmt->bind_param("ss", $suggested_category, $suggested_category);
             $stmt->execute();
             if ($stmt->get_result()->num_rows > 0) {
-                echo json_encode(['status' => 'success', 'suggested_category' => $suggested_category]);
+                echo json_encode([
+                    'status' => 'success', 
+                    'suggested_category' => $suggested_category,
+                    'debug_text' => substr($extractedText, 0, 1000) // DAGDAG: Ipadala ang text para ma-debug
+                ]);
                 exit();
             }
         }
         
-        echo json_encode(['status' => 'none']);
+        echo json_encode([
+            'status' => 'none',
+            'debug_text' => substr($extractedText, 0, 1000) // DAGDAG: Ipadala ang text para ma-debug
+        ]);
         exit();
     }
     // END: Rule-Based Automatic Document Classification

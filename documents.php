@@ -436,15 +436,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $keywords = trim($_POST['classification_keywords'] ?? '');
         
         if (!empty($cat_name)) {
-            // STRICT: I-u-update lang eksakto ang sub-folder (walang OR parent_category)
-            $stmt_update = $conn->prepare("UPDATE document_categories SET classification_keywords = ? WHERE sub_category = ?");
-            $stmt_update->bind_param("ss", $keywords, $cat_name);
-            $stmt_update->execute();
-            
-            // I-rebuild ang URL para hindi ka umalis sa kasalukuyan mong folder at magpakita ng TOAST
             $params = $_GET; 
             unset($params['success'], $params['error']); // Linisin ang mga lumang notifications
-            $params['success'] = "Keywords successfully updated for " . $cat_name; // Idagdag ang bagong Toast Message
+            
+            // --- DAGDAG: KEYWORD CONFLICT VALIDATION (PURE DATABASE ONLY) ---
+            $input_keys = array_filter(array_map('trim', array_map('strtolower', explode(',', $keywords))));
+            $duplicate_found = false;
+            $duplicate_word = '';
+            $conflict_folder = '';
+
+            if (!empty($input_keys)) {
+                // I-check laban sa existing keywords sa Database (Ibang Folders)
+                $chk_query = $conn->prepare("SELECT sub_category, classification_keywords FROM document_categories WHERE sub_category != ? AND classification_keywords IS NOT NULL AND classification_keywords != ''");
+                $chk_query->bind_param("s", $cat_name);
+                $chk_query->execute();
+                $chk_res = $chk_query->get_result();
+
+                while ($row = $chk_res->fetch_assoc()) {
+                    $db_keys = array_filter(array_map('trim', array_map('strtolower', explode(',', $row['classification_keywords']))));
+                    foreach ($input_keys as $ik) {
+                        if (in_array($ik, $db_keys)) {
+                            $duplicate_found = true; $duplicate_word = $ik; $conflict_folder = $row['sub_category'];
+                            break 2;
+                        }
+                    }
+                }
+            }
+
+            // Kung may nag-conflict, ibato ang ERROR TOAST. Kung wala, i-save sa database.
+            if ($duplicate_found) {
+                $params['error'] = "Conflict: The keyword '" . strtoupper($duplicate_word) . "' is already used in '" . $conflict_folder . "'. Duplicates are not allowed.";
+            } else {
+                // STRICT: I-u-update lang eksakto ang sub-folder
+                $stmt_update = $conn->prepare("UPDATE document_categories SET classification_keywords = ? WHERE sub_category = ?");
+                $stmt_update->bind_param("ss", $keywords, $cat_name);
+                $stmt_update->execute();
+                
+                $params['success'] = "Keywords successfully updated for " . $cat_name;
+            }
+            // -------------------------------------------
             
             $new_qs = http_build_query($params);
             header("Location: documents.php?" . $new_qs);
@@ -1220,6 +1250,34 @@ if(isset($_GET['success'])) {
         .btn-dots:hover, .hover-circle:hover {
             background-color: rgba(100, 116, 139, 0.15) !important; /* Subtle gray hover */
         }
+
+        /* DAGDAG: Sleek Hover Effects para sa Upload Modal */
+        .upload-tile-btn {
+            transition: all 0.2s ease-in-out;
+        }
+        .upload-tile-btn:hover {
+            background-color: #f8fafc !important;
+            border-color: #cbd5e1 !important;
+            transform: translateY(-3px);
+            box-shadow: 0 .5rem 1rem rgba(0,0,0,.08) !important;
+        }
+        .modal-btn-hover {
+            transition: all 0.2s ease;
+        }
+        .modal-btn-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,.15) !important;
+        }
+        /* Custom Dropdown styling */
+        .custom-select-btn {
+            border: 1px solid #e2e8f0;
+            background-color: #ffffff;
+            transition: all 0.2s ease;
+        }
+        .custom-select-btn:hover, .custom-select-btn:focus {
+            border-color: #94a3b8;
+            box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.15);
+        }
     </style>
 </head>
 <body class="bg-f8f9fa">
@@ -1589,7 +1647,7 @@ if(isset($_GET['success'])) {
                                                     <i class="fas fa-balance-scale me-1"></i> Managed by Policy
                                                 </span>
                                             <?php else: ?>
-        <form action="actions/upload_handler.php" method="POST" class="m-0">
+        <form action="actions/document_handler.php" method="POST" class="m-0">
     <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
     <input type="hidden" name="action" value="delete">
     <input type="hidden" name="doc_id" value="<?php echo $doc['doc_id']; ?>">
@@ -1821,7 +1879,7 @@ if(isset($_GET['success'])) {
                                                     <?php if($view_archives && has_permission($conn, $_SESSION['user_id'], 'can_archive_documents')): ?>
                                                     <li><hr class="dropdown-divider"></li>
                                                     <li>
-                                                        <form action="actions/upload_handler.php" method="POST">
+                                                        <form action="actions/document_handler.php" method="POST">
                                                             <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                                                             <input type="hidden" name="action" value="restore">
                                                             <input type="hidden" name="doc_id" value="<?php echo $doc['doc_id']; ?>">
@@ -2118,11 +2176,11 @@ if(isset($_GET['success'])) {
 <!-- UPLOAD MODAL -->
 <?php if (!$hide_upload_button): ?>
 <div class="modal fade sleek-modal" id="uploadModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content shadow-lg border-0">
-            <div class="modal-header bg-light border-bottom-0 pb-3 pt-4 px-4 rounded-top-4">
+    <div class="modal-dialog modal-dialog-centered" style="max-width: 550px;">
+        <div class="modal-content shadow-lg border-0 rounded-4">
+            <div class="modal-header bg-white border-bottom pb-3 pt-4 px-4 rounded-top-4">
                 <div>
-                    <h5 class="modal-title fw-bold text-dark fs-5"><i class="fas fa-cloud-upload-alt text-primary me-2"></i>Upload Record</h5>
+                    <h5 class="modal-title fw-bold text-dark fs-5 letter-spacing-tight"><i class="fas fa-cloud-upload-alt text-primary me-2"></i>Upload Record</h5>
                     <p class="text-muted mb-0 fs-xs mt-1">Select a target folder or scan the document.</p>
                 </div>
                 <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal" style="margin-top: -15px;"></button>
@@ -2132,117 +2190,146 @@ if(isset($_GET['success'])) {
                     <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                     <input type="file" name="document" id="uploadDocumentInput" class="d-none" required>
                     
-                    <div class="mb-3">
-                        <label class="form-label text-muted fs-xs fw-bold text-uppercase">Target Folder <span class="text-danger">*</span></label>
-                        <select name="category" id="uploadCategorySelect" class="form-select shadow-none bg-white fw-medium" required>
-                            <option value="">Select Target Folder</option>
-                            <?php 
-                            if (!empty($parent_filter) && isset($parent_folders[$parent_filter])) {
-                                // 1. KUNG NASA LOOB NG MAIN FOLDER: Ipapakita lang ang mga sub-folders nito
-                                echo '<optgroup label="'.htmlspecialchars($parent_filter).'">';
-                                foreach($parent_folders[$parent_filter] as $s) {
-                                    if ($is_top_mgmt || in_array($s, $user_categories)) {
-                                        $selected = ($type_filter === $s) ? 'selected' : '';
-                                        echo '<option value="'.htmlspecialchars($s).'" '.$selected.'>'.htmlspecialchars($s).'</option>';
-                                    }
-                                }
-                                echo '</optgroup>';
-                            } else {
-                                // 2. KUNG NASA LABAS (DASHBOARD): Ipapakita lahat ng main folders at sub-folders nila
-                                foreach($parent_folders as $p => $subs) {
-                                    echo '<optgroup label="'.htmlspecialchars($p).'">';
-                                    foreach($subs as $s) {
+                    <div class="mb-4 position-relative">
+                        <label class="form-label text-muted fs-xs fw-bold text-uppercase letter-spacing-tight">Target Folder <span class="text-danger">*</span></label>
+                        
+                        <!-- CUSTOM DROPDOWN PARA SA FOLDERS -->
+                        <div class="dropdown w-100">
+                            <!-- Naka-hide na HTML5 input para gumana ang "required" pop-up ng browser nang hindi nasisira ang design -->
+                            <input type="text" name="category" id="uploadCategoryInput" required style="opacity: 0; position: absolute; bottom: 0; left: 50%; pointer-events: none; z-index: -1;">
+                            
+                            <button class="btn custom-select-btn d-flex justify-content-between align-items-center w-100 py-2 rounded-3 text-start shadow-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false" id="uploadCategoryBtn">
+                                <span id="uploadCategoryText" class="text-muted fw-medium fs-sm">Select Target Folder</span>
+                                <i class="fas fa-chevron-down text-secondary fs-xs"></i>
+                            </button>
+                            <ul class="dropdown-menu shadow-lg border-0 rounded-4 mt-1 w-100 p-2" style="max-height: 250px; overflow-y: auto;">
+                                <?php 
+                                if (!empty($parent_filter) && isset($parent_folders[$parent_filter])) {
+                                    echo '<li><h6 class="dropdown-header fw-bold text-primary px-3">'.htmlspecialchars($parent_filter).'</h6></li>';
+                                    foreach($parent_folders[$parent_filter] as $s) {
                                         if ($is_top_mgmt || in_array($s, $user_categories)) {
-                                            $selected = ($type_filter === $s) ? 'selected' : '';
-                                            echo '<option value="'.htmlspecialchars($s).'" '.$selected.'>'.htmlspecialchars($s).'</option>';
+                                            $selected_js = ($type_filter === $s) ? "setUploadCategory('".htmlspecialchars(addslashes($s))."');" : "setUploadCategory('".htmlspecialchars(addslashes($s))."');";
+                                            echo '<li><button type="button" class="dropdown-item rounded-3 fs-sm fw-medium py-2 text-dark" onclick="'.$selected_js.'"><i class="fas fa-folder text-secondary me-2 opacity-50"></i>'.htmlspecialchars($s).'</button></li>';
                                         }
                                     }
-                                    echo '</optgroup>';
+                                } else {
+                                    foreach($parent_folders as $p => $subs) {
+                                        echo '<li><h6 class="dropdown-header fw-bold text-primary px-3 mt-2 border-bottom pb-1">'.htmlspecialchars($p).'</h6></li>';
+                                        foreach($subs as $s) {
+                                            if ($is_top_mgmt || in_array($s, $user_categories)) {
+                                                echo '<li><button type="button" class="dropdown-item rounded-3 fs-sm fw-medium py-2 text-dark" onclick="setUploadCategory(\''.htmlspecialchars(addslashes($s)).'\')"><i class="fas fa-folder text-secondary me-2 opacity-50"></i>'.htmlspecialchars($s).'</button></li>';
+                                            }
+                                        }
+                                    }
                                 }
-                            }
-                            ?>
-                        </select>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label text-muted fs-xs fw-bold text-uppercase">Choose Input Method <span class="text-danger">*</span></label>
-                        <div class="border border-light rounded-4 bg-white p-3 shadow-sm">
-                            <div class="row g-2">
-                                <div class="col-12 col-md-6">
-                                    <button type="button" id="uploadBrowseBtn" class="btn btn-outline-primary w-100 py-2 fw-semibold">
-                                        <i class="fas fa-folder-open me-1"></i> Browse Files
-                                    </button>
-                                </div>
-                                <div class="col-12 col-md-6">
-                                    <button type="button" id="uploadCameraBtn" class="btn btn-primary w-100 py-2 fw-semibold">
-                                        <i class="fas fa-camera me-1"></i> Use Camera
-                                    </button>
-                                </div>
-                            </div>
-                            <div id="uploadChosenFileText" class="fs-xs text-muted mt-3">No file selected yet.</div>
-
-                            <!-- START: Document Classification UI -->
-                            <div id="classificationSuggestion" class="d-none mt-3 p-3 rounded-3 bg-primary bg-opacity-10 border border-primary border-opacity-25 shadow-sm">
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div class="d-flex align-items-center gap-2">
-                                        <div class="spinner-border spinner-border-sm text-primary d-none" id="classificationLoader" role="status"></div>
-                                        <i class="fas fa-magic text-primary" id="classificationIcon"></i>
-                                        <div class="lh-1 text-start">
-                                            <span class="fs-xs fw-bold text-primary text-uppercase letter-spacing-tight d-block mb-1">Suggested Folder</span>
-                                            <span class="fs-sm fw-bold text-dark" id="suggestedFolderName">Scanning...</span>
-                                        </div>
-                                    </div>
-                                    <div id="classificationActions" class="d-none">
-                                        <button type="button" class="btn btn-sm btn-light border fw-medium fs-xs px-2 py-1 me-1 shadow-sm text-secondary" id="btnRejectSuggestion">Ignore</button>
-                                        <button type="button" class="btn btn-sm btn-primary fw-bold fs-xs px-2 py-1 shadow-sm" id="btnAcceptSuggestion">Apply</button>
-                                    </div>
-                                </div>
-                            </div>
-                            <!-- END: Document Classification UI -->
-
+                                ?>
+                            </ul>
                         </div>
                     </div>
+                    
+                    <div class="mb-2">
+                        <label class="form-label text-muted fs-xs fw-bold text-uppercase letter-spacing-tight">Input Method <span class="text-danger">*</span></label>
+                        
+                        <!-- REFINED TILES MAY HOVER NA -->
+                        <div class="row g-3">
+                            <div class="col-6">
+                                <button type="button" id="uploadBrowseBtn" class="btn btn-white bg-white border border-light w-100 py-3 rounded-4 shadow-sm text-dark d-flex flex-column align-items-center justify-content-center upload-tile-btn">
+                                    <div class="bg-primary bg-opacity-10 text-primary rounded-circle d-flex align-items-center justify-content-center mb-2" style="width: 45px; height: 45px;">
+                                        <i class="fas fa-folder-open fs-5"></i>
+                                    </div>
+                                    <span class="fw-bold fs-sm">Browse Files</span>
+                                </button>
+                            </div>
+                            <div class="col-6">
+                                <button type="button" id="uploadCameraBtn" class="btn btn-white bg-white border border-light w-100 py-3 rounded-4 shadow-sm text-dark d-flex flex-column align-items-center justify-content-center upload-tile-btn">
+                                    <div class="bg-primary bg-opacity-10 text-primary rounded-circle d-flex align-items-center justify-content-center mb-2" style="width: 45px; height: 45px;">
+                                        <i class="fas fa-camera fs-5"></i>
+                                    </div>
+                                    <span class="fw-bold fs-sm">Use Camera</span>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="d-flex justify-content-center mt-3">
+                            <span id="uploadChosenFileText" class="badge bg-secondary bg-opacity-10 text-secondary border px-3 py-1 fs-xs fw-medium text-truncate" style="max-width: 100%;">No file selected yet.</span>
+                        </div>
 
-                    <div id="cameraPanel" class="d-none mb-3">
-                        <div class="border rounded-4 bg-dark overflow-hidden shadow-sm">
+                        <!-- START: Document Classification UI -->
+                        <div id="classificationSuggestion" class="d-none mt-3 p-3 rounded-4 bg-primary bg-opacity-10 border border-primary border-opacity-25 shadow-sm">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="spinner-border spinner-border-sm text-primary d-none" id="classificationLoader" role="status"></div>
+                                    <i class="fas fa-magic text-primary" id="classificationIcon"></i>
+                                    <div class="lh-1 text-start">
+                                        <span class="fs-xs fw-bold text-primary text-uppercase letter-spacing-tight d-block mb-1">Suggested Folder</span>
+                                        <span class="fs-sm fw-bold text-dark" id="suggestedFolderName">Scanning...</span>
+                                    </div>
+                                </div>
+                                <div id="classificationActions" class="d-none">
+                                    <button type="button" class="btn btn-sm btn-light border fw-bold fs-xs px-3 py-1 me-1 shadow-sm text-secondary rounded-pill modal-btn-hover" id="btnRejectSuggestion">Ignore</button>
+                                    <button type="button" class="btn btn-sm btn-primary fw-bold fs-xs px-3 py-1 shadow-sm rounded-pill modal-btn-hover" id="btnAcceptSuggestion">Apply</button>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- END: Document Classification UI -->
+                    </div>
+
+                    <div id="cameraPanel" class="d-none mb-4 mt-4">
+                        <div class="position-relative rounded-4 bg-dark overflow-hidden shadow border border-4 border-dark mx-auto" style="max-width: 100%;">
                             <div class="ratio ratio-4x3 bg-black">
                                 <video id="cameraVideo" class="w-100 h-100 object-fit-cover" autoplay playsinline muted></video>
                                 <img id="cameraPreviewImage" class="w-100 h-100 object-fit-cover d-none" alt="Captured photo preview">
                                 <canvas id="cameraCanvas" class="d-none"></canvas>
                             </div>
+                            <div class="position-absolute top-0 start-0 w-100 h-100 pointer-events-none" style="background: rgba(0,0,0,0.15);">
+                                <div class="position-absolute top-0 start-0 border-top border-start border-white m-3" style="width: 35px; height: 35px; border-width: 3px !important; border-top-left-radius: 6px;"></div>
+                                <div class="position-absolute top-0 end-0 border-top border-end border-white m-3" style="width: 35px; height: 35px; border-width: 3px !important; border-top-right-radius: 6px;"></div>
+                                <div class="position-absolute bottom-0 start-0 border-bottom border-start border-white m-3" style="width: 35px; height: 35px; border-width: 3px !important; border-bottom-left-radius: 6px;"></div>
+                                <div class="position-absolute bottom-0 end-0 border-bottom border-end border-white m-3" style="width: 35px; height: 35px; border-width: 3px !important; border-bottom-right-radius: 6px;"></div>
+                                <div class="position-absolute top-50 start-50 translate-middle text-white opacity-50"><i class="fas fa-plus fs-4"></i></div>
+                            </div>
                         </div>
-                        <div id="cameraStatusMessage" class="small text-muted mt-2"></div>
-                        <div class="d-flex flex-wrap gap-2 mt-3">
-                            <button type="button" id="capturePhotoBtn" class="btn btn-dark flex-grow-1 py-2 fw-semibold">
-                                <i class="fas fa-circle me-1"></i> Capture Photo
+                        
+                        <div id="cameraStatusMessage" class="fs-xs fw-bold text-center text-muted mt-3 mb-3 px-3 py-1 bg-white rounded-pill border mx-auto shadow-sm" style="width: fit-content; max-width: 100%;"></div>
+                        
+                        <div class="d-flex justify-content-center gap-2">
+                            <button type="button" id="capturePhotoBtn" class="btn btn-primary rounded-pill shadow-sm px-4 py-2 fw-bold d-flex align-items-center modal-btn-hover">
+                                <i class="fas fa-camera fs-5 me-2"></i> Capture
                             </button>
-                            <button type="button" id="retakePhotoBtn" class="btn btn-outline-secondary flex-grow-1 py-2 fw-semibold d-none">
-                                <i class="fas fa-redo me-1"></i> Retake
+                            <button type="button" id="retakePhotoBtn" class="btn btn-light bg-white border border-secondary rounded-pill shadow-sm px-4 py-2 fw-bold text-dark d-none align-items-center modal-btn-hover">
+                                <i class="fas fa-redo-alt me-2"></i> Retake
                             </button>
-                            <button type="button" id="usePhotoBtn" class="btn btn-success flex-grow-1 py-2 fw-semibold d-none">
-                                <i class="fas fa-check me-1"></i> Use Photo
+                            <button type="button" id="usePhotoBtn" class="btn btn-success rounded-pill shadow-sm px-4 py-2 fw-bold d-none align-items-center modal-btn-hover">
+                                <i class="fas fa-check-circle me-2"></i> Confirm & Use
                             </button>
                         </div>
                     </div>
 
-                    <div class="mb-4">
-                        <label class="form-label text-muted fs-xs fw-bold text-uppercase">Initial Sharing Access</label>
-                        <select name="initial_access" class="form-select shadow-none border-light bg-white fs-sm">
-                            <option value="Folder Default">Folder Default (Inherit Permissions)</option>
-                            <option value="Restricted">Restricted (Only me for now)</option>
-                        </select>
+                    <div class="mb-4 mt-3">
+                        <label class="form-label text-muted fs-xs fw-bold text-uppercase letter-spacing-tight">Initial Sharing Access</label>
+                        
+                        <!-- CUSTOM DROPDOWN PARA SA INITIAL ACCESS -->
+                        <div class="dropdown w-100">
+                            <input type="hidden" name="initial_access" id="uploadAccessInput" value="Folder Default">
+                            <button class="btn custom-select-btn d-flex justify-content-between align-items-center w-100 py-2 rounded-3 text-start shadow-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                <span id="uploadAccessText" class="text-dark fw-medium fs-sm"><i class="fas fa-folder-open text-primary me-2 opacity-75"></i> Folder Default (Inherit Permissions)</span>
+                                <i class="fas fa-chevron-down text-secondary fs-xs"></i>
+                            </button>
+                            <ul class="dropdown-menu shadow-lg border-0 rounded-4 mt-1 w-100 p-2">
+                                <li><button type="button" class="dropdown-item rounded-3 fs-sm fw-medium py-2 mb-1 text-dark" onclick="setUploadAccess('Folder Default', '<i class=\'fas fa-folder-open text-primary me-2 opacity-75\'></i> Folder Default (Inherit Permissions)')">Folder Default (Inherit Permissions)</button></li>
+                                <li><button type="button" class="dropdown-item rounded-3 fs-sm fw-medium py-2 text-dark" onclick="setUploadAccess('Restricted', '<i class=\'fas fa-lock text-danger me-2 opacity-75\'></i> Restricted (Only me for now)')">Restricted (Only me for now)</button></li>
+                            </ul>
+                        </div>
                     </div>
 
-                    <button type="submit" class="btn btn-primary w-100 fw-bold shadow-sm rounded-3 py-2">
-                        <i class="fas fa-check-circle me-1"></i> Upload and Index File
+                    <button type="submit" class="btn btn-primary w-100 fw-bold shadow-sm rounded-pill py-2 modal-btn-hover">
+                        <i class="fas fa-check-circle me-2"></i> Upload and Index File
                     </button>
                 </form>
             </div>
         </div>
     </div>
 </div>
-
-
 <?php endif; ?>
 
 <?php endif; ?> <!-- End If Non-Admin For Restricted Modals -->
@@ -2563,12 +2650,16 @@ if(isset($_GET['success'])) {
                             <textarea name="classification_keywords" id="ekKeywordsInput" class="form-control shadow-none bg-white fs-sm" rows="3" placeholder="e.g. invoice, billing, receipt (comma separated)" disabled></textarea>
                             <div class="spinner-border spinner-border-sm text-primary position-absolute" id="ekLoader" style="top: 15px; right: 15px; display: none;" role="status"></div>
                         </div>
+                        
+                        <!-- DAGDAG: REAL-TIME ERROR DISPLAY -->
+                        <div id="ekConflictWarning" class="alert alert-danger bg-danger bg-opacity-10 border-danger border-opacity-25 text-danger fs-xs mt-2 d-none p-2 mb-0"></div>
+                        
                         <div class="form-text fs-xs mt-2"><i class="fas fa-info-circle text-primary me-1"></i> Add, edit, or remove keywords. Separate multiple keywords using commas.</div>
                     </div>
                     
                     <div class="d-flex justify-content-end gap-2">
                         <button type="button" class="btn btn-light bg-white border fw-medium px-4 shadow-sm rounded-3" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-primary fw-bold px-4 shadow-sm rounded-3"><i class="fas fa-save me-2"></i>Save Changes</button>
+                        <button type="submit" id="ekSaveBtn" class="btn btn-primary fw-bold px-4 shadow-sm rounded-3"><i class="fas fa-save me-2"></i>Save Changes</button>
                     </div>
                 </form>
             </div>
@@ -2582,6 +2673,8 @@ if(isset($_GET['success'])) {
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
 
 <script>
     $(document).ready(function() {
@@ -2861,8 +2954,106 @@ if(isset($_GET['success'])) {
         analyzeDocument(file); // Added Document Analysis
     }
 
+    // --- DAGDAG: CUSTOM DROPDOWN HELPERS ---
+    function setUploadCategory(val, suggestedText = null) {
+        document.getElementById('uploadCategoryInput').value = val;
+        const textSpan = document.getElementById('uploadCategoryText');
+        textSpan.innerText = suggestedText ? suggestedText : val;
+        textSpan.classList.remove('text-muted');
+        textSpan.classList.add('text-dark', 'fw-bold');
+        if(suggestedText) {
+            textSpan.classList.add('text-success');
+        } else {
+            textSpan.classList.remove('text-success');
+        }
+    }
+
+    function setUploadAccess(val, textHTML) {
+        document.getElementById('uploadAccessInput').value = val;
+        document.getElementById('uploadAccessText').innerHTML = textHTML;
+    }
+
+    // --- REFINED CAMERA CAPTURE FUNCTION (RESETTER) ---
+    function captureUploadPhoto() {
+        const { cameraVideo, cameraPreviewImage, cameraCanvas, capturePhotoBtn, retakePhotoBtn, usePhotoBtn } = uploadModalElements();
+        if (!cameraVideo || !cameraCanvas || !cameraPreviewImage) return;
+
+        if (!cameraVideo.videoWidth || !cameraVideo.videoHeight) {
+            setUploadStatus('Camera preview is not ready yet. Please try again.', true);
+            return;
+        }
+
+        cameraCanvas.width = cameraVideo.videoWidth;
+        cameraCanvas.height = cameraVideo.videoHeight;
+        const context = cameraCanvas.getContext('2d');
+        if (!context) {
+            setUploadStatus('Unable to access the camera canvas. Please try again.', true);
+            return;
+        }
+        context.drawImage(cameraVideo, 0, 0, cameraCanvas.width, cameraCanvas.height);
+
+        cameraCanvas.toBlob(function(blob) {
+            if (!blob) {
+                setUploadStatus('Unable to capture the photo. Please try again.', true);
+                return;
+            }
+
+            clearCapturedPhotoUrl();
+            const file = setFileInputFromBlob(blob);
+            if (!file) {
+                setUploadStatus('Unable to prepare the captured photo for upload.', true);
+                return;
+            }
+
+            // RESET THE CONFIRM BUTTON just in case galing sa retake
+            if (usePhotoBtn) {
+                usePhotoBtn.innerHTML = '<i class="fas fa-check-circle me-2"></i> Confirm & Use';
+                usePhotoBtn.className = 'btn btn-success rounded-pill shadow-sm px-4 py-2 fw-bold align-items-center modal-btn-hover';
+                usePhotoBtn.style.pointerEvents = 'auto'; // I-enable ulit ang click
+            }
+
+            capturedPhotoUrl = URL.createObjectURL(file);
+            cameraPreviewImage.src = capturedPhotoUrl;
+            cameraPreviewImage.classList.remove('d-none');
+            cameraVideo.classList.add('d-none');
+            
+            if (capturePhotoBtn) capturePhotoBtn.classList.add('d-none');
+            if (retakePhotoBtn) retakePhotoBtn.classList.remove('d-none');
+            if (usePhotoBtn) usePhotoBtn.classList.remove('d-none');
+            
+            setUploadStatus('Photo captured. Review it, then choose Use Photo or Retake.');
+        }, 'image/jpeg', 0.92);
+    }
+
+    // --- REFINED CAMERA USE FUNCTION (INTERACTIVE CHECKMARK) ---
+    function useCapturedUploadPhoto() {
+        const { fileInput } = uploadModalElements();
+        if (!fileInput || !fileInput.files || !fileInput.files.length) {
+            setUploadStatus('Capture a photo first before using it.', true);
+            return;
+        }
+
+        setChosenFileText(`Selected file: ${fileInput.files[0].name}`);
+        setUploadStatus('Captured photo confirmed and ready for upload.');
+        
+        // HINDI na natin itatago ang camera panel para kita pa rin yung photo at "Retake"
+        // stopUploadCameraStream();  <- Tinanggal ito
+        
+        // INTERACTIVE CHECKMARK
+        const useBtn = document.getElementById('usePhotoBtn');
+        if (useBtn) {
+            useBtn.innerHTML = '<i class="fas fa-check-double me-2"></i> Confirmed & Applied';
+            // Palitan ang style para halatang na-click na
+            useBtn.className = 'btn btn-outline-success bg-white text-success border border-success rounded-pill shadow-sm px-4 py-2 fw-bold align-items-center';
+            useBtn.style.pointerEvents = 'none'; // I-disable pansamantala para iwas spam-click
+        }
+        
+        // I-trigger agad ang AI Document Scanner
+        analyzeDocument(fileInput.files[0]); 
+    }
+
     // START: Document Classification AJAX Engine
-    function analyzeDocument(file) {
+    async function analyzeDocument(file) {
         const suggestionBox = document.getElementById('classificationSuggestion');
         const loader = document.getElementById('classificationLoader');
         const icon = document.getElementById('classificationIcon');
@@ -2879,25 +3070,105 @@ if(isset($_GET['success'])) {
         loader.classList.remove('d-none');
         icon.classList.add('d-none');
         actions.classList.add('d-none');
-        nameDisplay.innerText = "Analyzing document content...";
+
+        let clientSideText = "";
+        
+        // 1. Kapag Image, gamitin ang Tesseract OCR
+        if (file.type.startsWith('image/')) {
+            nameDisplay.innerText = "Preprocessing Image...";
+            try {
+                // DAGDAG: STRICT IMAGE SANITIZER
+                const safeImage = await new Promise((resolve, reject) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+                        resolve(canvas.toDataURL('image/png'));
+                        URL.revokeObjectURL(img.src);
+                    };
+                    img.onerror = () => {
+                        // KUNG MAG-FAIL ANG BROWSER NA BUKSAN ANG IMAGE, IHINTO AGAD ANG PROSESO.
+                        // Ibig sabihin nito ay corrupted ang file o isa itong HEIC file na ni-rename to JPG.
+                        reject("UNSUPPORTED_FORMAT");
+                    };
+                    img.src = URL.createObjectURL(file);
+                });
+
+                console.warn("=== INITIALIZING TESSERACT OCR ===");
+                const worker = await Tesseract.createWorker("eng", 1, {
+                    logger: function(m) {
+                        console.log("OCR Status:", m.status, Math.round(m.progress * 100) + "%");
+                        if (m.status === 'recognizing text') {
+                            nameDisplay.innerText = "Scanning Image: " + Math.round(m.progress * 100) + "%";
+                        } else {
+                            nameDisplay.innerText = "OCR: " + m.status + "...";
+                        }
+                    }
+                });
+                
+                nameDisplay.innerText = "Extracting text from image...";
+                const ret = await worker.recognize(safeImage);
+                clientSideText = ret.data.text;
+                
+                console.warn("=== FRONTEND OCR EXTRACTED TEXT ===");
+                console.warn(clientSideText ? clientSideText : "[WALANG NABASANG TEXT SA IMAGE - BLANK]");
+                console.warn("===================================");
+                
+                await worker.terminate();
+            } catch (error) {
+                if (error === "UNSUPPORTED_FORMAT") {
+                    console.warn("Browser cannot render this image. It might be a HEIC file renamed to JPG, or a corrupted file.");
+                    nameDisplay.innerText = "Unsupported Format. Please use a real JPG or PNG.";
+                } else {
+                    console.error("=== OCR CRASHED ===");
+                    console.error("Error Details:", error);
+                    nameDisplay.innerText = "Image Scan Failed. (Check Console)";
+                }
+            }
+        }
+        // 2. Kapag PDF, gamitin ang Mozilla PDF.js
+        else if (file.type === 'application/pdf') {
+            nameDisplay.innerText = "Reading PDF Content...";
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdfjsLib = window['pdfjs-dist/build/pdf'];
+                pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                
+                // Basahin hanggang unang 3 pages para mabilis
+                const maxPages = Math.min(pdf.numPages, 3);
+                for (let i = 1; i <= maxPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const textContent = await page.getTextContent();
+                    const pageText = textContent.items.map(item => item.str).join(' ');
+                    clientSideText += pageText + " ";
+                }
+            } catch (error) {
+                console.error("PDF Parsing Failed:", error);
+            }
+        }
+
+        nameDisplay.innerText = "Analyzing extracted content...";
 
         let formData = new FormData();
         formData.append('action', 'analyze_document');
         formData.append('document', file);
-        formData.append('csrf_token', '<?php echo $_SESSION['csrf_token']; ?>');
+        formData.append('ocr_text', clientSideText); 
+        formData.append('csrf_token', document.querySelector('input[name="csrf_token"]').value);
 
         $.ajax({
-            url: 'actions/upload_handler.php',
+            url: 'actions/document_handler.php', // NA-UPDATE NA NATIN ITO SA BAGONG FILENAME MO
             type: 'POST',
             data: formData,
             processData: false,
             contentType: false,
             success: function(response) {
-                // ==========================================
-                // ==========================================
                 console.warn("=== PHP TEXT EXTRACTION DEBUG ===");
-                console.warn("FILE HAS BEEN PARSED.");
-                console.warn("EXTRACTED TEXT:\n", response.debug_text ? response.debug_text : "[BLANK / NO TEXT FOUND]");
+                console.warn("EXTRACTED TEXT:\n", response.debug_text ? response.debug_text : "[BLANK]");
                 console.warn("=================================");
 
                 loader.classList.add('d-none');
@@ -2908,22 +3179,11 @@ if(isset($_GET['success'])) {
                     actions.classList.remove('d-none');
                     
                     document.getElementById('btnAcceptSuggestion').onclick = function() {
-                        const catSelect = document.getElementById('uploadCategorySelect');
-                        if (catSelect) {
-                            // Check kung nasa listahan ng dropdown ang suggested folder
-                            let optExists = Array.from(catSelect.options).some(opt => opt.value === response.suggested_category);
-                            
-                            if (optExists) {
-                                // Kung nasa listahan, piliin ito nang normal
-                                catSelect.value = response.suggested_category;
-                            } else {
-                                // Kung WALA sa listahan (dahil nasa ibang folder ka), idadagdag natin ito dynamically!
-                                let newOption = new Option(response.suggested_category + ' (Auto-Suggested)', response.suggested_category, true, true);
-                                catSelect.add(newOption);
-                            }
+                        const catInput = document.getElementById('uploadCategoryInput');
+                        if (catInput) {
+                            setUploadCategory(response.suggested_category, response.suggested_category + ' (Auto-Suggested)');
                         }
                         
-                        // Visual success feedback
                         suggestionBox.classList.replace('bg-primary', 'bg-success');
                         suggestionBox.classList.replace('border-primary', 'border-success');
                         icon.classList.replace('fa-magic', 'fa-check-circle');
@@ -2936,13 +3196,11 @@ if(isset($_GET['success'])) {
                         suggestionBox.classList.add('d-none');
                     };
                 } else {
-                    suggestionBox.classList.add('d-none'); // Hide quietly if no rule matches
+                    suggestionBox.classList.add('d-none'); 
                 }
             },
             error: function(xhr) {
-                console.error("=== SERVER CRASH LOG ===");
-                console.error("Namatay ang PHP script. Ito ang error mula sa server:");
-                console.error(xhr.responseText); // Ipi-print nito ang totoong PHP Fatal Error
+                console.error("Server Error:", xhr.responseText);
                 suggestionBox.classList.add('d-none');
             }
         });
@@ -3429,6 +3687,13 @@ if(isset($_GET['success'])) {
         input.value = '';
         input.disabled = true;
         loader.style.display = 'block';
+
+        // Reset the UI and show loading spinner
+        input.value = '';
+        input.disabled = true;
+        loader.style.display = 'block';
+        $('#ekConflictWarning').addClass('d-none');
+        $('#ekSaveBtn').prop('disabled', false);
         
         // Prepare data to send
         let formData = new FormData();
@@ -3441,7 +3706,7 @@ if(isset($_GET['success'])) {
         
         // Fetch current keywords mula sa malinis na API file
         $.ajax({
-            url: 'actions/upload_handler.php', 
+            url: 'actions/document_handler.php', 
             type: 'POST',
             data: formData,
             processData: false,
@@ -3464,6 +3729,61 @@ if(isset($_GET['success'])) {
         
         new bootstrap.Modal(document.getElementById('editKeywordsModal')).show();
     }
+
+    // DAGDAG: REAL-TIME KEYWORD CONFLICT LISTENER
+    let keywordTimeout = null;
+
+    $('#ekKeywordsInput').on('input', function() {
+        clearTimeout(keywordTimeout);
+        const keywords = $(this).val();
+        const categoryName = $('#ekCategoryName').val();
+        const warningBox = $('#ekConflictWarning');
+        const saveBtn = $('#ekSaveBtn');
+        const loader = $('#ekLoader');
+        const csrfToken = document.querySelector('input[name="csrf_token"]').value;
+
+        if (!keywords.trim()) {
+            warningBox.addClass('d-none');
+            saveBtn.prop('disabled', false);
+            return;
+        }
+
+        // Delay typing para hindi ma-spam ang server
+        keywordTimeout = setTimeout(() => {
+            loader.show();
+            saveBtn.prop('disabled', true); // I-disable habang nagche-check
+
+            let formData = new FormData();
+            formData.append('action', 'check_keyword_conflicts');
+            formData.append('category', categoryName);
+            formData.append('keywords', keywords);
+            formData.append('csrf_token', csrfToken);
+
+            $.ajax({
+                url: 'actions/document_handler.php',
+                type: 'POST',
+                data: formData,
+                processData: false,
+                contentType: false,
+                success: function(response) {
+                    loader.hide();
+                    if (response.status === 'conflict') {
+                        // Magpakita ng pulang warning at panatilihing naka-disable ang button
+                        warningBox.html('<i class="fas fa-exclamation-triangle me-1"></i> <strong>Conflict Detected:</strong><br>' + response.messages.join('<br>')).removeClass('d-none');
+                        saveBtn.prop('disabled', true); 
+                    } else {
+                        // Clear ang error, at i-enable ulit ang Save
+                        warningBox.addClass('d-none');
+                        saveBtn.prop('disabled', false); 
+                    }
+                },
+                error: function() {
+                    loader.hide();
+                    saveBtn.prop('disabled', false);
+                }
+            });
+        }, 500); // 500ms typing delay
+    });
 
     // ==========================================
     // AUTO-CLOSE DROPDOWN FIX
