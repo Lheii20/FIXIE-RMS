@@ -94,6 +94,14 @@ if ($pol_query) {
     }
 }
 
+$drawers = [];
+$drawer_q = $conn->query("SELECT d.id, d.name as drawer, c.name as cabinet, r.name as room, b.name as building FROM virt_drawers d JOIN virt_cabinets c ON d.cabinet_id = c.id JOIN virt_rooms r ON c.room_id = r.id JOIN virt_buildings b ON r.building_id = b.id ORDER BY b.name, r.name, c.name, d.name");
+if($drawer_q) {
+    while($dr = $drawer_q->fetch_assoc()) {
+        $drawers[] = $dr;
+    }
+}
+
 $all_users = [];
 $u_query = $conn->query("SELECT user_id, full_name, role FROM users WHERE status = 'Active' AND role NOT IN ('Admin', 'GM', 'President') ORDER BY full_name ASC");
 if ($u_query) {
@@ -528,8 +536,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if ($folder_policy === null) redirectDocumentsWithMessage("error", "Retention Policy is required when creating a sub-folder.", $parent);
         }
 
-        $stmt_create = $conn->prepare("INSERT INTO document_categories (parent_category, sub_category, policy_id, classification_keywords) VALUES (?, ?, ?, ?)");
-        $stmt_create->bind_param("ssis", $parent, $sub, $folder_policy, $keywords);
+        $drawer_id = ($is_new_parent || empty($_POST['drawer_id'])) ? null : intval($_POST['drawer_id']);
+        $stmt_create = $conn->prepare("INSERT INTO document_categories (parent_category, sub_category, policy_id, classification_keywords, drawer_id) VALUES (?, ?, ?, ?, ?)");
+        $stmt_create->bind_param("ssisi", $parent, $sub, $folder_policy, $keywords, $drawer_id);
         
         if ($stmt_create->execute()) {
             $new_category_id = $stmt_create->insert_id;
@@ -1851,6 +1860,11 @@ if(isset($_GET['success'])) {
 
                                                 <?php if ($can_manage || $is_top_mgmt): ?>
                                                     <li><hr class="dropdown-divider"></li>
+                                                    <li>
+                                                        <button type="button" class="dropdown-item fw-medium text-dark" onclick="openPhysicalLocationModal(<?php echo $doc['doc_id']; ?>, '<?php echo htmlspecialchars(addslashes($doc['file_name'])); ?>', '<?php echo htmlspecialchars(addslashes($doc['category'])); ?>')">
+                                                            <i class="fas fa-map-marker-alt text-success me-2"></i> Physical Status
+                                                        </button>
+                                                    </li>
                                                     <?php if (!$is_legal_hold): ?>
                                                         <li>
                                                             <button type="button" class="dropdown-item fw-medium text-dark" onclick="openLegalHoldModal(<?php echo $doc['doc_id']; ?>, '<?php echo htmlspecialchars(addslashes($doc['file_name'])); ?>')">
@@ -2166,6 +2180,56 @@ if(isset($_GET['success'])) {
                     <div class="d-flex justify-content-end gap-2">
                         <button type="button" class="btn btn-light sleek-btn-sm" data-bs-dismiss="modal">Cancel</button>
                         <button type="submit" class="btn btn-danger sleek-btn-sm px-4">Confirm Legal Hold</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- PHYSICAL STATUS MODAL -->
+<div class="modal fade sleek-modal" id="physicalLocationModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content shadow-lg border-0 rounded-4">
+            <div class="modal-header bg-white border-bottom pb-3 pt-4 px-4 rounded-top-4">
+                <div>
+                    <h5 class="modal-title fw-bold text-dark fs-5 letter-spacing-tight"><i class="fas fa-map-marker-alt text-success me-2"></i>Physical Document Status</h5>
+                    <p class="text-muted mb-0 fs-xs mt-1">Update the physical availability of this document.</p>
+                </div>
+                <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal" style="margin-top: -15px;"></button>
+            </div>
+            <div class="modal-body p-4 bg-f8f9fa rounded-bottom-4">
+                <div class="alert bg-white border text-dark fs-sm mb-4 shadow-sm rounded-3">
+                    <i class="fas fa-file-alt text-primary me-2"></i><span class="fw-bold" id="plDocName"></span><br>
+                    <small class="text-muted"><i class="fas fa-folder text-secondary me-1 mt-2"></i> Stored in Folder: <span id="plDocCategory" class="fw-bold"></span></small>
+                </div>
+                <form action="actions/physical_location_handler.php" method="POST">
+                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                    <input type="hidden" name="action" value="update_location">
+                    <input type="hidden" name="doc_id" id="plDocId">
+                    <input type="hidden" name="return_url" value="<?php echo htmlspecialchars($_SERVER['REQUEST_URI']); ?>">
+
+                    <div class="mb-4">
+                        <label class="form-label fw-bold small text-muted text-uppercase letter-spacing-tight">Current Physical Status <span class="text-danger">*</span></label>
+                        <div class="d-flex gap-4 p-3 bg-white border rounded-3 shadow-sm">
+                            <div class="form-check m-0">
+                                <input class="form-check-input shadow-none" type="radio" name="status" id="statusStored" value="Stored" checked>
+                                <label class="form-check-label fs-sm fw-medium text-dark" for="statusStored">Stored</label>
+                            </div>
+                            <div class="form-check m-0">
+                                <input class="form-check-input shadow-none" type="radio" name="status" id="statusBorrowed" value="Borrowed">
+                                <label class="form-check-label fs-sm fw-medium text-dark" for="statusBorrowed">Borrowed</label>
+                            </div>
+                            <div class="form-check m-0">
+                                <input class="form-check-input shadow-none" type="radio" name="status" id="statusReturned" value="Returned">
+                                <label class="form-check-label fs-sm fw-medium text-dark" for="statusReturned">Returned</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-end gap-2">
+                        <button type="button" class="btn btn-light bg-white border fw-medium px-4 shadow-sm rounded-pill" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-success fw-bold px-4 shadow-sm rounded-pill">Save Status</button>
                     </div>
                 </form>
             </div>
@@ -2552,6 +2616,18 @@ if(isset($_GET['success'])) {
                     <div class="mb-3">
                         <label class="form-label fw-bold small text-muted text-uppercase letter-spacing-tight">Sub-folder Name <span class="text-danger">*</span></label>
                         <input type="text" name="new_folder_name" class="form-control shadow-none" placeholder="e.g. Employee Contracts, Q1 Reports" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small text-muted text-uppercase letter-spacing-tight">Physical Storage (Drawer) <span class="text-danger">*</span></label>
+                        <select name="drawer_id" class="form-select shadow-none bg-light" required>
+                            <option value="">-- Select Physical Cabinet/Drawer --</option>
+                            <?php foreach ($drawers as $dr): ?>
+                                <option value="<?php echo $dr['id']; ?>">
+                                    <?php echo htmlspecialchars($dr['building'] . ' > ' . $dr['room'] . ' > ' . $dr['cabinet'] . ' > ' . $dr['drawer']); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
 
                     <div class="mb-4">
@@ -3475,6 +3551,13 @@ if(isset($_GET['success'])) {
         document.getElementById('holdDocId').value = docId;
         document.getElementById('holdDocName').value = fileName;
         new bootstrap.Modal(document.getElementById('legalHoldModal')).show();
+    }
+
+    function openPhysicalLocationModal(docId, fileName, category) {
+        document.getElementById('plDocId').value = docId;
+        document.getElementById('plDocName').innerText = fileName;
+        document.getElementById('plDocCategory').innerText = category;
+        new bootstrap.Modal(document.getElementById('physicalLocationModal')).show();
     }
     <?php endif; ?>
 

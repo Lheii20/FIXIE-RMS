@@ -155,12 +155,13 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
             <?php endif; ?>
 
             <div class="saas-nav-item has-dropdown">
-                <a href="#" class="saas-nav-link <?php echo (in_array($current_page, ['documents.php', 'general_docs.php'])) ? 'active' : ''; ?>">
+                <a href="#" class="saas-nav-link <?php echo (in_array($current_page, ['documents.php', 'general_docs.php', 'virtual_cabinet.php'])) ? 'active' : ''; ?>">
                     <i class="fas fa-folder-open"></i> Records <i class="fas fa-chevron-down ms-1 fs-xs"></i>
                 </a>
                 <div class="saas-dropdown shadow-sm">
                     <a href="documents.php"><i class="fas fa-archive"></i> Official Records</a>
                     <a href="general_docs.php"><i class="fas fa-building"></i> Company Files</a>
+                    <a href="virtual_cabinet.php"><i class="fas fa-boxes"></i> Virtual Cabinet</a>
                 </div>
             </div>
 
@@ -260,6 +261,7 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
         <span class="mobile-side-nav__label">Records</span>
         <a href="documents.php" class="mobile-side-nav__link <?php echo ($current_page == 'documents.php') ? 'active' : ''; ?>"><i class="fas fa-archive"></i>Official Records</a>
         <a href="general_docs.php" class="mobile-side-nav__link <?php echo ($current_page == 'general_docs.php') ? 'active' : ''; ?>"><i class="fas fa-building"></i>Company Files</a>
+        <a href="virtual_cabinet.php" class="mobile-side-nav__link <?php echo ($current_page == 'virtual_cabinet.php') ? 'active' : ''; ?>"><i class="fas fa-boxes"></i>Virtual Cabinet</a>
     </div>
     
     <?php if($role == 'Admin' || $can_view_audit): ?>
@@ -306,6 +308,12 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
                     <a href="general_docs.php">
                         <div class="cp-item-icon cp-icon-secondary"><i class="fas fa-folder"></i></div> 
                         <div><div class="cp-item-title">Company Files</div><small class="cp-item-desc">Access general files</small></div>
+                    </a>
+                </li>
+                <li data-keywords="virtual cabinet physical records drawers folders boxes location">
+                    <a href="virtual_cabinet.php">
+                        <div class="cp-item-icon cp-icon-secondary"><i class="fas fa-boxes"></i></div> 
+                        <div><div class="cp-item-title">Virtual Cabinet</div><small class="cp-item-desc">Track physical document locations</small></div>
                     </a>
                 </li>
                 <li data-keywords="settings account password profile">
