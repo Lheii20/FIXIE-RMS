@@ -49,9 +49,9 @@ if (isset($_POST['action']) && $_POST['action'] === 'upload_version') {
             $stmt_insert->bind_param("isssi", $doc_id, $new_version, $db_file_path, $remarks, $user_id);
             $stmt_insert->execute();
 
-            // 4. I-update ang main document table file_path para yung latest ang maddownload sa labas
-            $stmt_upd = $conn->prepare("UPDATE documents SET file_path = ?, file_name = ? WHERE doc_id = ?");
-            $stmt_upd->bind_param("ssi", $db_file_path, $_FILES['new_document']['name'], $doc_id);
+            // 4. I-update ang main document table file_path at current_version para mag-reflect sa UI
+            $stmt_upd = $conn->prepare("UPDATE documents SET file_path = ?, file_name = ?, current_version = ? WHERE doc_id = ?");
+            $stmt_upd->bind_param("ssdi", $db_file_path, $_FILES['new_document']['name'], $new_version, $doc_id);
             $stmt_upd->execute();
 
             if (function_exists('log_audit_action')) {
@@ -87,10 +87,10 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_history') {
     $versions = [];
     while ($row = $result->fetch_assoc()) {
         $versions[] = [
-            'version' => $row['version_number'],
+            'version_number' => number_format($row['version_number'], 1),
             'remarks' => htmlspecialchars($row['remarks']),
-            'date' => date('M d, Y h:i A', strtotime($row['uploaded_at'])),
-            'uploader' => htmlspecialchars($row['uploader']),
+            'uploaded_at_formatted' => date('M d, Y h:i A', strtotime($row['uploaded_at'])),
+            'uploaded_by_name' => htmlspecialchars($row['uploader']),
             'file_path' => htmlspecialchars($row['file_path'])
         ];
     }
@@ -104,16 +104,17 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_history') {
         
         if ($main_doc) {
             $versions[] = [
-                'version' => '1.0',
+                'version_number' => '1.0',
                 'remarks' => 'Original Document Upload',
-                'date' => date('M d, Y h:i A', strtotime($main_doc['uploaded_at'])),
-                'uploader' => htmlspecialchars($main_doc['uploader']),
+                'uploaded_at_formatted' => date('M d, Y h:i A', strtotime($main_doc['uploaded_at'])),
+                'uploaded_by_name' => htmlspecialchars($main_doc['uploader']),
                 'file_path' => htmlspecialchars($main_doc['file_path'])
             ];
         }
     }
 
-    echo json_encode(['status' => 'success', 'versions' => $versions]);
+    // Ibato ang eksaktong JSON keys na binabasa ng Frontend Javascript
+    echo json_encode(['success' => true, 'data' => $versions]);
     exit;
 }
 ?>

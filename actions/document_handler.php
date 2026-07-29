@@ -320,13 +320,72 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         exit();
     }
 
+    // ==========================================
+    // SOFT DELETE (RECYCLE BIN) WORKFLOW
+    // ==========================================
     if ($action == 'delete') {
         if (!has_permission($conn, $_SESSION['user_id'], 'can_delete_documents')) die("Access Denied");
 
         $doc_id = intval($_POST['doc_id']);
-        $redirectUrl = getRedirectUrl($conn, $doc_id, null, $source);
+        $redirectUrl = $_POST['return_url'] ?? getRedirectUrl($conn, $doc_id, null, $source);
 
-        $stmt = $conn->prepare("SELECT file_path, file_name FROM documents WHERE doc_id = ?");
+        $stmt = $conn->prepare("SELECT file_name, record_phase FROM documents WHERE doc_id = ?");
+        $stmt->bind_param("i", $doc_id);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        
+        if($row = $res->fetch_assoc()) {
+            if ($row['record_phase'] === 'Official') {
+                header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "error=Official Records must go through the disposition workflow.");
+                exit();
+            }
+
+            // SOFT DELETE: Move to Recycle Bin instead of unlinking
+            $soft_del = $conn->prepare("UPDATE documents SET status = 'Recycled', deleted_at = NOW() WHERE doc_id = ?");
+            $soft_del->bind_param("i", $doc_id);
+            
+            if ($soft_del->execute()) {
+                if (function_exists('log_document_action')) {
+                    log_document_action($conn, $user_id, 'SOFT_DELETE_FILE', $doc_id, "Moved working document to Recycle Bin: " . $row['file_name'], $redirectUrl);
+                } else {
+                    log_audit_action($conn, $user_id, 'SOFT_DELETE_FILE', "Moved working document to Recycle Bin: " . $row['file_name']);
+                }
+                header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "success=Moved to Recycle Bin.");
+            } else {
+                header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "error=DeleteFailed");
+            }
+        }
+        exit();
+    }
+
+    // ==========================================
+    // RESTORE RECYCLED DOCUMENT
+    // ==========================================
+    if ($action == 'restore_recycled') {
+        if (!has_permission($conn, $_SESSION['user_id'], 'can_delete_documents')) die("Access Denied");
+
+        $doc_id = intval($_POST['doc_id']);
+        $redirectUrl = $_POST['return_url'] ?? '../general_docs.php';
+
+        $res_stmt = $conn->prepare("UPDATE documents SET status = 'Active', deleted_at = NULL WHERE doc_id = ?");
+        $res_stmt->bind_param("i", $doc_id);
+        if ($res_stmt->execute()) {
+            log_audit_action($conn, $user_id, 'RESTORE_FILE', "Restored document ID $doc_id from Recycle Bin.");
+            header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "success=Document Restored Successfully.");
+        }
+        exit();
+    }
+
+    // ==========================================
+    // PERMANENT DELETE (AUTHORIZED ONLY)
+    // ==========================================
+    if ($action == 'permanent_delete') {
+        if (!in_array($_SESSION['role'], ['Admin', 'President', 'GM'])) die("Unauthorized Action.");
+
+        $doc_id = intval($_POST['doc_id']);
+        $redirectUrl = $_POST['return_url'] ?? '../general_docs.php';
+
+        $stmt = $conn->prepare("SELECT file_path, file_name FROM documents WHERE doc_id = ? AND status = 'Recycled'");
         $stmt->bind_param("i", $doc_id);
         $stmt->execute();
         $res = $stmt->get_result();
@@ -340,17 +399,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $del_stmt = $conn->prepare("DELETE FROM documents WHERE doc_id = ?");
             $del_stmt->bind_param("i", $doc_id);
             if ($del_stmt->execute()) {
-                if (function_exists('log_document_action')) {
-                    log_document_action($conn, $user_id, 'DELETE_FILE', $doc_id, "Deleted Document ID: $doc_id", $redirectUrl);
-                } else {
-                    log_audit_action($conn, $user_id, 'DELETE_FILE', "Permanently Deleted Document ID: $doc_id");
-                }
-                header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "success=Deleted");
-            } else {
-                header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "error=DeleteFailed");
+                log_audit_action($conn, $user_id, 'PERMANENT_DELETE', "Permanently wiped document: " . $row['file_name']);
+                header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "success=Permanently Deleted.");
             }
-        } else {
-            header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "error=FileNotFound");
         }
         exit();
     }
@@ -359,20 +410,28 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         if (!has_permission($conn, $_SESSION['user_id'], 'can_upload_documents')) die("Access Denied");
         
         $doc_category = trim($_POST['category'] ?? '');
+        $doc_type = trim($_POST['doc_type'] ?? '');
+        $document_name = trim($_POST['document_name'] ?? '');
         $file = $_FILES['document'] ?? null;
         $po_id = isset($_POST['po_id']) ? intval($_POST['po_id']) : null;
         
         $redirectUrl = getRedirectUrl($conn, null, $po_id, $source);
+        
+        // Tukuyin ang routing at phase base sa pinanggalingan ng upload
+        $record_phase = 'Working';
         if (!empty($doc_category)) {
             $redirectUrl = "../documents.php?type=" . urlencode($doc_category);
+            $record_phase = 'Official'; // Kapag galing sa Virtual Cabinet, official agad
+        } elseif (!empty($doc_type)) {
+            $redirectUrl = "../general_docs.php?type=" . urlencode($doc_type);
         }
 
-        if (empty($doc_category) || !$file || $file['error'] !== UPLOAD_ERR_OK) {
+        if ((empty($doc_category) && empty($doc_type)) || !$file || $file['error'] !== UPLOAD_ERR_OK) {
             header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "error=InvalidInput");
             exit();
         }
 
-        if (!userCanUseOfficialFolder($conn, $doc_category, $_SESSION['role'])) {
+        if (!empty($doc_category) && !userCanUseOfficialFolder($conn, $doc_category, $_SESSION['role'])) {
             header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "error=UnauthorizedFolder");
             exit();
         }
@@ -428,13 +487,29 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         if (move_uploaded_file($file['tmp_name'], $dest_path)) {
             $db_path = 'uploads/' . $new_filename;
             $status = 'Active';
+            
+            // Gamitin ang in-input na document_name kung meron, kung wala, original filename
+            $final_name_to_save = !empty($document_name) ? $document_name . '.' . $ext : $sanitized_file_name;
 
-            // Inserting sanitized filename to DB
-            $stmt = $conn->prepare("INSERT INTO documents (po_id, file_name, file_path, category, status, uploaded_by, file_hash) VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $stmt->bind_param("issssis", $po_id, $sanitized_file_name, $db_path, $doc_category, $status, $user_id, $fileHash);
+            // Inserting sanitized filename, doc_type, and record_phase to DB
+            $stmt = $conn->prepare("INSERT INTO documents (po_id, file_name, file_path, category, doc_type, status, record_phase, uploaded_by, file_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->bind_param("issssssis", $po_id, $final_name_to_save, $db_path, $doc_category, $doc_type, $status, $record_phase, $user_id, $fileHash);
             
             if ($stmt->execute()) {
                 $new_doc_id = $stmt->insert_id;
+
+                // =================================================================
+                // NEW: PHYSICAL RECORD INITIALIZATION FROM UI QUESTION
+                // =================================================================
+                $physical_status = $_POST['physical_status'] ?? 'Digital';
+                
+                if ($physical_status === 'Stored') {
+                    $phys_status = 'Stored';
+                    $stmt_phys = $conn->prepare("INSERT INTO virt_document_locations (document_id, status) VALUES (?, ?)");
+                    $stmt_phys->bind_param("is", $new_doc_id, $phys_status);
+                    $stmt_phys->execute();
+                }
+
                 if (function_exists('log_document_action')) {
                     log_document_action($conn, $user_id, 'UPLOAD_RECORD', $new_doc_id, "Indexed and uploaded Official Record: " . $sanitized_file_name . " [$doc_category]", $redirectUrl);
                 } else {
@@ -450,4 +525,80 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
     }
 }
+
+// ==========================================
+    // DECLARE AS OFFICIAL RECORD (ENTERPRISE WORKFLOW)
+    // ==========================================
+    if ($action == 'declare_official') {
+        if (!has_permission($conn, $_SESSION['user_id'], 'can_manage_folders') && !in_array($_SESSION['role'], ['Admin', 'GM', 'President'])) {
+            die("Access Denied");
+        }
+
+        $doc_id = intval($_POST['doc_id']);
+        $redirectUrl = $_POST['return_url'] ?? '../general_docs.php';
+
+        try {
+            $conn->begin_transaction();
+
+            // 1. Fetch the original working document
+            $stmt = $conn->prepare("SELECT * FROM documents WHERE doc_id = ?");
+            $stmt->bind_param("i", $doc_id);
+            $stmt->execute();
+            $orig = $stmt->get_result()->fetch_assoc();
+
+            if (!$orig) throw new Exception("Document not found.");
+            if ($orig['record_phase'] === 'Converted') throw new Exception("This is already a converted record.");
+
+            // 2. Generate Official Record Number (e.g., REC-2026-0001)
+            $year = date('Y');
+            $rec_count_query = $conn->query("SELECT COUNT(*) as cnt FROM documents WHERE record_number LIKE 'REC-$year-%'");
+            $rec_count = $rec_count_query->fetch_assoc()['cnt'] + 1;
+            $record_number = sprintf("REC-%s-%04d", $year, $rec_count);
+
+            // 3. Clone as Official Record (Locks it and moves it to Virtual Cabinet)
+            $cat = !empty($orig['category']) ? $orig['category'] : $orig['doc_type'];
+            
+            // Safe variables for PHP 8 binding
+            $po_id = $orig['po_id'];
+            $file_name = $orig['file_name'];
+            $file_path = $orig['file_path'];
+            $doc_type = $orig['doc_type'];
+            $status = $orig['status'];
+            $uploaded_by = $orig['uploaded_by'];
+            $uploaded_at = $orig['uploaded_at'];
+            $file_hash = $orig['file_hash'];
+            $current_version = $orig['current_version'];
+            $access_type = $orig['access_type'];
+            $file_permissions = $orig['file_permissions'];
+
+            // 14 variables matching "isssssisssssis"
+            $insert = $conn->prepare("INSERT INTO documents (po_id, file_name, file_path, category, doc_type, status, uploaded_by, uploaded_at, file_hash, current_version, access_type, file_permissions, record_phase, declared_at, declared_by, record_number, is_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Official', NOW(), ?, ?, 1)");
+            $insert->bind_param("isssssisssssis", 
+                $po_id, $file_name, $file_path, $cat, $doc_type, 
+                $status, $uploaded_by, $uploaded_at, $file_hash, 
+                $current_version, $access_type, $file_permissions, 
+                $user_id, $record_number
+            );
+            $insert->execute();
+            $official_doc_id = $insert->insert_id;
+
+            // 4. Update Original to 'Converted' (Preserves Working Copy, locks editing)
+            $update = $conn->prepare("UPDATE documents SET record_phase = 'Converted', official_doc_id = ?, is_locked = 1 WHERE doc_id = ?");
+            $update->bind_param("ii", $official_doc_id, $doc_id);
+            $update->execute();
+
+            $conn->commit();
+
+            if (function_exists('log_audit_action')) {
+                log_audit_action($conn, $user_id, 'DECLARE_OFFICIAL', "Declared Doc ID $doc_id as Official Record $record_number");
+            }
+            header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "success=" . urlencode("Success! Working copy locked and Official Record $record_number generated."));
+            
+        } catch (Exception $e) {
+            $conn->rollback();
+            error_log("Declare Official Error: " . $e->getMessage());
+            header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "error=" . urlencode("Declaration Failed."));
+        }
+        exit();
+    }
 ?>
