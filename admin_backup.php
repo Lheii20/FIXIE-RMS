@@ -67,17 +67,17 @@ if(isset($_GET['success'])) { $toastType = 'success'; $toastMsg = htmlspecialcha
     <title>Database Management - Fixie DRMS</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
-    <link href="assets/css/style.css" rel="stylesheet">
-    <link href="assets/css/custom_fixie.css" rel="stylesheet"> <!-- NEW CSS HERE -->
+    <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
+    <link href="assets/css/mobile-settings-admin.css?v=<?php echo filemtime(__DIR__ . '/assets/css/mobile-settings-admin.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
 </head>
-<body>
+<body class="page-admin-backup">
     <?php include 'sidebar.php'; ?>
 
     <div class="main-content fade-in">
-        <div class="container-fluid max-w-1000 pt-3">
-            <div class="mb-4">
+        <div class="container-fluid max-w-1000 pt-3 admin-backup-shell">
+            <div class="mb-4 admin-page-header">
                 <h3 class="fw-bold text-slate-800 mb-1 tracking-tight">Database Management</h3>
                 <p class="text-slate-500 mb-0 fs-md">Maintain system integrity through secure backups and disaster recovery protocols.</p>
             </div>

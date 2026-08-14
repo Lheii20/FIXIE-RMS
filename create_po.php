@@ -84,17 +84,17 @@ if (isset($_GET['pr_id'])) {
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
 </head>
-<body>
+<body class="page-create-po">
     <?php include 'sidebar.php'; ?>
     
     <div class="main-content fade-in">
         <div class="container-fluid max-w-1300">
             
-            <div class="d-flex align-items-center mb-4 mt-2">
-                <a href="po_list.php" class="btn btn-white shadow-sm rounded-custom d-flex align-items-center justify-content-center me-3 box-38 border"><i class="fas fa-arrow-left text-secondary"></i></a>
-                <div>
+            <div class="d-flex flex-nowrap align-items-center justify-content-start mb-4 mt-2 create-form-header text-start">
+                <a href="po_list.php" class="btn btn-white shadow-sm rounded-custom d-flex align-items-center justify-content-center me-3 box-38 border create-form-back-btn" aria-label="Back to purchase orders"><i class="fas fa-arrow-left text-secondary"></i></a>
+                <div class="create-form-heading text-start">
                     <h4 class="fw-bold text-dark mb-0 tracking-tight">Purchase Order</h4>
-                    <p class="text-muted mb-0 fs-sm">Draft your official purchase document.</p>
+                    <p class="text-muted mb-0 fs-sm d-none d-md-block">Draft your official purchase document.</p>
                 </div>
             </div>
 
@@ -225,7 +225,7 @@ if (isset($_GET['pr_id'])) {
                     <i class="fas fa-arrow-left me-1"></i> 
                     <span class="d-none d-sm-inline">Back</span>
                 </button>
-                <button type="button" class="btn btn-success fw-bold rounded-custom shadow-sm btn-glass-action" onclick="document.getElementById('poForm').submit();">
+                <button type="button" class="btn btn-success fw-bold rounded-custom shadow-sm btn-glass-action" onclick="submitPOForm();">
                     <span class="d-none d-sm-inline">Submit Order</span>
                     <span class="d-inline d-sm-none">Submit</span> 
                     <i class="fas fa-check-circle ms-1"></i>
@@ -239,17 +239,96 @@ if (isset($_GET['pr_id'])) {
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     
     <script>
-        const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000, timerProgressBar: true });
+        const Toast = Swal.mixin({ toast: true, position: 'bottom-end', showConfirmButton: false, timer: 2800, timerProgressBar: true, customClass: { popup: 'form-validation-toast shadow-sm border' } });
+
+        <?php if(isset($_GET['success'])): ?>
+            Toast.fire({ icon: 'success', title: '<?php echo addslashes(htmlspecialchars($_GET['success'])); ?>' });
+            window.history.replaceState(null, null, window.location.pathname<?php echo isset($_GET['pr_id']) ? " + '?pr_id=" . htmlspecialchars($_GET['pr_id']) . "'" : ""; ?>);
+        <?php endif; ?>
+
+        <?php if(isset($_GET['error'])): ?>
+            Toast.fire({ icon: 'error', title: '<?php echo addslashes(htmlspecialchars($_GET['error'])); ?>' });
+            window.history.replaceState(null, null, window.location.pathname<?php echo isset($_GET['pr_id']) ? " + '?pr_id=" . htmlspecialchars($_GET['pr_id']) . "'" : ""; ?>);
+            // Revert back to step 1 if there's a backend error
+            document.addEventListener('DOMContentLoaded', () => { goToStep('step1'); });
+        <?php endif; ?>
+
+        function hasValidRequiredValue(field) {
+            const value = typeof field.value === 'string' ? field.value.trim() : field.value;
+            return value !== '' && field.checkValidity();
+        }
+
+        function clearValidPOFieldState(field) {
+            if (!hasValidRequiredValue(field)) return;
+            const originalQty = parseInt(field.getAttribute('data-orig-qty')) || 0;
+            const isOverOriginalQty = field.classList.contains('qty-input') && originalQty > 0 && parseInt(field.value) > originalQty;
+            if (!isOverOriginalQty) field.classList.remove('is-invalid');
+        }
+
+        function clearPOFieldErrorOnEntry(event) {
+            const field = event.target;
+            if (!field.matches('[required]')) return;
+
+            const value = typeof field.value === 'string' ? field.value.trim() : field.value;
+            if (value === '') return;
+
+            const originalQty = parseInt(field.getAttribute('data-orig-qty')) || 0;
+            const isOverOriginalQty = field.classList.contains('qty-input') && originalQty > 0 && parseInt(field.value) > originalQty;
+            if (!isOverOriginalQty) field.classList.remove('is-invalid');
+        }
+
+        function showInvalidPOField(field, message) {
+            field.classList.add('is-invalid');
+            if (field.closest('#step1') && !document.getElementById('step1').classList.contains('active-step')) {
+                goToStep('step1');
+            }
+            Toast.fire({ icon: 'error', title: message });
+            window.setTimeout(() => {
+                field.focus({ preventScroll: true });
+                field.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                field.reportValidity();
+            }, 100);
+        }
+
+        function validatePOForm() {
+            const form = document.getElementById('poForm');
+            const rows = form.querySelectorAll('#itemsBody tr');
+
+            if (rows.length === 0) {
+                Toast.fire({ icon: 'error', title: 'Add at least one item before submitting the Purchase Order.' });
+                return false;
+            }
+
+            const requiredFields = Array.from(form.querySelectorAll('[required]'));
+            requiredFields.forEach(clearValidPOFieldState);
+            const invalidField = requiredFields.find(field => !hasValidRequiredValue(field));
+            if (invalidField) {
+                showInvalidPOField(invalidField, 'Please complete every required field before submitting.');
+                return false;
+            }
+
+            if ((parseFloat(document.getElementById('hiddenGrandTotal').value) || 0) <= 0) {
+                Toast.fire({ icon: 'error', title: 'The Purchase Order total must be greater than zero.' });
+                return false;
+            }
+
+            return true;
+        }
+
+        function submitPOForm() {
+            const form = document.getElementById('poForm');
+            if (validatePOForm()) {
+                form.requestSubmit();
+            }
+        }
 
         function goToStep(step) {
             if(step === 'step2') {
-                let isValid = true;
-                $('#step1 [required]').each(function() {
-                    if (!$(this).val()) { $(this).addClass('is-invalid'); isValid = false; } 
-                    else { $(this).removeClass('is-invalid'); }
-                });
-                if(!isValid) {
-                    Toast.fire({ icon: 'error', title: 'Please complete all required fields.' });
+                const stepOneFields = Array.from(document.querySelectorAll('#step1 [required]'));
+                stepOneFields.forEach(clearValidPOFieldState);
+                const firstInvalid = stepOneFields.find(field => !hasValidRequiredValue(field));
+                if (firstInvalid) {
+                    showInvalidPOField(firstInvalid, 'Please complete all required client information.');
                     return;
                 }
                 $('#step1').removeClass('active-step'); $('#step2').addClass('active-step');
@@ -432,9 +511,22 @@ if (isset($_GET['pr_id'])) {
             return false;
         }
 
-        document.getElementById('poForm').addEventListener('input', saveDraft);
-        document.getElementById('poForm').addEventListener('change', saveDraft);
-        document.getElementById('poForm').addEventListener('submit', function() { localStorage.removeItem(draftKey); });
+        const poFormElement = document.getElementById('poForm');
+        poFormElement.addEventListener('input', function(event) {
+            clearPOFieldErrorOnEntry(event);
+            saveDraft();
+        });
+        poFormElement.addEventListener('change', function(event) {
+            clearPOFieldErrorOnEntry(event);
+            saveDraft();
+        });
+        poFormElement.addEventListener('submit', function(event) {
+            if (!validatePOForm()) {
+                event.preventDefault();
+                return;
+            }
+            localStorage.removeItem(draftKey);
+        });
         
         window.onload = function() {
             if (!loadDraft()) {

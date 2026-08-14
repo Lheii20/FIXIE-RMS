@@ -44,6 +44,11 @@ $role = $_SESSION['role'];
 $is_sales_staff = ($role === 'Sales Staff');
 $can_create_pr = ($is_sales_staff && $quote['status'] === 'PO Received');
 
+$can_submit_approval = (
+    $is_sales_staff &&
+    in_array($quote['status'], ['Pending Approval', 'Pending PO'], true)
+);
+
 // Badge Logic
 $s = $quote['status'];
 $badge = 'bg-soft-warning';
@@ -57,74 +62,48 @@ elseif($s == 'Converted to PR') { $badge = 'bg-soft-primary'; $icon = 'fa-exchan
 <html lang="en">
 <head>
     <title>View Quotation <?php echo htmlspecialchars($quote['quotation_number']); ?> - Fixie DRMS</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
-    <link href="assets/css/style.css" rel="stylesheet">
+    <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <!-- SweetAlert2 CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        body, .main-content { font-family: 'Inter', sans-serif; }
-        .file-thumbnail { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; border: 1px solid #ddd; }
-        .file-icon { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; background: #f8f9fa; border-radius: 4px; font-size: 1.2rem; border: 1px solid #ddd; }
-        
-        .bg-soft-warning { background: #fffbeb; color: #d97706; }
-        .bg-soft-primary { background: #eff6ff; color: #2563eb; }
-        .bg-soft-success { background: #ecfdf5; color: #059669; }
-
-        @media screen { .print-only-quote { display: none; } }
-        
-        @media print {
-            @page { size: A4; margin: 0; }
-            body { background: white !important; color: #212529 !important; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif !important; font-size: 10pt !important; padding: 15mm !important; }
-            .sidebar, .navbar, .no-print, .screen-only-cards { display: none !important; }
-            .main-content { margin: 0 !important; width: 100% !important; padding: 0 !important; background: transparent !important; box-shadow: none !important; }
-            .print-only-quote { display: block !important; width: 100%; }
-            .print-header-brand { font-size: 26pt; font-weight: 900; color: #0d6efd !important; margin: 0; line-height: 1.1; letter-spacing: -0.5px; -webkit-print-color-adjust: exact; }
-            .print-header-sub { font-size: 9pt; color: #6c757d !important; margin-top: 6px; line-height: 1.4; }
-            .print-title-doc { font-size: 22pt; font-weight: 800; color: #343a40 !important; text-transform: uppercase; letter-spacing: 2px; }
-            .info-box { border: 1px solid #dee2e6; border-radius: 6px; padding: 15px; margin-bottom: 25px; }
-            .info-label { font-size: 8pt; text-transform: uppercase; color: #6c757d !important; font-weight: 700; margin-bottom: 4px; letter-spacing: 0.5px; }
-            .print-table { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 25px; border: 1px solid #dee2e6; }
-            .print-table th { background-color: #0d6efd !important; color: white !important; -webkit-print-color-adjust: exact; padding: 12px 10px; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.5px; border: 1px solid #0d6efd; }
-            .print-table td { padding: 12px 10px; border: 1px solid #dee2e6; font-size: 10pt; vertical-align: top; }
-            .print-table tfoot td { background-color: #f8f9fa !important; -webkit-print-color-adjust: exact; padding: 15px 10px; border-top: 2px solid #0d6efd; }
-        }
-    </style>
+    
 </head>
-<body>
+<body class="page-view-quotation">
 
     <?php include 'sidebar.php'; ?>
 
     <div class="main-content fade-in">
-        <div class="container-fluid" style="max-width: 1200px;">
+        <div class="container-fluid view-doc-shell" style="max-width: 1200px;">
             
-            <div class="d-flex justify-content-between align-items-center mb-4 no-print bg-white p-3 rounded shadow-sm border" style="border-radius: 12px !important;">
-                <div class="d-flex align-items-center gap-3">
-                    <a href="quotations_list.php" class="btn btn-sm btn-light border shadow-sm px-3" style="font-weight: 600; border-radius: 8px;">
-                        <i class="fas fa-arrow-left me-2"></i> Back
+            <div class="view-doc-toolbar view-quotation-toolbar d-flex justify-content-between align-items-center mb-4 no-print bg-white p-3 rounded shadow-sm border" style="border-radius: 12px !important;">
+                <div class="view-doc-toolbar-main d-flex align-items-center gap-3">
+                    <a href="quotations_list.php" class="view-doc-back btn btn-sm btn-light border shadow-sm px-3" style="font-weight: 600; border-radius: 8px;" aria-label="Back to quotations">
+                        <i class="fas fa-arrow-left me-2"></i><span>Back</span>
                     </a>
-                    <button class="btn btn-sm btn-primary shadow-sm px-3 fw-bold" style="border-radius: 8px;" onclick="window.print()">
-                        <i class="fas fa-print me-1"></i> Print
+                    <button class="view-doc-print btn btn-sm btn-primary shadow-sm px-3 fw-bold" style="border-radius: 8px;" onclick="window.print()" aria-label="Print quotation">
+                        <i class="fas fa-print me-1"></i><span>Print</span>
                     </button>
                 </div>
-                <div class="d-flex align-items-center gap-3 text-end">
+                <div class="view-doc-toolbar-actions d-flex align-items-center gap-3 text-end">
                     <?php if($can_create_pr): ?>
-                        <a href="create_pr.php?quotation_id=<?php echo $quotation_id; ?>" class="btn btn-sm btn-success shadow-sm fw-bold px-4" style="border-radius: 8px;">
-                            <i class="fas fa-arrow-right me-1"></i> Create PR
+                        <a href="create_pr.php?quotation_id=<?php echo $quotation_id; ?>" class="view-doc-primary-action btn btn-sm btn-success shadow-sm fw-bold px-4" style="border-radius: 8px;" aria-label="Create purchase request">
+                            <i class="fas fa-arrow-right me-1"></i><span>Create PR</span>
                         </a>
                         <div class="vr bg-secondary opacity-25" style="width: 2px; height: 30px;"></div>
                     <?php endif; ?>
                     
                     <div style="line-height: 1.2;">
-                        <span class="badge <?php echo $badge; ?> px-3 py-1 shadow-sm"><i class="fas <?php echo $icon; ?>"></i> <?php echo htmlspecialchars($status_label); ?></span>
+                        <span class="view-doc-status badge <?php echo $badge; ?> px-3 py-1 shadow-sm"><i class="fas <?php echo $icon; ?>"></i> <?php echo htmlspecialchars($status_label); ?></span>
                     </div>
                 </div>
             </div>
 
-            <div class="row g-4 screen-only-cards">
+            <div class="row g-4 screen-only-cards view-summary-grid">
                 <div class="col-md-8">
-                    <div class="card shadow-sm border-0 h-100" style="border-radius: 16px;">
+                    <div class="card shadow-sm border-0 h-100 view-info-card" style="border-radius: 16px;">
                         <div class="card-body p-4">
                             <div class="d-flex align-items-center mb-3 pb-2 border-bottom border-light">
                                 <div class="bg-light text-primary rounded-circle d-flex align-items-center justify-content-center me-3" style="width: 40px; height: 40px;">
@@ -156,7 +135,7 @@ elseif($s == 'Converted to PR') { $badge = 'bg-soft-primary'; $icon = 'fa-exchan
                 </div>
 
                 <div class="col-md-4">
-                    <div class="card shadow-sm border-0 mb-4 bg-primary bg-opacity-10 border-primary" style="border-radius: 16px;">
+                    <div class="card shadow-sm border-0 mb-4 bg-primary bg-opacity-10 border-primary view-total-card" style="border-radius: 16px;">
                         <div class="card-body p-4 text-center">
                             <h6 class="text-uppercase text-primary fw-bold small mb-2">Grand Total Estimate</h6>
                             <h2 class="fw-bold text-primary mb-0">₱ <?php echo number_format($quote['amount'], 2); ?></h2>
@@ -164,7 +143,7 @@ elseif($s == 'Converted to PR') { $badge = 'bg-soft-primary'; $icon = 'fa-exchan
                     </div>
 
                     <?php if(!empty($quote['client_po_number'])): ?>
-                    <div class="card shadow-sm border-0 border-start border-4 border-success" style="border-radius: 16px;">
+                    <div class="card shadow-sm border-0 border-start border-4 border-success quote-approval-card" style="border-radius: 16px;">
                         <div class="card-body p-4">
                             <h6 class="text-uppercase text-success fw-bold small mb-3"><i class="fas fa-check-circle me-1"></i> Client Approval</h6>
                             <div class="mb-2">
@@ -199,18 +178,34 @@ elseif($s == 'Converted to PR') { $badge = 'bg-soft-primary'; $icon = 'fa-exchan
                         </div>
                     </div>
                     <?php else: ?>
-                    <div class="card shadow-sm border-0 border-start border-4 border-warning" style="border-radius: 16px;">
-                        <div class="card-body p-4">
-                            <h6 class="text-uppercase text-warning fw-bold small mb-2"><i class="fas fa-clock me-1"></i> Client Approval</h6>
-                            <p class="text-muted small m-0 fst-italic">Waiting for the client’s confirmation and supporting proof of approval.</p>
-                        </div>
-                    </div>
-                    <?php endif; ?>
+<div class="card shadow-sm border-0 border-start border-4 border-warning quote-approval-card"
+     style="border-radius: 16px;">
+    <div class="card-body p-4">
+        <h6 class="text-uppercase text-warning fw-bold small mb-2">
+            <i class="fas fa-clock me-1"></i> Client Approval
+        </h6>
+
+        <p class="text-muted small m-0 fst-italic">
+            Waiting for the client’s confirmation and supporting proof of approval.
+        </p>
+
+        <?php if ($can_submit_approval): ?>
+            <button type="button"
+                    class="view-mobile-submit-approval d-flex d-md-none"
+                    data-bs-toggle="modal"
+                    data-bs-target="#receivePoModal">
+                <i class="fas fa-file-signature" aria-hidden="true"></i>
+                <span>Submit Approval</span>
+            </button>
+        <?php endif; ?>
+    </div>
+</div>
+<?php endif; ?>
                 </div>
             </div>
 
             <?php if($linked_pr): ?>
-            <div class="alert alert-primary border-0 shadow-sm d-flex align-items-center justify-content-between mt-4 mb-4" style="border-radius: 14px;">
+            <div class="alert alert-primary border-0 shadow-sm d-flex align-items-center justify-content-between mt-4 mb-4 quote-linked-pr" style="border-radius: 14px;">
                 <div class="d-flex align-items-center gap-3">
                     <div class="bg-white text-primary rounded-circle d-flex align-items-center justify-content-center shadow-sm" style="width: 38px; height: 38px;">
                         <i class="fas fa-link"></i>
@@ -224,13 +219,13 @@ elseif($s == 'Converted to PR') { $badge = 'bg-soft-primary'; $icon = 'fa-exchan
             </div>
             <?php endif; ?>
 
-            <div class="card shadow-sm border-0 mb-4" style="border-radius: 16px; overflow: hidden;">
+            <div class="card shadow-sm border-0 mb-4 view-items-card" style="border-radius: 16px; overflow: hidden;">
                 <div class="card-header bg-white py-3 border-bottom border-light">
                     <h6 class="m-0 fw-bold text-dark"><i class="fas fa-list-ul me-2 text-primary"></i> Quoted Items</h6>
                 </div>
                 <div class="card-body p-0">
                     <div class="table-responsive">
-                        <table class="table table-hover align-middle mb-0">
+                        <table class="table table-hover align-middle mb-0 view-items-table">
                             <thead class="bg-light text-secondary" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">
                                 <tr>
                                     <th class="ps-4 py-3 border-bottom-0">Item & Specifications</th>
@@ -264,6 +259,11 @@ elseif($s == 'Converted to PR') { $badge = 'bg-soft-primary'; $icon = 'fa-exchan
                         </table>
                     </div>
                 </div>
+            </div>
+
+            <div class="view-mobile-grand-total d-md-none" aria-label="Grand Total Estimate">
+                <span>Grand Total Estimate</span>
+                <strong>₱ <?php echo number_format($quote['amount'], 2); ?></strong>
             </div>
         </div>
 
@@ -348,8 +348,115 @@ elseif($s == 'Converted to PR') { $badge = 'bg-soft-primary'; $icon = 'fa-exchan
 
     </div>
 
+    <!-- Mobile Client Approval Modal -->
+<div class="modal fade view-approval-modal"
+     id="receivePoModal"
+     tabindex="-1"
+     aria-labelledby="receivePoModalTitle"
+     aria-hidden="true">
+
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form action="actions/quotation_handler.php"
+                  method="POST"
+                  enctype="multipart/form-data">
+
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title" id="receivePoModalTitle">
+                            Submit Client Approval
+                        </h5>
+
+                        <p class="mb-0">
+                            Record the client confirmation for
+                            <strong>
+                                <?php echo htmlspecialchars($quote['quotation_number']); ?>
+                            </strong>.
+                        </p>
+                    </div>
+
+                    <button type="button"
+                            class="btn-close"
+                            data-bs-dismiss="modal"
+                            aria-label="Close"></button>
+                </div>
+
+                <div class="modal-body">
+                    <input type="hidden"
+                           name="csrf_token"
+                           value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
+
+                    <input type="hidden" name="action" value="receive_po">
+
+                    <input type="hidden"
+                           name="quotation_id"
+                           value="<?php echo $quotation_id; ?>">
+
+                    <div class="view-approval-note">
+                        <i class="fas fa-shield-alt text-primary"></i>
+
+                        <span>
+                            Attach clear proof of the client’s approval. The quotation
+                            will become <strong>Client Approved</strong> after submission.
+                        </span>
+                    </div>
+
+                    <div class="view-approval-field">
+                        <label for="approvalMode">
+                            Mode of Approval <span class="text-danger">*</span>
+                        </label>
+
+                        <select name="approval_mode"
+                                id="approvalMode"
+                                class="form-select"
+                                required>
+                            <option value="" disabled selected>
+                                Select the approval channel...
+                            </option>
+                            <option value="Messenger Chat">Messenger Chat</option>
+                            <option value="Viber / WhatsApp Chat">Viber / WhatsApp Chat</option>
+                            <option value="Email Confirmation">Email Confirmation</option>
+                            <option value="Signed Quotation">Signed Quotation</option>
+                            <option value="Official Client PO">Official Client PO</option>
+                            <option value="In-Person Confirmation">In-Person Confirmation</option>
+                            <option value="Other Written Confirmation">Other Written Confirmation</option>
+                        </select>
+                    </div>
+
+                    <div class="view-approval-field">
+                        <label for="approvalProofFile">
+                            Proof of Approval <span class="text-danger">*</span>
+                        </label>
+
+                        <input type="file"
+                               name="po_file"
+                               id="approvalProofFile"
+                               class="form-control"
+                               accept=".pdf,.png,.jpg,.jpeg"
+                               required>
+
+                        <small>PDF, JPG, or PNG only — maximum of 10 MB.</small>
+                    </div>
+
+                    <div class="view-approval-actions">
+                        <button type="button"
+                                class="btn btn-light"
+                                data-bs-dismiss="modal">
+                            Cancel
+                        </button>
+
+                        <button type="submit" class="btn btn-success">
+                            Submit Approval
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
     <!-- File Preview Modal -->
-    <div class="modal fade" id="previewModal" tabindex="-1">
+    <div class="modal fade view-file-preview-modal" id="previewModal" tabindex="-1">
         <div class="modal-dialog modal-lg modal-dialog-centered">
             <div class="modal-content" style="border-radius: 16px; overflow: hidden; border: none;">
                 <div class="modal-header border-bottom-0 pb-0">

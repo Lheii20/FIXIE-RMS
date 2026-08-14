@@ -99,8 +99,16 @@ $eligible_task_roles = get_po_eligible_roles($conn, $status);
 $is_task_eligible = in_array($role, $eligible_task_roles, true);
 $is_task_assignee = $active_task_assignment && (int)$active_task_assignment['assigned_to'] === (int)$current_user_id;
 $task_locked_for_another_user = $active_task_assignment && !$is_task_assignee;
-$task_claim_required = $is_task_eligible && !$active_task_assignment && role_requires_task_claim($conn, $role);
-$can_execute_task = !$task_locked_for_another_user && !$task_claim_required;
+$task_claim_required = false; // Wala nang manual claim
+$can_execute_task = !$task_locked_for_another_user;
+
+$other_eligible_users = 0;
+if ($is_task_assignee && $active_task_assignment) {
+    $stmt_cnt = $conn->prepare("SELECT COUNT(*) as c FROM users WHERE role = ? AND status = 'Active' AND user_id != ?");
+    $stmt_cnt->bind_param("si", $active_task_assignment['assigned_role'], $current_user_id);
+    $stmt_cnt->execute();
+    $other_eligible_users = $stmt_cnt->get_result()->fetch_assoc()['c'];
+}
 
 $items_data = [];
 $stmt_items = $conn->prepare("SELECT * FROM po_items WHERE po_id = ?");
@@ -149,24 +157,24 @@ $can_upload_files = ($role == 'Procurement');
     <title>View PO #<?php echo htmlspecialchars($po['po_number']); ?> - Fixie DRMS</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
-    <link href="assets/css/style.css" rel="stylesheet">
+    <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body>
+<body class="page-view-po">
     <?php include 'sidebar.php'; ?>
     <div class="main-content fade-in">
         
-        <div class="d-flex justify-content-between align-items-center mb-4 no-print bg-white p-3 shadow-sm border rounded-12-imp">
-            <a href="po_list.php" class="btn btn-sm btn-light border px-3 shadow-sm fw-600 rounded-8">
-                <i class="fas fa-arrow-left me-2"></i> Back
+        <div class="view-doc-toolbar view-po-toolbar d-flex justify-content-between align-items-center mb-4 no-print bg-white p-3 shadow-sm border rounded-12-imp">
+            <a href="po_list.php" class="view-doc-back btn btn-sm btn-light border px-3 shadow-sm fw-600 rounded-8" aria-label="Back to purchase orders">
+                <i class="fas fa-arrow-left me-2"></i><span>Back</span>
             </a>
             
-            <div class="d-flex align-items-center gap-2 text-end">
+            <div class="view-po-toolbar-actions d-flex align-items-center gap-2 text-end">
                 
                 <?php if ($is_approver && $can_execute_task): ?>
-                    <div class="d-inline-flex align-items-center gap-2 m-0 p-0">
+                    <div class="view-po-decision-actions d-inline-flex align-items-center gap-2 m-0 p-0">
                         <button type="button" class="btn btn-sm btn-success px-4 shadow-sm fw-bold rounded-8" 
                                 onclick="<?php echo $approve_action === 'mark_delivered' ? "openDeliveryProofModal()" : "confirmApprovePO(event, '" . $approve_action . "', '" . $po['po_id'] . "', '" . htmlspecialchars($po['po_number'], ENT_QUOTES) . "', '" . htmlspecialchars($approve_label, ENT_QUOTES) . "')"; ?>">
                             <i class="fas fa-check-circle me-1"></i> <?php echo htmlspecialchars($approve_label); ?>
@@ -182,11 +190,11 @@ $can_upload_files = ($role == 'Procurement');
                     <div class="vr bg-secondary opacity-25 mx-2 vr-divider"></div>
                 <?php endif; ?>
 
-                <button class="btn btn-sm btn-primary shadow-sm px-3 fw-bold rounded-8" onclick="logAndPrint('PO #<?php echo htmlspecialchars($po['po_number']); ?>')">
-                    <i class="fas fa-print me-1"></i> Print PO
+                <button class="view-doc-print btn btn-sm btn-primary shadow-sm px-3 fw-bold rounded-8" onclick="logAndPrint('PO #<?php echo htmlspecialchars($po['po_number']); ?>')" aria-label="Print purchase order">
+                    <i class="fas fa-print me-1"></i><span>Print PO</span>
                 </button>
                 
-                <div class="border-start ps-3 ms-2 text-start lh-12">
+                <div class="view-po-status-block border-start ps-3 ms-2 text-start lh-12">
                     <span class="badge badge-status status-<?php echo str_replace([' ', '/'], '_', $po['status']); ?> px-3 py-1 mb-1 d-inline-block shadow-sm"><?php echo $po['status']; ?></span><br>
                     <small class="text-muted fw-bold fs-xs"><i class="fas fa-map-marker-alt text-danger opacity-75"></i> <?php echo htmlspecialchars($po['current_location']); ?></small>
                 </div>
@@ -194,7 +202,7 @@ $can_upload_files = ($role == 'Procurement');
         </div>
 
         <?php if ($is_task_eligible || $active_task_assignment): ?>
-        <div class="card border-0 shadow-sm mb-4 no-print rounded-12">
+        <div class="card border-0 shadow-sm mb-4 no-print rounded-12 view-po-task-card">
             <div class="card-body py-3 px-4 d-flex flex-wrap align-items-center justify-content-between gap-3">
                 <div class="d-flex align-items-center gap-3">
                     <div class="rounded-circle bg-primary bg-opacity-10 text-primary d-inline-flex align-items-center justify-content-center box-38"><i class="fas fa-user-check"></i></div>
@@ -207,31 +215,23 @@ $can_upload_files = ($role == 'Procurement');
                         <?php endif; ?>
                     </div>
                 </div>
-                <?php if ($is_task_eligible && !$active_task_assignment): ?>
+                <?php if ($is_task_assignee && $other_eligible_users > 0): ?>
                     <form action="actions/po_handler.php" method="POST" class="m-0">
                         <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
-                        <input type="hidden" name="action" value="claim_task">
+                        <input type="hidden" name="action" value="reassign_task">
                         <input type="hidden" name="po_id" value="<?php echo (int)$po_id; ?>">
-                        <button type="submit" class="btn btn-sm btn-primary px-3 fw-bold rounded-8"><i class="fas fa-hand-paper me-1"></i> Claim task</button>
-                    </form>
-                <?php elseif ($is_task_assignee): ?>
-                    <form action="actions/po_handler.php" method="POST" class="m-0">
-                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
-                        <input type="hidden" name="action" value="release_task">
-                        <input type="hidden" name="po_id" value="<?php echo (int)$po_id; ?>">
-                        <button type="submit" class="btn btn-sm btn-outline-secondary px-3 fw-bold rounded-8"><i class="fas fa-share me-1"></i> Release task</button>
+                        <button type="submit" class="btn btn-sm btn-outline-secondary px-3 fw-bold rounded-8" onclick="return confirm('Ipasa ang task na ito sa next available user?');"><i class="fas fa-random me-1"></i> Re-assign Task</button>
                     </form>
                 <?php endif; ?>
             </div>
             <?php if ($task_locked_for_another_user): ?><div class="card-footer bg-light border-0 small text-muted py-2 px-4">Only the assigned user can complete the current task. The PO remains visible to the whole department.</div><?php endif; ?>
-            <?php if ($task_claim_required): ?><div class="card-footer bg-light border-0 small text-muted py-2 px-4">Because more than one active user has this role, claim the task before taking action.</div><?php endif; ?>
         </div>
         <?php endif; ?>
 
-        <div class="row g-4 screen-only-cards">
+        <div class="row g-4 screen-only-cards view-po-content-grid">
             <div class="col-lg-8">
                 
-                <div class="card border-0 shadow-sm mb-4 rounded-16">
+                <div class="card border-0 shadow-sm mb-4 rounded-16 view-info-card po-info-card">
                     <div class="card-body p-4">
                         <div class="d-flex align-items-center mb-3 pb-2 border-bottom border-light">
                             <div class="bg-light text-primary rounded-circle d-flex align-items-center justify-content-center me-3 box-40">
@@ -245,7 +245,7 @@ $can_upload_files = ($role == 'Procurement');
                                 <small class="text-muted d-block mb-1 fs-xs">PO Number</small>
                                 <div class="fs-5 fw-bold text-primary">#<?php echo htmlspecialchars($po['po_number']); ?></div>
                             </div>
-                            <div class="col-md-6">
+                            <div class="col-md-6 view-info-total-field">
                                 <small class="text-muted d-block mb-1 fs-xs">Total Amount</small>
                                 <div class="fs-5 fw-bold text-dark">₱ <?php echo number_format($po['amount'], 2); ?></div>
                             </div>
@@ -281,13 +281,13 @@ $can_upload_files = ($role == 'Procurement');
                     </div>
                 </div>
 
-                <div class="card border-0 shadow-sm mb-4 rounded-16 overflow-hidden">
+                <div class="card border-0 shadow-sm mb-4 rounded-16 overflow-hidden view-items-card po-items-card">
                     <div class="card-header bg-white fw-bold py-3 border-bottom border-light">
                         <i class="fas fa-list-alt me-2 text-primary"></i> Order Specifications
                     </div>
                     <div class="card-body p-0">
                         <div class="table-responsive">
-                            <table class="table table-hover mb-0 align-middle">
+                            <table class="table table-hover mb-0 align-middle view-items-table po-items-table">
                                 <thead class="bg-light text-secondary table-header-sm">
                                     <tr>
                                         <th class="ps-4 py-3 border-bottom-0">Item Details</th>
@@ -317,6 +317,11 @@ $can_upload_files = ($role == 'Procurement');
                     </div>
                 </div>
 
+                <div class="view-mobile-grand-total d-md-none" aria-label="Grand Total">
+                    <span>Grand Total</span>
+                    <strong>₱ <?php echo number_format($po['amount'], 2); ?></strong>
+                </div>
+
                 <?php 
                 $payment_visible_statuses = ['Delivered', 'Partially Paid', 'Partially-Collected', 'Collected'];
                 
@@ -334,7 +339,7 @@ $can_upload_files = ($role == 'Procurement');
                     </div>
                     
                     <div class="card-body p-0">
-                        <table class="table table-hover mb-0">
+                        <table class="table table-hover mb-0 po-payment-table">
                             <thead class="bg-light text-secondary table-header-sm">
                                 <tr>
                                     <th class="ps-4 py-3 border-bottom-0">Date & Time</th>
@@ -377,7 +382,7 @@ $can_upload_files = ($role == 'Procurement');
                     <?php if($balance > 0.01 && $_SESSION['role'] == 'Finance' && $can_execute_task): ?>
                     <div class="card-footer bg-light p-4 border-top">
                         <h6 class="fw-bold mb-3 text-primary"><i class="fas fa-plus-circle me-2"></i> Record New Payment</h6>
-                        <form action="actions/po_handler.php" method="POST" enctype="multipart/form-data" id="paymentForm">
+                        <form action="actions/po_handler.php" method="POST" enctype="multipart/form-data" id="paymentForm" class="po-payment-form">
                             <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                             <input type="hidden" name="action" value="add_payment">
                             <input type="hidden" name="po_id" value="<?php echo $po_id; ?>">
@@ -449,7 +454,7 @@ $can_upload_files = ($role == 'Procurement');
             </div>
 
             <div class="col-lg-4">
-                <div class="card border-0 shadow-sm mb-4 rounded-16">
+                <div class="card border-0 shadow-sm mb-4 rounded-16 po-attachments-card">
                     <div class="card-header bg-white fw-bold py-3 d-flex justify-content-between align-items-center border-bottom border-light">
                         <span><i class="fas fa-folder-open me-2 text-warning"></i> Attachments</span>
                     </div>
@@ -469,7 +474,7 @@ $can_upload_files = ($role == 'Procurement');
                                     $isImage = in_array($ext, ['jpg', 'jpeg', 'png', 'gif']);
                                     $isPdf = ($ext == 'pdf');
                                 ?>
-                                    <li class="mb-2 p-2 bg-light rounded border d-flex align-items-center justify-content-between">
+                                    <li class="mb-2 p-2 bg-light rounded border d-flex align-items-center justify-content-between po-attachment-row">
                                         <div class="d-flex align-items-center gap-2 overflow-hidden">
                                             <?php if($isImage): ?>
                                                 <img src="<?php echo $secureLink; ?>" class="file-thumbnail bg-white" onclick="viewFile('<?php echo $secureLink; ?>', 'image')">
@@ -488,7 +493,7 @@ $can_upload_files = ($role == 'Procurement');
                                             </div>
                                         </div>
                                         
-                                        <div class="d-flex gap-2">
+                                        <div class="d-flex gap-2 po-attachment-actions">
                                             <a href="<?php echo $secureLink; ?>" class="btn btn-sm btn-white border" title="Download"><i class="fas fa-download text-primary"></i></a>
                                             <?php if($can_delete_files): ?>
                                             <form action="actions/upload_handler.php" method="POST" onsubmit="return confirm('Permanently delete this file?');">
@@ -528,7 +533,7 @@ $can_upload_files = ($role == 'Procurement');
                     </div>
                 </div>
 
-                <div class="card border-0 shadow-sm rounded-16">
+                <div class="card border-0 shadow-sm rounded-16 po-activity-card">
                     <div class="card-header bg-white fw-bold py-3 border-bottom border-light">
                         <i class="fas fa-history me-2 text-muted"></i> Activity Log
                     </div>
@@ -541,7 +546,7 @@ $can_upload_files = ($role == 'Procurement');
                         $hist = $stmt->get_result();
                         
                         while($row = $hist->fetch_assoc()): ?>
-                            <div class="list-group-item border-0 border-bottom px-4 py-3">
+                            <div class="list-group-item border-0 border-bottom px-4 py-3 po-activity-item">
                                 <div class="d-flex justify-content-between mb-1">
                                     <span class="fw-bold small text-dark"><?php echo htmlspecialchars($row['full_name']); ?></span>
                                     <small class="text-muted fs-xs"><i class="far fa-clock me-1"></i><?php echo date('M d, H:i', strtotime($row['timestamp'])); ?></small>
@@ -671,7 +676,7 @@ $can_upload_files = ($role == 'Procurement');
     </div>
 
     <!-- File Preview Modal -->
-    <div class="modal fade" id="previewModal" tabindex="-1">
+    <div class="modal fade view-file-preview-modal" id="previewModal" tabindex="-1">
         <div class="modal-dialog modal-lg modal-dialog-centered">
             <div class="modal-content modal-16px-clean">
                 <div class="modal-header border-bottom-0 pb-0">
@@ -685,7 +690,7 @@ $can_upload_files = ($role == 'Procurement');
     </div>
 
     <!-- Required proof of delivery modal (Supply Chain) -->
-    <div class="modal fade" id="deliveryProofModal" tabindex="-1" aria-hidden="true">
+    <div class="modal fade view-form-modal" id="deliveryProofModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content border-0 rounded-16-hidden">
                 <form action="actions/po_handler.php" method="POST" enctype="multipart/form-data">

@@ -41,18 +41,16 @@ if ($brands_query) {
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
 </head>
-<body>
+<body class="page-create-quotation">
     <?php include 'sidebar.php'; ?>
     <div class="main-content fade-in">
         <div class="container-fluid max-w-1300">
             
-            <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 mt-2">
-                <div class="d-flex align-items-center">
-                    <a href="quotations_list.php" class="btn btn-white shadow-sm rounded-custom d-flex align-items-center justify-content-center me-3 box-38 border"><i class="fas fa-arrow-left text-secondary"></i></a>
-                    <div>
-                        <h4 class="fw-bold text-dark mb-0 tracking-tight">Generate Quotation</h4>
-                        <p class="text-muted mb-0 d-none d-sm-block fs-sm">Draft an official client quotation.</p>
-                    </div>
+            <div class="d-flex flex-nowrap align-items-center justify-content-start mb-4 mt-2 create-form-header text-start">
+                <a href="quotations_list.php" class="btn btn-white shadow-sm rounded-custom d-flex align-items-center justify-content-center me-3 box-38 border create-form-back-btn" aria-label="Back to quotations"><i class="fas fa-arrow-left text-secondary"></i></a>
+                <div class="create-form-heading text-start">
+                    <h4 class="fw-bold text-dark mb-0 tracking-tight">Generate Quotation</h4>
+                    <p class="text-muted mb-0 d-none d-md-block fs-sm">Draft an official client quotation.</p>
                 </div>
             </div>
 
@@ -168,7 +166,7 @@ if ($brands_query) {
                     <i class="fas fa-arrow-left me-1"></i> 
                     <span class="d-none d-sm-inline">Back</span>
                 </button>
-                <button type="button" class="btn btn-success fw-bold rounded-custom shadow-sm btn-glass-action" onclick="document.getElementById('quotationForm').submit();">
+                <button type="button" class="btn btn-success fw-bold rounded-custom shadow-sm btn-glass-action" onclick="submitQuotationForm();">
                     <span class="d-none d-sm-inline">Save Quote</span>
                     <span class="d-inline d-sm-none">Save</span> 
                     <i class="fas fa-save ms-1"></i>
@@ -181,17 +179,82 @@ if ($brands_query) {
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script>
-        const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000, timerProgressBar: true });
+        const Toast = Swal.mixin({ toast: true, position: 'bottom-end', showConfirmButton: false, timer: 2800, timerProgressBar: true, customClass: { popup: 'form-validation-toast shadow-sm border' } });
+
+        <?php if(isset($_GET['error'])): ?>
+            Toast.fire({ icon: 'error', title: '<?php echo addslashes(htmlspecialchars($_GET['error'])); ?>' });
+            window.history.replaceState(null, null, window.location.pathname);
+        <?php endif; ?>
+
+        function hasValidRequiredValue(field) {
+            const value = typeof field.value === 'string' ? field.value.trim() : field.value;
+            return value !== '' && field.checkValidity();
+        }
+
+        function clearQuotationFieldErrorOnEntry(event) {
+            const field = event.target;
+            if (!field.matches('[required]')) return;
+
+            const value = typeof field.value === 'string' ? field.value.trim() : field.value;
+            if (value !== '') field.classList.remove('is-invalid');
+        }
+
+        function showInvalidQuotationField(field, message) {
+            field.classList.add('is-invalid');
+            if (field.closest('#step1') && !document.getElementById('step1').classList.contains('active-step')) {
+                goToStep('step1');
+            }
+            Toast.fire({ icon: 'error', title: message });
+            window.setTimeout(() => {
+                field.focus({ preventScroll: true });
+                field.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                field.reportValidity();
+            }, 100);
+        }
+
+        function validateQuotationForm() {
+            const form = document.getElementById('quotationForm');
+            const rows = form.querySelectorAll('#itemsBody tr');
+
+            if (rows.length === 0) {
+                Toast.fire({ icon: 'error', title: 'Add at least one item before saving the quotation.' });
+                return false;
+            }
+
+            const requiredFields = Array.from(form.querySelectorAll('[required]'));
+            requiredFields.forEach(field => {
+                if (hasValidRequiredValue(field)) field.classList.remove('is-invalid');
+            });
+            const invalidField = requiredFields.find(field => !hasValidRequiredValue(field));
+            if (invalidField) {
+                showInvalidQuotationField(invalidField, 'Please complete every required field before saving.');
+                return false;
+            }
+
+            if ((parseFloat(document.getElementById('hiddenGrandTotal').value) || 0) <= 0) {
+                Toast.fire({ icon: 'error', title: 'The quotation total must be greater than zero.' });
+                return false;
+            }
+
+            return true;
+        }
+
+        function submitQuotationForm() {
+            const form = document.getElementById('quotationForm');
+            if (validateQuotationForm()) {
+                form.requestSubmit();
+            }
+        }
 
         function goToStep(step) {
             if(step === 'step2') {
-                let isValid = true;
-                $('#step1 [required]').each(function() {
-                    if (!$(this).val()) { $(this).addClass('is-invalid'); isValid = false; } 
-                    else { $(this).removeClass('is-invalid'); }
+                const stepOneFields = Array.from(document.querySelectorAll('#step1 [required]'));
+                stepOneFields.forEach(field => {
+                    if (hasValidRequiredValue(field)) field.classList.remove('is-invalid');
                 });
-                if(!isValid) {
-                    Toast.fire({ icon: 'error', title: 'Please complete all required fields.' });
+                const firstInvalid = stepOneFields.find(field => !hasValidRequiredValue(field));
+                if (firstInvalid) {
+                    showInvalidQuotationField(firstInvalid, 'Please complete all required quotation information.');
                     return;
                 }
                 $('#step1').removeClass('active-step'); $('#step2').addClass('active-step');
@@ -289,6 +352,15 @@ if ($brands_query) {
         }
 
         function removeRow(btn) { btn.closest('tr').remove(); calculateGrandTotal(); }
+
+        const quotationFormElement = document.getElementById('quotationForm');
+        quotationFormElement.addEventListener('input', clearQuotationFieldErrorOnEntry);
+        quotationFormElement.addEventListener('change', clearQuotationFieldErrorOnEntry);
+        quotationFormElement.addEventListener('submit', function(event) {
+            if (!validateQuotationForm()) {
+                event.preventDefault();
+            }
+        });
 
         window.onload = addItemRow;
     </script>

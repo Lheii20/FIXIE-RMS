@@ -32,94 +32,19 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
 <html lang="en">
 <head>
     <title>Notifications - Fixie DRMS</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
-    <link href="assets/css/style.css" rel="stylesheet">
+    <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
+    <link href="assets/css/mobile-settings-admin.css?v=<?php echo filemtime(__DIR__ . '/assets/css/mobile-settings-admin.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
-    <style>
-        body { background-color: #f8fafc; }
-        
-        .notif-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 0.5rem; }
-
-        /* Filter Tabs */
-        .filter-tabs { display: flex; gap: 8px; margin-bottom: 1rem; padding-bottom: 8px; border-bottom: 1px solid #e2e8f0; }
-        .filter-btn { border-radius: 6px; padding: 4px 14px; font-size: 0.85rem; font-weight: 600; transition: all 0.2s; border: 1px solid transparent; background: transparent; }
-        .filter-btn.active { background-color: #0f172a; color: white !important; box-shadow: 0 2px 4px rgba(15, 23, 42, 0.15); }
-        .filter-btn:not(.active):hover { background-color: #e2e8f0; }
-
-        /* 3-Dots Button */
-        .btn-dots { background: transparent; border: 1px solid transparent; color: #64748b; width: 34px; height: 34px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; transition: all 0.2s; }
-        .btn-dots:hover { background: #f1f5f9; color: #0f172a; border-color: #e2e8f0; }
-        .action-dropdown .dropdown-menu { border: 1px solid #e2e8f0; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); border-radius: 10px; padding: 0.5rem; min-width: 170px; z-index: 1050; }
-        .action-dropdown .dropdown-item { padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 0.85rem; font-weight: 500; color: #334155; display: flex; align-items: center; gap: 10px; transition: 0.2s; }
-        .action-dropdown .dropdown-item:hover { background-color: #f8fafc; color: #0f172a; }
-
-        /* Notification Card */
-        .notif-card {
-            background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; 
-            padding: 0.75rem 1.25rem; margin-bottom: 0.5rem; 
-            display: flex; align-items: center; justify-content: space-between;
-            transition: all 0.2s ease; position: relative; cursor: pointer; z-index: 1;
-        }
-        .notif-card:has(.dropdown-menu.show) { z-index: 50; border-color: #cbd5e1; }
-        .notif-card:hover { box-shadow: 0 4px 8px rgba(0,0,0,0.03); border-color: #cbd5e1; transform: translateY(-1px); }
-        
-        /* Checkbox Mode */
-        .notif-checkbox-wrap { display: none; margin-right: 12px; }
-        .select-mode .notif-checkbox-wrap { display: block; animation: slideInLeft 0.2s forwards; }
-        .select-mode .notif-card:hover { transform: none; background: #f8fafc; }
-        .custom-checkbox { width: 17px; height: 17px; cursor: pointer; accent-color: #0f172a; }
-
-        @keyframes slideInLeft { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
-
-        /* Status & Icons (Sleek & Clean) */
-        .notif-card.unread { background: #eff6ff; border-left: 4px solid #3b82f6; box-shadow: 0 2px 5px rgba(59, 130, 246, 0.08); }
-        .notif-card.read { background: #ffffff; border-left: 4px solid transparent; opacity: 0.75; }
-        .notif-card.read:hover { opacity: 1; border-color: #cbd5e1; }
-        .notif-card.pinned { border-right: 4px solid #f59e0b; }
-
-        .notif-icon { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; margin-right: 1rem; }
-        
-        .icon-success { background: #dcfce7; color: #16a34a; }
-        .icon-danger { background: #fee2e2; color: #dc2626; }
-        .icon-warning { background: #fef3c7; color: #d97706; }
-        .icon-info { background: #e0f2fe; color: #0284c7; }
-        .icon-primary { background: #e0e7ff; color: #4338ca; }
-        .icon-default { background: #f1f5f9; color: #64748b; }
-
-        .notif-content { flex-grow: 1; padding-right: 1rem; }
-        .notif-message { font-size: 0.9rem; margin: 0; line-height: 1.35; }
-        .unread .notif-message { font-weight: 700; color: #0f172a; } 
-        .read .notif-message { font-weight: 500; color: #475569; }   
-        .notif-time { font-size: 0.72rem; color: #94a3b8; margin-top: 0.2rem; display: block; }
-        
-        .pin-indicator { position: absolute; top: 8px; right: 12px; color: #f59e0b; font-size: 0.75rem; }
-
-        /* Floating Sleek Bar for Bulk Actions */
-        .glass-bar-container { position: fixed; bottom: 25px; left: 0; right: 0; display: flex; justify-content: center; z-index: 1060; pointer-events: none; transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateY(100px); opacity: 0; }
-        .glass-bar-container.show { transform: translateY(0); opacity: 1; }
-        
-        .glass-bar { 
-            pointer-events: auto; background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); 
-            border: 1px solid rgba(15, 23, 42, 0.1); border-radius: 50px; 
-            box-shadow: 0 10px 25px rgba(0,0,0,0.08); padding: 8px 16px; 
-            display: flex; justify-content: space-between; align-items: center; gap: 15px; width: auto; 
-        }
-
-        .action-btn { background: transparent; border: none; color: #64748b; font-size: 1rem; padding: 6px 12px; border-radius: 50px; transition: 0.2s; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-        .action-btn:hover { background: #f1f5f9; color: #0f172a; }
-        .action-btn.btn-close-select { background: #e2e8f0; color: #475569; width: 30px; height: 30px; padding: 0; }
-        .action-btn.btn-close-select:hover { background: #cbd5e1; color: #0f172a; }
-
-        .fade-out { opacity: 0; transform: scale(0.98); transition: opacity 0.2s ease, transform 0.2s ease; }
-        #emptyState { display: none; }
-    </style>
+    
 </head>
-<body>
+<body class="page-notifications">
     <?php include 'sidebar.php'; ?>
     
     <div class="main-content fade-in" id="mainWrapper">
-        <div class="container-fluid pt-1" style="max-width: 1000px;"> 
+        <div class="container-fluid pt-1 notifications-shell" style="max-width: 1000px;"> 
             
             <div class="notif-header">
                 <div>
@@ -128,7 +53,7 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
                 </div>
                 
                 <div class="dropdown action-dropdown">
-                    <button class="btn-dots bg-white border shadow-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    <button class="btn-dots bg-white border shadow-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Notification actions">
                         <i class="fas fa-ellipsis-v"></i>
                     </button>
                     <ul class="dropdown-menu dropdown-menu-end shadow-sm">
@@ -142,12 +67,12 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
             </div>
 
             <div class="filter-tabs">
-                <button class="filter-btn active" id="filter-all" onclick="filterNotifs('all')">All</button>
-                <button class="filter-btn text-secondary" id="filter-unread" onclick="filterNotifs('unread')">Unread</button>
-                <button class="filter-btn text-secondary" id="filter-read" onclick="filterNotifs('read')">Read</button>
+                <button type="button" class="filter-btn active" id="filter-all" onclick="filterNotifs('all')">All</button>
+                <button type="button" class="filter-btn text-secondary" id="filter-unread" onclick="filterNotifs('unread')">Unread</button>
+                <button type="button" class="filter-btn text-secondary" id="filter-read" onclick="filterNotifs('read')">Read</button>
             </div>
 
-            <div id="notificationContainer">
+            <div id="notificationContainer" class="notification-list">
                 <?php if($notifs->num_rows > 0): ?>
                     <?php while($row = $notifs->fetch_assoc()): ?>
                         <?php 
@@ -219,7 +144,7 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
                         <div class="notif-card <?php echo $status_class; ?>" id="notif-<?php echo $row['notif_id']; ?>" onclick="handleNotifClick(<?php echo $row['notif_id']; ?>, '<?php echo $target_url; ?>', event)">
                             <?php if($is_pinned): ?><i class="fas fa-thumbtack pin-indicator"></i><?php endif; ?>
                             
-                            <div class="d-flex align-items-center w-100">
+                            <div class="d-flex align-items-center w-100 notification-card-main">
                                 <div class="notif-checkbox-wrap">
                                     <input type="checkbox" class="custom-checkbox notif-check" value="<?php echo $row['notif_id']; ?>" onclick="event.stopPropagation(); updateSelectedCount();">
                                 </div>
@@ -233,16 +158,17 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
                                 </div>
                                 
                                 <div class="dropdown action-dropdown" onclick="event.stopPropagation();">
-                                    <button class="btn-dots" type="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-boundary="window">
+                                    <button class="btn-dots" type="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-boundary="window" aria-label="Open notification menu">
                                         <i class="fas fa-ellipsis-v"></i>
                                     </button>
                                     <ul class="dropdown-menu dropdown-menu-end shadow-sm">
                                         <li><a class="dropdown-item fw-medium text-dark" href="#" onclick="pinNotif(<?php echo $row['notif_id']; ?>, event)"><i class="fas fa-thumbtack text-warning"></i> <?php echo $is_pinned ? 'Unpin from Top' : 'Pin to Top'; ?></a></li>
                                         <?php if(!$is_read): ?>
-                                            <li><a class="dropdown-item btn-read-action" href="#" onclick="markAsRead(<?php echo $row['notif_id']; ?>, event)"><i class="fas fa-envelope-open-text text-primary"></i> Mark as read</a></li>
+                                            <li class="notification-state-action"><a class="dropdown-item btn-read-action" href="#" onclick="markAsRead(<?php echo $row['notif_id']; ?>, event)"><i class="fas fa-envelope-open-text text-primary"></i> Mark as read</a></li>
                                         <?php else: ?>
-                                            <li><hr class="dropdown-divider"></li>
-                                            <li><a class="dropdown-item text-danger fw-bold" href="#" onclick="deleteNotif(<?php echo $row['notif_id']; ?>, event)"><i class="fas fa-trash-alt text-danger"></i> Delete Notification</a></li>
+                                            <li class="notification-state-action"><a class="dropdown-item btn-unread-action" href="#" onclick="markAsUnread(<?php echo $row['notif_id']; ?>, event)"><i class="fas fa-envelope text-primary"></i> Mark as unread</a></li>
+                                            <li class="notification-action-divider"><hr class="dropdown-divider"></li>
+                                            <li class="notification-delete-action"><a class="dropdown-item text-danger fw-bold" href="#" onclick="deleteNotif(<?php echo $row['notif_id']; ?>, event)"><i class="fas fa-trash-alt text-danger"></i> Delete Notification</a></li>
                                         <?php endif; ?>
                                     </ul>
                                 </div>
@@ -253,7 +179,7 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
                 <?php endif; ?>
             </div>
             
-            <div id="emptyState" class="text-center py-5 mt-3 border rounded-3 bg-white shadow-sm fade-in">
+            <div id="emptyState" class="text-center py-5 mt-3 border rounded-3 bg-white shadow-sm fade-in" hidden>
                 <div class="bg-light rounded-circle d-inline-flex align-items-center justify-content-center mb-2" style="width: 60px; height: 60px;">
                     <i class="fas fa-bell-slash text-muted opacity-50" style="font-size: 1.5rem;"></i>
                 </div>
@@ -296,14 +222,61 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
             toast: true,
             position: 'bottom-end',
             showConfirmButton: false,
-            timer: 2000,
+            timer: 2300,
             timerProgressBar: true,
-            customClass: { popup: 'small-toast' }
+            customClass: {
+                container: 'notification-toast-container',
+                popup: 'small-toast'
+            }
         });
 
-        const style = document.createElement('style');
-        style.innerHTML = `.small-toast { font-size: 0.85rem !important; padding: 0.5rem !important; } .sleek-popup { border-radius: 12px !important; } .sleek-btn { padding: 0.4rem 1.2rem !important; font-size: 0.9rem !important; border-radius: 6px !important; }`;
-        document.head.appendChild(style);
+        function showNotificationToast(icon, title) {
+            Toast.fire({ icon, title });
+        }
+
+        function reloadWithNotificationToast(icon, title) {
+            sessionStorage.setItem('notificationToast', JSON.stringify({ icon, title }));
+            window.location.reload();
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            filterNotifs(getCurrentFilter());
+
+            const savedToast = sessionStorage.getItem('notificationToast');
+            if (savedToast) {
+                sessionStorage.removeItem('notificationToast');
+                try {
+                    const toastData = JSON.parse(savedToast);
+                    showNotificationToast(toastData.icon || 'success', toastData.title || 'Action completed');
+                } catch (error) {
+                    sessionStorage.removeItem('notificationToast');
+                }
+            }
+        });
+
+        function setNotificationReadState(card, notifId, isRead) {
+            if (!card) return;
+
+            card.classList.toggle('read', isRead);
+            card.classList.toggle('unread', !isRead);
+
+            const dropdownUl = card.querySelector('.dropdown-menu');
+            if (!dropdownUl) return;
+
+            dropdownUl.querySelectorAll('.notification-state-action, .notification-action-divider, .notification-delete-action').forEach(item => item.remove());
+
+            if (isRead) {
+                dropdownUl.insertAdjacentHTML('beforeend', `
+                    <li class="notification-state-action"><a class="dropdown-item btn-unread-action" href="#" onclick="markAsUnread(${notifId}, event)"><i class="fas fa-envelope text-primary"></i> Mark as unread</a></li>
+                    <li class="notification-action-divider"><hr class="dropdown-divider"></li>
+                    <li class="notification-delete-action"><a class="dropdown-item text-danger fw-bold" href="#" onclick="deleteNotif(${notifId}, event)"><i class="fas fa-trash-alt text-danger"></i> Delete Notification</a></li>
+                `);
+            } else {
+                dropdownUl.insertAdjacentHTML('beforeend', `
+                    <li class="notification-state-action"><a class="dropdown-item btn-read-action" href="#" onclick="markAsRead(${notifId}, event)"><i class="fas fa-envelope-open-text text-primary"></i> Mark as read</a></li>
+                `);
+            }
+        }
 
         function toggleSelectMode(e) {
             if(e) e.preventDefault();
@@ -328,7 +301,7 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
             const isChecked = document.getElementById('selectAllBtn').checked;
             document.querySelectorAll('.notif-check').forEach(cb => {
                 const card = cb.closest('.notif-card');
-                if (card.style.display !== 'none') {
+                if (!card.hidden) {
                     cb.checked = isChecked;
                 }
             });
@@ -337,11 +310,11 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
 
         function updateSelectedCount() {
             const visibleChecked = Array.from(document.querySelectorAll('.notif-check')).filter(cb => {
-                return cb.checked && cb.closest('.notif-card').style.display !== 'none';
+                return cb.checked && !cb.closest('.notif-card').hidden;
             });
             
             const totalVisible = Array.from(document.querySelectorAll('.notif-check')).filter(cb => {
-                return cb.closest('.notif-card').style.display !== 'none';
+                return !cb.closest('.notif-card').hidden;
             });
 
             document.getElementById('selectedCountText').innerText = visibleChecked.length + ' Selected';
@@ -407,11 +380,17 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
             .then(res => res.json())
             .then(data => {
                 if (data.status === 'success') {
-                    location.reload(); 
+                    const successMessages = {
+                        bulk_read: 'Selected notifications marked read',
+                        bulk_pin: 'Selected notifications updated',
+                        bulk_delete: 'Selected notifications deleted'
+                    };
+                    reloadWithNotificationToast('success', successMessages[action] || 'Action completed');
                 } else {
-                    Toast.fire({ icon: 'error', title: 'Action failed' });
+                    showNotificationToast('error', data.message || 'Action failed');
                 }
-            });
+            })
+            .catch(() => showNotificationToast('error', 'Unable to complete the action'));
         }
 
         function handleNotifClick(notifId, url, event) {
@@ -436,12 +415,7 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
                 } else {
                     const card = document.getElementById(`notif-${notifId}`);
                     if (card && card.classList.contains('unread')) {
-                        card.classList.remove('unread');
-                        card.classList.add('read');
-                        const readAct = card.querySelector('.btn-read-action');
-                        if (readAct) readAct.closest('li').remove();
-                        const dropdownUl = card.querySelector('.dropdown-menu');
-                        dropdownUl.innerHTML += `<li><hr class="dropdown-divider"></li><li><a class="dropdown-item text-danger fw-bold" href="#" onclick="deleteNotif(${notifId}, event)"><i class="fas fa-trash-alt text-danger"></i> Delete Notification</a></li>`;
+                        setNotificationReadState(card, notifId, true);
                         updateCounter(-1);
                     }
                 }
@@ -450,12 +424,22 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
 
         function pinNotif(notifId, event) {
             event.preventDefault(); event.stopPropagation();
+            const card = document.getElementById(`notif-${notifId}`);
+            const wasPinned = card && card.classList.contains('pinned');
             let formData = new FormData();
             formData.append('action', 'pin');
             formData.append('notif_id', notifId);
             formData.append('csrf_token', csrfToken);
             fetch('actions/notif_handler.php', { method: 'POST', body: formData })
-            .then(res => res.json()).then(data => { if(data.status==='success') location.reload(); });
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    reloadWithNotificationToast('success', wasPinned ? 'Removed from pinned' : 'Pinned to top');
+                } else {
+                    showNotificationToast('error', data.message || 'Unable to update notification');
+                }
+            })
+            .catch(() => showNotificationToast('error', 'Unable to update notification'));
         }
 
         function deleteNotif(notifId, event) {
@@ -481,11 +465,12 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
                             if (card.classList.contains('unread')) updateCounter(-1);
                             card.classList.add('fade-out');
                             setTimeout(() => { card.remove(); checkEmptyState(); }, 200);
-                            Toast.fire({ icon: 'success', title: 'Deleted' });
+                            showNotificationToast('success', 'Notification deleted');
                         } else {
-                            Toast.fire({ icon: 'error', title: data.message || 'Deletion Error' });
+                            showNotificationToast('error', data.message || 'Deletion error');
                         }
-                    });
+                    })
+                    .catch(() => showNotificationToast('error', 'Unable to delete notification'));
                 }
             });
         }
@@ -502,19 +487,38 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
             .then(data => {
                 if (data.status === 'success') {
                     const card = document.getElementById(`notif-${notifId}`);
-                    card.classList.remove('unread');
-                    card.classList.add('read');
-                    const readAct = card.querySelector('.btn-read-action');
-                    if(readAct) readAct.closest('li').remove();
-                    
-                    const dropdownUl = card.querySelector('.dropdown-menu');
-                    dropdownUl.innerHTML += `<li><hr class="dropdown-divider"></li><li><a class="dropdown-item text-danger fw-bold" href="#" onclick="deleteNotif(${notifId}, event)"><i class="fas fa-trash-alt text-danger"></i> Delete Notification</a></li>`;
-
+                    setNotificationReadState(card, notifId, true);
                     updateCounter(-1);
                     filterNotifs(getCurrentFilter()); 
-                    Toast.fire({ icon: 'success', title: 'Marked read' });
+                    showNotificationToast('success', 'Marked as read');
+                } else {
+                    showNotificationToast('error', data.message || 'Unable to mark as read');
                 }
-            });
+            })
+            .catch(() => showNotificationToast('error', 'Unable to mark as read'));
+        }
+
+        function markAsUnread(notifId, event) {
+            event.preventDefault(); event.stopPropagation();
+            const formData = new FormData();
+            formData.append('action', 'mark_unread');
+            formData.append('notif_id', notifId);
+            formData.append('csrf_token', csrfToken);
+
+            fetch('actions/notif_handler.php', { method: 'POST', body: formData })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    const card = document.getElementById(`notif-${notifId}`);
+                    setNotificationReadState(card, notifId, false);
+                    updateCounter(1);
+                    filterNotifs(getCurrentFilter());
+                    showNotificationToast('success', 'Marked as unread');
+                } else {
+                    showNotificationToast('error', data.message || 'Unable to mark as unread');
+                }
+            })
+            .catch(() => showNotificationToast('error', 'Unable to mark as unread'));
         }
 
         function markAllAsRead(e) {
@@ -528,18 +532,16 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
             .then(data => {
                 if (data.status === 'success') {
                     document.querySelectorAll('.notif-card.unread').forEach(card => {
-                        card.classList.remove('unread');
-                        card.classList.add('read');
-                        const readAct = card.querySelector('.btn-read-action');
-                        if(readAct) readAct.closest('li').remove();
-                        const dropdownUl = card.querySelector('.dropdown-menu');
-                        dropdownUl.innerHTML += `<li><hr class="dropdown-divider"></li><li><a class="dropdown-item text-danger fw-bold" href="#" onclick="deleteNotif(${card.id.split('-')[1]}, event)"><i class="fas fa-trash-alt text-danger"></i> Delete Notification</a></li>`;
+                        setNotificationReadState(card, card.id.split('-')[1], true);
                     });
                     document.getElementById('unreadCounter').innerText = '0';
                     filterNotifs(getCurrentFilter()); 
-                    Toast.fire({ icon: 'success', title: 'All marked read' });
+                    showNotificationToast('success', 'All notifications marked read');
+                } else {
+                    showNotificationToast('error', data.message || 'Unable to mark all as read');
                 }
-            });
+            })
+            .catch(() => showNotificationToast('error', 'Unable to mark all as read'));
         }
 
         function filterNotifs(filterType) {
@@ -557,12 +559,14 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
             let visibleCount = 0;
             
             cards.forEach(card => {
-                if (filterType === 'all') { card.style.display = 'flex'; visibleCount++; }
-                else if (filterType === 'unread' && card.classList.contains('unread')) { card.style.display = 'flex'; visibleCount++; }
-                else if (filterType === 'read' && card.classList.contains('read')) { card.style.display = 'flex'; visibleCount++; }
-                else { card.style.display = 'none'; }
-                
-                if(card.style.display === 'none') {
+                const shouldShow = filterType === 'all'
+                    || (filterType === 'unread' && card.classList.contains('unread'))
+                    || (filterType === 'read' && card.classList.contains('read'));
+
+                card.hidden = !shouldShow;
+                if (shouldShow) visibleCount++;
+
+                if (!shouldShow) {
                     const cb = card.querySelector('.notif-check');
                     if(cb) cb.checked = false;
                 }
@@ -571,8 +575,7 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
             if (isSelectMode) updateSelectedCount();
 
             const emptyState = document.getElementById('emptyState');
-            if (visibleCount === 0) emptyState.style.display = 'block';
-            else emptyState.style.display = 'none';
+            emptyState.hidden = visibleCount !== 0;
         }
 
         function getCurrentFilter() {
@@ -590,8 +593,8 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
 
         function checkEmptyState() {
             const container = document.getElementById('notificationContainer');
-            const activeCards = container.querySelectorAll('.notif-card[style="display: flex;"], .notif-card:not([style*="display: none"])');
-            if (activeCards.length === 0) document.getElementById('emptyState').style.display = 'block';
+            const activeCards = Array.from(container.querySelectorAll('.notif-card')).filter(card => !card.hidden);
+            document.getElementById('emptyState').hidden = activeCards.length !== 0;
         }
     </script>
 </body>

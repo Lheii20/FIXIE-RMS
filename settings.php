@@ -20,16 +20,18 @@ $user = $query->fetch_assoc();
 <html lang="en">
 <head>
     <title>Settings - Fixie DRMS</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
-    <link href="assets/css/style.css" rel="stylesheet">
+    <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
+    <link href="assets/css/mobile-settings-admin.css?v=<?php echo filemtime(__DIR__ . '/assets/css/mobile-settings-admin.css'); ?>" rel="stylesheet">
 </head>
-<body>
+<body class="page-settings">
 
     <?php include 'sidebar.php'; ?>
 
-    <div class="main-content fade-in">
-        <div class="mb-5">
+    <div class="main-content fade-in settings-main">
+        <div class="mb-5 settings-header">
             <h2 class="fw-bold mb-1">Account Settings</h2>
             <p class="text-muted mb-0">Manage your profile.</p>
         </div>
@@ -63,7 +65,7 @@ $user = $query->fetch_assoc();
             </div>
         <?php endif; ?>
 
-        <div class="row g-4">
+        <div class="row g-4 settings-grid">
             
             <div class="col-lg-6">
                 <div class="card border-0 shadow-sm mb-4">

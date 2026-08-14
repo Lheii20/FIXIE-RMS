@@ -73,6 +73,70 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
         exit();
     }
+
+    if ($_POST['action'] === 'replace_physical_copy') {
+        $can_manage = has_permission($conn, $_SESSION['user_id'], 'can_manage_folders');
+        $is_top_mgmt = has_permission($conn, $_SESSION['user_id'], 'can_view_all_folders');
+        $return_url = $_POST['return_url'] ?? '../virtual_cabinet.php';
+        
+        if (!$can_manage && !$is_top_mgmt) {
+            header("Location: " . $return_url . (strpos($return_url, '?') ? '&' : '?') . "error=" . urlencode("Permission denied to manage physical storage."));
+            exit();
+        }
+
+        $doc_id = intval($_POST['doc_id']);
+
+        $conn->begin_transaction();
+        try {
+            // Check current status and versions
+            $stmt_check = $conn->prepare("SELECT d.file_name, d.current_version, d.physical_version, l.status as physical_status, d.rename_history FROM documents d LEFT JOIN virt_document_locations l ON d.doc_id = l.document_id WHERE d.doc_id = ? FOR UPDATE");
+            $stmt_check->bind_param("i", $doc_id);
+            $stmt_check->execute();
+            $doc_data = $stmt_check->get_result()->fetch_assoc();
+
+            if (!$doc_data) throw new Exception("Document not found.");
+            if ($doc_data['physical_status'] === 'Borrowed') throw new Exception("Cannot replace physical copy while it is currently borrowed.");
+            if ($doc_data['current_version'] <= $doc_data['physical_version']) throw new Exception("Physical copy is already up to date.");
+
+            $old_v = number_format($doc_data['physical_version'] ?? 1.0, 1);
+            $new_v = number_format($doc_data['current_version'], 1);
+
+            // Update physical version to match digital
+            $stmt_upd = $conn->prepare("UPDATE documents SET physical_version = current_version WHERE doc_id = ?");
+            $stmt_upd->bind_param("i", $doc_id);
+            $stmt_upd->execute();
+
+            // Log the "Superseded" status securely in the JSON timeline history
+            $u_stmt = $conn->query("SELECT full_name FROM users WHERE user_id = ".$_SESSION['user_id']);
+            $actor = $u_stmt->fetch_assoc()['full_name'] ?? 'System';
+            $history = json_decode($doc_data['rename_history'] ?? '[]', true) ?: [];
+            
+            array_unshift($history, [
+                'type' => 'physical_replaced',
+                'old_version' => $old_v,
+                'new_version' => $new_v,
+                'date' => date('Y-m-d H:i:s'),
+                'by' => $actor
+            ]);
+            $history_json = json_encode($history);
+            
+            $stmt_hist = $conn->prepare("UPDATE documents SET rename_history = ? WHERE doc_id = ?");
+            $stmt_hist->bind_param("si", $history_json, $doc_id);
+            $stmt_hist->execute();
+
+            if (function_exists('log_audit_action')) {
+                log_audit_action($conn, $_SESSION['user_id'], 'REPLACE_PHYSICAL_COPY', "Replaced physical copy of {$doc_data['file_name']}. Marked v$old_v as Superseded. Synced to v$new_v.");
+            }
+
+            $conn->commit();
+            header("Location: " . $return_url . (strpos($return_url, '?') ? '&' : '?') . "success=" . urlencode("Physical copy successfully replaced and synchronized."));
+            
+        } catch (Exception $e) {
+            $conn->rollback();
+            header("Location: " . $return_url . (strpos($return_url, '?') ? '&' : '?') . "error=" . urlencode($e->getMessage()));
+        }
+        exit();
+    }
 } else {
     header("Location: ../documents.php");
     exit();

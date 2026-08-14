@@ -46,39 +46,9 @@ if ($is_token_flow) {
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
     <link href="assets/css/style.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
-    <style>
-        body, html {
-            height: 100%; margin: 0; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f7f9;
-        }
-        .brand-section {
-            background: linear-gradient(135deg, #1d3a4d 0%, #2a617b 100%); position: relative; overflow: hidden;
-        }
-        .brand-section::before {
-            content: ""; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
-            background: radial-gradient(circle, rgba(255,255,255,0.06) 10%, transparent 20%); background-size: 25px 25px; opacity: 0.6; animation: moveBackground 60s linear infinite;
-        }
-        @keyframes moveBackground { 0% { transform: translate(0, 0); } 100% { transform: translate(50px, 50px); } }
-        .form-section { background-color: #ffffff; box-shadow: -15px 0 35px rgba(0, 0, 0, 0.04); z-index: 10; }
-        
-        .custom-input-group { position: relative; margin-bottom: 1.5rem; }
-        .custom-input { width: 100%; border: none; border-bottom: 2px solid #e2e8f0; border-radius: 0; padding: 10px 40px; font-size: 1.05rem; background-color: transparent; transition: all 0.3s ease; color: #1e293b; }
-        .custom-input:focus { outline: none; border-bottom-color: #2a617b; box-shadow: none; }
-        .input-icon-left { position: absolute; left: 5px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 1.2rem; transition: color 0.3s ease; }
-        .custom-input:focus ~ .input-icon-left { color: #2a617b; }
-        .btn-toggle-pass { position: absolute; right: 0; top: 50%; transform: translateY(-50%); background: none; border: none; color: #94a3b8; cursor: pointer; padding: 10px; }
-        
-        .btn-submit { background-color: #2a617b; color: #ffffff; border: none; border-radius: 8px; padding: 14px; font-size: 1rem; letter-spacing: 0.5px; transition: all 0.3s ease; }
-        .btn-submit:hover:not(:disabled) { background-color: #1d465a; transform: translateY(-2px); box-shadow: 0 6px 15px rgba(42, 97, 123, 0.3); color: #ffffff; }
-        .btn-submit:disabled { opacity: 0.6; cursor: not-allowed; }
-
-        .req-list { list-style: none; padding-left: 0; font-size: 0.85rem; margin-bottom: 2rem; background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; }
-        .req-list li { margin-bottom: 5px; display: flex; align-items: center; gap: 8px; transition: color 0.2s; }
-        .req-list li i { width: 16px; text-align: center; }
-        
-        .brand-logo-img { width: 120px; height: auto; filter: drop-shadow(0px 6px 12px rgba(0,0,0,0.25)); }
-    </style>
+    
 </head>
-<body>
+<body class="page-setup-password">
     <div class="container-fluid h-100 p-0">
         <div class="row g-0 h-100">
             <div class="col-lg-7 col-md-6 d-none d-md-flex align-items-center justify-content-center brand-section">

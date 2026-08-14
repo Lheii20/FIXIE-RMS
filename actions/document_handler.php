@@ -418,12 +418,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $redirectUrl = getRedirectUrl($conn, null, $po_id, $source);
         
         // Tukuyin ang routing at phase base sa pinanggalingan ng upload
-        $record_phase = 'Working';
-        if (!empty($doc_category)) {
+        $referer = $_SERVER['HTTP_REFERER'] ?? '';
+        
+        if (strpos($referer, 'general_docs.php') !== false) {
+            $record_phase = 'Working';
+            $redirectUrl = "../general_docs.php?type=" . urlencode($doc_category);
+        } else {
+            $record_phase = 'Official';
             $redirectUrl = "../documents.php?type=" . urlencode($doc_category);
-            $record_phase = 'Official'; // Kapag galing sa Virtual Cabinet, official agad
-        } elseif (!empty($doc_type)) {
-            $redirectUrl = "../general_docs.php?type=" . urlencode($doc_type);
         }
 
         if ((empty($doc_category) && empty($doc_type)) || !$file || $file['error'] !== UPLOAD_ERR_OK) {
@@ -548,6 +550,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
             if (!$orig) throw new Exception("Document not found.");
             if ($orig['record_phase'] === 'Converted') throw new Exception("This is already a converted record.");
+            
+            // Validate Enterprise Physical Synchronization
+            if (isset($orig['physical_version']) && $orig['current_version'] != $orig['physical_version']) {
+                throw new Exception("Cannot declare this document as an Official Record. The stored physical copy (v" . number_format($orig['physical_version'], 1) . ") is not synchronized with the latest digital version (v" . number_format($orig['current_version'], 1) . "). Please physically replace and verify it first.");
+            }
 
             // 2. Generate Official Record Number (e.g., REC-2026-0001)
             $year = date('Y');
@@ -571,12 +578,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $access_type = $orig['access_type'];
             $file_permissions = $orig['file_permissions'];
 
-            // 14 variables matching "isssssisssssis"
-            $insert = $conn->prepare("INSERT INTO documents (po_id, file_name, file_path, category, doc_type, status, uploaded_by, uploaded_at, file_hash, current_version, access_type, file_permissions, record_phase, declared_at, declared_by, record_number, is_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Official', NOW(), ?, ?, 1)");
-            $insert->bind_param("isssssisssssis", 
+            $physical_version = $orig['physical_version'] ?? $current_version;
+
+            // 15 variables matching "isssssissssssis"
+            $insert = $conn->prepare("INSERT INTO documents (po_id, file_name, file_path, category, doc_type, status, uploaded_by, uploaded_at, file_hash, current_version, physical_version, access_type, file_permissions, record_phase, declared_at, declared_by, record_number, is_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Official', NOW(), ?, ?, 1)");
+            $insert->bind_param("isssssissssssis", 
                 $po_id, $file_name, $file_path, $cat, $doc_type, 
                 $status, $uploaded_by, $uploaded_at, $file_hash, 
-                $current_version, $access_type, $file_permissions, 
+                $current_version, $physical_version, $access_type, $file_permissions, 
                 $user_id, $record_number
             );
             $insert->execute();
@@ -586,6 +595,24 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $update = $conn->prepare("UPDATE documents SET record_phase = 'Converted', official_doc_id = ?, is_locked = 1 WHERE doc_id = ?");
             $update->bind_param("ii", $official_doc_id, $doc_id);
             $update->execute();
+
+            // ==========================================================
+            // 5. TRANSFER PHYSICAL TRACKING TO THE NEW OFFICIAL RECORD
+            // ==========================================================
+            // Ilipat ang pointer ng physical cabinet sa bagong Official Record ID
+            $transfer_phys = $conn->prepare("UPDATE virt_document_locations SET document_id = ? WHERE document_id = ?");
+            $transfer_phys->bind_param("ii", $official_doc_id, $doc_id);
+            $transfer_phys->execute();
+
+            // Ilipat rin ang borrowing history para hindi mawala ang record kung sino ang mga nanghiram noon
+            $transfer_b_logs = $conn->prepare("UPDATE physical_borrowing_logs SET document_id = ? WHERE document_id = ?");
+            $transfer_b_logs->bind_param("ii", $official_doc_id, $doc_id);
+            $transfer_b_logs->execute();
+
+            $transfer_m_logs = $conn->prepare("UPDATE physical_movement_logs SET document_id = ? WHERE document_id = ?");
+            $transfer_m_logs->bind_param("ii", $official_doc_id, $doc_id);
+            $transfer_m_logs->execute();
+            // ==========================================================
 
             $conn->commit();
 
@@ -597,7 +624,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         } catch (Exception $e) {
             $conn->rollback();
             error_log("Declare Official Error: " . $e->getMessage());
-            header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "error=" . urlencode("Declaration Failed."));
+            // FIX: Ipinasa ang totoong $e->getMessage() para malaman ng user kung bakit na-block
+            header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "error=" . urlencode($e->getMessage()));
         }
         exit();
     }

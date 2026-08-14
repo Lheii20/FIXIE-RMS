@@ -21,47 +21,43 @@ $reqs = $stmt->get_result();
     <title>Account Requests - Fixie DRMS</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
-    <link href="assets/css/style.css" rel="stylesheet">
-    <link href="assets/css/custom_fixie.css" rel="stylesheet"> <!-- NEW CSS HERE -->
+    <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
 </head>
-<body>
+<body class="page-admin-requests">
     <?php include 'sidebar.php'; ?>
     
     <div class="main-content fade-in">
         
-        <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 mt-2 gap-3">
-            <div>
+        <div class="admin-page-header admin-requests-header d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 mt-2 gap-3">
+            <div class="admin-page-title">
                 <h4 class="fw-bold text-dark mb-0 tracking-tight">Account Requests</h4>
                 <p class="text-muted mb-0 fs-sm">Review and manage user security and profile requests.</p>
             </div>
             
-            <form method="GET" class="d-flex flex-column flex-sm-row align-items-sm-center gap-2 m-0 w-100" style="max-width: 450px;">
-                <div class="position-relative w-100">
-                    <input type="search" name="search" class="form-control form-control-sm pe-4 shadow-none w-100 rounded-custom" style="border-color: #cbd5e1;" placeholder="Search user or reason..." value="<?php echo htmlspecialchars($search); ?>">
-                    <i class="fas fa-search position-absolute text-muted" style="top: 50%; right: 12px; transform: translateY(-50%); font-size: 0.8rem; pointer-events: none;"></i>
+            <form method="GET" class="admin-requests-toolbar d-flex flex-column flex-sm-row align-items-sm-center gap-2 m-0 w-100">
+                <div class="admin-request-search position-relative w-100">
+                    <input type="search" name="search" class="form-control form-control-sm pe-4 shadow-none w-100 rounded-custom" placeholder="Search user or reason..." value="<?php echo htmlspecialchars($search); ?>">
+                    <i class="admin-search-icon fas fa-search position-absolute text-muted" aria-hidden="true"></i>
                 </div>
                 
-                <div class="d-flex gap-2 w-100">
-                    <select name="status" class="form-select form-select-sm shadow-none w-100 rounded-custom" style="border-color: #cbd5e1; cursor: pointer;" onchange="this.form.submit()">
+                <div class="admin-request-filter-row d-flex gap-2 w-100">
+                    <select name="status" class="admin-status-select form-select form-select-sm shadow-none w-100 rounded-custom" onchange="this.form.submit()">
                         <option value="Pending" <?php echo $status_filter == 'Pending' ? 'selected' : ''; ?>>Pending</option>
                         <option value="Approved" <?php echo $status_filter == 'Approved' ? 'selected' : ''; ?>>Approved</option>
                         <option value="Rejected" <?php echo $status_filter == 'Rejected' ? 'selected' : ''; ?>>Rejected</option>
                         <option value="All" <?php echo $status_filter == 'All' ? 'selected' : ''; ?>>All Requests</option>
                     </select>
                     <?php if(!empty($search) || $status_filter !== 'Pending'): ?>
-                        <a href="admin_requests.php" class="btn btn-sm btn-light border text-muted shadow-none flex-shrink-0 rounded-custom px-2" title="Reset Filters"><i class="fas fa-undo-alt"></i></a>
+                        <a href="admin_requests.php" class="admin-filter-reset btn btn-sm btn-light border text-muted shadow-none flex-shrink-0 rounded-custom px-2" title="Reset Filters" aria-label="Reset filters"><i class="fas fa-undo-alt"></i></a>
                     <?php endif; ?>
                 </div>
             </form>
         </div>
 
-        <?php if(isset($_GET['success'])): ?>
-            <div class="alert alert-success border-0 shadow-sm rounded-8 fs-md"><i class="fas fa-check-circle me-2"></i> Action completed successfully.</div>
-        <?php endif; ?>
-
-        <div class="table-container">
-            <table class="modern-table">
+        <div class="table-container admin-requests-table-wrap">
+            <table class="modern-table admin-requests-table">
                 <thead>
                     <tr><th width="15%">Date</th><th width="25%">User Information</th><th width="35%">Request Type & Reason</th><th width="10%">Status</th><th width="15%" class="text-end pe-4">Actions</th></tr>
                 </thead>
@@ -80,7 +76,11 @@ $reqs = $stmt->get_result();
                                 <div class="avatar-circle"><?php echo $initials; ?></div>
                                 <div>
                                     <div class="fw-bold text-dark fs-sm"><?php echo $fullName; ?></div>
-                                    <div class="text-muted mt-1 fs-xs"><span class="fw-semibold text-primary">@<?php echo $userName; ?></span> &bull; <?php echo $role; ?></div>
+                                    <div class="text-muted mt-1 fs-xs admin-request-desktop-identity"><span class="fw-semibold text-primary">@<?php echo $userName; ?></span> &bull; <?php echo $role; ?></div>
+                                    <div class="admin-request-mobile-meta d-md-none">
+                                        <span class="admin-mobile-request-datetime"><i class="far fa-clock" aria-hidden="true"></i><span><?php echo $dateFmt; ?></span><span aria-hidden="true">&bull;</span><span><?php echo $timeFmt; ?></span></span>
+                                        <span class="admin-mobile-request-status is-<?php echo strtolower($row['status']); ?>"><?php echo htmlspecialchars($row['status']); ?></span>
+                                    </div>
                                 </div>
                             </div>
                         </td>
@@ -101,21 +101,39 @@ $reqs = $stmt->get_result();
                             <?php elseif($row['status'] === 'Approved'): ?> <span class="badge bg-success bg-opacity-10 text-success border border-success px-2 py-1">Approved</span>
                             <?php else: ?> <span class="badge bg-danger bg-opacity-10 text-danger border border-danger px-2 py-1">Rejected</span> <?php endif; ?>
                         </td>
-                        <td class="text-end pe-4">
-                            <div class="d-inline-flex gap-1">
+                        <td class="text-end pe-4 admin-action-cell">
+                            <div class="d-none d-md-inline-flex gap-1">
                                 <button type="button" class="action-btn btn-view" title="View Details" data-id="<?php echo $row['request_id']; ?>" data-date="<?php echo $dateFmt . ' ' . $timeFmt; ?>" data-fullname="<?php echo $fullName; ?>" data-username="<?php echo $userName; ?>" data-role="<?php echo $role; ?>" data-type="<?php echo $reqType; ?>" data-newval="<?php echo $newVal; ?>" data-reason="<?php echo $reason; ?>" data-status="<?php echo $row['status']; ?>" onclick="openRequestModal(this)"><i class="fas fa-eye"></i></button>
                                 <?php if($row['status'] === 'Pending'): ?>
                                     <form action="actions/request_handler.php" method="POST" class="m-0 p-0 d-inline-flex gap-1">
                                         <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>"><input type="hidden" name="action" value="manage_request"><input type="hidden" name="request_id" value="<?php echo $row['request_id']; ?>">
-                                        <button name="decision" value="Approve" class="action-btn btn-approve" onclick="return confirm('Approve this request?');" title="Approve"><i class="fas fa-check"></i></button>
-                                        <button name="decision" value="Reject" class="action-btn btn-reject" onclick="return confirm('Reject this request?');" title="Reject"><i class="fas fa-times"></i></button>
+                                        <button type="button" data-decision="Approve" data-requester="<?php echo $fullName; ?>" class="action-btn btn-approve" onclick="confirmRequestDecision(event, this)" title="Approve"><i class="fas fa-check"></i></button>
+                                        <button type="button" data-decision="Reject" data-requester="<?php echo $fullName; ?>" class="action-btn btn-reject" onclick="confirmRequestDecision(event, this)" title="Reject"><i class="fas fa-times"></i></button>
                                     </form>
                                 <?php endif; ?>
                             </div>
+                            <?php if($row['status'] === 'Pending'): ?>
+                                <div class="dropdown admin-request-mobile-actions d-md-none">
+                                    <button class="btn-dots dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-boundary="window" aria-expanded="false" aria-label="Request actions"><i class="fas fa-ellipsis-v"></i></button>
+                                    <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                                        <li><button type="button" class="dropdown-item" data-id="<?php echo $row['request_id']; ?>" data-date="<?php echo $dateFmt . ' ' . $timeFmt; ?>" data-fullname="<?php echo $fullName; ?>" data-username="<?php echo $userName; ?>" data-role="<?php echo $role; ?>" data-type="<?php echo $reqType; ?>" data-newval="<?php echo $newVal; ?>" data-reason="<?php echo $reason; ?>" data-status="<?php echo $row['status']; ?>" onclick="openRequestModal(this)"><i class="fas fa-eye text-primary"></i> View Details</button></li>
+                                        <li><hr class="dropdown-divider"></li>
+                                        <li>
+                                            <form action="actions/request_handler.php" method="POST" class="m-0">
+                                                <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>"><input type="hidden" name="action" value="manage_request"><input type="hidden" name="request_id" value="<?php echo $row['request_id']; ?>">
+                                                <button type="button" data-decision="Approve" data-requester="<?php echo $fullName; ?>" class="dropdown-item text-success" onclick="confirmRequestDecision(event, this)"><i class="fas fa-check"></i> Approve</button>
+                                                <button type="button" data-decision="Reject" data-requester="<?php echo $fullName; ?>" class="dropdown-item text-danger" onclick="confirmRequestDecision(event, this)"><i class="fas fa-times"></i> Reject</button>
+                                            </form>
+                                        </li>
+                                    </ul>
+                                </div>
+                            <?php else: ?>
+                                <button type="button" class="admin-mobile-open d-md-none" aria-label="View request details" data-id="<?php echo $row['request_id']; ?>" data-date="<?php echo $dateFmt . ' ' . $timeFmt; ?>" data-fullname="<?php echo $fullName; ?>" data-username="<?php echo $userName; ?>" data-role="<?php echo $role; ?>" data-type="<?php echo $reqType; ?>" data-newval="<?php echo $newVal; ?>" data-reason="<?php echo $reason; ?>" data-status="<?php echo $row['status']; ?>" onclick="openRequestModal(this)"><i class="fas fa-chevron-right"></i></button>
+                            <?php endif; ?>
                         </td>
                     </tr>
                     <?php endwhile; else: ?>
-                        <tr><td colspan="5" class="text-center py-5 text-muted"><i class="fas fa-search text-muted opacity-25 mb-3 fa-2x"></i><h6 class="fw-bold text-dark mb-1">No requests found</h6><p class="text-muted small mb-0">Try adjusting your search or filter.</p></td></tr>
+                        <tr class="admin-empty-row"><td colspan="5" class="text-center py-5 text-muted"><i class="fas fa-search text-muted opacity-25 mb-3 fa-2x"></i><h6 class="fw-bold text-dark mb-1">No requests found</h6><p class="text-muted small mb-0">Try adjusting your search or filter.</p></td></tr>
                     <?php endif; ?>
                 </tbody>
             </table>
@@ -123,35 +141,39 @@ $reqs = $stmt->get_result();
     </div>
 
     <!-- VIEW REQUEST MODAL -->
-    <div class="modal fade sleek-modal" id="requestDetailsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal fade sleek-modal admin-request-modal" id="requestDetailsModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
-                <div class="modal-header"><h5 class="modal-title fw-bold text-dark"><i class="fas fa-file-invoice me-2 text-primary"></i>Request Details</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+                <div class="modal-header admin-request-modal-header">
+                    <div>
+                        <h5 class="modal-title fw-bold text-dark"><i class="fas fa-file-invoice me-2 text-primary"></i>Request Details</h5>
+                        <p class="text-muted mb-0">Review the submitted account request.</p>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
                 <div class="modal-body">
-                    <div class="d-flex justify-content-between mb-3 border-bottom pb-3">
-                        <div><div class="data-label">Date Submitted</div><div class="data-value mb-0 text-muted fw-medium fs-sm" id="modDate"></div></div>
-                        <div class="text-end"><div class="data-label">Status</div><div id="modStatusBadge"></div></div>
-                    </div>
-                    <div class="data-label">Requesting User</div>
-                    <div class="d-flex align-items-center gap-3 mb-4 p-3 rounded" style="background: #f8fafc; border: 1px solid #e2e8f0;">
-                        <div class="avatar-circle bg-white border shadow-sm box-42 text-dark fs-md" id="modInitials">U</div>
-                        <div>
-                            <div class="fw-bold text-dark fs-md" id="modFullName">Full Name</div>
-                            <div class="text-muted fs-xs mt-1"><span class="fw-semibold text-primary" id="modUsername">@username</span> &bull; <span id="modRole" class="fw-medium">Role</span></div>
+                    <div class="admin-request-profile">
+                        <div class="avatar-circle bg-white border box-42 text-dark" id="modInitials">U</div>
+                        <div class="admin-request-profile-copy">
+                            <div class="fw-bold text-dark" id="modFullName">Full Name</div>
+                            <div class="admin-request-profile-meta"><span class="fw-semibold text-primary" id="modUsername">@username</span><span aria-hidden="true">&bull;</span><span id="modRole">Role</span></div>
                         </div>
+                        <div id="modStatusBadge" class="admin-request-profile-status"></div>
                     </div>
-                    <div class="row">
-                        <div class="col-sm-6"><div class="data-label">Action Requested</div><div class="data-value"><span class="badge bg-light text-dark border px-2 py-1 fw-medium" id="modType">Type</span></div></div>
-                        <div class="col-sm-6" id="modNewValueContainer"><div class="data-label text-primary">Proposed Username</div><div class="data-value fw-bold text-primary" id="modNewValue"></div></div>
+
+                    <div class="admin-request-detail-grid">
+                        <div class="admin-request-detail-item"><div class="data-label">Date Submitted</div><div class="data-value" id="modDate"></div></div>
+                        <div class="admin-request-detail-item"><div class="data-label">Action Requested</div><div class="data-value"><span class="admin-request-type-badge" id="modType">Type</span></div></div>
+                        <div class="admin-request-detail-item" id="modNewValueContainer"><div class="data-label">Proposed Username</div><div class="data-value text-primary" id="modNewValue"></div></div>
                     </div>
-                    <div id="modReasonContainer"><div class="data-label mt-2">Reason / Remarks</div><div class="reason-box" id="modReason"></div></div>
+                    <div class="admin-request-reason" id="modReasonContainer"><div class="data-label">Reason / Remarks</div><div class="reason-box" id="modReason"></div></div>
                 </div>
                 <div class="modal-footer d-flex justify-content-between" id="modFooterActions">
                     <button type="button" class="btn btn-white border bg-white text-muted fw-medium px-4 shadow-sm rounded-custom" data-bs-dismiss="modal">Close</button>
                     <form action="actions/request_handler.php" method="POST" id="modActionForm" class="m-0 p-0 d-inline-flex gap-2">
                         <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>"><input type="hidden" name="action" value="manage_request"><input type="hidden" name="request_id" id="modReqId" value="">
-                        <button name="decision" value="Reject" class="btn btn-danger fw-medium px-4 shadow-sm rounded-custom" onclick="return confirm('Reject this request?');">Reject</button>
-                        <button name="decision" value="Approve" class="btn btn-success fw-medium px-4 shadow-sm rounded-custom" onclick="return confirm('Approve this request?');">Approve</button>
+                        <button type="button" data-decision="Reject" class="btn btn-danger fw-medium px-4 shadow-sm rounded-custom" onclick="confirmRequestDecision(event, this)">Reject</button>
+                        <button type="button" data-decision="Approve" class="btn btn-success fw-medium px-4 shadow-sm rounded-custom" onclick="confirmRequestDecision(event, this)">Approve</button>
                     </form>
                 </div>
             </div>
@@ -159,6 +181,7 @@ $reqs = $stmt->get_result();
     </div>
     
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script>
         function openRequestModal(btnElement) {
             const id = btnElement.getAttribute('data-id'); const date = btnElement.getAttribute('data-date'); const fullName = btnElement.getAttribute('data-fullname'); const userName = btnElement.getAttribute('data-username'); const role = btnElement.getAttribute('data-role'); const type = btnElement.getAttribute('data-type'); const newVal = btnElement.getAttribute('data-newval'); const reason = btnElement.getAttribute('data-reason'); const status = btnElement.getAttribute('data-status');
@@ -178,9 +201,78 @@ $reqs = $stmt->get_result();
             document.getElementById('modStatusBadge').innerHTML = badgeHtml;
 
             const form = document.getElementById('modActionForm');
-            if (status === 'Pending') { form.style.display = 'inline-flex'; document.getElementById('modReqId').value = id; } else { form.style.display = 'none'; }
+            if (status === 'Pending') {
+                form.classList.remove('d-none');
+                form.classList.add('d-inline-flex');
+                document.getElementById('modReqId').value = id;
+            } else {
+                form.classList.remove('d-inline-flex');
+                form.classList.add('d-none');
+            }
             new bootstrap.Modal(document.getElementById('requestDetailsModal')).show();
         }
+
+        function confirmRequestDecision(event, button) {
+            event.preventDefault();
+            event.stopPropagation();
+
+            const form = button.closest('form');
+            const decision = button.dataset.decision;
+            const requester = button.dataset.requester || document.getElementById('modFullName').textContent.trim() || 'this user';
+            const isApprove = decision === 'Approve';
+
+            Swal.fire({
+                title: isApprove ? 'Approve Request?' : 'Reject Request?',
+                text: (isApprove ? 'Approve' : 'Reject') + ' the account request submitted by ' + requester + '?',
+                icon: isApprove ? 'question' : 'warning',
+                showCancelButton: true,
+                reverseButtons: true,
+                confirmButtonText: isApprove ? '<i class="fas fa-check me-1"></i> Approve' : '<i class="fas fa-times me-1"></i> Reject',
+                cancelButtonText: 'Cancel',
+                buttonsStyling: false,
+                customClass: {
+                    popup: 'sleek-popup request-decision-alert',
+                    confirmButton: isApprove ? 'btn btn-success request-alert-confirm' : 'btn btn-danger request-alert-confirm',
+                    cancelButton: 'btn btn-light border request-alert-cancel'
+                }
+            }).then((result) => {
+                if (!result.isConfirmed) return;
+
+                let decisionInput = form.querySelector('input[name="decision"]');
+                if (!decisionInput) {
+                    decisionInput = document.createElement('input');
+                    decisionInput.type = 'hidden';
+                    decisionInput.name = 'decision';
+                    form.appendChild(decisionInput);
+                }
+                decisionInput.value = decision;
+                form.submit();
+            });
+        }
+
+        <?php if(isset($_GET['success'])): ?>
+        Swal.fire({
+            toast: true,
+            position: 'bottom-end',
+            icon: 'success',
+            title: 'Request updated successfully.',
+            showConfirmButton: false,
+            timer: 2600,
+            timerProgressBar: true,
+            customClass: { popup: 'small-toast request-feedback-toast shadow-sm border' }
+        });
+        <?php elseif(isset($_GET['error'])): ?>
+        Swal.fire({
+            toast: true,
+            position: 'bottom-end',
+            icon: 'error',
+            title: 'Unable to update the request.',
+            showConfirmButton: false,
+            timer: 3200,
+            timerProgressBar: true,
+            customClass: { popup: 'small-toast request-feedback-toast shadow-sm border' }
+        });
+        <?php endif; ?>
     </script>
 </body>
 </html>

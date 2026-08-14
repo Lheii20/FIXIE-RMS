@@ -14,6 +14,48 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $action = $_POST['action'] ?? 'upload';
     $user_id = $_SESSION['user_id'];
 
+    // Helper function for Hybrid Auto-Assignment (Load Balanced)
+    function auto_assign_po_hybrid($conn, $po_id, $required_role, $exclude_user_id = null) {
+        if (empty($required_role)) return false;
+
+        $query = "SELECT user_id FROM users WHERE role = ? AND status = 'Active'";
+        if ($exclude_user_id) { $query .= " AND user_id != " . intval($exclude_user_id); }
+        
+        $stmt = $conn->prepare($query);
+        $stmt->bind_param("s", $required_role);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        
+        $eligible_users = [];
+        while ($row = $res->fetch_assoc()) { $eligible_users[] = $row['user_id']; }
+        if (empty($eligible_users)) return false;
+
+        if (count($eligible_users) === 1) {
+            $assigned_user = $eligible_users[0];
+        } else {
+            // Load balancing: Find user with the minimum active tasks
+            $placeholders = implode(',', array_fill(0, count($eligible_users), '?'));
+            $lb_query = "SELECT u.user_id, COUNT(a.assignment_id) as active_tasks 
+                         FROM users u 
+                         LEFT JOIN purchase_order_task_assignments a ON u.user_id = a.assigned_to AND a.assignment_status = 'Active' 
+                         WHERE u.user_id IN ($placeholders) 
+                         GROUP BY u.user_id ORDER BY active_tasks ASC, u.user_id ASC LIMIT 1";
+            $stmt_lb = $conn->prepare($lb_query);
+            $types = str_repeat('i', count($eligible_users));
+            $stmt_lb->bind_param($types, ...$eligible_users);
+            $stmt_lb->execute();
+            $lb_res = $stmt_lb->get_result();
+            if ($lb_row = $lb_res->fetch_assoc()) { $assigned_user = $lb_row['user_id']; } 
+            else { $assigned_user = $eligible_users[0]; }
+        }
+
+        // Assign
+        $stmt_assign = $conn->prepare("INSERT INTO purchase_order_task_assignments (po_id, assigned_to, assigned_role, assignment_status, assigned_at) VALUES (?, ?, ?, 'Active', NOW())");
+        $stmt_assign->bind_param("iis", $po_id, $assigned_user, $required_role);
+        $stmt_assign->execute();
+        return $assigned_user;
+    }
+
     function getRedirectUrl($conn, $doc_id = null, $po_id = null) {
         if ($po_id) {
             return "../view_po.php?id=" . $po_id;
@@ -154,6 +196,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $conn->query("INSERT INTO po_history (po_id, changed_by, status_from, status_to) VALUES ($po_id, $user_id, 'New', 'Pending')");
             create_role_notification($conn, 'GM', "New Purchase Order Requires Approval: PO #$po_id");
             
+            // Awtomatikong ipasa sa GM na pinakakaunti ang ginagawa
+            auto_assign_po_hybrid($conn, $po_id, 'GM');
+            
             // 6. PROCESS ATTACHED QUOTATION FILE SECURELY
             if (isset($_FILES['po_document']) && !empty($_FILES['po_document']['name'])) {
                 $file = $_FILES['po_document'];
@@ -191,26 +236,21 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 
     // Claim/release preserves shared visibility, while establishing one accountable owner.
-    if (in_array($action, ['claim_task', 'release_task'], true)) {
+    // Hybrid Re-Assign Task Logic
+    if ($action === 'reassign_task') {
         $po_id = (int)($_POST['po_id'] ?? 0);
-        if ($po_id < 1) {
-            header("Location: ../po_list.php?error=Invalid Purchase Order.");
-            exit();
-        }
+        if ($po_id < 1) { header("Location: ../po_list.php?error=Invalid Purchase Order."); exit(); }
+        
         try {
             $conn->begin_transaction();
-            if ($action === 'claim_task') {
-                $assignment = claim_po_task($conn, $po_id, $user_id, $_SESSION['role']);
-                $message = 'Task claimed successfully.';
-                $audit = "Claimed PO task #$po_id as {$assignment['assigned_role']}";
-            } else {
-                release_po_task($conn, $po_id, $user_id);
-                $message = 'Task released back to the shared queue.';
-                $audit = "Released PO task #$po_id";
-            }
-            log_audit_action($conn, $user_id, strtoupper($action), $audit);
+            // Tapusin ang assignment ng kasalukuyang user
+            release_po_task($conn, $po_id, $user_id);
+            // I-load balance papunta sa ibang user na may same role (Excluding current user)
+            auto_assign_po_hybrid($conn, $po_id, $_SESSION['role'], $user_id);
+            
+            log_audit_action($conn, $user_id, 'REASSIGN_TASK', "Re-assigned PO task #$po_id to another available user.");
             $conn->commit();
-            header("Location: ../view_po.php?id=$po_id&success=" . rawurlencode($message));
+            header("Location: ../view_po.php?id=$po_id&success=" . rawurlencode("Task smoothly re-assigned to the next available user."));
         } catch (Exception $e) {
             $conn->rollback();
             header("Location: ../view_po.php?id=$po_id&error=" . rawurlencode($e->getMessage()));
@@ -423,6 +463,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
 
             complete_po_task_assignment($conn, $po_id, $user_id, 'Completed through ' . $action);
+
+            // Awtomatikong i-assign sa next role
+            $req_stmt = $conn->prepare("SELECT required_role FROM workflow_rules WHERE current_status = ? LIMIT 1");
+            $req_stmt->bind_param("s", $new_status);
+            $req_stmt->execute();
+            $req_res = $req_stmt->get_result()->fetch_assoc();
+            if ($req_res && !empty($req_res['required_role'])) {
+                auto_assign_po_hybrid($conn, $po_id, $req_res['required_role']);
+            }
 
             $audit_action = $action === 'reject' ? 'REJECT_PO' : 'WORKFLOW_ACTION';
             log_audit_action($conn, $user_id, $audit_action, "PO {$po['po_number']}: {$po['status']} to $new_status", ['status' => $po['status']], ['status' => $new_status, 'remarks' => $remarks]);

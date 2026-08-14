@@ -1,0 +1,3884 @@
+/* === GOOGLE DRIVE-STYLE COMPACT MOBILE LISTS === */
+@media (max-width: 767.98px) {
+    #dataTable.premium-table,
+    #documentsTable {
+        width: 100% !important;
+        table-layout: fixed;
+    }
+
+    #dataTable.premium-table thead,
+    #documentsTable thead {
+        display: none;
+    }
+
+    #dataTable.premium-table tbody tr,
+    #documentsTable tbody tr {
+        background: #ffffff;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    #dataTable.premium-table tbody td,
+    #documentsTable tbody td {
+        vertical-align: middle;
+        border: 0 !important;
+    }
+
+    /* Hide all extra columns. */
+    #dataTable.premium-table tbody td:not(:first-child):not(:last-child),
+    #documentsTable tbody td:not(:first-child):not(:last-child) {
+        display: none;
+    }
+
+    /* Main file/request/quotation information. */
+    #dataTable.premium-table tbody td:first-child,
+    #documentsTable tbody td:first-child {
+        width: auto;
+        padding: 0.7rem 0.4rem 0.7rem 0.75rem !important;
+    }
+
+    /* Only open arrow or three-dots action. */
+    #dataTable.premium-table tbody td:last-child,
+    #documentsTable tbody td:last-child {
+        width: 52px;
+        padding: 0.45rem 0.65rem 0.45rem 0.25rem !important;
+        text-align: right !important;
+    }
+
+    #dataTable.premium-table .order-info-block,
+    #documentsTable tbody td:first-child > .d-flex {
+        min-width: 0;
+        gap: 0.65rem !important;
+    }
+
+    #dataTable.premium-table .doc-icon-box,
+    #documentsTable .file-icon-md {
+        width: 36px !important;
+        height: 36px !important;
+        min-width: 36px;
+        flex: 0 0 36px;
+        margin-right: 0 !important;
+        border-radius: 8px !important;
+    }
+
+    #dataTable.premium-table .doc-title,
+    #documentsTable h6 {
+        display: block;
+        max-width: 100%;
+        margin: 0 !important;
+        font-size: 0.88rem !important;
+        line-height: 1.25;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    #dataTable.premium-table .data-label,
+    #documentsTable .text-muted.small {
+        display: block;
+        margin-top: 0.15rem;
+        font-size: 0.72rem !important;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Existing document three-dots menu. */
+    #documentsTable .action-dropdown .btn-dots {
+        width: 36px !important;
+        height: 36px !important;
+        min-height: 36px !important;
+        padding: 0 !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 8px !important;
+        background: #ffffff !important;
+    }
+
+    /* One action only: show its existing view/open arrow. */
+    #dataTable.premium-table .action-flex.single-mobile-action {
+        display: flex;
+        justify-content: flex-end;
+    }
+
+    #dataTable.premium-table .action-flex.single-mobile-action .btn-view-icon {
+        width: 36px !important;
+        height: 36px !important;
+        min-height: 36px !important;
+        padding: 0 !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 8px !important;
+        background: #ffffff !important;
+        color: #2563eb !important;
+    }
+
+    /* Multiple actions: three-dots menu only. */
+    .mobile-list-actions .mobile-action-trigger {
+        width: 36px;
+        height: 36px;
+        min-height: 36px !important;
+        padding: 0 !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 8px !important;
+        background: #ffffff !important;
+        color: #475569 !important;
+    }
+
+    .mobile-list-actions .dropdown-menu {
+        min-width: 200px;
+        padding: 0.35rem;
+    }
+
+    .mobile-list-actions .btn-quick-act,
+    .mobile-list-actions .btn-view-icon {
+        display: flex !important;
+        width: 100% !important;
+        height: auto !important;
+        min-height: 42px !important;
+        padding: 0.65rem 0.75rem !important;
+        justify-content: flex-start;
+        border: 0 !important;
+        border-radius: 7px !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        color: #334155 !important;
+        text-decoration: none;
+    }
+
+    .mobile-list-actions .btn-quick-approve {
+        color: #047857 !important;
+    }
+
+    .mobile-list-actions .btn-quick-reject {
+        color: #dc2626 !important;
+    }
+}
+
+/* === DOCUMENT MOBILE HEADER + BREADCRUMB + FOLDER ROW CORRECTION === */
+@media (max-width: 767.98px) {
+    body.page-documents .header-section,
+    body.page-general-docs .header-section {
+        margin-bottom: 0.45rem !important;
+    }
+
+    /* Compact first header row. */
+    body.page-documents .header-section > .d-flex:first-child,
+    body.page-general-docs .header-section > .d-flex:first-child {
+        flex-wrap: nowrap !important;
+        gap: 0.45rem !important;
+        margin-bottom: 0.45rem !important;
+    }
+
+    body.page-documents .header-section > .d-flex:first-child > .d-flex:first-child,
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:first-child {
+        min-width: 0;
+        flex: 1 1 auto;
+        gap: 0.5rem !important;
+    }
+
+    body.page-documents .header-section > .d-flex:first-child > .d-flex:first-child > div:last-child,
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:first-child > div:last-child {
+        min-width: 0;
+    }
+
+    body.page-documents .header-section h3,
+    body.page-general-docs .header-section h3 {
+        display: block;
+        max-width: 100%;
+        margin: 0 !important;
+        overflow: hidden;
+        color: #1e293b !important;
+        font-size: 0.98rem !important;
+        line-height: 1.2 !important;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body.page-documents .header-section h3 i,
+    body.page-general-docs .header-section h3 i {
+        margin-right: 0.35rem !important;
+        font-size: 0.84rem !important;
+    }
+
+    body.page-documents .header-section h3 + p,
+    body.page-general-docs .header-section h3 + p {
+        max-width: 100%;
+        margin-top: 0.12rem !important;
+        overflow: hidden;
+        font-size: 0.68rem !important;
+        line-height: 1.15;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body.page-documents .header-section .btn-back-custom,
+    body.page-general-docs .header-section .btn-back-custom {
+        width: 34px !important;
+        height: 34px !important;
+        min-width: 34px !important;
+        min-height: 34px !important;
+        padding: 0 !important;
+    }
+
+    body.page-documents .header-section > .d-flex:first-child > .d-flex:last-child,
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:last-child {
+        flex: 0 0 auto;
+        gap: 0.25rem !important;
+    }
+
+    body.page-documents .header-section > .d-flex:first-child > .d-flex:last-child > .dropdown > button,
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:last-child > .dropdown > button {
+        width: 34px !important;
+        height: 34px !important;
+        min-width: 34px !important;
+        min-height: 34px !important;
+        padding: 0 !important;
+    }
+
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:last-child > .btn-primary {
+        width: auto !important;
+        height: 34px !important;
+        min-height: 34px !important;
+        padding: 0.35rem 0.65rem !important;
+        border-radius: 8px !important;
+        font-size: 0.7rem !important;
+        white-space: nowrap;
+    }
+
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:last-child > .btn-primary i {
+        margin-right: 0.3rem !important;
+        font-size: 0.75rem !important;
+    }
+
+    /* Breadcrumb and search always occupy their own compact rows. */
+    body.page-documents .header-section > .d-flex:nth-child(2),
+    body.page-general-docs .header-section > .d-flex:nth-child(2) {
+        flex-direction: column !important;
+        flex-wrap: nowrap !important;
+        align-items: stretch !important;
+        gap: 0.45rem !important;
+        padding-top: 0 !important;
+    }
+
+    body.page-documents .header-section nav[aria-label="breadcrumb"],
+    body.page-general-docs .header-section nav[aria-label="breadcrumb"] {
+        display: block;
+        width: 100%;
+        min-width: 0;
+        overflow: hidden;
+    }
+
+    body.page-documents .page-location-path,
+    body.page-general-docs .page-location-path {
+        display: flex !important;
+        width: 100%;
+        min-width: 0;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden;
+        flex-wrap: nowrap !important;
+        font-size: 0.74rem !important;
+        line-height: 1.2;
+        white-space: nowrap;
+    }
+
+    body.page-documents .page-location-path > .breadcrumb-item,
+    body.page-general-docs .page-location-path > .breadcrumb-item {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+        padding: 0 !important;
+        white-space: nowrap;
+    }
+
+    /* Hide old locations and retain one clickable ellipsis before the current location. */
+    body.page-documents .page-location-path > .breadcrumb-item:not(:last-child),
+    body.page-general-docs .page-location-path > .breadcrumb-item:not(:last-child) {
+        display: none !important;
+    }
+
+    body.page-documents .page-location-path > .breadcrumb-item:nth-last-child(2),
+    body.page-general-docs .page-location-path > .breadcrumb-item:nth-last-child(2) {
+        display: flex !important;
+        flex: 0 0 auto;
+    }
+
+    body.page-documents .page-location-path > .breadcrumb-item:nth-last-child(2) > a,
+    body.page-general-docs .page-location-path > .breadcrumb-item:nth-last-child(2) > a {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 30px;
+        height: 26px;
+        padding: 0 !important;
+        overflow: hidden;
+        border-radius: 6px;
+        font-size: 0 !important;
+    }
+
+    body.page-documents .page-location-path > .breadcrumb-item:nth-last-child(2) > a::before,
+    body.page-general-docs .page-location-path > .breadcrumb-item:nth-last-child(2) > a::before {
+        content: "\2026";
+        color: #64748b;
+        font-size: 0.9rem;
+        font-weight: 700;
+        letter-spacing: 0.08rem;
+    }
+
+    body.page-documents .page-location-path > .breadcrumb-item:last-child,
+    body.page-general-docs .page-location-path > .breadcrumb-item:last-child {
+        min-width: 0;
+        flex: 1 1 auto;
+    }
+
+    body.page-documents .page-location-path > .breadcrumb-item:last-child > span,
+    body.page-general-docs .page-location-path > .breadcrumb-item:last-child > span {
+        display: block;
+        width: 100%;
+        min-width: 0;
+        padding: 0.32rem 0.5rem !important;
+        overflow: hidden;
+        border-radius: 6px !important;
+        color: #1e293b !important;
+        font-size: 0.74rem !important;
+        font-weight: 650 !important;
+        line-height: 1.15;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body.page-documents .page-location-path .breadcrumb-separator,
+    body.page-general-docs .page-location-path .breadcrumb-separator {
+        display: inline-flex;
+        align-items: center;
+        margin: 0 0.3rem !important;
+        color: #94a3b8;
+        font-size: 0.58rem !important;
+    }
+
+    body.page-documents .page-location-path > .breadcrumb-item::before,
+    body.page-general-docs .page-location-path > .breadcrumb-item::before {
+        display: none !important;
+        content: none !important;
+    }
+
+    body.page-documents .header-section > .d-flex:nth-child(2) > form,
+    body.page-general-docs .header-section > .d-flex:nth-child(2) > form,
+    body.page-documents .header-section .sleek-search,
+    body.page-general-docs .header-section .sleek-search {
+        width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    body.page-documents .header-section .sleek-search,
+    body.page-general-docs .header-section .sleek-search {
+        height: 36px !important;
+        border-radius: 8px !important;
+    }
+
+    body.page-documents .header-section .sleek-search input,
+    body.page-general-docs .header-section .sleek-search input {
+        min-width: 0;
+        height: 36px !important;
+        font-size: 0.76rem !important;
+    }
+
+    body.page-documents .header-section .sleek-search .input-group-text,
+    body.page-general-docs .header-section .sleek-search .input-group-text,
+    body.page-documents .header-section .sleek-search > button,
+    body.page-general-docs .header-section .sleek-search > button {
+        height: 36px !important;
+        padding: 0 0.7rem !important;
+        font-size: 0.74rem !important;
+    }
+
+    /* Rebuild folders and subfolders as stable two-line list rows. */
+    body.page-documents .folders-section > .row,
+    body.page-general-docs .folders-section > .row {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) !important;
+        gap: 0.38rem !important;
+    }
+
+    body.page-documents .folders-section > .row > [class*="col-"],
+    body.page-general-docs .folders-section > .row > [class*="col-"] {
+        width: 100% !important;
+        max-width: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    body.page-documents .folder-card,
+    body.page-general-docs .folder-card {
+        position: relative;
+        display: grid !important;
+        grid-template-columns: 32px minmax(0, 1fr) 32px;
+        grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+        column-gap: 0.6rem;
+        row-gap: 0;
+        align-items: center;
+        width: 100%;
+        height: 58px !important;
+        min-height: 58px !important;
+        padding: 0.45rem 0.5rem !important;
+        overflow: visible !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 9px !important;
+        background: #ffffff !important;
+        box-shadow: none !important;
+        transform: none !important;
+    }
+
+    body.page-documents .folder-card:hover,
+    body.page-general-docs .folder-card:hover {
+        border-color: #cbd5e1 !important;
+        box-shadow: none !important;
+        transform: none !important;
+    }
+
+    body.page-documents .folder-card > .d-flex:first-child,
+    body.page-general-docs .folder-card > .d-flex:first-child {
+        display: contents !important;
+    }
+
+    body.page-documents .folder-card .folder-icon-box,
+    body.page-general-docs .folder-card .folder-icon-box {
+        grid-column: 1;
+        grid-row: 1 / 3;
+        align-self: center;
+        width: 32px !important;
+        height: 32px !important;
+        min-width: 32px !important;
+        margin: 0 !important;
+        border-radius: 7px !important;
+        font-size: 0.78rem !important;
+    }
+
+    body.page-documents .folder-card > .d-flex:first-child > .ms-3,
+    body.page-general-docs .folder-card > .d-flex:first-child > .ms-3 {
+        grid-column: 2;
+        grid-row: 1 / 3;
+        align-self: center;
+        min-width: 0;
+        margin: 0 !important;
+        overflow: hidden;
+    }
+
+    body.page-documents .folder-card:not(:has(> .action-dropdown)) > .d-flex:first-child > .ms-3,
+    body.page-general-docs .folder-card:not(:has(> .action-dropdown)) > .d-flex:first-child > .ms-3 {
+        grid-column: 2 / 4;
+    }
+
+    body.page-documents .folder-card > .d-flex:first-child > h6,
+    body.page-general-docs .folder-card > .d-flex:first-child > h6 {
+        grid-column: 2;
+        grid-row: 1;
+        align-self: end;
+        min-width: 0;
+    }
+
+    body.page-documents .folder-card:not(:has(> .action-dropdown)) > .d-flex:first-child > h6,
+    body.page-general-docs .folder-card:not(:has(> .action-dropdown)) > .d-flex:first-child > h6 {
+        grid-column: 2 / 4;
+        padding-right: 1.5rem !important;
+    }
+
+    body.page-documents .folder-card h6,
+    body.page-general-docs .folder-card h6 {
+        display: block;
+        width: 100%;
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden;
+        color: #1e293b !important;
+        font-size: 0.78rem !important;
+        font-weight: 650 !important;
+        line-height: 1.15 !important;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body.page-documents .folder-card p,
+    body.page-general-docs .folder-card p {
+        display: block;
+        width: 100%;
+        margin: 0.16rem 0 0 !important;
+        overflow: hidden;
+        color: #64748b !important;
+        font-size: 0.64rem !important;
+        line-height: 1.1 !important;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body.page-documents .folder-card > .d-flex:nth-child(2):not(.action-dropdown),
+    body.page-general-docs .folder-card > .d-flex:nth-child(2):not(.action-dropdown) {
+        position: static !important;
+        grid-column: 2;
+        grid-row: 2;
+        align-self: start;
+        width: 100%;
+        min-width: 0;
+        margin: 0.1rem 0 0 !important;
+        padding: 0 !important;
+        border: 0 !important;
+        transform: none !important;
+    }
+
+    body.page-documents .folder-card:not(:has(> .action-dropdown)) > .d-flex:nth-child(2):not(.action-dropdown),
+    body.page-general-docs .folder-card:not(:has(> .action-dropdown)) > .d-flex:nth-child(2):not(.action-dropdown) {
+        grid-column: 2 / 4;
+    }
+
+    body.page-documents .folder-card > .d-flex:nth-child(2):not(.action-dropdown) span,
+    body.page-general-docs .folder-card > .d-flex:nth-child(2):not(.action-dropdown) span {
+        min-width: 0;
+        overflow: hidden;
+        color: #64748b !important;
+        font-size: 0.64rem !important;
+        line-height: 1.1 !important;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body.page-documents .folder-card:has(> .action-dropdown) > .d-flex:nth-child(2) .fa-chevron-right,
+    body.page-general-docs .folder-card:has(> .action-dropdown) > .d-flex:nth-child(2) .fa-chevron-right {
+        display: none !important;
+    }
+
+    body.page-documents .folder-card > .action-dropdown,
+    body.page-general-docs .folder-card > .action-dropdown {
+        position: absolute !important;
+        top: 50% !important;
+        right: 0.42rem !important;
+        left: auto !important;
+        margin: 0 !important;
+        transform: translateY(-50%) !important;
+    }
+
+    body.page-documents .folder-card > .action-dropdown .btn-dots,
+    body.page-general-docs .folder-card > .action-dropdown .btn-dots {
+        width: 32px !important;
+        height: 32px !important;
+        min-width: 32px !important;
+        min-height: 32px !important;
+        padding: 0 !important;
+        font-size: 0.74rem !important;
+    }
+}
+
+/* === FINAL DOCUMENT PAGES MOBILE POLISH === */
+@media (max-width: 767.98px) {
+    /* Show two real breadcrumb locations. Collapse older locations to one ellipsis. */
+    body.page-documents .page-location-path > .breadcrumb-item,
+    body.page-general-docs .page-location-path > .breadcrumb-item {
+        display: none !important;
+    }
+
+    body.page-documents .page-location-path > .breadcrumb-item:last-child,
+    body.page-documents .page-location-path > .breadcrumb-item:nth-last-child(2),
+    body.page-documents .page-location-path > .breadcrumb-item:nth-last-child(3),
+    body.page-general-docs .page-location-path > .breadcrumb-item:last-child,
+    body.page-general-docs .page-location-path > .breadcrumb-item:nth-last-child(2),
+    body.page-general-docs .page-location-path > .breadcrumb-item:nth-last-child(3) {
+        display: flex !important;
+        align-items: center;
+        min-width: 0;
+    }
+
+    /* Third-from-last represents every older location. */
+    body.page-documents .page-location-path > .breadcrumb-item:nth-last-child(3),
+    body.page-general-docs .page-location-path > .breadcrumb-item:nth-last-child(3) {
+        flex: 0 0 auto;
+    }
+
+    body.page-documents .page-location-path > .breadcrumb-item:nth-last-child(3) > a,
+    body.page-general-docs .page-location-path > .breadcrumb-item:nth-last-child(3) > a {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px !important;
+        min-width: 28px !important;
+        max-width: 28px !important;
+        height: 25px !important;
+        padding: 0 !important;
+        overflow: hidden;
+        border-radius: 6px !important;
+        font-size: 0 !important;
+    }
+
+    body.page-documents .page-location-path > .breadcrumb-item:nth-last-child(3) > a::before,
+    body.page-general-docs .page-location-path > .breadcrumb-item:nth-last-child(3) > a::before {
+        display: block !important;
+        content: "\2026" !important;
+        color: #64748b;
+        font-size: 0.86rem !important;
+        font-weight: 700;
+        letter-spacing: 0.06rem;
+    }
+
+    /* The previous location remains readable and clickable. */
+    body.page-documents .page-location-path > .breadcrumb-item:nth-last-child(2),
+    body.page-general-docs .page-location-path > .breadcrumb-item:nth-last-child(2) {
+        flex: 0 1 38%;
+        max-width: 38%;
+    }
+
+    body.page-documents .page-location-path > .breadcrumb-item:nth-last-child(2) > a,
+    body.page-general-docs .page-location-path > .breadcrumb-item:nth-last-child(2) > a {
+        display: block;
+        width: auto !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+        height: 25px !important;
+        padding: 0.3rem 0.4rem !important;
+        overflow: hidden;
+        border-radius: 6px !important;
+        color: #2563eb !important;
+        font-size: 0.68rem !important;
+        font-weight: 600 !important;
+        line-height: 1.05;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body.page-documents .page-location-path > .breadcrumb-item:nth-last-child(2) > a::before,
+    body.page-general-docs .page-location-path > .breadcrumb-item:nth-last-child(2) > a::before {
+        display: none !important;
+        content: none !important;
+    }
+
+    body.page-documents .page-location-path > .breadcrumb-item:last-child,
+    body.page-general-docs .page-location-path > .breadcrumb-item:last-child {
+        flex: 1 1 auto;
+        max-width: none;
+    }
+
+    body.page-documents .page-location-path > .breadcrumb-item:last-child > span,
+    body.page-general-docs .page-location-path > .breadcrumb-item:last-child > span {
+        height: 25px;
+        padding: 0.3rem 0.42rem !important;
+        font-size: 0.68rem !important;
+        line-height: 1.05 !important;
+    }
+
+    body.page-documents .page-location-path .breadcrumb-separator,
+    body.page-general-docs .page-location-path .breadcrumb-separator {
+        flex: 0 0 auto;
+        margin: 0 0.2rem !important;
+        font-size: 0.5rem !important;
+    }
+
+    /* Stable search bar: icon, input, and sort button cannot overlap. */
+    body.page-documents .header-section .sleek-search,
+    body.page-general-docs .header-section .sleek-search {
+        position: relative !important;
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        align-items: stretch !important;
+        width: 100% !important;
+        height: 34px !important;
+        min-height: 34px !important;
+        padding: 0 !important;
+        overflow: visible !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 8px !important;
+        background: #ffffff !important;
+        box-shadow: none !important;
+    }
+
+    body.page-documents .header-section .sleek-search > .input-group-text,
+    body.page-general-docs .header-section .sleek-search > .input-group-text {
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        width: 34px !important;
+        min-width: 34px !important;
+        height: 32px !important;
+        min-height: 32px !important;
+        padding: 0 !important;
+        border: 0 !important;
+        background: transparent !important;
+        font-size: 0.68rem !important;
+    }
+
+    body.page-documents .header-section .sleek-search > .form-control,
+    body.page-general-docs .header-section .sleek-search > .form-control {
+        position: static !important;
+        width: 1% !important;
+        min-width: 0 !important;
+        height: 32px !important;
+        min-height: 32px !important;
+        flex: 1 1 auto !important;
+        padding: 0.35rem 0.25rem !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        font-size: 0.72rem !important;
+        line-height: 1 !important;
+    }
+
+    body.page-documents .header-section .sleek-search > button,
+    body.page-general-docs .header-section .sleek-search > button {
+        position: static !important;
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        width: 36px !important;
+        min-width: 36px !important;
+        height: 32px !important;
+        min-height: 32px !important;
+        flex: 0 0 36px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: 0 !important;
+        border-radius: 0 7px 7px 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        font-size: 0.68rem !important;
+    }
+
+    body.page-documents .header-section .sleek-search > .dropdown-menu,
+    body.page-general-docs .header-section .sleek-search > .dropdown-menu {
+        position: absolute !important;
+        top: calc(100% + 0.25rem) !important;
+        right: 0 !important;
+        bottom: auto !important;
+        left: auto !important;
+        width: 174px !important;
+        min-width: 174px !important;
+        max-width: calc(100vw - 1.5rem) !important;
+        margin: 0 !important;
+        transform: none !important;
+        z-index: 1055 !important;
+    }
+
+    /* Compact all page menus, including menus detached to the body by JavaScript. */
+    body.page-documents .header-section .dropdown-menu,
+    body.page-general-docs .header-section .dropdown-menu,
+    body.page-documents .folder-card .dropdown-menu,
+    body.page-general-docs .folder-card .dropdown-menu,
+    body.page-documents #documentsTable .dropdown-menu,
+    body.page-general-docs #documentsTable .dropdown-menu,
+    body.page-documents > .dropdown-menu,
+    body.page-general-docs > .dropdown-menu {
+        min-width: 0 !important;
+        width: min(198px, calc(100vw - 1.25rem)) !important;
+        max-width: calc(100vw - 1.25rem) !important;
+        max-height: 62vh !important;
+        padding: 0.28rem !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 8px !important;
+        background: #ffffff !important;
+        box-shadow: 0 8px 22px rgba(15, 23, 42, 0.14) !important;
+        font-size: 0.72rem !important;
+    }
+
+    body.page-documents .dropdown-menu .dropdown-item,
+    body.page-general-docs .dropdown-menu .dropdown-item {
+        display: flex !important;
+        align-items: center !important;
+        width: 100% !important;
+        min-height: 34px !important;
+        height: auto !important;
+        margin: 0 !important;
+        padding: 0.42rem 0.5rem !important;
+        overflow: hidden;
+        border: 0 !important;
+        border-radius: 6px !important;
+        font-size: 0.7rem !important;
+        font-weight: 550 !important;
+        line-height: 1.15 !important;
+        text-align: left !important;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body.page-documents .dropdown-menu .dropdown-item i,
+    body.page-general-docs .dropdown-menu .dropdown-item i {
+        width: 16px !important;
+        min-width: 16px !important;
+        margin-right: 0.42rem !important;
+        font-size: 0.68rem !important;
+        text-align: center;
+    }
+
+    body.page-documents .dropdown-menu .dropdown-header,
+    body.page-general-docs .dropdown-menu .dropdown-header {
+        padding: 0.35rem 0.5rem !important;
+        font-size: 0.6rem !important;
+        line-height: 1.1;
+    }
+
+    body.page-documents .dropdown-menu .dropdown-divider,
+    body.page-general-docs .dropdown-menu .dropdown-divider {
+        margin: 0.22rem 0 !important;
+    }
+
+    /* File rows now match the slim PR/PO/QTN mobile list height. */
+    body.page-documents #documentsTable tbody tr,
+    body.page-general-docs #documentsTable tbody tr,
+    body.page-documents #documentsTable tbody td,
+    body.page-general-docs #documentsTable tbody td {
+        height: 56px !important;
+        min-height: 56px !important;
+    }
+
+    body.page-documents #documentsTable tbody td:first-child,
+    body.page-general-docs #documentsTable tbody td:first-child {
+        padding: 0.35rem 0.2rem 0.35rem 0.6rem !important;
+    }
+
+    body.page-documents #documentsTable tbody td:last-child,
+    body.page-general-docs #documentsTable tbody td:last-child {
+        width: 43px !important;
+        padding: 0.25rem 0.35rem 0.25rem 0 !important;
+    }
+
+    body.page-documents #documentsTable .file-icon-md,
+    body.page-general-docs #documentsTable .file-icon-md {
+        width: 30px !important;
+        height: 30px !important;
+        min-width: 30px !important;
+        flex: 0 0 30px !important;
+        border-radius: 7px !important;
+    }
+
+    body.page-documents #documentsTable .file-icon-md i,
+    body.page-general-docs #documentsTable .file-icon-md i {
+        font-size: 0.82rem !important;
+    }
+
+    body.page-documents #documentsTable tbody td:first-child > .d-flex,
+    body.page-general-docs #documentsTable tbody td:first-child > .d-flex {
+        gap: 0.5rem !important;
+    }
+
+    body.page-documents #documentsTable tbody td:first-child h6,
+    body.page-general-docs #documentsTable tbody td:first-child h6 {
+        font-size: 0.76rem !important;
+        line-height: 1.12 !important;
+    }
+
+    body.page-documents #documentsTable tbody td:first-child .text-muted.small,
+    body.page-general-docs #documentsTable tbody td:first-child .text-muted.small {
+        margin-top: 0.1rem !important;
+        font-size: 0.62rem !important;
+        line-height: 1.08 !important;
+    }
+
+    body.page-documents #documentsTable tbody td:first-child .badge,
+    body.page-general-docs #documentsTable tbody td:first-child .badge {
+        max-width: 64px !important;
+        margin-left: 0.22rem !important;
+        padding: 0.14rem 0.25rem !important;
+        font-size: 0.52rem !important;
+        line-height: 1 !important;
+    }
+
+    body.page-documents #documentsTable .action-dropdown .btn-dots,
+    body.page-general-docs #documentsTable .action-dropdown .btn-dots {
+        width: 30px !important;
+        height: 30px !important;
+        min-width: 30px !important;
+        min-height: 30px !important;
+        padding: 0 !important;
+        font-size: 0.72rem !important;
+    }
+
+    /* Retain empty-state readability instead of forcing it into a 56px row. */
+    body.page-documents #documentsTable tbody td.dataTables_empty,
+    body.page-general-docs #documentsTable tbody td.dataTables_empty {
+        height: auto !important;
+        min-height: 0 !important;
+        padding: 1.5rem 0.75rem !important;
+    }
+}
+
+/* === DOCUMENTS + GENERAL DOCUMENTS: COMPACT MOBILE VIEW === */
+/* These overrides are intentionally page-scoped so desktop and PR/PO/QTN stay unchanged. */
+@media (max-width: 767.98px) {
+    body.page-documents .folders-section,
+    body.page-general-docs .folders-section {
+        margin-top: 0.75rem !important;
+        margin-bottom: 0.5rem !important;
+        overflow: visible !important;
+    }
+
+    body.page-documents .folders-section > .row,
+    body.page-general-docs .folders-section > .row {
+        margin: 0 !important;
+        row-gap: 0.45rem;
+    }
+
+    body.page-documents .folders-section > .row > [class*="col-"],
+    body.page-general-docs .folders-section > .row > [class*="col-"] {
+        width: 100% !important;
+        padding: 0 !important;
+    }
+
+    body.page-documents .folder-card,
+    body.page-general-docs .folder-card {
+        display: flex !important;
+        align-items: center !important;
+        width: 100%;
+        height: 64px !important;
+        min-height: 64px !important;
+        padding: 0.55rem 3.15rem 0.55rem 0.7rem !important;
+        overflow: visible;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 10px !important;
+        background: #ffffff;
+        box-shadow: none !important;
+    }
+
+    body.page-documents .folder-card > .d-flex:first-child,
+    body.page-general-docs .folder-card > .d-flex:first-child {
+        width: 100%;
+        min-width: 0;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    body.page-documents .folder-card .folder-icon-box,
+    body.page-general-docs .folder-card .folder-icon-box {
+        width: 36px !important;
+        height: 36px !important;
+        min-width: 36px !important;
+        flex: 0 0 36px;
+        margin-right: 0.65rem !important;
+        border-radius: 8px !important;
+    }
+
+    body.page-documents .folder-card .ms-3,
+    body.page-general-docs .folder-card .ms-3 {
+        min-width: 0;
+        margin-left: 0 !important;
+    }
+
+    body.page-documents .folder-card h6,
+    body.page-general-docs .folder-card h6 {
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding-right: 0.25rem;
+        overflow: hidden;
+        color: #1e293b !important;
+        font-size: 0.86rem !important;
+        line-height: 1.2;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body.page-documents .folder-card p,
+    body.page-general-docs .folder-card p {
+        margin-top: 0.16rem !important;
+        overflow: hidden;
+        color: #64748b !important;
+        font-size: 0.7rem !important;
+        line-height: 1.15;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Move the sub-folder item count below the folder name. */
+    body.page-documents .folder-card > .d-flex:nth-child(2):not(.action-dropdown),
+    body.page-general-docs .folder-card > .d-flex:nth-child(2):not(.action-dropdown) {
+        position: absolute;
+        right: 3.15rem;
+        bottom: 0.48rem;
+        left: 3.95rem;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: 0 !important;
+    }
+
+    body.page-documents .folder-card > .d-flex:nth-child(2):not(.action-dropdown) span,
+    body.page-general-docs .folder-card > .d-flex:nth-child(2):not(.action-dropdown) span {
+        overflow: hidden;
+        font-size: 0.7rem !important;
+        line-height: 1.15;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body.page-documents .folder-card:has(.action-dropdown) > .d-flex:nth-child(2) .fa-chevron-right,
+    body.page-general-docs .folder-card:has(.action-dropdown) > .d-flex:nth-child(2) .fa-chevron-right {
+        display: none !important;
+    }
+
+    body.page-documents .folder-card > .action-dropdown,
+    body.page-general-docs .folder-card > .action-dropdown {
+        top: 50% !important;
+        right: 0.55rem !important;
+        margin: 0 !important;
+        transform: translateY(-50%);
+    }
+
+    body.page-documents .folder-card .btn-dots,
+    body.page-general-docs .folder-card .btn-dots,
+    body.page-documents #documentsTable .action-dropdown .btn-dots,
+    body.page-general-docs #documentsTable .action-dropdown .btn-dots {
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        width: 34px !important;
+        height: 34px !important;
+        min-width: 34px !important;
+        min-height: 34px !important;
+        padding: 0 !important;
+        border: 0 !important;
+        border-radius: 50% !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        color: #475569 !important;
+    }
+
+    body.page-documents .folder-card .btn-dots::after,
+    body.page-general-docs .folder-card .btn-dots::after,
+    body.page-documents #documentsTable .btn-dots::after,
+    body.page-general-docs #documentsTable .btn-dots::after {
+        display: none !important;
+    }
+
+    body.page-documents .folder-card .btn-dots:active,
+    body.page-general-docs .folder-card .btn-dots:active,
+    body.page-documents #documentsTable .btn-dots:active,
+    body.page-general-docs #documentsTable .btn-dots:active {
+        background: #f1f5f9 !important;
+    }
+
+    body.page-documents .file-list-container,
+    body.page-general-docs .file-list-container {
+        min-height: 0 !important;
+        margin-bottom: 0 !important;
+        overflow: hidden !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 10px !important;
+        background: #ffffff;
+        box-shadow: none !important;
+    }
+
+    body.page-documents .dataTables_wrapper,
+    body.page-general-docs .dataTables_wrapper {
+        height: auto !important;
+        min-height: 0 !important;
+    }
+
+    body.page-documents .table-scroll-container,
+    body.page-general-docs .table-scroll-container {
+        min-height: 0 !important;
+        overflow-x: hidden !important;
+        overflow-y: visible !important;
+    }
+
+    body.page-documents #documentsTable,
+    body.page-general-docs #documentsTable {
+        width: 100% !important;
+        margin: 0 !important;
+        table-layout: fixed !important;
+        border-collapse: collapse !important;
+    }
+
+    body.page-documents #documentsTable thead,
+    body.page-general-docs #documentsTable thead {
+        display: none !important;
+    }
+
+    body.page-documents #documentsTable tbody tr,
+    body.page-general-docs #documentsTable tbody tr {
+        display: table-row !important;
+        height: 64px;
+        background: #ffffff !important;
+        box-shadow: inset 0 -1px 0 #e2e8f0;
+    }
+
+    body.page-documents #documentsTable tbody tr:last-child,
+    body.page-general-docs #documentsTable tbody tr:last-child {
+        box-shadow: none;
+    }
+
+    body.page-documents #documentsTable tbody td,
+    body.page-general-docs #documentsTable tbody td {
+        height: 64px;
+        vertical-align: middle !important;
+        border: 0 !important;
+        background: transparent !important;
+    }
+
+    body.page-documents #documentsTable tbody td:not(:first-child):not(:last-child),
+    body.page-general-docs #documentsTable tbody td:not(:first-child):not(:last-child) {
+        display: none !important;
+    }
+
+    body.page-documents #documentsTable tbody td:first-child,
+    body.page-general-docs #documentsTable tbody td:first-child {
+        display: table-cell !important;
+        width: auto !important;
+        max-width: 0;
+        padding: 0.5rem 0.25rem 0.5rem 0.7rem !important;
+    }
+
+    body.page-documents #documentsTable tbody td:last-child,
+    body.page-general-docs #documentsTable tbody td:last-child {
+        display: table-cell !important;
+        width: 48px !important;
+        padding: 0.35rem 0.45rem 0.35rem 0 !important;
+        text-align: right !important;
+    }
+
+    /* Disposition rows have a direct action button instead of the normal 3-dot menu. */
+    body.page-documents #documentsTable tbody td:last-child:not(:has(.action-dropdown)),
+    body.page-general-docs #documentsTable tbody td:last-child:not(:has(.action-dropdown)) {
+        width: 128px !important;
+        padding-right: 0.55rem !important;
+    }
+
+    body.page-documents #documentsTable tbody td:last-child:not(:has(.action-dropdown)) .btn,
+    body.page-general-docs #documentsTable tbody td:last-child:not(:has(.action-dropdown)) .btn,
+    body.page-documents #documentsTable tbody td:last-child:not(:has(.action-dropdown)) .badge,
+    body.page-general-docs #documentsTable tbody td:last-child:not(:has(.action-dropdown)) .badge {
+        max-width: 120px;
+        padding: 0.45rem 0.55rem !important;
+        overflow: hidden;
+        font-size: 0.67rem !important;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body.page-documents #documentsTable tbody td:first-child > .d-flex,
+    body.page-general-docs #documentsTable tbody td:first-child > .d-flex {
+        width: 100%;
+        min-width: 0;
+        gap: 0.6rem !important;
+    }
+
+    body.page-documents #documentsTable .file-icon-md,
+    body.page-general-docs #documentsTable .file-icon-md {
+        width: 34px !important;
+        height: 34px !important;
+        min-width: 34px !important;
+        flex: 0 0 34px;
+        margin: 0 !important;
+        border-radius: 8px !important;
+    }
+
+    body.page-documents #documentsTable .file-icon-md i,
+    body.page-general-docs #documentsTable .file-icon-md i {
+        font-size: 0.95rem !important;
+    }
+
+    body.page-documents #documentsTable tbody td:first-child > .d-flex > div:last-child,
+    body.page-general-docs #documentsTable tbody td:first-child > .d-flex > div:last-child {
+        min-width: 0;
+        flex: 1 1 auto;
+        overflow: hidden;
+    }
+
+    body.page-documents #documentsTable tbody td:first-child > .d-flex > div:last-child > .d-flex,
+    body.page-general-docs #documentsTable tbody td:first-child > .d-flex > div:last-child > .d-flex {
+        min-width: 0;
+        margin: 0 !important;
+        overflow: hidden;
+        flex-wrap: nowrap !important;
+    }
+
+    body.page-documents #documentsTable tbody td:first-child .d-inline-block,
+    body.page-general-docs #documentsTable tbody td:first-child .d-inline-block {
+        min-width: 0;
+        max-width: 100% !important;
+        flex: 1 1 auto;
+    }
+
+    body.page-documents #documentsTable tbody td:first-child h6,
+    body.page-general-docs #documentsTable tbody td:first-child h6 {
+        display: block !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        overflow: hidden;
+        color: #1e293b !important;
+        font-size: 0.84rem !important;
+        line-height: 1.2 !important;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body.page-documents #documentsTable tbody td:first-child .text-muted.small,
+    body.page-general-docs #documentsTable tbody td:first-child .text-muted.small {
+        display: block !important;
+        min-width: 0;
+        margin-top: 0.14rem !important;
+        overflow: hidden;
+        color: #64748b !important;
+        font-size: 0.68rem !important;
+        line-height: 1.15 !important;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Keep record-state badges visible without allowing them to enlarge the row. */
+    body.page-documents #documentsTable tbody td:first-child .badge,
+    body.page-general-docs #documentsTable tbody td:first-child .badge {
+        min-width: 0;
+        max-width: 76px;
+        flex: 0 1 auto;
+        margin-left: 0.3rem !important;
+        padding: 0.18rem 0.32rem !important;
+        overflow: hidden;
+        font-size: 0.58rem !important;
+        line-height: 1.1;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body.page-documents #documentsTable tbody td.dataTables_empty,
+    body.page-general-docs #documentsTable tbody td.dataTables_empty {
+        display: table-cell !important;
+        width: auto !important;
+        max-width: none !important;
+        height: auto !important;
+        padding: 2rem 1rem !important;
+        text-align: center !important;
+    }
+
+    body.page-documents #documentsTable .action-dropdown,
+    body.page-general-docs #documentsTable .action-dropdown {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        width: 100%;
+    }
+
+    body.page-documents #documentsTable .dropdown-menu,
+    body.page-general-docs #documentsTable .dropdown-menu,
+    body.page-documents .folder-card .dropdown-menu,
+    body.page-general-docs .folder-card .dropdown-menu {
+        width: max-content;
+        min-width: 210px;
+        max-width: calc(100vw - 1.5rem);
+        max-height: min(70vh, 420px);
+        overflow-y: auto;
+    }
+
+    /* Compact, two-line pagination bar for narrow screens. */
+    body.page-documents .bottom-pagination-bar,
+    body.page-general-docs .bottom-pagination-bar {
+        display: grid !important;
+        grid-template-areas:
+            "info length"
+            "paginate paginate";
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0.45rem 0.6rem !important;
+        padding: 0.55rem 0.65rem !important;
+        border-top: 1px solid #e2e8f0;
+        background: #ffffff;
+    }
+
+    body.page-documents .bottom-pagination-bar .dataTables_info,
+    body.page-general-docs .bottom-pagination-bar .dataTables_info {
+        grid-area: info;
+        align-self: center;
+        justify-self: start;
+        min-width: 0;
+        padding: 0 !important;
+        overflow: hidden;
+        color: #64748b !important;
+        font-size: 0.68rem !important;
+        line-height: 1.2;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body.page-documents .bottom-pagination-bar .dataTables_length,
+    body.page-general-docs .bottom-pagination-bar .dataTables_length {
+        grid-area: length;
+        justify-self: end;
+        margin: 0 !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .dataTables_length label,
+    body.page-general-docs .bottom-pagination-bar .dataTables_length label {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        margin: 0;
+        color: #64748b;
+        font-size: 0 !important;
+        white-space: nowrap;
+    }
+
+    body.page-documents .bottom-pagination-bar .dataTables_length label::before,
+    body.page-general-docs .bottom-pagination-bar .dataTables_length label::before {
+        content: "Rows";
+        font-size: 0.68rem;
+    }
+
+    body.page-documents .bottom-pagination-bar .dataTables_length select,
+    body.page-general-docs .bottom-pagination-bar .dataTables_length select {
+        width: 54px !important;
+        min-width: 54px !important;
+        height: 30px !important;
+        margin: 0 !important;
+        padding: 0.2rem 1.15rem 0.2rem 0.4rem !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 7px !important;
+        background-color: #ffffff !important;
+        color: #334155 !important;
+        font-size: 0.72rem !important;
+        line-height: 1 !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .dataTables_paginate,
+    body.page-general-docs .bottom-pagination-bar .dataTables_paginate {
+        grid-area: paginate;
+        justify-self: center;
+        width: 100%;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: visible !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .pagination,
+    body.page-general-docs .bottom-pagination-bar .pagination {
+        justify-content: center !important;
+        gap: 0.25rem;
+        margin: 0 !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .page-item:not(.previous):not(.next):not(.active),
+    body.page-general-docs .bottom-pagination-bar .page-item:not(.previous):not(.next):not(.active) {
+        display: none !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .page-link,
+    body.page-general-docs .bottom-pagination-bar .page-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        padding: 0 !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 8px !important;
+        background: #ffffff;
+        color: #475569;
+        font-size: 0.75rem;
+    }
+
+    body.page-documents .bottom-pagination-bar .page-item.active .page-link,
+    body.page-general-docs .bottom-pagination-bar .page-item.active .page-link {
+        border-color: #2563eb !important;
+        background: #2563eb !important;
+        color: #ffffff !important;
+    }
+}
+
+/* Absolute final cascade for compact file rows and action menus. */
+@media (max-width: 767.98px) {
+    body.page-documents .header-section .dropdown-menu,
+    body.page-general-docs .header-section .dropdown-menu,
+    body.page-documents .folder-card .dropdown-menu,
+    body.page-general-docs .folder-card .dropdown-menu,
+    body.page-documents #documentsTable .dropdown-menu,
+    body.page-general-docs #documentsTable .dropdown-menu,
+    body.page-documents > .dropdown-menu,
+    body.page-general-docs > .dropdown-menu {
+        min-width: 0 !important;
+        width: min(198px, calc(100vw - 1.25rem)) !important;
+        max-width: calc(100vw - 1.25rem) !important;
+        max-height: 62vh !important;
+        padding: 0.28rem !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 8px !important;
+        background: #ffffff !important;
+        box-shadow: 0 8px 22px rgba(15, 23, 42, 0.14) !important;
+        font-size: 0.72rem !important;
+    }
+
+    body.page-documents .dropdown-menu .dropdown-item,
+    body.page-general-docs .dropdown-menu .dropdown-item {
+        display: flex !important;
+        align-items: center !important;
+        width: 100% !important;
+        min-height: 34px !important;
+        height: auto !important;
+        margin: 0 !important;
+        padding: 0.42rem 0.5rem !important;
+        overflow: hidden !important;
+        border: 0 !important;
+        border-radius: 6px !important;
+        font-size: 0.7rem !important;
+        font-weight: 550 !important;
+        line-height: 1.15 !important;
+        text-align: left !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+
+    body.page-documents .dropdown-menu .dropdown-item i,
+    body.page-general-docs .dropdown-menu .dropdown-item i {
+        width: 16px !important;
+        min-width: 16px !important;
+        margin-right: 0.42rem !important;
+        font-size: 0.68rem !important;
+        text-align: center !important;
+    }
+
+    body.page-documents .dropdown-menu .dropdown-header,
+    body.page-general-docs .dropdown-menu .dropdown-header {
+        padding: 0.35rem 0.5rem !important;
+        font-size: 0.6rem !important;
+        line-height: 1.1 !important;
+    }
+
+    body.page-documents .dropdown-menu .dropdown-divider,
+    body.page-general-docs .dropdown-menu .dropdown-divider {
+        margin: 0.22rem 0 !important;
+    }
+
+    body.page-documents #documentsTable tbody tr,
+    body.page-general-docs #documentsTable tbody tr,
+    body.page-documents #documentsTable tbody td,
+    body.page-general-docs #documentsTable tbody td {
+        height: 56px !important;
+        min-height: 56px !important;
+    }
+
+    body.page-documents #documentsTable tbody td:first-child,
+    body.page-general-docs #documentsTable tbody td:first-child {
+        padding: 0.35rem 0.2rem 0.35rem 0.6rem !important;
+    }
+
+    body.page-documents #documentsTable tbody td:last-child,
+    body.page-general-docs #documentsTable tbody td:last-child {
+        width: 43px !important;
+        padding: 0.25rem 0.35rem 0.25rem 0 !important;
+    }
+
+    /* Disposition view keeps its original direct action, only in a smaller cell. */
+    body.page-documents #documentsTable tbody td:last-child:not(:has(.action-dropdown)),
+    body.page-general-docs #documentsTable tbody td:last-child:not(:has(.action-dropdown)) {
+        width: 106px !important;
+        padding-right: 0.4rem !important;
+    }
+
+    body.page-documents #documentsTable tbody td:last-child:not(:has(.action-dropdown)) .btn,
+    body.page-general-docs #documentsTable tbody td:last-child:not(:has(.action-dropdown)) .btn,
+    body.page-documents #documentsTable tbody td:last-child:not(:has(.action-dropdown)) .badge,
+    body.page-general-docs #documentsTable tbody td:last-child:not(:has(.action-dropdown)) .badge {
+        max-width: 100px !important;
+        min-height: 30px !important;
+        padding: 0.35rem 0.4rem !important;
+        overflow: hidden !important;
+        font-size: 0.58rem !important;
+        line-height: 1.05 !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+
+    body.page-documents #documentsTable .file-icon-md,
+    body.page-general-docs #documentsTable .file-icon-md {
+        width: 30px !important;
+        height: 30px !important;
+        min-width: 30px !important;
+        flex: 0 0 30px !important;
+        border-radius: 7px !important;
+    }
+
+    body.page-documents #documentsTable .file-icon-md i,
+    body.page-general-docs #documentsTable .file-icon-md i {
+        font-size: 0.82rem !important;
+    }
+
+    body.page-documents #documentsTable tbody td:first-child > .d-flex,
+    body.page-general-docs #documentsTable tbody td:first-child > .d-flex {
+        gap: 0.5rem !important;
+    }
+
+    body.page-documents #documentsTable tbody td:first-child h6,
+    body.page-general-docs #documentsTable tbody td:first-child h6 {
+        font-size: 0.76rem !important;
+        line-height: 1.12 !important;
+    }
+
+    body.page-documents #documentsTable tbody td:first-child .text-muted.small,
+    body.page-general-docs #documentsTable tbody td:first-child .text-muted.small {
+        margin-top: 0.1rem !important;
+        font-size: 0.62rem !important;
+        line-height: 1.08 !important;
+    }
+
+    body.page-documents #documentsTable tbody td:first-child .badge,
+    body.page-general-docs #documentsTable tbody td:first-child .badge {
+        max-width: 64px !important;
+        margin-left: 0.22rem !important;
+        padding: 0.14rem 0.25rem !important;
+        font-size: 0.52rem !important;
+        line-height: 1 !important;
+    }
+
+    body.page-documents #documentsTable .action-dropdown .btn-dots,
+    body.page-general-docs #documentsTable .action-dropdown .btn-dots {
+        width: 30px !important;
+        height: 30px !important;
+        min-width: 30px !important;
+        min-height: 30px !important;
+        padding: 0 !important;
+        font-size: 0.72rem !important;
+    }
+
+    body.page-documents #documentsTable tbody td.dataTables_empty,
+    body.page-general-docs #documentsTable tbody td.dataTables_empty {
+        width: auto !important;
+        height: auto !important;
+        min-height: 0 !important;
+        padding: 1.5rem 0.75rem !important;
+    }
+}
+
+/* === MOBILE HEADER, PAGINATION, ROW INDICATOR, AND MODAL FIXES === */
+@media (max-width: 767.98px) {
+    /* Give the complete title its own space; place Upload below it. */
+    body.page-documents .header-section > .d-flex:first-child,
+    body.page-general-docs .header-section > .d-flex:first-child {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) 34px;
+        grid-template-areas:
+            "heading menu"
+            "upload upload";
+        align-items: start !important;
+        gap: 0.35rem 0.45rem !important;
+        width: 100%;
+    }
+
+    body.page-documents .header-section > .d-flex:first-child > .d-flex:first-child,
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:first-child {
+        grid-area: heading;
+        align-items: flex-start !important;
+        width: 100%;
+        min-width: 0;
+    }
+
+    body.page-documents .header-section > .d-flex:first-child > .d-flex:first-child > div:last-child,
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:first-child > div:last-child {
+        width: 100%;
+        min-width: 0;
+    }
+
+    body.page-documents .header-section h3,
+    body.page-general-docs .header-section h3 {
+        display: block !important;
+        width: 100% !important;
+        max-width: none !important;
+        overflow: visible !important;
+        font-size: 0.94rem !important;
+        line-height: 1.25 !important;
+        text-overflow: clip !important;
+        white-space: normal !important;
+        overflow-wrap: anywhere;
+    }
+
+    body.page-documents .header-section h3 + p,
+    body.page-general-docs .header-section h3 + p {
+        display: block !important;
+        width: 100% !important;
+        max-width: none !important;
+        margin-top: 0.12rem !important;
+        overflow: visible !important;
+        font-size: 0.66rem !important;
+        line-height: 1.2 !important;
+        text-overflow: clip !important;
+        white-space: normal !important;
+        overflow-wrap: anywhere;
+    }
+
+    body.page-documents .header-section > .d-flex:first-child > .d-flex:last-child,
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:last-child {
+        display: contents !important;
+    }
+
+    body.page-documents .header-section > .d-flex:first-child > .d-flex:last-child > .dropdown,
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:last-child > .dropdown {
+        grid-area: menu;
+        align-self: start;
+        justify-self: end;
+    }
+
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:last-child > .btn-primary {
+        grid-area: upload;
+        align-self: center;
+        justify-self: end;
+        width: auto !important;
+        max-width: 100%;
+        height: 32px !important;
+        min-height: 32px !important;
+        margin: 0 !important;
+        padding: 0.32rem 0.62rem !important;
+        border-radius: 7px !important;
+        font-size: 0.68rem !important;
+        line-height: 1 !important;
+    }
+
+    /* Guarantee visible Previous and Next pagination controls. */
+    body.page-documents .bottom-pagination-bar .pagination,
+    body.page-general-docs .bottom-pagination-bar .pagination {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .page-item.previous,
+    body.page-documents .bottom-pagination-bar .page-item.next,
+    body.page-documents .bottom-pagination-bar .page-item[id$="_previous"],
+    body.page-documents .bottom-pagination-bar .page-item[id$="_next"],
+    body.page-general-docs .bottom-pagination-bar .page-item.previous,
+    body.page-general-docs .bottom-pagination-bar .page-item.next,
+    body.page-general-docs .bottom-pagination-bar .page-item[id$="_previous"],
+    body.page-general-docs .bottom-pagination-bar .page-item[id$="_next"] {
+        display: list-item !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .page-item.previous .page-link,
+    body.page-documents .bottom-pagination-bar .page-item.next .page-link,
+    body.page-documents .bottom-pagination-bar .page-item[id$="_previous"] .page-link,
+    body.page-documents .bottom-pagination-bar .page-item[id$="_next"] .page-link,
+    body.page-general-docs .bottom-pagination-bar .page-item.previous .page-link,
+    body.page-general-docs .bottom-pagination-bar .page-item.next .page-link,
+    body.page-general-docs .bottom-pagination-bar .page-item[id$="_previous"] .page-link,
+    body.page-general-docs .bottom-pagination-bar .page-item[id$="_next"] .page-link {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 32px !important;
+        height: 32px !important;
+        padding: 0 !important;
+        visibility: visible !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 8px !important;
+        background: #ffffff !important;
+        color: #334155 !important;
+        font-size: 0 !important;
+        line-height: 1 !important;
+        opacity: 1 !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .page-item.previous .page-link::before,
+    body.page-documents .bottom-pagination-bar .page-item[id$="_previous"] .page-link::before,
+    body.page-general-docs .bottom-pagination-bar .page-item.previous .page-link::before,
+    body.page-general-docs .bottom-pagination-bar .page-item[id$="_previous"] .page-link::before {
+        display: block !important;
+        content: "\2039" !important;
+        color: currentColor;
+        font-size: 1.05rem !important;
+        font-weight: 700;
+        line-height: 1;
+    }
+
+    body.page-documents .bottom-pagination-bar .page-item.next .page-link::before,
+    body.page-documents .bottom-pagination-bar .page-item[id$="_next"] .page-link::before,
+    body.page-general-docs .bottom-pagination-bar .page-item.next .page-link::before,
+    body.page-general-docs .bottom-pagination-bar .page-item[id$="_next"] .page-link::before {
+        display: block !important;
+        content: "\203A" !important;
+        color: currentColor;
+        font-size: 1.05rem !important;
+        font-weight: 700;
+        line-height: 1;
+    }
+
+    body.page-documents .bottom-pagination-bar .page-item.previous .page-link > *,
+    body.page-documents .bottom-pagination-bar .page-item.next .page-link > *,
+    body.page-general-docs .bottom-pagination-bar .page-item.previous .page-link > *,
+    body.page-general-docs .bottom-pagination-bar .page-item.next .page-link > * {
+        display: none !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .page-item.disabled .page-link,
+    body.page-general-docs .bottom-pagination-bar .page-item.disabled .page-link {
+        background: #f8fafc !important;
+        color: #94a3b8 !important;
+        opacity: 0.58 !important;
+    }
+
+    /* Clicking a 3-dot menu highlights only the left edge, never the whole row. */
+    body.page-documents #documentsTable tr.row-highlighted,
+    body.page-general-docs #documentsTable tr.row-highlighted,
+    body.page-documents #documentsTable tr.row-highlighted:hover,
+    body.page-general-docs #documentsTable tr.row-highlighted:hover {
+        background: #ffffff !important;
+    }
+
+    body.page-documents #documentsTable tr.row-highlighted > td,
+    body.page-general-docs #documentsTable tr.row-highlighted > td,
+    body.page-documents #documentsTable tr.row-highlighted:hover > td,
+    body.page-general-docs #documentsTable tr.row-highlighted:hover > td {
+        background: #ffffff !important;
+        transition: none !important;
+    }
+
+    body.page-documents #documentsTable tr.row-highlighted > td:first-child,
+    body.page-general-docs #documentsTable tr.row-highlighted > td:first-child {
+        box-shadow: inset 3px 0 0 #2563eb, inset 0 -1px 0 #e2e8f0 !important;
+    }
+
+    body.page-documents #documentsTable tr.row-highlighted > td:last-child,
+    body.page-general-docs #documentsTable tr.row-highlighted > td:last-child {
+        box-shadow: inset 0 -1px 0 #e2e8f0 !important;
+    }
+
+    /* Compact regular Bootstrap modals; fullscreen document viewer stays fullscreen. */
+    body.page-documents .modal-dialog:not(.modal-fullscreen),
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) {
+        width: calc(100% - 1.25rem) !important;
+        max-width: 420px !important;
+        margin: 0.625rem auto !important;
+    }
+
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .modal-content,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .modal-content {
+        display: flex;
+        max-height: calc(100dvh - 1.25rem) !important;
+        overflow: hidden !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 11px !important;
+        background: #ffffff !important;
+        box-shadow: 0 14px 38px rgba(15, 23, 42, 0.2) !important;
+    }
+
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .modal-header,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .modal-header {
+        min-height: 48px !important;
+        padding: 0.68rem 0.78rem !important;
+        border-bottom: 1px solid #e2e8f0 !important;
+        border-radius: 10px 10px 0 0 !important;
+        background: #ffffff !important;
+    }
+
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .modal-title,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .modal-title,
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .modal-header h4,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .modal-header h4,
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .modal-header h5,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .modal-header h5 {
+        margin: 0 !important;
+        color: #1e293b !important;
+        font-size: 0.86rem !important;
+        font-weight: 700 !important;
+        line-height: 1.2 !important;
+    }
+
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .modal-header .btn-close,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .modal-header .btn-close {
+        width: 28px !important;
+        height: 28px !important;
+        min-width: 28px !important;
+        min-height: 28px !important;
+        margin: 0 !important;
+        padding: 0.35rem !important;
+        border-radius: 7px !important;
+        font-size: 0.7rem !important;
+    }
+
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .modal-body,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .modal-body {
+        min-height: 0;
+        padding: 0.75rem !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        color: #334155;
+        font-size: 0.72rem !important;
+        line-height: 1.35;
+    }
+
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .modal-footer,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .modal-footer {
+        flex-wrap: nowrap !important;
+        gap: 0.4rem !important;
+        min-height: 50px;
+        padding: 0.58rem 0.75rem !important;
+        border-top: 1px solid #e2e8f0 !important;
+        background: #ffffff;
+    }
+
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .modal-footer .btn,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .modal-footer .btn,
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .modal-body .btn,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .modal-body .btn {
+        width: auto !important;
+        min-height: 34px !important;
+        height: auto !important;
+        margin: 0 !important;
+        padding: 0.42rem 0.65rem !important;
+        border-radius: 7px !important;
+        font-size: 0.68rem !important;
+        line-height: 1.15 !important;
+        gap: 0.3rem !important;
+    }
+
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .modal-footer .btn,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .modal-footer .btn {
+        flex: 1 1 0;
+        justify-content: center;
+        white-space: normal;
+    }
+
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .form-label,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .form-label {
+        margin-bottom: 0.3rem !important;
+        color: #334155;
+        font-size: 0.68rem !important;
+        font-weight: 650 !important;
+        line-height: 1.2;
+    }
+
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .form-control,
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .form-select,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .form-control,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .form-select {
+        min-height: 36px !important;
+        height: 36px !important;
+        padding: 0.42rem 0.58rem !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 7px !important;
+        background-color: #ffffff;
+        font-size: 0.72rem !important;
+        line-height: 1.15 !important;
+    }
+
+    body.page-documents .modal-dialog:not(.modal-fullscreen) textarea.form-control,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) textarea.form-control {
+        height: auto !important;
+        min-height: 76px !important;
+        resize: vertical;
+    }
+
+    body.page-documents .modal-dialog:not(.modal-fullscreen) input[type="file"].form-control,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) input[type="file"].form-control {
+        height: auto !important;
+        min-height: 38px !important;
+    }
+
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .input-group,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .input-group {
+        flex-wrap: nowrap !important;
+        min-height: 36px !important;
+    }
+
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .input-group-text,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .input-group-text {
+        min-height: 36px !important;
+        padding: 0.42rem 0.55rem !important;
+        font-size: 0.68rem !important;
+    }
+
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .row,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .row {
+        --bs-gutter-x: 0.65rem;
+        --bs-gutter-y: 0.5rem;
+    }
+
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .mb-3,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .mb-3 {
+        margin-bottom: 0.65rem !important;
+    }
+
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .mb-4,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .mb-4 {
+        margin-bottom: 0.8rem !important;
+    }
+
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .card,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .card,
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .upload-tile-btn,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .upload-tile-btn {
+        border-radius: 8px !important;
+        box-shadow: none !important;
+    }
+
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .card-body,
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .card-header,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .card-body,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .card-header {
+        padding: 0.65rem !important;
+    }
+
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .alert,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .alert {
+        margin-bottom: 0.65rem !important;
+        padding: 0.58rem 0.65rem !important;
+        border-radius: 7px !important;
+        font-size: 0.66rem !important;
+        line-height: 1.25 !important;
+    }
+
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .table th,
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .table td,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .table th,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .table td {
+        height: auto !important;
+        padding: 0.45rem !important;
+        font-size: 0.66rem !important;
+        line-height: 1.2;
+    }
+
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .badge,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .badge {
+        padding: 0.22rem 0.38rem !important;
+        font-size: 0.58rem !important;
+        line-height: 1 !important;
+    }
+
+    /* Compact SweetAlert confirmations used by document actions. */
+    body.page-documents .swal2-popup,
+    body.page-general-docs .swal2-popup {
+        width: min(330px, calc(100vw - 1.25rem)) !important;
+        padding: 0.9rem !important;
+        border-radius: 11px !important;
+        font-size: 0.72rem !important;
+    }
+
+    body.page-documents .swal2-title,
+    body.page-general-docs .swal2-title {
+        padding: 0.35rem 0 0 !important;
+        font-size: 0.94rem !important;
+        line-height: 1.25 !important;
+    }
+
+    body.page-documents .swal2-html-container,
+    body.page-general-docs .swal2-html-container {
+        margin: 0.55rem 0 0 !important;
+        font-size: 0.7rem !important;
+        line-height: 1.35 !important;
+    }
+
+    body.page-documents .swal2-actions,
+    body.page-general-docs .swal2-actions {
+        gap: 0.4rem;
+        margin-top: 0.8rem !important;
+    }
+
+    body.page-documents .swal2-actions .swal2-styled,
+    body.page-general-docs .swal2-actions .swal2-styled {
+        min-height: 34px !important;
+        margin: 0 !important;
+        padding: 0.42rem 0.7rem !important;
+        border-radius: 7px !important;
+        font-size: 0.68rem !important;
+    }
+}
+
+/* === SINGLE-ROW PAGINATION + PLUS UPLOAD + UPLOAD MODAL CONSISTENCY === */
+@media (max-width: 767.98px) {
+    /* Title and compact action icons share one row again. */
+    body.page-documents .header-section > .d-flex:first-child,
+    body.page-general-docs .header-section > .d-flex:first-child {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) auto !important;
+        grid-template-areas: "heading actions" !important;
+        align-items: start !important;
+        gap: 0.4rem !important;
+    }
+
+    body.page-documents .header-section > .d-flex:first-child > .d-flex:first-child,
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:first-child {
+        grid-area: heading !important;
+        width: 100%;
+        min-width: 0;
+    }
+
+    body.page-documents .header-section > .d-flex:first-child > .d-flex:last-child,
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:last-child {
+        display: flex !important;
+        grid-area: actions !important;
+        align-items: center !important;
+        justify-content: flex-end !important;
+        align-self: start !important;
+        gap: 0.2rem !important;
+        width: auto !important;
+        min-width: 0;
+    }
+
+    body.page-documents .header-section > .d-flex:first-child > .d-flex:last-child > .dropdown,
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:last-child > .dropdown {
+        grid-area: auto !important;
+        align-self: auto !important;
+        justify-self: auto !important;
+    }
+
+    /* Keep the accessible Upload File label but show only a plus visually. */
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:last-child > .btn-primary {
+        position: relative !important;
+        display: inline-flex !important;
+        grid-area: auto !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 34px !important;
+        height: 34px !important;
+        min-width: 34px !important;
+        min-height: 34px !important;
+        padding: 0 !important;
+        border-radius: 50% !important;
+        font-size: 0 !important;
+    }
+
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:last-child > .btn-primary > i {
+        display: none !important;
+    }
+
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:last-child > .btn-primary > span {
+        position: absolute !important;
+        width: 1px !important;
+        height: 1px !important;
+        padding: 0 !important;
+        margin: -1px !important;
+        overflow: hidden !important;
+        clip: rect(0, 0, 0, 0) !important;
+        white-space: nowrap !important;
+        border: 0 !important;
+    }
+
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:last-child > .btn-primary::before {
+        display: block;
+        content: "+";
+        color: #ffffff;
+        font-family: Arial, sans-serif;
+        font-size: 1.25rem;
+        font-weight: 400;
+        line-height: 1;
+        transform: translateY(-1px);
+    }
+
+    /* All pagination controls remain on one compact, touch-friendly row. */
+    body.page-documents .bottom-pagination-bar,
+    body.page-general-docs .bottom-pagination-bar {
+        display: grid !important;
+        grid-template-areas: "info length paginate" !important;
+        grid-template-columns: minmax(0, 1fr) 46px auto !important;
+        align-items: center !important;
+        gap: 0.28rem !important;
+        width: 100%;
+        min-height: 40px;
+        padding: 0.34rem 0.45rem !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .dataTables_info,
+    body.page-general-docs .bottom-pagination-bar .dataTables_info {
+        grid-area: info !important;
+        align-self: center !important;
+        justify-self: stretch !important;
+        width: 100%;
+        min-width: 0;
+        padding: 0 !important;
+        overflow: hidden;
+        font-size: 0.58rem !important;
+        line-height: 1.1 !important;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body.page-documents .bottom-pagination-bar .dataTables_length,
+    body.page-general-docs .bottom-pagination-bar .dataTables_length {
+        grid-area: length !important;
+        align-self: center !important;
+        justify-self: center !important;
+        width: 46px !important;
+        margin: 0 !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .dataTables_length label,
+    body.page-general-docs .bottom-pagination-bar .dataTables_length label {
+        display: block !important;
+        width: 46px;
+        height: 28px;
+        margin: 0 !important;
+        font-size: 0 !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .dataTables_length label::before,
+    body.page-general-docs .bottom-pagination-bar .dataTables_length label::before {
+        display: none !important;
+        content: none !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .dataTables_length select,
+    body.page-general-docs .bottom-pagination-bar .dataTables_length select {
+        display: block !important;
+        width: 46px !important;
+        min-width: 46px !important;
+        height: 28px !important;
+        min-height: 28px !important;
+        margin: 0 !important;
+        padding: 0.16rem 1rem 0.16rem 0.35rem !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 7px !important;
+        background-color: #ffffff !important;
+        color: #334155 !important;
+        font-size: 0.64rem !important;
+        line-height: 1 !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .dataTables_paginate,
+    body.page-general-docs .bottom-pagination-bar .dataTables_paginate {
+        grid-area: paginate !important;
+        align-self: center !important;
+        justify-self: end !important;
+        width: auto !important;
+        min-width: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: visible !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .pagination,
+    body.page-general-docs .bottom-pagination-bar .pagination {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        align-items: center !important;
+        justify-content: flex-end !important;
+        gap: 0.16rem !important;
+        width: auto !important;
+        margin: 0 !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .page-link,
+    body.page-general-docs .bottom-pagination-bar .page-link,
+    body.page-documents .bottom-pagination-bar .page-item.previous .page-link,
+    body.page-documents .bottom-pagination-bar .page-item.next .page-link,
+    body.page-general-docs .bottom-pagination-bar .page-item.previous .page-link,
+    body.page-general-docs .bottom-pagination-bar .page-item.next .page-link {
+        width: 28px !important;
+        height: 28px !important;
+        min-width: 28px !important;
+        min-height: 28px !important;
+        padding: 0 !important;
+        border-radius: 7px !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .page-item.active .page-link,
+    body.page-general-docs .bottom-pagination-bar .page-item.active .page-link {
+        font-size: 0.64rem !important;
+        line-height: 1 !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .page-item.previous .page-link::before,
+    body.page-documents .bottom-pagination-bar .page-item.next .page-link::before,
+    body.page-general-docs .bottom-pagination-bar .page-item.previous .page-link::before,
+    body.page-general-docs .bottom-pagination-bar .page-item.next .page-link::before {
+        font-size: 0.92rem !important;
+    }
+
+    /* Upload modal: one consistent visual scale. */
+    body.page-documents #uploadModal .modal-dialog,
+    body.page-general-docs #uploadModal .modal-dialog {
+        width: calc(100% - 1rem) !important;
+        max-width: 420px !important;
+        margin: 0.5rem auto !important;
+    }
+
+    body.page-documents #uploadModal .modal-content,
+    body.page-general-docs #uploadModal .modal-content {
+        max-height: calc(100dvh - 1rem) !important;
+        overflow: hidden !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 11px !important;
+        background: #ffffff !important;
+        box-shadow: 0 14px 36px rgba(15, 23, 42, 0.2) !important;
+    }
+
+    body.page-documents #uploadModal .modal-header,
+    body.page-general-docs #uploadModal .modal-header {
+        min-height: 48px !important;
+        padding: 0.65rem 0.75rem !important;
+        border-bottom: 1px solid #e2e8f0 !important;
+        background: #ffffff !important;
+    }
+
+    body.page-documents #uploadModal .modal-header > div,
+    body.page-general-docs #uploadModal .modal-header > div {
+        min-width: 0;
+    }
+
+    body.page-documents #uploadModal .modal-title,
+    body.page-general-docs #uploadModal .modal-title {
+        display: flex;
+        align-items: center;
+        margin: 0 !important;
+        color: #1e293b !important;
+        font-size: 0.86rem !important;
+        font-weight: 700 !important;
+        line-height: 1.15 !important;
+    }
+
+    body.page-documents #uploadModal .modal-title > i,
+    body.page-general-docs #uploadModal .modal-title > i {
+        width: 18px;
+        margin-right: 0.35rem !important;
+        font-size: 0.78rem !important;
+        text-align: center;
+    }
+
+    body.page-documents #uploadModal .modal-header p,
+    body.page-general-docs #uploadModal .modal-header p {
+        margin-top: 0.12rem !important;
+        font-size: 0.61rem !important;
+        line-height: 1.15 !important;
+    }
+
+    body.page-documents #uploadModal .modal-header .btn-close,
+    body.page-general-docs #uploadModal .modal-header .btn-close {
+        width: 28px !important;
+        height: 28px !important;
+        min-width: 28px !important;
+        min-height: 28px !important;
+        margin: 0 !important;
+        padding: 0.35rem !important;
+        border-radius: 7px !important;
+        font-size: 0.68rem !important;
+    }
+
+    body.page-documents #uploadModal .modal-body,
+    body.page-general-docs #uploadModal .modal-body {
+        min-height: 0;
+        padding: 0.7rem !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        background: #f8fafc !important;
+        color: #334155;
+        font-size: 0.68rem !important;
+        line-height: 1.3 !important;
+    }
+
+    body.page-documents #uploadModal .fs-5,
+    body.page-general-docs #uploadModal .fs-5 {
+        font-size: 0.86rem !important;
+    }
+
+    body.page-documents #uploadModal .fs-sm,
+    body.page-general-docs #uploadModal .fs-sm {
+        font-size: 0.67rem !important;
+    }
+
+    body.page-documents #uploadModal .fs-xs,
+    body.page-general-docs #uploadModal .fs-xs {
+        font-size: 0.59rem !important;
+    }
+
+    body.page-documents #uploadModal .form-label,
+    body.page-general-docs #uploadModal .form-label {
+        margin-bottom: 0.28rem !important;
+        color: #475569 !important;
+        font-size: 0.62rem !important;
+        font-weight: 700 !important;
+        line-height: 1.1 !important;
+        letter-spacing: 0.025rem !important;
+    }
+
+    body.page-documents #uploadModal .mb-4,
+    body.page-general-docs #uploadModal .mb-4 {
+        margin-bottom: 0.7rem !important;
+    }
+
+    body.page-documents #uploadModal .mt-3,
+    body.page-general-docs #uploadModal .mt-3 {
+        margin-top: 0.6rem !important;
+    }
+
+    body.page-documents #uploadModal .custom-select-btn,
+    body.page-general-docs #uploadModal .custom-select-btn {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        width: 100% !important;
+        height: 36px !important;
+        min-height: 36px !important;
+        padding: 0.42rem 0.55rem !important;
+        overflow: hidden;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 7px !important;
+        background: #ffffff !important;
+        box-shadow: none !important;
+        font-size: 0.67rem !important;
+        line-height: 1.1 !important;
+    }
+
+    body.page-documents #uploadModal .custom-select-btn > span,
+    body.page-general-docs #uploadModal .custom-select-btn > span {
+        min-width: 0;
+        overflow: hidden;
+        font-size: 0.67rem !important;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body.page-documents #uploadModal .custom-select-btn i,
+    body.page-general-docs #uploadModal .custom-select-btn i {
+        flex: 0 0 auto;
+        margin-right: 0.3rem !important;
+        font-size: 0.62rem !important;
+    }
+
+    body.page-documents #uploadModal .custom-select-btn > i:last-child,
+    body.page-general-docs #uploadModal .custom-select-btn > i:last-child {
+        margin-right: 0 !important;
+        margin-left: 0.4rem !important;
+    }
+
+    body.page-documents #uploadModal .dropdown-menu,
+    body.page-general-docs #uploadModal .dropdown-menu {
+        width: 100% !important;
+        min-width: 100% !important;
+        max-width: 100% !important;
+        max-height: 180px !important;
+        padding: 0.28rem !important;
+        overflow-y: auto !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 8px !important;
+        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.13) !important;
+    }
+
+    body.page-documents #uploadModal .dropdown-item,
+    body.page-general-docs #uploadModal .dropdown-item {
+        min-height: 32px !important;
+        padding: 0.4rem 0.48rem !important;
+        border-radius: 6px !important;
+        font-size: 0.65rem !important;
+        font-weight: 550 !important;
+        line-height: 1.1 !important;
+    }
+
+    body.page-documents #uploadModal .dropdown-item i,
+    body.page-general-docs #uploadModal .dropdown-item i {
+        width: 15px !important;
+        min-width: 15px !important;
+        margin-right: 0.38rem !important;
+        font-size: 0.62rem !important;
+    }
+
+    body.page-documents #uploadModal .dropdown-header,
+    body.page-general-docs #uploadModal .dropdown-header {
+        margin: 0 !important;
+        padding: 0.34rem 0.48rem !important;
+        font-size: 0.59rem !important;
+        line-height: 1.1 !important;
+    }
+
+    body.page-documents #uploadModal .row.g-3,
+    body.page-general-docs #uploadModal .row.g-3 {
+        --bs-gutter-x: 0.45rem;
+        --bs-gutter-y: 0.45rem;
+    }
+
+    body.page-documents #uploadModal .upload-tile-btn,
+    body.page-general-docs #uploadModal .upload-tile-btn {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 100% !important;
+        height: 72px !important;
+        min-height: 72px !important;
+        padding: 0.45rem !important;
+        gap: 0.18rem !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 8px !important;
+        background: #ffffff !important;
+        box-shadow: none !important;
+    }
+
+    body.page-documents #uploadModal .upload-tile-btn > div,
+    body.page-general-docs #uploadModal .upload-tile-btn > div {
+        width: 28px !important;
+        height: 28px !important;
+        min-width: 28px !important;
+        min-height: 28px !important;
+        margin: 0 0 0.12rem !important;
+    }
+
+    body.page-documents #uploadModal .upload-tile-btn > div > i,
+    body.page-general-docs #uploadModal .upload-tile-btn > div > i {
+        font-size: 0.72rem !important;
+    }
+
+    body.page-documents #uploadModal .upload-tile-btn > span,
+    body.page-general-docs #uploadModal .upload-tile-btn > span {
+        font-size: 0.64rem !important;
+        font-weight: 650 !important;
+        line-height: 1.1 !important;
+    }
+
+    body.page-documents #uploadModal #uploadChosenFileText,
+    body.page-general-docs #uploadModal #uploadChosenFileText {
+        max-width: 100%;
+        margin: 0 0 0.35rem !important;
+        padding: 0.25rem 0.42rem !important;
+        border-radius: 6px !important;
+        font-size: 0.6rem !important;
+        line-height: 1.1 !important;
+    }
+
+    body.page-documents #uploadModal #mainUploadPreview,
+    body.page-general-docs #uploadModal #mainUploadPreview {
+        max-height: 120px !important;
+        border-radius: 7px !important;
+    }
+
+    body.page-documents #uploadModal #classificationSuggestion,
+    body.page-general-docs #uploadModal #classificationSuggestion {
+        margin-top: 0.55rem !important;
+        padding: 0.55rem !important;
+        border-radius: 8px !important;
+        box-shadow: none !important;
+    }
+
+    body.page-documents #uploadModal #classificationSuggestion > .d-flex,
+    body.page-general-docs #uploadModal #classificationSuggestion > .d-flex {
+        gap: 0.4rem;
+        flex-wrap: wrap;
+    }
+
+    body.page-documents #uploadModal #classificationIcon,
+    body.page-general-docs #uploadModal #classificationIcon,
+    body.page-documents #uploadModal #classificationLoader,
+    body.page-general-docs #uploadModal #classificationLoader {
+        width: 14px !important;
+        height: 14px !important;
+        font-size: 0.68rem !important;
+    }
+
+    body.page-documents #uploadModal #classificationActions,
+    body.page-general-docs #uploadModal #classificationActions {
+        margin-left: auto;
+    }
+
+    body.page-documents #uploadModal #classificationActions .btn,
+    body.page-general-docs #uploadModal #classificationActions .btn {
+        min-height: 30px !important;
+        padding: 0.34rem 0.52rem !important;
+        border-radius: 6px !important;
+        font-size: 0.61rem !important;
+    }
+
+    body.page-documents #uploadModal .form-text,
+    body.page-general-docs #uploadModal .form-text {
+        margin-top: 0.3rem !important;
+        font-size: 0.58rem !important;
+        line-height: 1.25 !important;
+    }
+
+    body.page-documents #uploadModal #uploadSubmitBtn,
+    body.page-general-docs #uploadModal #uploadSubmitBtn {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 100% !important;
+        height: 36px !important;
+        min-height: 36px !important;
+        margin: 0 !important;
+        padding: 0.42rem 0.65rem !important;
+        border-radius: 7px !important;
+        font-size: 0.68rem !important;
+        line-height: 1 !important;
+        gap: 0.32rem !important;
+    }
+
+    body.page-documents #uploadModal #uploadSubmitBtn i,
+    body.page-general-docs #uploadModal #uploadSubmitBtn i {
+        margin: 0 !important;
+        font-size: 0.68rem !important;
+    }
+}
+
+/* === STICKY DOCUMENT WORKSPACE + MOBILE TOUCH VIEWER === */
+@media (max-width: 767.98px) {
+    /* Professional square-plus action in the original header position. */
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:last-child > .btn-primary {
+        width: 34px !important;
+        height: 34px !important;
+        min-width: 34px !important;
+        min-height: 34px !important;
+        border: 1px solid #1d4ed8 !important;
+        border-radius: 9px !important;
+        background: #2563eb !important;
+        box-shadow: 0 2px 6px rgba(37, 99, 235, 0.24) !important;
+        transition: background-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease !important;
+    }
+
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:last-child > .btn-primary::before {
+        content: "\f067" !important;
+        color: #ffffff !important;
+        font-family: "Font Awesome 5 Free" !important;
+        font-size: 0.76rem !important;
+        font-weight: 900 !important;
+        line-height: 1 !important;
+        transform: none !important;
+    }
+
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:last-child > .btn-primary:active {
+        background: #1d4ed8 !important;
+        box-shadow: 0 1px 3px rgba(37, 99, 235, 0.2) !important;
+        transform: scale(0.96) !important;
+    }
+
+    /* Header and pagination stay visible; only the file rows scroll. */
+    body.page-documents .main-content,
+    body.page-general-docs .main-content {
+        display: flex !important;
+        flex-direction: column !important;
+        height: 100dvh !important;
+        max-height: 100dvh !important;
+        overflow: hidden !important;
+    }
+
+    body.page-documents .header-section,
+    body.page-general-docs .header-section {
+        position: relative !important;
+        top: auto !important;
+        flex: 0 0 auto !important;
+        z-index: 30 !important;
+        background: #f8fafc !important;
+    }
+
+    body.page-documents .file-list-container,
+    body.page-general-docs .file-list-container {
+        display: flex !important;
+        flex: 1 1 0 !important;
+        flex-direction: column !important;
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        overflow: hidden !important;
+    }
+
+    body.page-documents .file-list-container > .dataTables_wrapper,
+    body.page-general-docs .file-list-container > .dataTables_wrapper,
+    body.page-documents .dataTables_wrapper,
+    body.page-general-docs .dataTables_wrapper {
+        display: flex !important;
+        flex: 1 1 0 !important;
+        flex-direction: column !important;
+        width: 100% !important;
+        height: 100% !important;
+        min-height: 0 !important;
+        overflow: hidden !important;
+    }
+
+    body.page-documents .table-scroll-container,
+    body.page-general-docs .table-scroll-container {
+        flex: 1 1 auto !important;
+        height: auto !important;
+        min-height: 0 !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    body.page-documents .bottom-pagination-bar,
+    body.page-general-docs .bottom-pagination-bar {
+        position: relative !important;
+        right: auto !important;
+        bottom: auto !important;
+        left: auto !important;
+        flex: 0 0 auto !important;
+        z-index: 25 !important;
+        width: 100% !important;
+        margin: 0 !important;
+        border-top: 1px solid #e2e8f0 !important;
+        background: rgba(255, 255, 255, 0.98) !important;
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+    }
+
+    /* Remove only the manual zoom toolbar on mobile. */
+    body.page-documents #documentViewerModal #zoomControlsContainer,
+    body.page-general-docs #documentViewerModal #zoomControlsContainer {
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+    }
+
+    body.page-documents #documentViewerModal,
+    body.page-general-docs #documentViewerModal,
+    body.page-documents #documentViewerModal .modal-dialog,
+    body.page-general-docs #documentViewerModal .modal-dialog,
+    body.page-documents #documentViewerModal .modal-content,
+    body.page-general-docs #documentViewerModal .modal-content {
+        width: 100vw !important;
+        height: 100dvh !important;
+        min-height: 100dvh !important;
+        margin: 0 !important;
+        overflow: hidden !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        background: transparent !important;
+    }
+
+    /* Blur only the page behind the viewer; file and filename remain crisp. */
+    body.page-documents #documentViewerModal .modal-content > .position-absolute.w-100.h-100,
+    body.page-general-docs #documentViewerModal .modal-content > .position-absolute.w-100.h-100 {
+        background: rgba(15, 23, 42, 0.56) !important;
+        backdrop-filter: blur(16px) saturate(0.75) !important;
+        -webkit-backdrop-filter: blur(16px) saturate(0.75) !important;
+    }
+
+    body.page-documents #documentViewerModal .modal-content > .position-absolute.top-0,
+    body.page-general-docs #documentViewerModal .modal-content > .position-absolute.top-0 {
+        min-height: 48px !important;
+        padding: 0.42rem 0.55rem !important;
+        border-bottom: 1px solid rgba(226, 232, 240, 0.9) !important;
+        background: rgba(255, 255, 255, 0.92) !important;
+        box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12) !important;
+        backdrop-filter: blur(12px) saturate(1.1) !important;
+        -webkit-backdrop-filter: blur(12px) saturate(1.1) !important;
+    }
+
+    body.page-documents #documentViewerModal .modal-content > .position-absolute.top-0 > .d-flex:first-child,
+    body.page-general-docs #documentViewerModal .modal-content > .position-absolute.top-0 > .d-flex:first-child {
+        min-width: 0;
+        flex: 1 1 auto;
+    }
+
+    body.page-documents #documentViewerModal .modal-content > .position-absolute.top-0 > .d-flex:first-child > i,
+    body.page-general-docs #documentViewerModal .modal-content > .position-absolute.top-0 > .d-flex:first-child > i {
+        flex: 0 0 auto;
+        margin-right: 0.42rem !important;
+        font-size: 0.78rem !important;
+    }
+
+    body.page-documents #documentViewerModal #viewerFileName,
+    body.page-general-docs #documentViewerModal #viewerFileName {
+        display: block;
+        min-width: 0;
+        max-width: calc(100vw - 128px) !important;
+        margin: 0 !important;
+        overflow: hidden;
+        color: #1e293b !important;
+        font-size: 0.72rem !important;
+        font-weight: 700 !important;
+        line-height: 1.15 !important;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        filter: none !important;
+        backdrop-filter: none !important;
+    }
+
+    body.page-documents #documentViewerModal .preview-action-btn,
+    body.page-general-docs #documentViewerModal .preview-action-btn {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 32px !important;
+        height: 32px !important;
+        min-width: 32px !important;
+        min-height: 32px !important;
+        padding: 0 !important;
+        border-radius: 8px !important;
+        background: #f1f5f9 !important;
+        box-shadow: none !important;
+    }
+
+    body.page-documents #documentViewerModal .preview-action-btn i,
+    body.page-general-docs #documentViewerModal .preview-action-btn i {
+        font-size: 0.72rem !important;
+    }
+
+    body.page-documents #documentViewerModal .modal-body,
+    body.page-general-docs #documentViewerModal .modal-body {
+        width: 100vw !important;
+        height: 100dvh !important;
+        padding: 48px 0 0 !important;
+        overflow: hidden !important;
+        touch-action: auto !important;
+        background: transparent !important;
+    }
+
+    body.page-documents #documentViewerModal #viewerContentWrapper,
+    body.page-general-docs #documentViewerModal #viewerContentWrapper {
+        width: 100% !important;
+        height: 100% !important;
+        overflow: visible !important;
+        touch-action: none !important;
+        user-select: none;
+        -webkit-user-select: none;
+        will-change: transform;
+        filter: none !important;
+        backdrop-filter: none !important;
+    }
+
+    body.page-documents #documentViewerModal #documentViewerImage,
+    body.page-general-docs #documentViewerModal #documentViewerImage {
+        max-width: 96vw !important;
+        max-height: calc(100dvh - 66px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.24) !important;
+        border-radius: 8px !important;
+        box-shadow: 0 16px 36px rgba(15, 23, 42, 0.35) !important;
+        touch-action: none !important;
+        user-select: none;
+        -webkit-user-drag: none;
+        filter: none !important;
+        backdrop-filter: none !important;
+    }
+
+    body.page-documents #documentViewerModal #documentViewerFrame,
+    body.page-general-docs #documentViewerModal #documentViewerFrame {
+        width: 96vw !important;
+        height: calc(100dvh - 66px) !important;
+        border: 0 !important;
+        border-radius: 8px !important;
+        background: #ffffff !important;
+        box-shadow: 0 16px 36px rgba(15, 23, 42, 0.35) !important;
+        touch-action: auto !important;
+        filter: none !important;
+        backdrop-filter: none !important;
+    }
+
+    body.page-documents #documentViewerModal #viewerLoader .spinner-border,
+    body.page-general-docs #documentViewerModal #viewerLoader .spinner-border {
+        width: 30px !important;
+        height: 30px !important;
+        margin-bottom: 0.5rem !important;
+        border-width: 0.16em !important;
+    }
+
+    body.page-documents #documentViewerModal #viewerLoader .fw-bold,
+    body.page-general-docs #documentViewerModal #viewerLoader .fw-bold {
+        font-size: 0.64rem !important;
+    }
+}
+
+/* Final touch and fixed-workspace refinements. */
+@media (max-width: 767.98px) {
+    body.page-documents .folders-section,
+    body.page-general-docs .folders-section {
+        flex: 1 1 0 !important;
+        min-height: 0 !important;
+        padding-bottom: 0.5rem !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    body.page-documents #documentViewerModal #viewerContentWrapper,
+    body.page-general-docs #documentViewerModal #viewerContentWrapper {
+        touch-action: auto !important;
+    }
+
+    body.page-documents #documentViewerModal #documentViewerImage,
+    body.page-general-docs #documentViewerModal #documentViewerImage {
+        touch-action: none !important;
+    }
+}
+
+/* === FINAL IPHONE-SAFE PROFESSIONAL MOBILE LAYOUT === */
+@media (max-width: 767.98px) {
+    /* Breadcrumbs are intentionally removed on mobile. */
+    body.page-documents .header-section nav[aria-label="breadcrumb"],
+    body.page-general-docs .header-section nav[aria-label="breadcrumb"] {
+        display: none !important;
+    }
+
+    /* Use the real iPhone visual viewport so Safari's bottom bar cannot cover pagination. */
+    body.page-documents .main-content,
+    body.page-general-docs .main-content {
+        height: var(--fixie-mobile-viewport-height, 100svh) !important;
+        min-height: 0 !important;
+        max-height: var(--fixie-mobile-viewport-height, 100svh) !important;
+        padding-bottom: 0 !important;
+        overflow: hidden !important;
+        background: #f6f8fb !important;
+    }
+
+    body.page-documents .header-section,
+    body.page-general-docs .header-section {
+        flex: 0 0 auto !important;
+        margin-bottom: 0.5rem !important;
+        padding-bottom: 0.55rem !important;
+        border-bottom: 1px solid #e2e8f0;
+        background: #f6f8fb !important;
+    }
+
+    body.page-documents .header-section > .d-flex:first-child,
+    body.page-general-docs .header-section > .d-flex:first-child {
+        align-items: start !important;
+        gap: 0.5rem !important;
+        margin-bottom: 0.45rem !important;
+    }
+
+    body.page-documents .header-section h3,
+    body.page-general-docs .header-section h3 {
+        color: #172033 !important;
+        font-size: 1rem !important;
+        font-weight: 750 !important;
+        line-height: 1.25 !important;
+    }
+
+    body.page-documents .header-section h3 + p,
+    body.page-general-docs .header-section h3 + p {
+        margin-top: 0.14rem !important;
+        color: #64748b !important;
+        font-size: 0.7rem !important;
+        line-height: 1.2 !important;
+    }
+
+    body.page-documents .header-section > .d-flex:first-child > .d-flex:last-child > .dropdown > button,
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:last-child > .dropdown > button,
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:last-child > .btn-primary {
+        width: 38px !important;
+        height: 38px !important;
+        min-width: 38px !important;
+        min-height: 38px !important;
+        border-radius: 9px !important;
+    }
+
+    body.page-general-docs .header-section > .d-flex:first-child > .d-flex:last-child > .btn-primary::before {
+        font-size: 0.8rem !important;
+    }
+
+    body.page-documents .header-section > .d-flex:nth-child(2),
+    body.page-general-docs .header-section > .d-flex:nth-child(2) {
+        display: block !important;
+        width: 100%;
+        padding: 0 !important;
+    }
+
+    body.page-documents .header-section > .d-flex:nth-child(2) > form,
+    body.page-general-docs .header-section > .d-flex:nth-child(2) > form {
+        display: block !important;
+        width: 100% !important;
+    }
+
+    body.page-documents .header-section .sleek-search,
+    body.page-general-docs .header-section .sleek-search {
+        height: 40px !important;
+        min-height: 40px !important;
+        border: 1px solid #dbe3ee !important;
+        border-radius: 10px !important;
+        background: #ffffff !important;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03) !important;
+    }
+
+    body.page-documents .header-section .sleek-search > .input-group-text,
+    body.page-general-docs .header-section .sleek-search > .input-group-text {
+        width: 38px !important;
+        min-width: 38px !important;
+        height: 38px !important;
+        min-height: 38px !important;
+        color: #64748b !important;
+        font-size: 0.72rem !important;
+    }
+
+    body.page-documents .header-section .sleek-search > .form-control,
+    body.page-general-docs .header-section .sleek-search > .form-control {
+        height: 38px !important;
+        min-height: 38px !important;
+        padding: 0.42rem 0.25rem !important;
+        color: #1e293b !important;
+        font-size: 0.76rem !important;
+    }
+
+    body.page-documents .header-section .sleek-search > button,
+    body.page-general-docs .header-section .sleek-search > button {
+        width: 40px !important;
+        min-width: 40px !important;
+        height: 38px !important;
+        min-height: 38px !important;
+        flex-basis: 40px !important;
+        border-radius: 0 9px 9px 0 !important;
+        font-size: 0.72rem !important;
+    }
+
+    body.page-documents .file-list-container,
+    body.page-general-docs .file-list-container {
+        flex: 1 1 0 !important;
+        height: auto !important;
+        min-height: 0 !important;
+        margin: 0 !important;
+        overflow: hidden !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 11px !important;
+        background: #ffffff !important;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04) !important;
+    }
+
+    body.page-documents .dataTables_wrapper,
+    body.page-general-docs .dataTables_wrapper {
+        flex: 1 1 0 !important;
+        height: 100% !important;
+        min-height: 0 !important;
+        overflow: hidden !important;
+    }
+
+    body.page-documents .table-scroll-container,
+    body.page-general-docs .table-scroll-container {
+        flex: 1 1 auto !important;
+        height: auto !important;
+        min-height: 0 !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+    }
+
+    body.page-documents #documentsTable tbody tr,
+    body.page-general-docs #documentsTable tbody tr,
+    body.page-documents #documentsTable tbody td,
+    body.page-general-docs #documentsTable tbody td {
+        height: 58px !important;
+        min-height: 58px !important;
+    }
+
+    body.page-documents #documentsTable .file-icon-md,
+    body.page-general-docs #documentsTable .file-icon-md {
+        width: 32px !important;
+        height: 32px !important;
+        min-width: 32px !important;
+        flex-basis: 32px !important;
+    }
+
+    body.page-documents #documentsTable tbody td:first-child h6,
+    body.page-general-docs #documentsTable tbody td:first-child h6 {
+        font-size: 0.79rem !important;
+        line-height: 1.15 !important;
+    }
+
+    body.page-documents #documentsTable tbody td:first-child .text-muted.small,
+    body.page-general-docs #documentsTable tbody td:first-child .text-muted.small {
+        font-size: 0.65rem !important;
+        line-height: 1.1 !important;
+    }
+
+    body.page-documents #documentsTable tbody td:last-child,
+    body.page-general-docs #documentsTable tbody td:last-child {
+        width: 46px !important;
+        padding-right: 0.35rem !important;
+    }
+
+    body.page-documents #documentsTable .action-dropdown .btn-dots,
+    body.page-general-docs #documentsTable .action-dropdown .btn-dots,
+    body.page-documents .folders-section .folder-card > .action-dropdown .btn-dots,
+    body.page-general-docs .folders-section .folder-card > .action-dropdown .btn-dots {
+        width: 38px !important;
+        height: 38px !important;
+        min-width: 38px !important;
+        min-height: 38px !important;
+        border-radius: 9px !important;
+        font-size: 0.76rem !important;
+    }
+
+    body.page-documents .dropdown-menu .dropdown-item,
+    body.page-general-docs .dropdown-menu .dropdown-item {
+        min-height: 38px !important;
+        padding: 0.48rem 0.55rem !important;
+        font-size: 0.72rem !important;
+    }
+
+    /* One-row pagination with iPhone home-indicator and browser-toolbar clearance. */
+    body.page-documents .bottom-pagination-bar,
+    body.page-general-docs .bottom-pagination-bar {
+        position: relative !important;
+        flex: 0 0 auto !important;
+        grid-template-columns: minmax(0, 1fr) 48px auto !important;
+        min-height: calc(46px + env(safe-area-inset-bottom, 0px)) !important;
+        margin: 0 !important;
+        padding: 0.38rem 0.5rem calc(0.38rem + env(safe-area-inset-bottom, 0px)) !important;
+        border-top: 1px solid #e2e8f0 !important;
+        background: rgba(255, 255, 255, 0.98) !important;
+        box-shadow: 0 -3px 10px rgba(15, 23, 42, 0.05) !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .dataTables_info,
+    body.page-general-docs .bottom-pagination-bar .dataTables_info {
+        font-size: 0.62rem !important;
+        font-weight: 550 !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .dataTables_length,
+    body.page-general-docs .bottom-pagination-bar .dataTables_length,
+    body.page-documents .bottom-pagination-bar .dataTables_length label,
+    body.page-general-docs .bottom-pagination-bar .dataTables_length label {
+        width: 48px !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .dataTables_length select,
+    body.page-general-docs .bottom-pagination-bar .dataTables_length select {
+        width: 48px !important;
+        min-width: 48px !important;
+        height: 34px !important;
+        min-height: 34px !important;
+        font-size: 0.67rem !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .page-link,
+    body.page-general-docs .bottom-pagination-bar .page-link,
+    body.page-documents .bottom-pagination-bar .page-item.previous .page-link,
+    body.page-documents .bottom-pagination-bar .page-item.next .page-link,
+    body.page-general-docs .bottom-pagination-bar .page-item.previous .page-link,
+    body.page-general-docs .bottom-pagination-bar .page-item.next .page-link {
+        width: 36px !important;
+        height: 36px !important;
+        min-width: 36px !important;
+        min-height: 36px !important;
+        border-radius: 9px !important;
+    }
+
+    /* Comfortable, consistent touch targets inside regular modals. */
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .form-control,
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .form-select,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .form-control,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .form-select,
+    body.page-documents #uploadModal .custom-select-btn,
+    body.page-general-docs #uploadModal .custom-select-btn {
+        height: 40px !important;
+        min-height: 40px !important;
+        font-size: 0.74rem !important;
+    }
+
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .modal-footer .btn,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .modal-footer .btn,
+    body.page-documents #uploadModal #uploadSubmitBtn,
+    body.page-general-docs #uploadModal #uploadSubmitBtn {
+        min-height: 40px !important;
+        height: 40px !important;
+        font-size: 0.72rem !important;
+    }
+}
+
+/* Final folder-row cascade: keep this after the earlier document mobile rules. */
+@media (max-width: 767.98px) {
+    body.page-documents .folder-card,
+    body.page-general-docs .folder-card {
+        display: grid !important;
+        grid-template-columns: 32px minmax(0, 1fr) 32px !important;
+        grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) !important;
+        column-gap: 0.6rem !important;
+        row-gap: 0 !important;
+        align-items: center !important;
+        width: 100% !important;
+        height: 58px !important;
+        min-height: 58px !important;
+        padding: 0.45rem 0.5rem !important;
+        overflow: visible !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 9px !important;
+        background: #ffffff !important;
+        box-shadow: none !important;
+        transform: none !important;
+    }
+
+    body.page-documents .folder-card > .d-flex:first-child,
+    body.page-general-docs .folder-card > .d-flex:first-child {
+        display: contents !important;
+    }
+
+    body.page-documents .folder-card .folder-icon-box,
+    body.page-general-docs .folder-card .folder-icon-box {
+        grid-column: 1 !important;
+        grid-row: 1 / 3 !important;
+        align-self: center !important;
+        width: 32px !important;
+        height: 32px !important;
+        min-width: 32px !important;
+        margin: 0 !important;
+        border-radius: 7px !important;
+        font-size: 0.78rem !important;
+    }
+
+    body.page-documents .folder-card > .d-flex:first-child > .ms-3,
+    body.page-general-docs .folder-card > .d-flex:first-child > .ms-3 {
+        grid-column: 2 !important;
+        grid-row: 1 / 3 !important;
+        align-self: center !important;
+        min-width: 0 !important;
+        margin: 0 !important;
+        overflow: hidden !important;
+    }
+
+    body.page-documents .folder-card:not(:has(> .action-dropdown)) > .d-flex:first-child > .ms-3,
+    body.page-general-docs .folder-card:not(:has(> .action-dropdown)) > .d-flex:first-child > .ms-3 {
+        grid-column: 2 / 4 !important;
+    }
+
+    body.page-documents .folder-card > .d-flex:first-child > h6,
+    body.page-general-docs .folder-card > .d-flex:first-child > h6 {
+        grid-column: 2 !important;
+        grid-row: 1 !important;
+        align-self: end !important;
+        min-width: 0 !important;
+    }
+
+    body.page-documents .folder-card:not(:has(> .action-dropdown)) > .d-flex:first-child > h6,
+    body.page-general-docs .folder-card:not(:has(> .action-dropdown)) > .d-flex:first-child > h6 {
+        grid-column: 2 / 4 !important;
+        padding-right: 1.5rem !important;
+    }
+
+    body.page-documents .folder-card h6,
+    body.page-general-docs .folder-card h6 {
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+        color: #1e293b !important;
+        font-size: 0.78rem !important;
+        font-weight: 650 !important;
+        line-height: 1.15 !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+
+    body.page-documents .folder-card p,
+    body.page-general-docs .folder-card p {
+        margin: 0.16rem 0 0 !important;
+        overflow: hidden !important;
+        color: #64748b !important;
+        font-size: 0.64rem !important;
+        line-height: 1.1 !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+
+    body.page-documents .folder-card > .d-flex:nth-child(2):not(.action-dropdown),
+    body.page-general-docs .folder-card > .d-flex:nth-child(2):not(.action-dropdown) {
+        position: static !important;
+        grid-column: 2 !important;
+        grid-row: 2 !important;
+        align-self: start !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        margin: 0.1rem 0 0 !important;
+        padding: 0 !important;
+        border: 0 !important;
+        transform: none !important;
+    }
+
+    body.page-documents .folder-card:not(:has(> .action-dropdown)) > .d-flex:nth-child(2):not(.action-dropdown),
+    body.page-general-docs .folder-card:not(:has(> .action-dropdown)) > .d-flex:nth-child(2):not(.action-dropdown) {
+        grid-column: 2 / 4 !important;
+    }
+
+    body.page-documents .folder-card > .action-dropdown,
+    body.page-general-docs .folder-card > .action-dropdown {
+        top: 50% !important;
+        right: 0.42rem !important;
+        left: auto !important;
+        margin: 0 !important;
+        transform: translateY(-50%) !important;
+    }
+
+    body.page-documents .folder-card > .action-dropdown .btn-dots,
+    body.page-general-docs .folder-card > .action-dropdown .btn-dots {
+        width: 32px !important;
+        height: 32px !important;
+        min-width: 32px !important;
+        min-height: 32px !important;
+        padding: 0 !important;
+        font-size: 0.74rem !important;
+    }
+}
+
+/* === AUTHORITATIVE MOBILE TYPOGRAPHY AND PAGINATION === */
+/* Keep this block last so older mobile experiments cannot resize these controls. */
+@media (max-width: 767.98px) {
+    body.page-documents,
+    body.page-general-docs {
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+
+    body.page-documents .header-section h3,
+    body.page-general-docs .header-section h3,
+    body .page-header h3 {
+        font-size: 1rem !important;
+        font-weight: 700 !important;
+        line-height: 1.25 !important;
+    }
+
+    body.page-documents .header-section h3 + p,
+    body.page-general-docs .header-section h3 + p,
+    body .page-header > div:first-child > span {
+        font-size: 0.75rem !important;
+        font-weight: 400 !important;
+        line-height: 1.3 !important;
+    }
+
+    /* A 16px input font prevents unwanted Safari zoom while keeping 40px controls compact. */
+    body.page-documents .header-section .sleek-search > .form-control,
+    body.page-general-docs .header-section .sleek-search > .form-control,
+    body .page-header .sleek-search-input,
+    body .page-header .sleek-select,
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .form-control,
+    body.page-documents .modal-dialog:not(.modal-fullscreen) .form-select,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .form-control,
+    body.page-general-docs .modal-dialog:not(.modal-fullscreen) .form-select {
+        font-size: 1rem !important;
+        font-weight: 400 !important;
+    }
+
+    body.page-documents #documentsTable tbody td:first-child h6,
+    body.page-general-docs #documentsTable tbody td:first-child h6,
+    body.page-documents .folder-card h6,
+    body.page-general-docs .folder-card h6,
+    body #dataTable.premium-table .doc-title {
+        font-size: 0.85rem !important;
+        font-weight: 600 !important;
+        line-height: 1.2 !important;
+    }
+
+    body.page-documents #documentsTable tbody td:first-child .text-muted.small,
+    body.page-general-docs #documentsTable tbody td:first-child .text-muted.small,
+    body.page-documents .folder-card p,
+    body.page-general-docs .folder-card p,
+    body #dataTable.premium-table .data-label {
+        font-size: 0.72rem !important;
+        font-weight: 400 !important;
+        line-height: 1.2 !important;
+    }
+
+    body.page-documents #documentsTable tbody td:first-child .badge,
+    body.page-general-docs #documentsTable tbody td:first-child .badge,
+    body #dataTable.premium-table .mobile-list-status {
+        font-size: 0.625rem !important;
+        font-weight: 600 !important;
+        line-height: 1.2 !important;
+    }
+
+    body.page-documents .dropdown-menu .dropdown-item,
+    body.page-general-docs .dropdown-menu .dropdown-item {
+        min-height: 38px !important;
+        font-size: 0.8rem !important;
+        font-weight: 500 !important;
+        line-height: 1.25 !important;
+    }
+
+    body.page-documents #uploadModal .modal-title,
+    body.page-general-docs #uploadModal .modal-title {
+        font-size: 0.9rem !important;
+        font-weight: 700 !important;
+    }
+
+    body.page-documents #uploadModal .modal-body,
+    body.page-general-docs #uploadModal .modal-body {
+        font-size: 0.8rem !important;
+        line-height: 1.45 !important;
+    }
+
+    body.page-documents #uploadModal .form-label,
+    body.page-documents #uploadModal .dropdown-header,
+    body.page-general-docs #uploadModal .form-label,
+    body.page-general-docs #uploadModal .dropdown-header {
+        font-size: 0.72rem !important;
+        font-weight: 600 !important;
+    }
+
+    body.page-documents #uploadModal .form-text,
+    body.page-documents #uploadModal .modal-header p,
+    body.page-general-docs #uploadModal .form-text,
+    body.page-general-docs #uploadModal .modal-header p {
+        font-size: 0.7rem !important;
+        line-height: 1.3 !important;
+    }
+
+    body.page-documents #uploadModal .custom-select-btn,
+    body.page-documents #uploadModal .dropdown-item,
+    body.page-documents #uploadModal #uploadSubmitBtn,
+    body.page-general-docs #uploadModal .custom-select-btn,
+    body.page-general-docs #uploadModal .dropdown-item,
+    body.page-general-docs #uploadModal #uploadSubmitBtn {
+        font-size: 0.8rem !important;
+        font-weight: 500 !important;
+    }
+
+    /* Compact one-row footer: dropdown and every visible page control are exactly 34px. */
+    body.page-documents .bottom-pagination-bar,
+    body.page-general-docs .bottom-pagination-bar {
+        display: grid !important;
+        grid-template-areas: 'info length paginate' !important;
+        grid-template-columns: minmax(0, 1fr) 46px auto !important;
+        align-items: center !important;
+        gap: 0 4px !important;
+        min-height: 0 !important;
+        margin: 0 !important;
+        padding: 4px 6px max(4px, env(safe-area-inset-bottom, 0px)) !important;
+        box-shadow: none !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .dataTables_info,
+    body.page-general-docs .bottom-pagination-bar .dataTables_info {
+        grid-area: info !important;
+        align-self: center !important;
+        justify-self: stretch !important;
+        min-width: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+        font-size: 0.68rem !important;
+        font-weight: 500 !important;
+        line-height: 1.2 !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .dataTables_length,
+    body.page-general-docs .bottom-pagination-bar .dataTables_length,
+    body.page-documents .bottom-pagination-bar .dataTables_length label,
+    body.page-general-docs .bottom-pagination-bar .dataTables_length label {
+        display: flex !important;
+        grid-area: length !important;
+        align-items: center !important;
+        justify-content: center !important;
+        align-self: center !important;
+        width: 46px !important;
+        height: 34px !important;
+        min-height: 34px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        font-size: 0 !important;
+        line-height: 1 !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .dataTables_length label::before,
+    body.page-general-docs .bottom-pagination-bar .dataTables_length label::before {
+        display: none !important;
+        content: none !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .dataTables_length select,
+    body.page-general-docs .bottom-pagination-bar .dataTables_length select {
+        display: block !important;
+        box-sizing: border-box !important;
+        width: 46px !important;
+        min-width: 46px !important;
+        height: 34px !important;
+        min-height: 34px !important;
+        margin: 0 !important;
+        padding: 0 16px 0 6px !important;
+        border-radius: 7px !important;
+        font-size: 0.75rem !important;
+        font-weight: 500 !important;
+        line-height: 1 !important;
+        vertical-align: middle !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .dataTables_paginate,
+    body.page-general-docs .bottom-pagination-bar .dataTables_paginate {
+        display: flex !important;
+        grid-area: paginate !important;
+        align-items: center !important;
+        justify-content: flex-end !important;
+        align-self: center !important;
+        width: auto !important;
+        height: 34px !important;
+        min-height: 34px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .pagination,
+    body.page-general-docs .bottom-pagination-bar .pagination {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        align-items: center !important;
+        justify-content: flex-end !important;
+        gap: 2px !important;
+        width: auto !important;
+        height: 34px !important;
+        min-height: 34px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .page-item,
+    body.page-general-docs .bottom-pagination-bar .page-item {
+        align-items: center !important;
+        height: 34px !important;
+        min-height: 34px !important;
+        margin: 0 !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .page-link,
+    body.page-general-docs .bottom-pagination-bar .page-link,
+    body.page-documents .bottom-pagination-bar .page-item.previous .page-link,
+    body.page-documents .bottom-pagination-bar .page-item.next .page-link,
+    body.page-general-docs .bottom-pagination-bar .page-item.previous .page-link,
+    body.page-general-docs .bottom-pagination-bar .page-item.next .page-link {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 34px !important;
+        min-width: 34px !important;
+        height: 34px !important;
+        min-height: 34px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border-radius: 7px !important;
+        font-size: 0.72rem !important;
+        line-height: 1 !important;
+        box-shadow: none !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .page-item.previous .page-link::before,
+    body.page-documents .bottom-pagination-bar .page-item.next .page-link::before,
+    body.page-general-docs .bottom-pagination-bar .page-item.previous .page-link::before,
+    body.page-general-docs .bottom-pagination-bar .page-item.next .page-link::before {
+        font-size: 0.9rem !important;
+        line-height: 1 !important;
+    }
+}
+
+/* === PINNED MOBILE WORKSPACE, EXACT PAGINATION ALIGNMENT, AND LIGHTWEIGHT MOTION === */
+@media (max-width: 767.98px) {
+    html:has(body.page-documents),
+    html:has(body.page-general-docs),
+    body.page-documents,
+    body.page-general-docs {
+        width: 100% !important;
+        height: var(--fixie-mobile-viewport-height, 100svh) !important;
+        min-height: 0 !important;
+        max-height: var(--fixie-mobile-viewport-height, 100svh) !important;
+        overflow: hidden !important;
+        overscroll-behavior: none !important;
+    }
+
+    body.page-documents,
+    body.page-general-docs {
+        position: fixed !important;
+        inset: 0 !important;
+        margin: 0 !important;
+    }
+
+    body.page-documents .main-content,
+    body.page-general-docs .main-content {
+        position: fixed !important;
+        inset: 0 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        width: 100vw !important;
+        height: var(--fixie-mobile-viewport-height, 100svh) !important;
+        min-height: 0 !important;
+        max-height: var(--fixie-mobile-viewport-height, 100svh) !important;
+        max-width: none !important;
+        margin: 0 !important;
+        overflow: hidden !important;
+        overscroll-behavior: none !important;
+    }
+
+    body.page-documents .header-section,
+    body.page-general-docs .header-section,
+    body.page-documents .bottom-pagination-bar,
+    body.page-general-docs .bottom-pagination-bar {
+        position: relative !important;
+        flex: 0 0 auto !important;
+        transform: translateZ(0);
+        backface-visibility: hidden;
+        -webkit-backface-visibility: hidden;
+    }
+
+    body.page-documents .header-section,
+    body.page-general-docs .header-section {
+        top: auto !important;
+        z-index: 40 !important;
+    }
+
+    body.page-documents .bottom-pagination-bar,
+    body.page-general-docs .bottom-pagination-bar {
+        right: auto !important;
+        bottom: auto !important;
+        left: auto !important;
+        z-index: 35 !important;
+        grid-template-rows: 34px !important;
+        align-content: center !important;
+        min-height: 0 !important;
+    }
+
+    body.page-documents .file-list-container,
+    body.page-general-docs .file-list-container,
+    body.page-documents .dataTables_wrapper,
+    body.page-general-docs .dataTables_wrapper {
+        flex: 1 1 0 !important;
+        height: auto !important;
+        min-height: 0 !important;
+        overflow: hidden !important;
+    }
+
+    body.page-documents .table-scroll-container,
+    body.page-general-docs .table-scroll-container,
+    body.page-documents .folders-section,
+    body.page-general-docs .folders-section {
+        min-height: 0 !important;
+        overscroll-behavior: contain !important;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-y;
+    }
+
+    body.page-documents .bottom-pagination-bar .dataTables_info,
+    body.page-general-docs .bottom-pagination-bar .dataTables_info,
+    body.page-documents .bottom-pagination-bar .dataTables_length,
+    body.page-general-docs .bottom-pagination-bar .dataTables_length,
+    body.page-documents .bottom-pagination-bar .dataTables_length label,
+    body.page-general-docs .bottom-pagination-bar .dataTables_length label,
+    body.page-documents .bottom-pagination-bar .dataTables_paginate,
+    body.page-general-docs .bottom-pagination-bar .dataTables_paginate,
+    body.page-documents .bottom-pagination-bar .pagination,
+    body.page-general-docs .bottom-pagination-bar .pagination {
+        align-self: center !important;
+        height: 34px !important;
+        min-height: 34px !important;
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .dataTables_info,
+    body.page-general-docs .bottom-pagination-bar .dataTables_info {
+        display: flex !important;
+        align-items: center !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .dataTables_length,
+    body.page-general-docs .bottom-pagination-bar .dataTables_length,
+    body.page-documents .bottom-pagination-bar .dataTables_length label,
+    body.page-general-docs .bottom-pagination-bar .dataTables_length label {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .page-item.previous,
+    body.page-documents .bottom-pagination-bar .page-item.next,
+    body.page-documents .bottom-pagination-bar .page-item.active,
+    body.page-documents .bottom-pagination-bar .page-item[id$="_previous"],
+    body.page-documents .bottom-pagination-bar .page-item[id$="_next"],
+    body.page-general-docs .bottom-pagination-bar .page-item.previous,
+    body.page-general-docs .bottom-pagination-bar .page-item.next,
+    body.page-general-docs .bottom-pagination-bar .page-item.active,
+    body.page-general-docs .bottom-pagination-bar .page-item[id$="_previous"],
+    body.page-general-docs .bottom-pagination-bar .page-item[id$="_next"] {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        align-self: center !important;
+        width: 34px !important;
+        height: 34px !important;
+        min-width: 34px !important;
+        min-height: 34px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .page-item.previous .page-link,
+    body.page-documents .bottom-pagination-bar .page-item.next .page-link,
+    body.page-documents .bottom-pagination-bar .page-item[id$="_previous"] .page-link,
+    body.page-documents .bottom-pagination-bar .page-item[id$="_next"] .page-link,
+    body.page-general-docs .bottom-pagination-bar .page-item.previous .page-link,
+    body.page-general-docs .bottom-pagination-bar .page-item.next .page-link,
+    body.page-general-docs .bottom-pagination-bar .page-item[id$="_previous"] .page-link,
+    body.page-general-docs .bottom-pagination-bar .page-item[id$="_next"] .page-link {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 34px !important;
+        height: 34px !important;
+        min-width: 34px !important;
+        min-height: 34px !important;
+        font-size: 0 !important;
+        line-height: 1 !important;
+    }
+
+    body.page-documents .bottom-pagination-bar .page-item.previous .page-link::before,
+    body.page-documents .bottom-pagination-bar .page-item.next .page-link::before,
+    body.page-documents .bottom-pagination-bar .page-item[id$="_previous"] .page-link::before,
+    body.page-documents .bottom-pagination-bar .page-item[id$="_next"] .page-link::before,
+    body.page-general-docs .bottom-pagination-bar .page-item.previous .page-link::before,
+    body.page-general-docs .bottom-pagination-bar .page-item.next .page-link::before,
+    body.page-general-docs .bottom-pagination-bar .page-item[id$="_previous"] .page-link::before,
+    body.page-general-docs .bottom-pagination-bar .page-item[id$="_next"] .page-link::before {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 100% !important;
+        height: 100% !important;
+        margin: 0 !important;
+        line-height: 1 !important;
+        transform: translateY(-1px);
+    }
+}
+
+@keyframes fixie-mobile-shell-fade {
+    from { opacity: 0.96; }
+    to { opacity: 1; }
+}
+
+@keyframes fixie-mobile-menu-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@media (max-width: 767.98px) and (prefers-reduced-motion: no-preference) {
+    body.page-documents .main-content.fade-in,
+    body.page-general-docs .main-content.fade-in {
+        animation: fixie-mobile-shell-fade 160ms ease-out both !important;
+    }
+
+    body.page-documents .dropdown-menu.show,
+    body.page-general-docs .dropdown-menu.show {
+        animation: fixie-mobile-menu-fade 140ms ease-out both !important;
+    }
+
+    body.page-documents .btn,
+    body.page-general-docs .btn,
+    body.page-documents .btn-dots,
+    body.page-general-docs .btn-dots,
+    body.page-documents .page-link,
+    body.page-general-docs .page-link,
+    body.page-documents .folder-card,
+    body.page-general-docs .folder-card,
+    body.page-documents #documentsTable tbody td,
+    body.page-general-docs #documentsTable tbody td,
+    body.page-documents .sleek-search,
+    body.page-general-docs .sleek-search {
+        transition-property: color, background-color, border-color, box-shadow, opacity, transform !important;
+        transition-duration: 160ms !important;
+        transition-timing-function: cubic-bezier(0.2, 0, 0, 1) !important;
+    }
+
+    body.page-documents .modal.fade .modal-dialog,
+    body.page-general-docs .modal.fade .modal-dialog {
+        transition: transform 180ms cubic-bezier(0.2, 0, 0, 1), opacity 180ms ease-out !important;
+    }
+}
+
+/* === FINAL MOBILE LIST TITLE ACTIONS === */
+/* Kept at the end because this stylesheet loads after the shared styles. */
+@media (max-width: 767.98px) {
+    :is(body.page-pr-list, body.page-po-list, body.page-quotation-list) .page-header .list-title-row {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        gap: 0.75rem !important;
+        margin: 0 !important;
+        position: relative !important;
+        z-index: 2 !important;
+    }
+
+    :is(body.page-pr-list, body.page-po-list, body.page-quotation-list) .page-header .list-title-copy {
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
+    }
+
+    :is(body.page-pr-list, body.page-po-list, body.page-quotation-list) .page-header .list-title-copy h3 {
+        overflow: hidden !important;
+        margin: 0 !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+
+    :is(body.page-pr-list, body.page-po-list, body.page-quotation-list) .page-header .list-title-copy > span {
+        display: none !important;
+    }
+
+    :is(body.page-pr-list, body.page-po-list, body.page-quotation-list) .page-header .mobile-list-create-action {
+        position: relative !important;
+        inset: auto !important;
+        z-index: 3 !important;
+        display: inline-flex !important;
+        flex: 0 0 48px !important;
+        align-items: center !important;
+        justify-content: center !important;
+        box-sizing: border-box !important;
+        width: 48px !important;
+        min-width: 48px !important;
+        height: 48px !important;
+        min-height: 48px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        color: #ffffff !important;
+        background: linear-gradient(145deg, #2f6fec 0%, #1d4ed8 100%) !important;
+        border: 1px solid rgba(29, 78, 216, 0.72) !important;
+        border-radius: 14px !important;
+        box-shadow: 0 5px 14px rgba(37, 99, 235, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+        text-decoration: none !important;
+        line-height: 1 !important;
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+        pointer-events: auto !important;
+        -webkit-user-select: none;
+        user-select: none;
+    }
+
+    :is(body.page-pr-list, body.page-po-list, body.page-quotation-list) .page-header .mobile-list-create-icon {
+        display: block !important;
+        width: 22px !important;
+        height: 22px !important;
+        margin: 0 !important;
+        overflow: visible !important;
+        fill: none !important;
+        stroke: currentColor !important;
+        stroke-width: 2.35 !important;
+        stroke-linecap: round !important;
+        stroke-linejoin: round !important;
+        pointer-events: none !important;
+        shape-rendering: geometricPrecision;
+    }
+
+    :is(body.page-pr-list, body.page-po-list, body.page-quotation-list) .page-header .mobile-list-create-action:focus-visible {
+        outline: 3px solid rgba(37, 99, 235, 0.24) !important;
+        outline-offset: 2px !important;
+    }
+
+    :is(body.page-pr-list, body.page-po-list, body.page-quotation-list) .page-header .mobile-list-create-action:active {
+        background: #1d4ed8 !important;
+        box-shadow: 0 2px 7px rgba(37, 99, 235, 0.24) !important;
+        transform: scale(0.96) !important;
+    }
+}
+
+/* === IPHONE / OLDER SAFARI-SAFE MOBILE CREATE ACTION === */
+/* Explicit selectors and prefixed flex properties avoid WebKit differences in :is() handling. */
+@media screen and (max-width: 767px) {
+    body.page-pr-list .page-header .list-title-row,
+    body.page-po-list .page-header .list-title-row,
+    body.page-quotation-list .page-header .list-title-row {
+        position: relative !important;
+        z-index: 2 !important;
+        display: -webkit-flex !important;
+        display: flex !important;
+        -webkit-align-items: center !important;
+        align-items: center !important;
+        -webkit-justify-content: space-between !important;
+        justify-content: space-between !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        margin: 0 !important;
+    }
+
+    body.page-pr-list .page-header .list-title-copy,
+    body.page-po-list .page-header .list-title-copy,
+    body.page-quotation-list .page-header .list-title-copy {
+        -webkit-flex: 1 1 auto !important;
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
+        margin-right: 12px !important;
+    }
+
+    body.page-pr-list .page-header .list-title-copy > span,
+    body.page-po-list .page-header .list-title-copy > span,
+    body.page-quotation-list .page-header .list-title-copy > span {
+        display: none !important;
+    }
+
+    body.page-pr-list .page-header .mobile-list-create-action,
+    body.page-po-list .page-header .mobile-list-create-action,
+    body.page-quotation-list .page-header .mobile-list-create-action {
+        position: relative !important;
+        z-index: 3 !important;
+        display: -webkit-inline-flex !important;
+        display: inline-flex !important;
+        -webkit-flex: 0 0 48px !important;
+        flex: 0 0 48px !important;
+        -webkit-align-items: center !important;
+        align-items: center !important;
+        -webkit-justify-content: center !important;
+        justify-content: center !important;
+        -webkit-align-self: center !important;
+        align-self: center !important;
+        box-sizing: border-box !important;
+        width: 48px !important;
+        min-width: 48px !important;
+        max-width: 48px !important;
+        height: 48px !important;
+        min-height: 48px !important;
+        max-height: 48px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+        color: #ffffff !important;
+        background-color: #2563eb !important;
+        background-image: linear-gradient(145deg, #2f6fec 0%, #1d4ed8 100%) !important;
+        border: 1px solid #1d4ed8 !important;
+        border-radius: 14px !important;
+        box-shadow: 0 5px 14px rgba(37, 99, 235, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+        text-decoration: none !important;
+        line-height: 1 !important;
+        vertical-align: middle !important;
+        cursor: pointer !important;
+        pointer-events: auto !important;
+        -webkit-appearance: none !important;
+        appearance: none !important;
+        -webkit-tap-highlight-color: transparent !important;
+        -webkit-touch-callout: none !important;
+        touch-action: manipulation !important;
+    }
+
+    body.page-pr-list .page-header .mobile-list-create-icon,
+    body.page-po-list .page-header .mobile-list-create-icon,
+    body.page-quotation-list .page-header .mobile-list-create-icon {
+        display: block !important;
+        -webkit-flex: 0 0 22px !important;
+        flex: 0 0 22px !important;
+        width: 22px !important;
+        min-width: 22px !important;
+        max-width: 22px !important;
+        height: 22px !important;
+        min-height: 22px !important;
+        max-height: 22px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: visible !important;
+        fill: none !important;
+        stroke: currentColor !important;
+        stroke-width: 2.35 !important;
+        stroke-linecap: round !important;
+        stroke-linejoin: round !important;
+        pointer-events: none !important;
+    }
+
+    body.page-pr-list .page-header .mobile-list-create-action:focus,
+    body.page-po-list .page-header .mobile-list-create-action:focus,
+    body.page-quotation-list .page-header .mobile-list-create-action:focus {
+        outline: 3px solid rgba(37, 99, 235, 0.24) !important;
+        outline-offset: 2px !important;
+    }
+
+    body.page-pr-list .page-header .mobile-list-create-action:active,
+    body.page-po-list .page-header .mobile-list-create-action:active,
+    body.page-quotation-list .page-header .mobile-list-create-action:active {
+        background-color: #1d4ed8 !important;
+        background-image: none !important;
+        box-shadow: 0 2px 7px rgba(37, 99, 235, 0.24) !important;
+        -webkit-transform: scale(0.96) !important;
+        transform: scale(0.96) !important;
+    }
+}
+
+
+/* Full flexible Waiting for Client Approval status */
+@media screen and (max-width: 767.98px) {
+    body.page-quotation-list #dataTable.premium-table .mobile-list-status.bg-soft-warning {
+        display: inline-flex !important;
+        flex: 0 0 auto !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: fit-content !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        padding: 0.2rem 0.45rem !important;
+        overflow: visible !important;
+        color: #92400e !important;
+        background: #fffbeb !important;
+        border: 1px solid #facc15 !important;
+        border-radius: 999px !important;
+        font-size: 0.56rem !important;
+        font-weight: 600 !important;
+        line-height: 1.2 !important;
+        text-overflow: clip !important;
+        white-space: nowrap !important;
+    }
+}

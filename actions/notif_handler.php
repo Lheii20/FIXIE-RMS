@@ -87,7 +87,7 @@ if ($action === 'mark_all_read') {
     exit();
 }
 
-if ($notif_id < 1 || !in_array($action, ['delete', 'mark_read', 'pin'], true)) {
+if ($notif_id < 1 || !in_array($action, ['delete', 'mark_read', 'mark_unread', 'pin'], true)) {
     echo json_encode(['status' => 'error', 'message' => 'Invalid request.']);
     exit();
 }
@@ -106,6 +106,8 @@ if ($action === 'delete') {
     $affected = personal_notification_update($conn, "UPDATE notification_user_states SET is_deleted = 1 WHERE notif_id = ? AND user_id = ?", "ii", [$notif_id, $user_id]);
 } elseif ($action === 'mark_read') {
     $affected = personal_notification_update($conn, "UPDATE notification_user_states SET is_read = 1, read_at = COALESCE(read_at, NOW()) WHERE notif_id = ? AND user_id = ? AND is_deleted = 0", "ii", [$notif_id, $user_id]);
+} elseif ($action === 'mark_unread') {
+    $affected = personal_notification_update($conn, "UPDATE notification_user_states SET is_read = 0, read_at = NULL WHERE notif_id = ? AND user_id = ? AND is_deleted = 0", "ii", [$notif_id, $user_id]);
 } else {
     $affected = personal_notification_update($conn, "UPDATE notification_user_states SET is_pinned = NOT is_pinned WHERE notif_id = ? AND user_id = ? AND is_deleted = 0", "ii", [$notif_id, $user_id]);
 }

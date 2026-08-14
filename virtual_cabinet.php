@@ -62,12 +62,12 @@ $f_stat = $conn->query("SELECT COUNT(*) as c FROM document_categories WHERE draw
 $doc_stats = $conn->query("
     SELECT 
         COUNT(*) as total,
-        SUM(CASE WHEN record_phase IN ('Working', 'For Review', 'Converted') OR record_phase IS NULL THEN 1 ELSE 0 END) as working,
-        SUM(CASE WHEN record_phase = 'Official' THEN 1 ELSE 0 END) as official,
+        SUM(CASE WHEN status != 'Archived' AND (record_phase IN ('Working', 'For Review', 'Draft', 'Under Review', 'Pending Approval', 'Needs Revision', 'Rejected', 'Approved') OR record_phase IS NULL) THEN 1 ELSE 0 END) as working,
+        SUM(CASE WHEN status != 'Archived' AND record_phase = 'Official' THEN 1 ELSE 0 END) as official,
         SUM(CASE WHEN status = 'Archived' THEN 1 ELSE 0 END) as archived,
         SUM(CASE WHEN d.doc_id IN (SELECT document_id FROM virt_document_locations WHERE status = 'Borrowed') THEN 1 ELSE 0 END) as borrowed
     FROM documents d 
-    WHERE status != 'Recycled' AND category IN (SELECT sub_category FROM document_categories WHERE drawer_id IS NOT NULL)
+    WHERE status != 'Recycled' AND (record_phase != 'Converted' OR record_phase IS NULL) AND category IN (SELECT sub_category FROM document_categories WHERE drawer_id IS NOT NULL)
 ")->fetch_assoc();
 
 // Fetch All Users for Borrowing Dropdown
@@ -102,133 +102,24 @@ if(isset($_GET['success'])) {
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <!-- Modern Flatpickr Calendar CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-    <style>
-        body.bg-f8f9fa { overflow: hidden !important; }
-        .main-content {
-            display: flex; flex-direction: column; height: 100vh !important;
-            padding-top: 75px !important; padding-bottom: 15px !important;
-            overflow: hidden !important; background-color: #f8f9fa;
-        }
-        
-        /* Sleek Hierarchy Styling */
-        .cabinet-sidebar {
-            background: #ffffff; border-right: 1px solid #e2e8f0;
-            overflow-y: auto; height: 100%; border-radius: 12px 0 0 12px;
-        }
-        .cabinet-sidebar::-webkit-scrollbar { width: 6px; }
-        .cabinet-sidebar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-        
-        .cabinet-main-view {
-            background: #f8fafc; overflow-y: auto; height: 100%;
-            border-radius: 0 12px 12px 0; padding: 1.5rem;
-        }
-
-        /* Accordion Enhancements */
-        .accordion-button:not(.collapsed) {
-            background-color: #eff6ff !important; color: #1d4ed8 !important; box-shadow: none !important;
-        }
-        .accordion-button:focus { border-color: transparent !important; box-shadow: none !important; }
-        .drawer-item {
-            padding: 10px 15px; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: all 0.2s ease;
-        }
-        .drawer-item:hover, .drawer-item.active {
-            background-color: #f8fafc; border-left: 3px solid #3b82f6; color: #1e293b; font-weight: 600;
-        }
-
-        /* Content Tiles */
-        .physical-folder-card {
-            background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px;
-            padding: 15px; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-        }
-        .physical-folder-card:hover { transform: translateY(-3px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); border-color: #cbd5e1; }
-        
-        .document-list-item {
-            background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;
-            padding: 12px 15px; margin-bottom: 10px; transition: all 0.2s ease;
-        }
-        .document-list-item:hover { border-color: #94a3b8; }
-        
-        .status-badge.stored { background-color: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
-        .status-badge.borrowed { background-color: #fef9c3; color: #166534; border: 1px solid #fef08a; color: #a16207; }
-        .status-badge.returned { background-color: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
-        
-        /* Custom Dropdown styling */
-        .custom-select-btn {
-            border: 1px solid #e2e8f0;
-            background-color: #ffffff;
-            transition: all 0.2s ease;
-        }
-        .custom-select-btn:hover, .custom-select-btn:focus {
-            border-color: #94a3b8;
-            box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.15);
-        }
-        
-        /* Custom Date Picker Styling */
-        .custom-date-btn {
-            border: 1px solid #e2e8f0 !important;
-            transition: all 0.2s ease;
-            color: #475569;
-            cursor: pointer;
-            padding-left: 42px !important;
-            background-color: #ffffff !important;
-        }
-        .custom-date-btn:hover, .custom-date-btn:focus {
-            border-color: #94a3b8 !important;
-            box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.15) !important;
-            outline: none;
-        }
-
-        /* Enterprise Flatpickr Calendar Styling */
-        .flatpickr-calendar {
-            width: 320px !important;
-            border: 1px solid #cbd5e1 !important;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.15) !important;
-            border-radius: 12px !important;
-            z-index: 1070 !important;
-            font-family: inherit !important;
-            padding: 8px !important;
-        }
-        .flatpickr-day.selected {
-            background: #0d6efd !important;
-            border-color: #0d6efd !important;
-            font-weight: bold;
-            box-shadow: 0 4px 10px rgba(13, 110, 253, 0.3) !important;
-        }
-        .flatpickr-day:hover {
-            background: #f1f5f9 !important;
-        }
-
-        /* VIRTUAL CABINET: Target File Highlighter */
-        @keyframes pulseTargetItem {
-            0% { box-shadow: 0 0 0 0 rgba(13, 110, 253, 0.5); background-color: #e0f2fe; border-color: #0d6efd; }
-            70% { box-shadow: 0 0 0 10px rgba(13, 110, 253, 0); background-color: #e0f2fe; border-color: #0d6efd; }
-            100% { box-shadow: 0 0 0 0 rgba(13, 110, 253, 0); background-color: #ffffff; border-color: #e2e8f0; }
-        }
-        .highlight-target-file {
-            animation: pulseTargetItem 1.5s infinite !important; /* Infinite pulse para mapansin agad */
-            border-left: 5px solid #0d6efd !important;
-            background-color: #f0f9ff !important;
-            transition: all 0.3s ease;
-        }
-    </style>
+    
 </head>
-<body class="bg-f8f9fa">
+<body class="bg-f8f9fa page-virtual-cabinet">
 <?php include 'sidebar.php'; ?>
 
 <div class="main-content fade-in">
     <!-- HEADER & SMART SEARCH -->
-    <div class="d-flex flex-wrap justify-content-between align-items-end mb-3 gap-3">
+    <div class="vc-page-header d-flex flex-wrap justify-content-between align-items-end mb-3 gap-3">
         <div>
-            <h3 class="fw-bold mb-0 text-dark letter-spacing-tight"><i class="fas fa-boxes text-primary me-2"></i> Virtual Cabinet</h3>
+            <h3 class="fw-bold mb-0 text-dark letter-spacing-tight"><i class="fas fa-boxes-stacked text-primary me-2"></i> Virtual Cabinet</h3>
             <p class="text-muted mb-0 small">Physical records location management and tracking system.</p>
         </div>
         
         <!-- Smart Search Bar -->
-        <div class="position-relative" style="width: 450px; max-width: 100%;">
+        <div class="vc-smart-search-wrap position-relative" style="width: 450px; max-width: 100%;">
             <div class="input-group input-group-sm sleek-search shadow-sm rounded-pill overflow-hidden bg-white border border-secondary border-opacity-25">
                 <span class="input-group-text bg-transparent border-0 text-primary ps-3"><i class="fas fa-search"></i></span>
                 <input type="text" id="smartSearchInput" class="form-control border-0 shadow-none px-2 py-2 fs-sm fw-medium" placeholder="Search Document Title, Record No., Folder, Uploader..." onkeyup="performSmartSearch(this.value)" autocomplete="off">
-                <button class="btn btn-primary fw-bold px-3 shadow-none" type="button" onclick="performSmartSearch(document.getElementById('smartSearchInput').value)">Locate File</button>
             </div>
             <!-- Search Results Dropdown -->
             <ul class="dropdown-menu shadow-lg border-0 rounded-3 w-100 mt-2 p-2" id="smartSearchResults" style="max-height: 400px; overflow-y: auto; display: none; position: absolute; z-index: 1050;">
@@ -238,23 +129,57 @@ if(isset($_GET['success'])) {
     </div>
 
     <!-- ENTERPRISE SUMMARY DASHBOARD -->
-    <div class="row g-2 mb-3">
-        <div class="col"><div class="bg-white border rounded-3 p-2 text-center shadow-sm"><div class="text-muted fs-xs fw-bold text-uppercase">Cabinets</div><div class="fs-5 fw-bold text-dark"><?php echo $cab_stat; ?></div></div></div>
-        <div class="col"><div class="bg-white border rounded-3 p-2 text-center shadow-sm"><div class="text-muted fs-xs fw-bold text-uppercase">Drawers</div><div class="fs-5 fw-bold text-dark"><?php echo $draw_stat; ?></div></div></div>
-        <div class="col"><div class="bg-white border rounded-3 p-2 text-center shadow-sm"><div class="text-muted fs-xs fw-bold text-uppercase">Folders</div><div class="fs-5 fw-bold text-dark"><?php echo $f_stat; ?></div></div></div>
-        <div class="col"><div class="bg-primary bg-opacity-10 border border-primary border-opacity-25 rounded-3 p-2 text-center shadow-sm"><div class="text-primary fs-xs fw-bold text-uppercase">Working</div><div class="fs-5 fw-bold text-primary"><?php echo $doc_stats['working'] ?? 0; ?></div></div></div>
-        <div class="col"><div class="bg-success bg-opacity-10 border border-success border-opacity-25 rounded-3 p-2 text-center shadow-sm"><div class="text-success fs-xs fw-bold text-uppercase">Official</div><div class="fs-5 fw-bold text-success"><?php echo $doc_stats['official'] ?? 0; ?></div></div></div>
-        <div class="col"><div class="bg-warning bg-opacity-10 border border-warning border-opacity-25 rounded-3 p-2 text-center shadow-sm"><div class="text-warning fs-xs fw-bold text-uppercase">Borrowed</div><div class="fs-5 fw-bold text-warning"><?php echo $doc_stats['borrowed'] ?? 0; ?></div></div></div>
+    <div class="vc-stats-grid row g-3 mb-4">
+        <div class="col-xl-2 col-md-4 col-6">
+            <div class="vc-stat-card">
+                <div class="vc-stat-icon bg-light text-secondary border"><i class="fas fa-server"></i></div>
+                <div><div class="text-muted fs-xs fw-bold text-uppercase letter-spacing-tight">Cabinets</div><div class="fs-5 fw-bold text-dark lh-1 mt-1"><?php echo $cab_stat; ?></div></div>
+            </div>
+        </div>
+        <div class="col-xl-2 col-md-4 col-6">
+            <div class="vc-stat-card">
+                <div class="vc-stat-icon bg-light text-secondary border"><i class="fas fa-window-minimize"></i></div>
+                <div><div class="text-muted fs-xs fw-bold text-uppercase letter-spacing-tight">Drawers</div><div class="fs-5 fw-bold text-dark lh-1 mt-1"><?php echo $draw_stat; ?></div></div>
+            </div>
+        </div>
+        <div class="col-xl-2 col-md-4 col-6">
+            <div class="vc-stat-card">
+                <div class="vc-stat-icon bg-light text-secondary border"><i class="fas fa-folder"></i></div>
+                <div><div class="text-muted fs-xs fw-bold text-uppercase letter-spacing-tight">Folders</div><div class="fs-5 fw-bold text-dark lh-1 mt-1"><?php echo $f_stat; ?></div></div>
+            </div>
+        </div>
+        <div class="col-xl-2 col-md-4 col-6">
+            <div class="vc-stat-card border-primary border-opacity-25">
+                <div class="vc-stat-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-tools"></i></div>
+                <div><div class="text-primary fs-xs fw-bold text-uppercase letter-spacing-tight">Working</div><div class="fs-5 fw-bold text-dark lh-1 mt-1"><?php echo $doc_stats['working'] ?? 0; ?></div></div>
+            </div>
+        </div>
+        <div class="col-xl-2 col-md-4 col-6">
+            <div class="vc-stat-card border-success border-opacity-25">
+                <div class="vc-stat-icon bg-success bg-opacity-10 text-success"><i class="fas fa-certificate"></i></div>
+                <div><div class="text-success fs-xs fw-bold text-uppercase letter-spacing-tight">Official</div><div class="fs-5 fw-bold text-dark lh-1 mt-1"><?php echo $doc_stats['official'] ?? 0; ?></div></div>
+            </div>
+        </div>
+        <div class="col-xl-2 col-md-4 col-6">
+            <div class="vc-stat-card border-warning border-opacity-50">
+                <div class="vc-stat-icon bg-warning bg-opacity-10 text-warning"><i class="fas fa-hand-holding"></i></div>
+                <div><div class="text-warning fs-xs fw-bold text-uppercase letter-spacing-tight">Borrowed</div><div class="fs-5 fw-bold text-dark lh-1 mt-1"><?php echo $doc_stats['borrowed'] ?? 0; ?></div></div>
+            </div>
+        </div>
     </div>
 
     <!-- Split View Container -->
-    <div class="d-flex flex-grow-1 shadow-sm rounded-4 border border-light overflow-hidden">
+    <div class="vc-cabinet-shell d-flex flex-grow-1 shadow-sm rounded-4 border border-light overflow-hidden">
+        <button class="vc-mobile-location-toggle d-md-none" type="button" data-bs-toggle="collapse" data-bs-target="#cabinetLocationTree" aria-expanded="false" aria-controls="cabinetLocationTree">
+            <span><i class="fas fa-folder-tree me-2"></i>Browse storage location</span>
+            <i class="fas fa-chevron-down vc-toggle-chevron" aria-hidden="true"></i>
+        </button>
         
         <!-- Left: Storage Hierarchy -->
-        <div class="col-lg-3 col-md-4 cabinet-sidebar p-3">
+        <div class="col-lg-3 col-md-4 cabinet-sidebar p-3 collapse d-md-block" id="cabinetLocationTree">
             <h6 class="fw-bold text-muted text-uppercase fs-xs letter-spacing-tight mb-3 px-2">Storage Hierarchy</h6>
             
-            <div class="accordion accordion-flush border border-light rounded-3 overflow-hidden" id="buildingAccordion">
+            <div class="accordion tree-accordion" id="buildingAccordion">
                 
                 <?php if(empty($tree)): ?>
                     <div class="p-4 text-center text-muted fs-sm">No storage locations configured.</div>
@@ -270,17 +195,17 @@ if(isset($_GET['success'])) {
                             <div class="accordion-body p-0">
                                 <?php foreach($b_data['rooms'] as $r_id => $r_data): ?>
                                     <!-- Room -->
-                                    <div class="px-3 py-2 bg-light border-bottom border-top fw-bold text-secondary fs-xs">
-                                        <i class="fas fa-door-open me-1"></i> <?php echo htmlspecialchars($r_data['name']); ?>
+                                    <div class="px-4 py-2 bg-f8f9fa border-bottom fw-bold text-secondary fs-xs text-uppercase letter-spacing-tight">
+                                        <i class="fas fa-door-open me-1 opacity-75"></i> <?php echo htmlspecialchars($r_data['name']); ?>
                                     </div>
                                     
                                     <!-- Cabinets & Drawers -->
-                                    <div class="accordion accordion-flush" id="cabinetAccordion_<?php echo $r_id; ?>">
+                                    <div class="accordion tree-accordion ps-2" id="cabinetAccordion_<?php echo $r_id; ?>">
                                         <?php foreach($r_data['cabinets'] as $c_id => $c_data): ?>
                                         <div class="accordion-item border-0 border-bottom">
                                             <h2 class="accordion-header">
                                                 <button class="accordion-button collapsed fw-medium text-dark fs-sm py-2 px-4" type="button" data-bs-toggle="collapse" data-bs-target="#collapseC_<?php echo $c_id; ?>">
-                                                    <i class="fas fa-server text-info me-2 opacity-75"></i> <?php echo htmlspecialchars($c_data['name']); ?>
+                                                    <i class="fas fa-boxes-stacked text-info me-2 opacity-75"></i> <?php echo htmlspecialchars($c_data['name']); ?>
                                                 </button>
                                             </h2>
                                             <div id="collapseC_<?php echo $c_id; ?>" class="accordion-collapse collapse" data-bs-parent="#cabinetAccordion_<?php echo $r_id; ?>">
@@ -289,7 +214,7 @@ if(isset($_GET['success'])) {
                                                     $breadCrumb = htmlspecialchars($b_data['name'] . " > " . $r_data['name'] . " > " . $c_data['name'] . " > " . $d_name); 
                                                     ?>
                                                     <div class="drawer-item fs-sm text-muted ps-5" onclick="loadDrawerContents(<?php echo $d_id; ?>, this, '<?php echo addslashes($breadCrumb); ?>')">
-                                                        <i class="fas fa-window-minimize me-2"></i> <?php echo htmlspecialchars($d_name); ?>
+                                                        <i class="fas fa-box me-2"></i> <?php echo htmlspecialchars($d_name); ?>
                                                     </div>
                                                 <?php endforeach; ?>
                                             </div>
@@ -307,23 +232,23 @@ if(isset($_GET['success'])) {
         </div>
 
         <!-- Right: Drawer Contents & Documents -->
-        <div class="col-lg-9 col-md-8 cabinet-main-view" id="mainViewContent">
+        <div class="col-lg-9 col-md-8 cabinet-main-view vc-main-panel" id="mainViewContent">
             
             <!-- Breadcrumb location -->
-            <div class="d-flex align-items-center text-muted fs-xs fw-bold text-uppercase letter-spacing-tight mb-4">
-                <i class="fas fa-map-marker-alt text-danger me-2 fs-6"></i>
+            <div class="vc-location-breadcrumb d-flex align-items-center text-muted fs-xs fw-bold text-uppercase letter-spacing-tight mb-4">
+                <i class="fas fa-location-dot text-danger me-2 fs-6"></i>
                 <span id="viewBreadcrumb">Select a drawer to view contents</span>
             </div>
 
             <!-- Initial Placeholder -->
-            <div id="placeholderView" class="text-center py-5 mt-5">
+            <div id="placeholderView" class="vc-placeholder text-center py-5 mt-5">
                 <i class="fas fa-inbox fa-4x text-muted opacity-25 mb-3"></i>
                 <h5 class="fw-bold text-dark">No Selection</h5>
                 <p class="text-muted fs-sm">Navigate the storage hierarchy on the left to locate physical files.</p>
             </div>
 
             <!-- Loader -->
-            <div id="loadingView" class="text-center py-5 mt-5 d-none">
+            <div id="loadingView" class="vc-loading text-center py-5 mt-5 d-none">
                 <div class="spinner-border text-primary" role="status"></div>
                 <p class="text-muted fs-sm mt-3 fw-bold">Fetching records...</p>
             </div>
@@ -338,9 +263,9 @@ if(isset($_GET['success'])) {
 
             <!-- Documents View -->
             <div id="documentsView" class="d-none">
-                <div class="d-flex align-items-center mb-4 pb-3 border-bottom">
-                    <button class="btn btn-sm btn-white border shadow-sm rounded-circle me-3" style="width: 35px; height: 35px;" onclick="backToFolders()">
-                        <i class="fas fa-arrow-left text-secondary"></i>
+                <div class="vc-documents-header d-flex align-items-center mb-4 pb-3 border-bottom">
+                    <button class="btn btn-sm btn-white border shadow-sm rounded-circle me-3 d-inline-flex align-items-center justify-content-center" style="width: 35px; height: 35px;" onclick="backToFolders()" aria-label="Back to folders">
+                        <i class="fas fa-arrow-left text-secondary d-block" aria-hidden="true"></i>
                     </button>
                     <div>
                         <h5 class="fw-bold text-dark mb-0" id="selectedFolderName">Folder Name</h5>
@@ -366,7 +291,7 @@ if(isset($_GET['success'])) {
 <script>
     // System Consistent Toast Notification
     document.addEventListener("DOMContentLoaded", function() {
-        const Toast = Swal.mixin({
+        window.systemToast = Swal.mixin({
             toast: true,
             position: 'bottom-end',
             showConfirmButton: false,
@@ -379,7 +304,7 @@ if(isset($_GET['success'])) {
         const toastType = "<?php echo $toastType; ?>";
 
         if (toastMsg !== '') {
-            Toast.fire({ icon: toastType, title: toastMsg });
+            window.systemToast.fire({ icon: toastType, title: toastMsg });
             
             const url = new URL(window.location);
             url.searchParams.delete('success');
@@ -391,6 +316,8 @@ if(isset($_GET['success'])) {
         window.activeDrawerId = null;
         window.activeFolderId = null;
         window.pendingFolderClick = null;
+        window.pendingDocHighlight = null;
+        window.pendingDocModal = false;
 
         flatpickr("#plReturnDate", {
             dateFormat: "Y-m-d", 
@@ -399,17 +326,22 @@ if(isset($_GET['success'])) {
             altFormat: "F j, Y", 
             minDate: "today",
             disableMobile: true,
-            appendTo: document.getElementById('physicalLocationModal'),
             position: "auto"
+            // FIX: Tinanggal ang "appendTo" para kusang pumunta sa <body class="page-virtual-cabinet"> ang calendar.
+            // Ito ay mag-aayos sa month navigation clicks!
         });
 
         const urlParams = new URLSearchParams(window.location.search);
         const drawerParam = urlParams.get('drawer');
         const folderParam = urlParams.get('folder');
+        const docParam = urlParams.get('doc');
+        const reopenProfile = urlParams.get('reopen') === 'profile';
+
+        window.pendingDocHighlight = docParam;
+        window.pendingDocModal = reopenProfile;
 
         if (drawerParam) {
             window.pendingFolderClick = folderParam;
-            window.pendingDocHighlight = urlParams.get('doc'); // Binabasa ang Doc ID
             setTimeout(() => {
                 let drawerEl = document.querySelector(`.drawer-item[onclick*="loadDrawerContents(${drawerParam}"]`);
                 if(drawerEl) {
@@ -421,8 +353,21 @@ if(isset($_GET['success'])) {
                     drawerEl.click();
                 }
             }, 100);
+        } else if (docParam && reopenProfile) {
+            setTimeout(() => {
+                openDocumentProfile(docParam);
+                clearProfileRestoreFlag();
+                window.pendingDocHighlight = null;
+                window.pendingDocModal = false;
+            }, 150);
         }
     });
+
+    function clearProfileRestoreFlag() {
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete('reopen');
+        window.history.replaceState({}, document.title, cleanUrl);
+    }
 
     function formatBreadcrumb(str) {
         return str.replace(/ > /g, ' <i class="fas fa-chevron-right mx-2 small opacity-50"></i> ');
@@ -430,17 +375,17 @@ if(isset($_GET['success'])) {
 
     function getFileIcon(fileName) {
         const ext = fileName.split('.').pop().toLowerCase();
-        if (['pdf'].includes(ext)) return '<i class="fas fa-file-pdf text-danger fs-3 me-3 opacity-75"></i>';
-        if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) return '<i class="far fa-image text-info fs-3 me-3 opacity-75"></i>';
-        if (['doc', 'docx'].includes(ext)) return '<i class="fas fa-file-word text-primary fs-3 me-3 opacity-75"></i>';
-        if (['xls', 'xlsx'].includes(ext)) return '<i class="fas fa-file-excel text-success fs-3 me-3 opacity-75"></i>';
-        return '<i class="fas fa-file text-secondary fs-3 me-3 opacity-75"></i>';
+        if (['pdf'].includes(ext)) return '<i class="fas fa-file-pdf text-danger fs-3 opacity-75"></i>';
+        if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) return '<i class="fas fa-file-image text-info fs-3 opacity-75"></i>';
+        if (['doc', 'docx'].includes(ext)) return '<i class="fas fa-file-word text-primary fs-3 opacity-75"></i>';
+        if (['xls', 'xlsx'].includes(ext)) return '<i class="fas fa-file-excel text-success fs-3 opacity-75"></i>';
+        return '<i class="fas fa-file-lines text-secondary fs-3 opacity-75"></i>';
     }
 
     function getStatusBadge(status) {
-        if(status === 'Stored') return '<span class="badge status-badge stored px-3 py-2 rounded-pill"><i class="fas fa-check-circle me-1"></i> Stored</span>';
-        if(status === 'Borrowed') return '<span class="badge status-badge borrowed px-3 py-2 rounded-pill"><i class="fas fa-hand-holding me-1"></i> Borrowed</span>';
-        return '<span class="badge status-badge returned px-3 py-2 rounded-pill"><i class="fas fa-undo me-1"></i> Returned</span>';
+        if(status === 'Stored') return '<span class="badge status-badge vc-physical-status stored px-3 py-2 rounded-pill"><i class="fas fa-check-circle me-1"></i> Stored</span>';
+        if(status === 'Borrowed') return '<span class="badge status-badge vc-physical-status borrowed px-3 py-2 rounded-pill"><i class="fas fa-hand-holding me-1"></i> Borrowed</span>';
+        return '<span class="badge status-badge vc-physical-status returned px-3 py-2 rounded-pill"><i class="fas fa-undo me-1"></i> Returned</span>';
     }
 
     function loadDrawerContents(drawerId, element, breadcrumbStr) {
@@ -452,6 +397,13 @@ if(isset($_GET['success'])) {
         document.querySelectorAll('.drawer-item').forEach(el => el.classList.remove('active'));
         element.classList.add('active');
 
+        if (window.matchMedia('(max-width: 767.98px)').matches) {
+            const locationTree = document.getElementById('cabinetLocationTree');
+            if (locationTree && locationTree.classList.contains('show')) {
+                bootstrap.Collapse.getOrCreateInstance(locationTree, { toggle: false }).hide();
+            }
+        }
+
         document.getElementById('placeholderView').classList.add('d-none');
         document.getElementById('documentsView').classList.add('d-none');
         document.getElementById('foldersView').classList.add('d-none');
@@ -460,7 +412,7 @@ if(isset($_GET['success'])) {
         $.ajax({
             url: 'actions/cabinet_fetcher.php',
             type: 'GET',
-            data: { action: 'get_folders', drawer_id: drawerId },
+            data: { action: 'get_folders', drawer_id: drawerId, t: new Date().getTime() },
             dataType: 'json',
             success: function(response) {
                 document.getElementById('loadingView').classList.add('d-none');
@@ -472,24 +424,26 @@ if(isset($_GET['success'])) {
                     } else {
                         response.data.forEach(f => {
                             let iconObj = f.type === 'Archive Box' 
-                                ? '<div class="bg-warning bg-opacity-10 text-warning rounded-3 d-flex align-items-center justify-content-center border border-warning border-opacity-25" style="width: 40px; height: 40px;"><i class="fas fa-archive fs-5"></i></div>'
-                                : '<div class="bg-primary bg-opacity-10 text-primary rounded-3 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;"><i class="fas fa-folder-open fs-5"></i></div>';
+                                ? '<div class="vc-folder-icon bg-warning bg-opacity-10 text-warning rounded-3 d-flex align-items-center justify-content-center border border-warning border-opacity-25" style="width: 40px; height: 40px;"><i class="fas fa-box-archive fs-5"></i></div>'
+                                : '<div class="vc-folder-icon bg-primary bg-opacity-10 text-primary rounded-3 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;"><i class="fas fa-folder fs-5"></i></div>';
                             
                             html += `
-                            <div class="col-xl-4 col-md-6">
+                            <div class="vc-folder-col col-xl-4 col-md-6">
                                 <div class="physical-folder-card h-100 d-flex flex-column" onclick="loadDocumentList(${f.id}, '${f.name}')">
-                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                    <div class="vc-folder-top d-flex justify-content-between align-items-center mb-3">
                                         ${iconObj}
-                                        <span class="badge bg-light text-secondary border">${f.type}</span>
+                                        <span class="vc-folder-type badge bg-light text-secondary border px-2 py-1 fs-xs fw-medium rounded-pill">${f.type}</span>
                                     </div>
-                                    <h6 class="fw-bold text-dark mb-2 text-truncate" title="${f.name}">${f.name}</h6>
+                                    <h6 class="vc-folder-name fw-bold text-dark mb-1 text-truncate" title="${f.name}">${f.name}</h6>
+                                    <div class="vc-folder-meta text-muted fs-xs mb-3">${f.doc_count} total physical files</div>
                                     
                                     <!-- Detailed Folder Stats -->
-                                    <div class="d-flex gap-2 mt-auto pt-2 border-top border-light">
-                                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle" title="Working Docs"><i class="fas fa-tools"></i> ${f.working_count}</span>
-                                        <span class="badge bg-success bg-opacity-10 text-success border border-success-subtle" title="Official Records"><i class="fas fa-certificate"></i> ${f.official_count}</span>
-                                        <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary-subtle" title="Archived"><i class="fas fa-archive"></i> ${f.archived_count}</span>
+                                    <div class="vc-folder-stats d-flex gap-2 mt-auto">
+                                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle rounded-pill fw-medium" title="Working Docs"><i class="fas fa-tools me-1"></i> ${f.working_count}</span>
+                                        <span class="badge bg-success bg-opacity-10 text-success border border-success-subtle rounded-pill fw-medium" title="Official Records"><i class="fas fa-certificate me-1"></i> ${f.official_count}</span>
+                                        <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary-subtle rounded-pill fw-medium" title="Archived"><i class="fas fa-archive me-1"></i> ${f.archived_count}</span>
                                     </div>
+                                    <i class="fas fa-chevron-right vc-row-chevron d-md-none" aria-hidden="true"></i>
                                 </div>
                             </div>`;
                         });
@@ -519,21 +473,25 @@ if(isset($_GET['success'])) {
         });
     }
 
-    function loadDocumentList(folderId, folderName) {
+    function loadDocumentList(folderId, folderName, silentRefresh = false) {
         window.activeFolderId = folderId;
-        
-        document.getElementById('foldersView').classList.add('d-none');
-        document.getElementById('documentsView').classList.add('d-none');
-        document.getElementById('loadingView').classList.remove('d-none');
+
+        if (!silentRefresh) {
+            document.getElementById('foldersView').classList.add('d-none');
+            document.getElementById('documentsView').classList.add('d-none');
+            document.getElementById('loadingView').classList.remove('d-none');
+        }
         document.getElementById('selectedFolderName').innerText = folderName;
 
         $.ajax({
             url: 'actions/cabinet_fetcher.php',
             type: 'GET',
-            data: { action: 'get_documents', folder_id: folderId },
+            data: { action: 'get_documents', folder_id: folderId, t: new Date().getTime() },
             dataType: 'json',
             success: function(response) {
-                document.getElementById('loadingView').classList.add('d-none');
+                if (!silentRefresh) {
+                    document.getElementById('loadingView').classList.add('d-none');
+                }
                 
                 if (response.status === 'success') {
                     let html = '';
@@ -547,47 +505,60 @@ if(isset($_GET['success'])) {
                             
                             let lifecycleBadge = '';
                             if (d.doc_status === 'Archived') {
-                                lifecycleBadge = '<span class="badge bg-secondary text-white ms-2" style="font-size: 0.65rem;"><i class="fas fa-archive"></i> Archived</span>';
+                                lifecycleBadge = '<span class="vc-lifecycle-badge badge bg-secondary text-white ms-2" style="font-size: 0.65rem;"><i class="fas fa-archive"></i> Archived</span>';
                             } else if (d.disposition_status === 'Ready for Disposition') {
-                                lifecycleBadge = '<span class="badge bg-danger text-white ms-2" style="font-size: 0.65rem;"><i class="fas fa-trash-alt"></i> For Disposition</span>';
+                                lifecycleBadge = '<span class="vc-lifecycle-badge badge bg-danger text-white ms-2" style="font-size: 0.65rem;"><i class="fas fa-trash-alt"></i> For Disposition</span>';
                             } else if (d.record_phase === 'Official') {
-                                lifecycleBadge = '<span class="badge bg-success text-white ms-2" style="font-size: 0.65rem;"><i class="fas fa-certificate"></i> Official</span>';
+                                lifecycleBadge = '<span class="vc-lifecycle-badge badge bg-success text-white ms-2" style="font-size: 0.65rem;"><i class="fas fa-certificate"></i> Official</span>';
                             } else {
-                                lifecycleBadge = '<span class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle ms-2" style="font-size: 0.65rem;"><i class="fas fa-tools"></i> Working</span>';
+                                lifecycleBadge = '<span class="vc-lifecycle-badge badge bg-primary bg-opacity-10 text-primary border border-primary-subtle ms-2" style="font-size: 0.65rem;"><i class="fas fa-tools"></i> Working</span>';
                             }
                             
                             // IDINAGDAG ANG target-doc ID DITO
                             html += `
-                            <div id="target-doc-${d.doc_id}" class="document-list-item d-flex justify-content-between align-items-center" onclick="openDocumentProfile(${d.doc_id}); this.classList.remove('highlight-target-file');" style="cursor:pointer;" title="Click to view full Physical Profile">
-                                <div class="d-flex align-items-center">
-                                    ${icon}
-                                    <div>
-                                        <h6 class="fw-bold text-dark fs-sm mb-1">${d.file_name} ${lifecycleBadge}</h6>
-                                        <div class="text-muted fs-xs"><i class="fas fa-folder me-1"></i> ${d.category} <span class="mx-1">•</span> <i class="fas fa-tag me-1"></i> ${refText}</div>
+                            <div id="target-doc-${d.doc_id}" class="document-list-item vc-document-row d-flex justify-content-between align-items-center" onclick="openDocumentProfile(${d.doc_id}); this.classList.remove('highlight-target-file');" style="cursor:pointer;" title="Click to view full Physical Profile">
+                                <div class="vc-document-main d-flex align-items-center flex-grow-1 overflow-hidden pe-3">
+                                    <div class="vc-document-icon bg-light border rounded-3 d-flex align-items-center justify-content-center me-3 flex-shrink-0" style="width: 46px; height: 46px;">
+                                        ${icon.replace('fs-3', 'fs-4 mb-0 me-0')}
+                                    </div>
+                                    <div class="vc-document-copy overflow-hidden w-100">
+                                        <div class="vc-document-title-row d-flex align-items-center mb-1">
+                                            <h6 class="fw-bold text-dark fs-sm mb-0 text-truncate me-2">${d.file_name}</h6>
+                                            ${lifecycleBadge}
+                                        </div>
+                                        <div class="vc-document-meta text-muted fs-xs text-truncate"><i class="fas fa-folder text-secondary opacity-75 me-1"></i> ${d.category} <span class="mx-1 opacity-50">•</span> <i class="fas fa-tag text-secondary opacity-75 me-1"></i> ${refText}</div>
                                     </div>
                                 </div>
-                                <div class="text-end">
+                                <div class="vc-document-status text-end flex-shrink-0">
                                     ${physicalStatusBadge}
-                                    <div class="text-muted fs-xs mt-2">Updated ${d.last_updated_formatted}</div>
+                                    <div class="vc-document-updated text-muted fs-xs mt-2 fw-medium">Updated ${d.last_updated_formatted}</div>
                                 </div>
+                                <i class="fas fa-chevron-right vc-row-chevron d-md-none" aria-hidden="true"></i>
                             </div>`;
                         });
                     }
                     document.getElementById('documentsContainer').innerHTML = html;
                     document.getElementById('documentsView').classList.remove('d-none');
 
-                    // SMART HIGHLIGHT & SCROLL LOGIC
+                    // Restore the same document and profile modal after a status update.
                     if (window.pendingDocHighlight) {
+                        const pendingDocId = window.pendingDocHighlight;
+                        const shouldReopenProfile = window.pendingDocModal;
                         setTimeout(() => {
-                            let targetEl = document.getElementById('target-doc-' + window.pendingDocHighlight);
+                            let targetEl = document.getElementById('target-doc-' + pendingDocId);
                             if (targetEl) {
-                                // I-scroll pababa para makita agad
                                 targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                // I-apply ang kumikislap na CSS
                                 targetEl.classList.add('highlight-target-file');
                             }
-                            window.pendingDocHighlight = null; // Linisin para hindi mag-trigger ulit kapag pumasok sa ibang folder
-                        }, 300); // 300ms delay para sure na tapos na i-render ang HTML
+
+                            if (shouldReopenProfile) {
+                                openDocumentProfile(pendingDocId);
+                                clearProfileRestoreFlag();
+                            }
+
+                            window.pendingDocHighlight = null;
+                            window.pendingDocModal = false;
+                        }, 300);
                     }
 
                 } else {
@@ -596,9 +567,11 @@ if(isset($_GET['success'])) {
                 }
             },
             error: function(xhr) {
-                document.getElementById('loadingView').classList.add('d-none');
-                document.getElementById('documentsContainer').innerHTML = `<div class="alert alert-danger border"><b>Server Error:</b> Backend crashed. Check the Network Tab.</div>`;
-                document.getElementById('documentsView').classList.remove('d-none');
+                if (!silentRefresh) {
+                    document.getElementById('loadingView').classList.add('d-none');
+                    document.getElementById('documentsContainer').innerHTML = `<div class="alert alert-danger border"><b>Server Error:</b> Backend crashed. Check the Network Tab.</div>`;
+                    document.getElementById('documentsView').classList.remove('d-none');
+                }
                 console.error("AJAX Error:", xhr.responseText);
             }
         });
@@ -638,17 +611,40 @@ if(isset($_GET['success'])) {
                         } else {
                             html = '<li class="px-3 py-2 bg-light border-bottom text-muted fs-xs fw-bold text-uppercase">Direct Physical Hits</li>';
                             res.data.forEach(d => {
-                                let badge = d.physical_status === 'Stored' ? '<span class="badge bg-success">Stored</span>' : '<span class="badge bg-warning text-dark">Borrowed</span>';
-                                let pth = d.full_physical_path ? d.full_physical_path.replace(/ > /g, ' <i class="fas fa-chevron-right text-muted small mx-1"></i> ') : 'No physical location assigned';
+                                // Modern Status Badge
+                                let badge = d.physical_status === 'Stored' 
+                                    ? '<span class="badge bg-success bg-opacity-10 text-success border border-success-subtle rounded-pill px-2 py-1"><i class="fas fa-check-circle me-1"></i>Stored</span>' 
+                                    : '<span class="badge bg-warning bg-opacity-10 text-warning border border-warning-subtle rounded-pill px-2 py-1"><i class="fas fa-hand-holding me-1"></i>Borrowed</span>';
                                 
+                                // Sleek & Truncated Physical Path (Shows only Drawer and Folder as Pills)
+                                let pthHtml = '';
+                                if (d.full_physical_path) {
+                                    let pArr = d.full_physical_path.split(' > ');
+                                    let folderName = pArr.pop() || '';
+                                    let drawerName = pArr.pop() || '';
+                                    
+                                    pthHtml = `
+                                    <div class="d-flex align-items-center w-100" title="${d.full_physical_path}">
+                                        <i class="fas fa-location-dot text-danger me-2"></i>
+                                        <span class="badge bg-f8f9fa text-secondary border px-2 py-1 fw-bold rounded-pill"><i class="fas fa-box me-1 opacity-50"></i>${drawerName}</span>
+                                        <i class="fas fa-chevron-right text-muted opacity-50 mx-1" style="font-size:0.6rem;"></i>
+                                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle px-2 py-1 fw-bold rounded-pill"><i class="fas fa-folder me-1"></i>${folderName}</span>
+                                    </div>`;
+                                } else {
+                                    pthHtml = `<div class="d-flex align-items-center"><i class="fas fa-location-dot text-danger me-2"></i><span class="badge bg-light text-muted border px-2 py-1 fw-medium rounded-pill"><i class="fas fa-circle-info me-1 opacity-50"></i>Not Mapped</span></div>`;
+                                }
+                                
+                                // Redesigned Dropdown Item Layout
                                 html += `
                                 <li>
-                                    <a class="dropdown-item py-2 border-bottom hover-bg-light" href="#" onclick="openDocumentProfile(${d.doc_id})">
-                                        <div class="d-flex justify-content-between align-items-center mb-1">
-                                            <span class="fw-bold text-dark fs-sm text-truncate"><i class="fas fa-file-alt text-primary me-2"></i>${d.file_name}</span>
-                                            ${badge}
+                                    <a class="dropdown-item py-3 border-bottom hover-bg-light transition-all" href="#" onclick="openDocumentProfile(${d.doc_id})">
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <span class="fw-bold text-dark fs-sm text-truncate pe-3"><i class="fas fa-file-lines text-primary me-2 fs-6"></i>${d.file_name}</span>
+                                            <span class="flex-shrink-0">${badge}</span>
                                         </div>
-                                        <div class="text-muted fs-xs text-wrap"><i class="fas fa-map-marker-alt text-danger me-1"></i> ${pth}</div>
+                                        <div class="d-flex align-items-start text-muted fs-xs w-100 overflow-hidden">
+                                            ${pthHtml}
+                                        </div>
                                     </a>
                                 </li>`;
                             });
@@ -695,13 +691,52 @@ if(isset($_GET['success'])) {
                     document.getElementById('profRecordNo').innerText = d.record_number || 'None (Working Copy)';
                     document.getElementById('profLifecycle').innerText = d.record_phase || 'Working Document';
                     document.getElementById('profOwner').innerText = d.owner_name;
+                    
+                    document.getElementById('profDigitalVersion').innerText = 'v' + parseFloat(d.current_version).toFixed(1);
+                    document.getElementById('profPhysicalVersion').innerText = d.physical_status === 'Digital' ? 'N/A' : 'v' + parseFloat(d.physical_version).toFixed(1);
+                    
+                    let syncEl = document.getElementById('profSyncStatus');
+                    syncEl.innerText = d.sync_status;
+                    syncEl.className = 'fw-bold py-2 ';
+                    if (d.sync_status === 'Replacement Required') syncEl.classList.add('text-danger');
+                    else if (d.sync_status === 'Up To Date') syncEl.classList.add('text-success');
+                    else if (d.sync_status === 'Borrowed') syncEl.classList.add('text-warning');
+                    else syncEl.classList.add('text-muted');
+
+                    let replaceForm = document.getElementById('formReplacePhysical');
+                    if (replaceForm) {
+                        if (d.sync_status === 'Replacement Required') {
+                            replaceForm.classList.remove('d-none');
+                            document.getElementById('replacePhysicalDocId').value = d.doc_id;
+                        } else {
+                            replaceForm.classList.add('d-none');
+                        }
+                    }
 
                     if (d.full_physical_path) {
                         let pathArr = d.full_physical_path.split(' > ');
-                        let formattedPath = pathArr.join('<br><i class="fas fa-long-arrow-alt-down text-muted my-1 ms-2"></i><br>');
+                        // Map specific icons to their hierarchy levels
+                        const icons = ['fa-building', 'fa-door-open', 'fa-boxes-stacked', 'fa-box', 'fa-folder'];
+                        
+                        let formattedPath = '<div class="d-flex flex-wrap align-items-center gap-2">';
+                        pathArr.forEach((step, idx) => {
+                            let icon = icons[idx] || 'fa-location-dot';
+                            let isLast = idx === (pathArr.length - 1);
+                            
+                            // Highlight the final folder with primary color, others as sleek white pills
+                            let badgeClass = isLast ? 'bg-primary text-white shadow-sm border border-primary' : 'bg-f8f9fa text-dark border shadow-sm';
+                            let iconClass = isLast ? 'text-white opacity-75' : 'text-primary opacity-75';
+                            
+                            formattedPath += `<span class="badge ${badgeClass} px-3 py-2 fs-xs fw-bold rounded-pill"><i class="fas ${icon} ${iconClass} me-1"></i> ${step}</span>`;
+                            
+                            if (!isLast) {
+                                formattedPath += `<i class="fas fa-chevron-right text-secondary opacity-50 mx-1" style="font-size: 0.7rem;"></i>`;
+                            }
+                        });
+                        formattedPath += '</div>';
                         document.getElementById('profPath').innerHTML = formattedPath;
                     } else {
-                        document.getElementById('profPath').innerHTML = 'Not mapped to a physical cabinet.';
+                        document.getElementById('profPath').innerHTML = '<div class="text-muted fs-sm py-2"><i class="fas fa-info-circle me-2 text-secondary"></i>This record is not mapped to a physical cabinet.</div>';
                     }
 
                     let borrowHtml = '';
@@ -769,14 +804,33 @@ if(isset($_GET['success'])) {
                     }
                     document.getElementById('profMovementList').innerHTML = moveHtml;
 
-                    if(d.record_phase === 'Official') {
-                        document.getElementById('profOpenDigital').href = "documents.php?search=" + encodeURIComponent(d.file_name);
-                    } else {
-                        document.getElementById('profOpenDigital').href = "general_docs.php?search=" + encodeURIComponent(d.file_name);
-                    }
+                    let targetPage = (d.record_phase === 'Official') ? 'documents.php' : 'general_docs.php';
+                    let parentParam = d.parent_category ? encodeURIComponent(d.parent_category) : '';
+                    let typeParam = d.category ? encodeURIComponent(d.category) : '';
+                    document.getElementById('profOpenDigital').href = `${targetPage}?parent=${parentParam}&type=${typeParam}&doc=${d.doc_id}`;
 
                     let latestB = res.borrow_history.length > 0 ? res.borrow_history[0] : null;
                     document.getElementById('profCheckoutBtn').onclick = function() {
+                        
+                        // DAGDAG: HARANGIN KUNG HINDI UPDATED ANG PHYSICAL COPY
+                        if (d.sync_status === 'Replacement Required') {
+                            Swal.fire({
+                                title: '<span class="fs-5 fw-bold text-dark letter-spacing-tight mt-2">Action Blocked</span>',
+                                html: '<p class="text-muted fs-sm mb-0">The physical copy you are about to lend is <b class="text-danger">OUTDATED</b>.<br><br>Please print and replace it with the latest digital version in the cabinet first.</p>',
+                                icon: 'error',
+                                width: 400,
+                                padding: '1.5rem',
+                                confirmButtonText: 'Understood',
+                                customClass: {
+                                    popup: 'rounded-4 shadow-lg border-0',
+                                    confirmButton: 'btn btn-primary btn-sm fw-bold px-4 rounded-pill w-100',
+                                },
+                                buttonsStyling: false
+                            });
+                            return; // Pigilan ang pagbukas ng form
+                        }
+                        
+                        // Kung okay naman, ituloy ang checkout form
                         openPhysicalLocationModal(d.doc_id, d.file_name, d.physical_status, latestB);
                     };
                 }
@@ -810,12 +864,14 @@ if(isset($_GET['success'])) {
                                 <tr><td class="text-muted py-2" width="130">Record No.</td><td class="fw-bold text-dark py-2" id="profRecordNo">N/A</td></tr>
                                 <tr><td class="text-muted py-2">Lifecycle</td><td class="fw-bold text-dark py-2" id="profLifecycle">Working Document</td></tr>
                                 <tr><td class="text-muted py-2">Owner</td><td class="fw-medium text-dark py-2" id="profOwner">System</td></tr>
+                                <tr class="border-top border-light"><td class="text-muted py-2">Digital Version</td><td class="fw-bold text-primary py-2" id="profDigitalVersion">v1.0</td></tr>
+                                <tr><td class="text-muted py-2">Physical Version</td><td class="fw-bold text-secondary py-2" id="profPhysicalVersion">v1.0</td></tr>
+                                <tr><td class="text-muted py-2">Sync Status</td><td class="fw-bold py-2" id="profSyncStatus">Up To Date</td></tr>
                             </table>
-                            <h6 class="fw-bold text-muted text-uppercase fs-xs letter-spacing-tight mb-3 border-bottom pb-2 border-top pt-2">Physical Storage Path</h6>
-                            <div class="alert bg-light border p-3 d-flex align-items-center mb-0 rounded-3">
-                                <i class="fas fa-map-marker-alt text-danger fs-3 me-3 flex-shrink-0"></i>
-                                <div id="profPath" class="fw-bold text-dark fs-sm lh-base" style="word-break: break-word;">
-                                    Fetching location...
+                            <h6 class="fw-bold text-muted text-uppercase fs-xs letter-spacing-tight mb-3 border-bottom pb-2 border-top pt-4">Physical Storage Path</h6>
+                            <div class="p-3 bg-white border border-secondary border-opacity-10 rounded-4 shadow-sm mb-0">
+                                <div id="profPath" class="lh-base w-100" style="word-break: break-word;">
+                                    <div class="text-muted fs-sm"><i class="fas fa-spinner fa-spin me-2"></i>Fetching location...</div>
                                 </div>
                             </div>
                         </div>
@@ -830,13 +886,24 @@ if(isset($_GET['success'])) {
                     </div>
                 </div>
             </div>
-            <div class="modal-footer bg-white border-top px-4 py-3 d-flex justify-content-between">
-                <button type="button" id="profCheckoutBtn" class="btn btn-outline-primary fw-bold rounded-pill px-4 shadow-sm transition-all">
-                    <i class="fas fa-handshake me-2"></i> Manage Check-out
-                </button>
-                <a href="#" id="profOpenDigital" class="btn btn-primary fw-bold rounded-pill px-4 shadow-sm transition-all">
-                    <i class="fas fa-desktop me-2"></i> View Digital File
-                </a>
+            <div class="modal-footer bg-white border-top px-4 py-3 d-flex justify-content-between flex-wrap gap-2">
+                <div class="vc-profile-primary-actions d-flex justify-content-between gap-2 w-100">
+                    <button type="button" id="profCheckoutBtn" class="btn btn-outline-primary fw-bold rounded-pill px-4 shadow-sm transition-all">
+                        <i class="fas fa-handshake me-2"></i> Manage Check-out
+                    </button>
+                    <a href="#" id="profOpenDigital" class="btn btn-primary fw-bold rounded-pill px-4 shadow-sm transition-all">
+                        <i class="fas fa-desktop me-2"></i> View Digital File
+                    </a>
+                </div>
+                <form action="actions/physical_location_handler.php" method="POST" id="formReplacePhysical" class="m-0 d-none">
+                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                    <input type="hidden" name="action" value="replace_physical_copy">
+                    <input type="hidden" name="doc_id" id="replacePhysicalDocId">
+                    <input type="hidden" name="return_url" value="<?php echo htmlspecialchars($_SERVER['REQUEST_URI']); ?>">
+                    <button type="button" class="btn btn-warning text-dark fw-bold rounded-pill px-4 shadow-sm transition-all" onclick="confirmReplacePhysical()">
+                        <i class="fas fa-sync-alt me-2"></i> Replace Physical Copy
+                    </button>
+                </form>
             </div>
         </div>
     </div>
@@ -921,14 +988,87 @@ if(isset($_GET['success'])) {
             labelReturned.classList.remove('text-dark');
         }
         
-        // Buuin ang Return URL para hindi ka mawala pagkatapos mag-save
-        let rUrl = '../virtual_cabinet.php';
-        if(window.activeDrawerId) rUrl += '?drawer=' + window.activeDrawerId;
-        if(window.activeFolderId) rUrl += '&folder=' + window.activeFolderId;
-        document.querySelector('input[name="return_url"]').value = rUrl;
+        // Fallback URL keeps the same drawer and folder if JavaScript is unavailable.
+        const returnState = new URLSearchParams();
+        if (window.activeDrawerId) returnState.set('drawer', window.activeDrawerId);
+        if (window.activeFolderId) returnState.set('folder', window.activeFolderId);
+        const returnQuery = returnState.toString();
+        document.getElementById('plReturnUrl').value = '../virtual_cabinet.php' + (returnQuery ? '?' + returnQuery : '');
         
         toggleCheckoutFields();
         new bootstrap.Modal(document.getElementById('physicalLocationModal')).show();
+    }
+
+    async function submitPhysicalStatusForm(event) {
+        event.preventDefault();
+
+        const form = event.currentTarget;
+        const submitButton = form.querySelector('button[type="submit"]');
+        const originalButtonHtml = submitButton.innerHTML;
+        const formData = new FormData(form);
+        const handlerUrl = new URL(form.getAttribute('action'), window.location.href);
+
+        submitButton.disabled = true;
+        submitButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Saving';
+
+        try {
+            const response = await fetch(handlerUrl.href, {
+                method: 'POST',
+                body: formData,
+                credentials: 'same-origin',
+                redirect: 'follow',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+
+            const responseUrl = new URL(response.url, window.location.href);
+            const errorMessage = responseUrl.searchParams.get('error');
+            const successMessage = responseUrl.searchParams.get('success');
+
+            if (!response.ok || errorMessage || !successMessage) {
+                throw new Error(errorMessage || 'Unable to save the physical status. Please try again.');
+            }
+
+            const modalElement = document.getElementById('physicalLocationModal');
+            const modalInstance = bootstrap.Modal.getInstance(modalElement);
+            if (modalInstance) modalInstance.hide();
+
+            window.systemToast.fire({ icon: 'success', title: successMessage });
+
+            if (window.activeFolderId) {
+                const activeFolderName = document.getElementById('selectedFolderName').innerText;
+                loadDocumentList(window.activeFolderId, activeFolderName, true);
+            }
+        } catch (error) {
+            window.systemToast.fire({ icon: 'error', title: error.message });
+        } finally {
+            submitButton.disabled = false;
+            submitButton.innerHTML = originalButtonHtml;
+        }
+    }
+
+    function confirmReplacePhysical() {
+        Swal.fire({
+            title: '<span class="fs-5 fw-bold text-dark letter-spacing-tight mt-2">Replace Physical Copy?</span>',
+            html: '<p class="text-muted fs-sm mb-0">Confirm that you have printed the latest digital version, replaced the old physical copy in the cabinet, and segregated the old copy as Superseded.</p>',
+            icon: 'warning',
+            width: 400,
+            padding: '1.5rem',
+            showCancelButton: true,
+            confirmButtonText: 'Verify Replacement',
+            cancelButtonText: 'Cancel',
+            customClass: {
+                popup: 'rounded-4 shadow-lg border-0',
+                confirmButton: 'btn btn-warning text-dark btn-sm fw-bold px-4 rounded-pill w-100',
+                cancelButton: 'btn btn-light btn-sm fw-medium px-4 rounded-pill border w-100 bg-white text-dark',
+                actions: 'd-flex w-100 mt-4 gap-2 flex-row-reverse'
+            },
+            buttonsStyling: false,
+            focusCancel: true
+        }).then((result) => {
+            if (result.isConfirmed) {
+                document.getElementById('formReplacePhysical').submit();
+            }
+        });
     }
 
     function toggleCheckoutFields() {
@@ -968,7 +1108,8 @@ if(isset($_GET['success'])) {
 </script>
 
 <!-- ENTERPRISE PHYSICAL CHECKOUT MODAL (ENHANCED UI/UX) -->
-<div class="modal fade sleek-modal" id="physicalLocationModal" tabindex="-1" aria-hidden="true" style="z-index: 1060;">
+<!-- FIX: Tinanggal ang tabindex="-1" para hindi i-block ng Bootstrap ang calendar buhat sa labas -->
+<div class="modal fade sleek-modal" id="physicalLocationModal" aria-hidden="true" style="z-index: 1060;">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content shadow-lg border-0 rounded-4 bg-f8f9fa overflow-hidden">
             <div class="modal-header bg-white border-bottom px-4 py-3">
@@ -980,14 +1121,14 @@ if(isset($_GET['success'])) {
             </div>
             <div class="modal-body p-4">
                 <div class="alert bg-white border text-dark fs-sm mb-4 shadow-sm rounded-3 d-flex align-items-center">
-                    <i class="fas fa-file-alt text-primary fs-5 me-2 flex-shrink-0"></i>
+                    <i class="fas fa-file-lines text-primary fs-5 me-2 flex-shrink-0"></i>
                     <span class="fw-bold text-truncate" id="plDocName"></span>
                 </div>
-                <form action="actions/physical_location_handler.php" method="POST">
+                <form action="actions/physical_location_handler.php" method="POST" id="physicalLocationStatusForm" onsubmit="submitPhysicalStatusForm(event)">
                     <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                     <input type="hidden" name="action" value="update_location">
                     <input type="hidden" name="doc_id" id="plDocId">
-                    <input type="hidden" name="return_url" value="<?php echo htmlspecialchars($_SERVER['REQUEST_URI']); ?>">
+                    <input type="hidden" name="return_url" id="plReturnUrl" value="<?php echo htmlspecialchars($_SERVER['REQUEST_URI']); ?>">
 
                     <div class="mb-4">
                         <label class="form-label fw-bold small text-muted text-uppercase letter-spacing-tight">Physical Status <span class="text-danger">*</span></label>
@@ -1052,7 +1193,7 @@ if(isset($_GET['success'])) {
                         </div>
                     </div>
 
-                    <div class="d-flex justify-content-end gap-2 pt-2">
+                    <div class="vc-checkout-actions d-flex justify-content-end gap-2 pt-2">
                         <button type="button" class="btn btn-light bg-white border fw-medium px-4 shadow-sm rounded-pill" data-bs-dismiss="modal">Cancel</button>
                         <button type="submit" class="btn btn-primary fw-bold px-4 shadow-sm rounded-pill">Save Details</button>
                     </div>

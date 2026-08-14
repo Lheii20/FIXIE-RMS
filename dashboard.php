@@ -5,8 +5,8 @@
     <title>Overview & Analytics - Fixie DRMS</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
-    <link href="assets/css/style.css" rel="stylesheet">
-    <link href="assets/css/custom_fixie.css" rel="stylesheet">
+    <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
+    <link href="assets/css/dashboard.css?v=<?php echo filemtime(__DIR__ . '/assets/css/dashboard.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -15,15 +15,15 @@
     <?php include 'sidebar.php'; ?>
     <div class="main-content fade-in">
         
-        <header class="mb-3 pb-2 border-bottom d-flex flex-wrap justify-content-between align-items-center gap-3">
-            <div class="flex-grow-1">
+        <header class="dashboard-header mb-3 d-flex justify-content-between align-items-center gap-3">
+            <div class="dashboard-heading flex-grow-1">
                 <h5 class="fw-bold mb-1 tracking-tight text-main">Dashboard & Analytics</h5>
                 <p class="text-muted mb-0 fs-sm">Welcome, <span class="fw-semibold text-dark"><?php echo htmlspecialchars($_SESSION['fullname']); ?></span>.</p>
             </div>
             
-            <div class="d-flex flex-wrap align-items-center gap-3 w-100 w-md-auto">
-                <div class="dropdown position-relative w-100">
-                    <button class="btn-filter-trigger dropdown-toggle w-100 justify-content-between justify-content-md-start" type="button" id="filterDropdown" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+            <div class="dashboard-filter-wrap d-flex align-items-center">
+                <div class="dropdown position-relative">
+                    <button class="btn-filter-trigger dropdown-toggle justify-content-between" type="button" id="filterDropdown" data-bs-toggle="dropdown" data-bs-display="static" data-bs-auto-close="outside" aria-expanded="false">
                         <span><i class="far fa-calendar-alt text-secondary me-2"></i> <span id="displayFilterText"><?php echo $active_filter_text; ?></span></span>
                     </button>
                     <div class="dropdown-menu dropdown-menu-end filter-dropdown-menu p-0" aria-labelledby="filterDropdown">

@@ -60,18 +60,30 @@ if ($wf_query) {
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
     <link href="assets/css/style.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
+    <link href="assets/css/compact-mobile-lists.css" rel="stylesheet">
+    <link href="assets/css/mobile-drive-lists.css?v=<?php echo filemtime(__DIR__ . '/assets/css/mobile-drive-lists.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body>
+<body class="page-po-list">
     <?php include 'sidebar.php'; ?>
     <div class="main-content fade-in">
         
         <div class="page-header">
-            <div>
-                <h3 class="fw-bold mb-1 text-slate-900 tracking-tight">Purchase Orders</h3>
-                <span class="text-muted fs-sm">Monitor and manage all company transactions</span>
+            <div class="list-title-row d-flex align-items-center justify-content-between gap-2">
+                <div class="list-title-copy">
+                    <h3 class="fw-bold mb-0 text-slate-900 tracking-tight">Purchase Orders</h3>
+                    <span class="list-title-subtitle text-muted fs-sm d-none d-md-block mt-1">Monitor and manage all company transactions</span>
+                </div>
+                <?php if($_SESSION['role'] == 'Procurement'): ?>
+                    <a href="create_po.php" class="mobile-list-create-action d-inline-flex d-md-none align-items-center justify-content-center" title="Create Purchase Order" aria-label="Create Purchase Order">
+                        <svg class="mobile-list-create-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                            <path d="M12 5v14M5 12h14"></path>
+                        </svg>
+                        <span class="visually-hidden">Create Purchase Order</span>
+                    </a>
+                <?php endif; ?>
             </div>
 
             <form method="GET" action="po_list.php" class="sleek-filter-bar m-0">
@@ -95,7 +107,7 @@ if ($wf_query) {
                 <?php endif; ?>
 
                 <?php if($_SESSION['role'] == 'Procurement'): ?>
-                    <a href="create_po.php" class="btn-gradient-primary text-decoration-none d-flex align-items-center">
+                    <a href="create_po.php" class="btn-gradient-primary text-decoration-none d-flex align-items-center" title="Create Purchase Order" aria-label="Create Purchase Order">
                         <i class="fas fa-plus me-2"></i> Create Order
                     </a>
                 <?php endif; ?>
@@ -151,9 +163,14 @@ if ($wf_query) {
                                                 <i class="fas fa-file-invoice-dollar"></i>
                                             </div>
                                             <div class="doc-details">
-                                                <span class="doc-title"><?php echo htmlspecialchars($row['po_number']); ?></span>
-                                                <span class="data-label"><?php echo htmlspecialchars($row['client_name']); ?></span>
-                                            </div>
+    <span class="doc-title"><?php echo htmlspecialchars($row['po_number']); ?></span>
+    <span class="mobile-list-subline">
+        <span class="data-label"><?php echo htmlspecialchars($row['client_name']); ?></span>
+        <span class="mobile-list-status <?php echo $badge; ?>">
+            <?php echo str_replace('-', ' ', $row['status']); ?>
+        </span>
+    </span>
+</div>
                                         </div>
                                     </td>
                                     <td data-label="Amount" class="currency-data">
@@ -202,13 +219,6 @@ if ($wf_query) {
 
                                             $assigned_to_another = !empty($row['assigned_to']) && (int)$row['assigned_to'] !== $current_user_id;
                                             $claim_required = $is_approver && empty($row['assigned_to']) && role_requires_task_claim($conn, $role);
-                                            if ($is_approver && !$assigned_to_another && !$claim_required && isset($row['is_viewed']) && $row['is_viewed'] == 1) {
-                                                echo '<button type="button" class="btn-quick-act btn-quick-approve" onclick="confirmApprovePO(event, \''.$approve_action.'\', \''.$row['po_id'].'\', \''.htmlspecialchars($row['po_number']).'\')"><i class="fas fa-check me-1"></i>Approve</button>';
-                                                
-                                                if ($can_reject) {
-                                                    echo '<button type="button" class="btn-quick-act btn-quick-reject" onclick="confirmRejectPO(event, \''.$row['po_id'].'\', \''.htmlspecialchars($row['po_number']).'\')"><i class="fas fa-times me-1"></i>Reject</button>';
-                                                }
-                                            }
                                             ?>
                                             <a href="view_po.php?id=<?php echo $row['po_id']; ?>" class="btn-view-icon" title="View Details">
                                                 <i class="fas fa-chevron-right"></i>
@@ -262,68 +272,7 @@ if ($wf_query) {
             });
         });
 
-        function confirmApprovePO(e, actionKey, id, poNumber) {
-            e.preventDefault();
-            e.stopPropagation();
-
-            Swal.fire({
-                title: 'Approve Order?',
-                html: "<span class='text-muted fs-09rem'>Are you sure you want to approve PO <b>" + poNumber + "</b>?</span>",
-                icon: 'success',
-                showCancelButton: true,
-                confirmButtonText: '<i class="fas fa-check me-1"></i> Yes, Approve',
-                cancelButtonText: 'Cancel',
-                buttonsStyling: false,
-                customClass: { 
-                    popup: 'sleek-popup', 
-                    confirmButton: 'btn btn-success px-4 py-2 shadow-sm fw-bold', 
-                    cancelButton: 'btn btn-light px-4 py-2 border fw-bold ms-2' 
-                }
-            }).then((result) => {
-                if (result.isConfirmed) {
-                    $('#dynamicAction').val(actionKey);
-                    $('#dynamicPoId').val(id);
-                    $('#dynamicRemarks').val('');
-                    $('#dynamicActionForm').submit();
-                }
-            });
-        }
-
-        function confirmRejectPO(e, id, poNumber) {
-            e.preventDefault();
-            e.stopPropagation();
-
-            Swal.fire({
-                title: 'Reject Order',
-                html: "<span class='text-muted fs-09rem'>Please state the reason for rejecting <b>" + poNumber + "</b>:</span>",
-                icon: 'warning',
-                input: 'textarea',
-                inputPlaceholder: 'Enter your reason here (Required)...',
-                showCancelButton: true,
-                confirmButtonText: '<i class="fas fa-times me-1"></i> Submit Rejection',
-                cancelButtonText: 'Cancel',
-                buttonsStyling: false,
-                customClass: { 
-                    popup: 'sleek-popup', 
-                    confirmButton: 'btn btn-danger px-4 py-2 shadow-sm fw-bold', 
-                    cancelButton: 'btn btn-light px-4 py-2 border fw-bold ms-2' 
-                },
-                preConfirm: (reason) => {
-                    if (!reason || reason.trim() === '') {
-                        Swal.showValidationMessage('Rejection reason cannot be empty!');
-                        return false;
-                    }
-                    return reason.trim();
-                }
-            }).then((result) => {
-                if (result.isConfirmed) {
-                    $('#dynamicAction').val('reject'); 
-                    $('#dynamicPoId').val(id);
-                    $('#dynamicRemarks').val(result.value);
-                    $('#dynamicActionForm').submit();
-                }
-            });
-        }
+        
     </script>
 </body>
 </html>

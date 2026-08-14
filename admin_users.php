@@ -34,34 +34,33 @@ $all_perms_json = json_encode($all_permissions);
     <title>Manage Users - Fixie DRMS</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
-    <link href="assets/css/style.css" rel="stylesheet">
-    <link href="assets/css/custom_fixie.css" rel="stylesheet"> <!-- NEW CSS HERE -->
+    <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
 </head>
-<body style="background-color: #f8f9fa;">
+<body class="page-admin-users">
 <?php include 'sidebar.php'; ?>
 <div class="main-content fade-in">
-    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
-        <div>
+    <div class="admin-page-header d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
+        <div class="admin-page-title">
             <h2 class="fw-bold mb-1 text-dark tracking-tight"><i class="fas fa-users-cog text-primary me-2"></i>User Management</h2>
             <p class="text-muted mb-0 small">Administer user accounts, security tokens, and dynamic system permissions.</p>
         </div>
-        <button class="btn btn-primary fw-medium px-4 py-2 shadow-sm rounded-8" data-bs-toggle="modal" data-bs-target="#addUserModal">
-            <i class="fas fa-plus me-2"></i> Add New User
+        <button class="admin-primary-action btn btn-primary fw-medium px-4 py-2 shadow-sm rounded-8" data-bs-toggle="modal" data-bs-target="#addUserModal" aria-label="Add new user">
+            <i class="fas fa-plus" aria-hidden="true"></i><span class="admin-action-label">Add New User</span>
         </button>
     </div>
 
-    <div class="sleek-search-container">
-        <div class="input-group sleek-input-group">
+    <div class="sleek-search-container admin-users-toolbar">
+        <div class="input-group sleek-input-group admin-users-search">
             <span class="input-group-text border-0 bg-transparent text-muted px-3"><i class="fas fa-search"></i></span>
             <input type="text" id="customSearchInput" class="form-control sleek-search-input px-0" placeholder="Search users...">
         </div>
         
-        <div class="d-flex align-items-center gap-3 w-100" style="max-width: max-content;">
+        <div class="admin-users-role-filter d-flex align-items-center gap-3 w-100">
             <span class="text-muted small fw-bold text-uppercase d-none d-sm-inline tracking-wide">Filter:</span>
-            <select id="roleFilter" class="form-select shadow-none bg-light rounded-8" style="min-width: 160px; font-size: 0.9rem; border: 1px solid #cbd5e1;">
+            <select id="roleFilter" class="admin-role-select form-select shadow-none bg-light rounded-8">
                 <option value="">All Roles</option>
                 <option value="Admin">Admin</option>
                 <option value="President">President</option>
@@ -74,10 +73,10 @@ $all_perms_json = json_encode($all_permissions);
         </div>
     </div>
 
-    <div class="card border-0 shadow-sm rounded-12">
+    <div class="card border-0 shadow-sm rounded-12 admin-list-card">
         <div class="card-body p-0" style="min-height: 400px;">
-            <div class="table-responsive">
-                <table class="table w-100" id="usersTable">
+            <div class="table-responsive admin-users-table-wrap">
+                <table class="table w-100 admin-users-table" id="usersTable">
                     <thead class="bg-light">
                         <tr><th class="ps-4">User Identity</th><th>Username / Email</th><th>Assigned Role</th><th>Account Status</th><th>Presence</th><th class="text-center pe-4" style="width: 80px;">Actions</th></tr>
                     </thead>
@@ -90,17 +89,21 @@ $all_perms_json = json_encode($all_permissions);
                                 $u_perms = isset($user_perms[$u['user_id']]) ? json_encode($user_perms[$u['user_id']]) : '[]';
                         ?>
                         <tr>
-                            <td class="ps-4">
-                                <div class="d-flex align-items-center gap-3">
+                            <td class="ps-4 admin-primary-cell">
+                                <div class="d-flex align-items-center gap-3 admin-user-identity">
                                     <div class="position-relative d-inline-block">
                                         <div class="bg-light rounded-circle d-flex align-items-center justify-content-center text-primary border shadow-sm box-44 overflow-hidden">
                                             <?php if(!empty($u['avatar']) && file_exists($u['avatar'])): ?><img src="<?php echo htmlspecialchars($u['avatar']); ?>" class="w-100 h-100 object-fit-cover" alt="Avatar"><?php else: ?><span class="fw-bold" style="font-size: 1.1rem;"><?php echo strtoupper(substr($u['full_name'], 0, 1)); ?></span><?php endif; ?>
                                         </div>
                                         <?php if(isset($u['is_online']) && $u['is_online']): ?><span class="position-absolute bottom-0 end-0 bg-success border border-2 border-white rounded-circle box-12"></span><?php else: ?><span class="position-absolute bottom-0 end-0 bg-secondary border border-2 border-white rounded-circle box-12"></span><?php endif; ?>
                                     </div>
-                                    <div>
+                                    <div class="admin-user-summary">
                                         <h6 class="mb-0 fw-bold text-dark"><?php echo e($u['full_name']); ?></h6>
                                         <span class="badge bg-light text-secondary border mt-1">ID: #<?php echo $u['user_id']; ?></span>
+                                        <div class="admin-user-mobile-meta d-md-none">
+                                            <span class="admin-mobile-role"><?php echo e($u['role']); ?></span>
+                                            <span class="admin-mobile-status <?php echo $u['status'] === 'Active' ? 'is-active' : 'is-suspended'; ?>"><?php echo e($u['status']); ?></span>
+                                        </div>
                                     </div>
                                 </div>
                             </td>
@@ -108,8 +111,8 @@ $all_perms_json = json_encode($all_permissions);
                             <td><span class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle px-2 py-1 rounded-3"><i class="fas fa-id-badge me-1"></i> <?php echo e($u['role']); ?></span></td>
                             <td><?php if ($u['status'] === 'Active'): ?><span class="badge bg-success bg-opacity-10 text-success border border-success-subtle px-2 py-1 rounded-3"><i class="fas fa-check-circle me-1"></i> Active</span><?php else: ?><span class="badge bg-danger bg-opacity-10 text-danger border border-danger-subtle px-2 py-1 rounded-3"><i class="fas fa-ban me-1"></i> Suspended</span><?php endif; ?></td>
                             <td><?php if(isset($u['is_online']) && $u['is_online']): ?><span class="text-success fw-medium small"><i class="fas fa-wifi me-1"></i> Online</span><?php else: ?><span class="text-secondary small"><i class="fas fa-history me-1"></i> <?php echo (!empty($u['last_activity']) && $u['last_activity'] !== '0000-00-00 00:00:00') ? date('M d, H:i', strtotime($u['last_activity'])) : 'Offline'; ?></span><?php endif; ?></td>
-                            <td class="text-center pe-4 position-relative">
-                                <div class="dropdown">
+                            <td class="text-center pe-4 position-relative admin-action-cell">
+                                <div class="dropdown admin-row-actions">
                                     <button class="btn-dots dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-boundary="window"><i class="fas fa-ellipsis-v"></i></button>
                                     <ul class="dropdown-menu dropdown-menu-end shadow-sm">
                                         <li><a class="dropdown-item fw-medium" href="#" onclick="openPermissionsModal(<?php echo $u['user_id']; ?>, '<?php echo addslashes(e($u['full_name'])); ?>', <?php echo htmlspecialchars($u_perms); ?>)"><i class="fas fa-sliders-h text-primary"></i> Capabilities</a></li>

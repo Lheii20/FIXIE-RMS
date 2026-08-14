@@ -943,12 +943,17 @@ if ($view_disposition) {
     $disp_query_sql = "
         SELECT d.*, p.policy_name, p.action_after_retention, u.full_name, 
                DATE_ADD(DATE_ADD(d.uploaded_at, INTERVAL (COALESCE(p.active_years, 0) + COALESCE(p.archive_years, 0)) YEAR), INTERVAL (COALESCE(p.active_months, 0) + COALESCE(p.archive_months, 0)) MONTH) AS retention_date,
-               locker.full_name AS locked_by_name
+               locker.full_name AS locked_by_name,
+               CONCAT_WS(' > ', b.name, r.name, c.name, dr.name, dc.sub_category) as full_physical_path
         FROM documents d
         LEFT JOIN document_categories dc ON d.category = dc.sub_category
         LEFT JOIN retention_policies p ON dc.policy_id = p.policy_id
         LEFT JOIN users u ON d.uploaded_by = u.user_id
         LEFT JOIN users locker ON d.locked_by = locker.user_id
+        LEFT JOIN virt_drawers dr ON dc.drawer_id = dr.id
+        LEFT JOIN virt_cabinets c ON dr.cabinet_id = c.id
+        LEFT JOIN virt_rooms r ON c.room_id = r.id
+        LEFT JOIN virt_buildings b ON r.building_id = b.id
         WHERE $disp_where_clause
         ORDER BY retention_date ASC";
         
@@ -1025,13 +1030,18 @@ if (!$view_archives && !$view_disposition && !$view_shared) {
 $whereClause = implode(' AND ', $where);
 
 $query = "SELECT d.*, p.po_number, p.client_name, p.amount, p.status as po_status, u.full_name, locker.full_name AS locked_by_name,
-                 vdl.status AS physical_status, dc.drawer_id, dc.id AS cat_id
+                 vdl.status AS physical_status, dc.drawer_id, dc.id AS cat_id,
+                 CONCAT_WS(' > ', b.name, r.name, c.name, dr.name, dc.sub_category) as full_physical_path
           FROM documents d
           LEFT JOIN purchase_orders p ON d.po_id = p.po_id
           LEFT JOIN users u ON d.uploaded_by = u.user_id
           LEFT JOIN users locker ON d.locked_by = locker.user_id
           LEFT JOIN virt_document_locations vdl ON d.doc_id = vdl.document_id
           LEFT JOIN document_categories dc ON d.category = dc.sub_category
+          LEFT JOIN virt_drawers dr ON dc.drawer_id = dr.id
+          LEFT JOIN virt_cabinets c ON dr.cabinet_id = c.id
+          LEFT JOIN virt_rooms r ON c.room_id = r.id
+          LEFT JOIN virt_buildings b ON r.building_id = b.id
           WHERE $whereClause 
           ORDER BY $order_by";
 
@@ -1062,272 +1072,13 @@ if(isset($_GET['success'])) {
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
     <link href="assets/css/style.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
+    <link href="assets/css/mobile-drive-lists.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
     
-    <style>
-        /* ==============================================================
-           "APP-LIKE" STRICT FLEXBOX LAYOUT OVERRIDE 
-           Ensures NO page scroll. Only table scrolls, pagination is fixed.
-        ============================================================== */
-        html, body.bg-f8f9fa {
-            height: 100vh !important;
-            max-height: 100vh !important;
-            overflow: hidden !important; /* SAPILITANG PIPIGILAN ANG SCROLL NG BUONG PAGE */
-            margin: 0 !important;
-            padding: 0 !important;
-        }
-        
-        .main-content {
-            display: flex;
-            flex-direction: column;
-            height: 100vh !important;
-            max-height: 100vh !important;
-            padding-top: 75px !important; /* Space for the global top navbar */
-            padding-bottom: 15px !important;
-            overflow: hidden !important;
-            background-color: #f8f9fa;
-        }
-
-        /* The Header & Filter areas */
-        .header-section {
-            flex: 0 0 auto !important; /* Naka-fix ang height, hindi pwedeng lumiit o lumaki */
-            z-index: 20; 
-            position: relative;
-        }
-
-        /* Folders (if any) */
-        .folders-section {
-            flex: 0 0 auto !important; /* Naka-fix ang height, hindi pwedeng lumiit o lumaki */
-            max-height: 28vh; /* Kung dumami ang folder, magkakaroon ito ng sariling scroll para hindi itulak pababa ang table */
-            overflow-y: auto;
-            overflow-x: hidden;
-        }
-        .folders-section::-webkit-scrollbar { width: 6px; }
-        .folders-section::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-        
-        /* The main container holding the table */
-        .file-list-container {
-            flex: 1 1 0 !important; /* STRICT FLEX: Uukopa lamang sa natitirang space ng screen! */
-            display: flex;
-            flex-direction: column;
-            min-height: 0 !important; /* CRITICAL: Pumipigil na lumagpas sa screen kahit dumami pa ang laman */
-            background: #fff;
-            border: 1px solid #e2e8f0;
-            border-radius: 12px;
-            overflow: hidden;
-            margin-bottom: 0 !important;
-        }
-
-        /* DataTables wrapper config */
-        .dataTables_wrapper {
-            flex: 1 1 0 !important;
-            display: flex;
-            flex-direction: column;
-            min-height: 0 !important;
-        }
-
-        /* Table scroller area */
-        .table-scroll-container {
-            flex: 1 1 0 !important;
-            overflow-y: auto !important; /* DITO LAMANG PWEDENG MAG-SCROLL ANG USER */
-            overflow-x: auto !important;
-            min-height: 0 !important;
-        }
-        .table-scroll-container::-webkit-scrollbar { width: 8px; height: 8px; }
-        .table-scroll-container::-webkit-scrollbar-track { background: #f8f9fa; }
-        .table-scroll-container::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-        .table-scroll-container::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-        
-        /* Table rules inside scroll container */
-        #documentsTable {
-            margin: 0 !important;
-            width: 100% !important;
-            border-collapse: collapse !important;
-        }
-        #documentsTable thead th {
-            position: sticky;
-            top: 0;
-            background: #f8f9fa !important;
-            z-index: 5;
-            border-bottom: 1px solid #e2e8f0 !important;
-            box-shadow: 0 1px 0 #e2e8f0; 
-        }
-
-        /* Fixed Pagination Bar at Bottom using CSS Grid for exact placement */
-        .bottom-pagination-bar {
-            flex-shrink: 0;
-            display: grid;
-            grid-template-columns: 1fr auto 1fr;
-            align-items: center;
-            padding: 10px 20px;
-            background: #fff;
-            border-top: 1px solid #e2e8f0;
-            font-size: 0.85rem;
-            gap: 15px; /* Prevent overlap */
-        }
-        
-        .bottom-pagination-bar .dataTables_info {
-            justify-self: start;
-            padding: 0 !important;
-            color: #64748b !important;
-            font-weight: 500;
-            white-space: nowrap;
-        }
-
-        /* Length Menu Dropdown styling */
-        .bottom-pagination-bar .dataTables_length {
-            justify-self: center;
-            color: #64748b;
-            font-weight: 500;
-            margin: 0;
-            white-space: nowrap;
-        }
-        
-        .bottom-pagination-bar .dataTables_length label {
-            margin: 0;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .bottom-pagination-bar .dataTables_length select {
-            appearance: none;
-            -webkit-appearance: none;
-            border: 1px solid #cbd5e1;
-            border-radius: 6px;
-            padding: 4px 30px 4px 12px !important; /* 30px sa right para saktong may space ang arrow at number */
-            background-color: #f8fafc;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-            background-repeat: no-repeat;
-            background-position: right 8px center; /* Pwesto ng arrow */
-            background-size: 14px;
-            color: #1e293b;
-            outline: none;
-            cursor: pointer;
-            font-size: 0.85rem;
-            font-weight: 600;
-            min-width: 70px;
-            text-align: center;
-        }
-
-        .bottom-pagination-bar .dataTables_length select:focus {
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
-        }
-
-        .bottom-pagination-bar .dataTables_paginate {
-            justify-self: end;
-            padding: 0 !important;
-            margin: 0 !important;
-            max-width: 100%;
-            overflow-x: auto; /* Para if sobrang liit ng screen, mag-s-scroll horizontally lang ang pagination */
-        }
-        
-        .bottom-pagination-bar .dataTables_paginate::-webkit-scrollbar { display: none; }
-        
-        .bottom-pagination-bar .pagination {
-            margin: 0 !important;
-            gap: 4px;
-        }
-        
-        .bottom-pagination-bar .page-link {
-            padding: 4px 10px !important;
-            border-radius: 6px !important;
-            border: none !important;
-            color: #475569;
-            font-weight: 600;
-            background-color: transparent;
-        }
-        
-        .bottom-pagination-bar .page-item.active .page-link {
-            background-color: #2563eb !important;
-            color: #fff !important;
-        }
-        
-        .bottom-pagination-bar .page-item .page-link:hover {
-            background-color: #f1f5f9;
-            color: #2563eb;
-        }
-        
-        .bottom-pagination-bar .page-item.disabled .page-link {
-            color: #cbd5e1 !important;
-        }
-
-        .folder-card {
-            z-index: 1; 
-            position: relative;
-        }
-        .folder-card:hover {
-            z-index: 10 !important; /* Aangat kapag hinover */
-        }
-        .folder-card:focus-within {
-            z-index: 15 !important; /* MAS MATAAS para hinding-hindi matatabunan ng hover kapag nakabukas ang dropdown */
-        }
-        .action-dropdown .dropdown-menu {
-            z-index: 1050 !important; 
-        }
-
-        /* SLEEK 3-DOTS HOVER INDICATOR */
-        .btn-dots, .hover-circle {
-            border-radius: 50% !important;
-            transition: background-color 0.2s ease !important;
-        }
-        .btn-dots:hover, .hover-circle:hover {
-            background-color: rgba(100, 116, 139, 0.15) !important; /* Subtle gray hover */
-        }
-
-        /* DAGDAG: Sleek Hover Effects para sa Upload Modal */
-        .upload-tile-btn {
-            transition: all 0.2s ease-in-out;
-        }
-        .upload-tile-btn:hover {
-            background-color: #f8fafc !important;
-            border-color: #cbd5e1 !important;
-            transform: translateY(-3px);
-            box-shadow: 0 .5rem 1rem rgba(0,0,0,.08) !important;
-        }
-        .modal-btn-hover {
-            transition: all 0.2s ease;
-        }
-        .modal-btn-hover:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0,0,0,.15) !important;
-        }
-        /* Custom Dropdown styling */
-        .custom-select-btn {
-            border: 1px solid #e2e8f0;
-            background-color: #ffffff;
-            transition: all 0.2s ease;
-        }
-        .custom-select-btn:hover, .custom-select-btn:focus {
-            border-color: #94a3b8;
-            box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.15);
-        }
-
-        /* GDrive Style Row Highlight */
-        tr.row-highlighted > td {
-            background-color: #f8fafc !important; /* Light Slate background */
-            transition: all 0.2s ease;
-        }
-        tr.row-highlighted > td:first-child {
-            box-shadow: inset 4px 0 0 0 #3b82f6 !important; /* Blue indicator line sa gilid */
-        }
-
-        /* Highlighting target physical file */
-        @keyframes pulseTarget {
-            0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); background-color: #eff6ff; border-color: #3b82f6; }
-            70% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); background-color: #ffffff; border-color: #e2e8f0; }
-            100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); background-color: #ffffff; border-color: #e2e8f0; }
-        }
-        .highlight-target-file {
-            animation: pulseTarget 2s ease-out 3; /* Mag-pu-pulse ito nang 3 beses */
-            border-left: 4px solid #3b82f6 !important;
-            background-color: #f8fafc;
-        }
-    </style>
+    
 </head>
-<body class="bg-f8f9fa">
+<body class="bg-f8f9fa page-documents">
 <?php include 'sidebar.php'; ?>
 
 <div class="main-content fade-in">
@@ -1582,7 +1333,7 @@ if(isset($_GET['success'])) {
                                     $has_file_access = false;
                                 }
                             ?>
-                            <tr class="<?php echo $has_file_access ? 'cursor-pointer file-row-title' : ''; ?>" <?php if($has_file_access): ?>onclick="openDocumentViewer('<?php echo htmlspecialchars(addslashes($doc['file_path']), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['file_name']), ENT_QUOTES); ?>', <?php echo $is_img ? 'true' : 'false'; ?>)"<?php endif; ?>>
+                            <tr id="target-doc-<?php echo $doc['doc_id']; ?>" class="<?php echo $has_file_access ? 'cursor-pointer file-row-title' : ''; ?>" <?php if($has_file_access): ?>onclick="openDocumentViewer('<?php echo htmlspecialchars(addslashes($doc['file_path']), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['file_name']), ENT_QUOTES); ?>', <?php echo $is_img ? 'true' : 'false'; ?>)"<?php endif; ?>>
                                 <td class="ps-4 py-3">
                                     <div class="d-flex align-items-center">
                                         <div class="file-icon-md bg-light text-primary me-3 border transition-all rounded-3 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
@@ -1613,12 +1364,12 @@ if(isset($_GET['success'])) {
                                         </div>
                                     </div>
                                 </td>
-                                <td onclick="event.stopPropagation();">
+                                <td>
                                     <span class="badge bg-warning text-dark border border-warning px-2 py-1">
                                         <?php echo htmlspecialchars($doc['action_after_retention'] ?? 'Review required'); ?>
                                     </span>
                                 </td>
-                                <td onclick="event.stopPropagation();">
+                                <td>
                                     <div class="text-danger fw-bold"><i class="fas fa-clock me-1"></i> <?php echo date('M d, Y', strtotime($doc['retention_date'])); ?></div>
                                     <div class="text-muted small">Expired</div>
                                 </td>
@@ -1698,7 +1449,7 @@ if(isset($_GET['success'])) {
                                 $has_file_access = ($my_file_role !== 'None');
                                 $can_edit_file = in_array($my_file_role, ['Editor']);
                             ?>
-                            <tr class="<?php echo $has_file_access ? 'cursor-pointer file-row-title' : ''; ?>" <?php if($has_file_access): ?>onclick="openDocumentViewer('<?php echo htmlspecialchars(addslashes($doc['file_path']), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['file_name']), ENT_QUOTES); ?>', <?php echo $is_img ? 'true' : 'false'; ?>)"<?php endif; ?>>
+                            <tr id="target-doc-<?php echo $doc['doc_id']; ?>" class="<?php echo $has_file_access ? 'cursor-pointer file-row-title' : ''; ?>" <?php if($has_file_access): ?>onclick="openDocumentViewer('<?php echo htmlspecialchars(addslashes($doc['file_path']), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['file_name']), ENT_QUOTES); ?>', <?php echo $is_img ? 'true' : 'false'; ?>)"<?php endif; ?>>
                                 <td class="ps-4 py-3">
                                     <div class="d-flex align-items-center">
                                         <div class="file-icon-md bg-light text-primary me-3 border transition-all rounded-3 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
@@ -1743,7 +1494,7 @@ if(isset($_GET['success'])) {
                                         </div>
                                     </div>
                                 </td>
-                                <td onclick="event.stopPropagation();">
+                                <td>
                                     <?php if($doc['po_id']): ?>
                                         <?php if($can_view_po): ?>
                                             <a href="view_po.php?id=<?php echo $doc['po_id']; ?>" class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle text-decoration-none px-2 py-1" onclick="event.stopPropagation();">
@@ -1759,10 +1510,10 @@ if(isset($_GET['success'])) {
                                         <span class="text-muted small border px-2 py-1 rounded-2 bg-light">Independent File</span>
                                     <?php endif; ?>
                                 </td>
-                                <td onclick="event.stopPropagation();">
+                                <td>
                                     <div class="fw-medium text-dark"><?php echo htmlspecialchars($doc['full_name']); ?></div>
                                 </td>
-                                <td onclick="event.stopPropagation();">
+                                <td>
                                     <div class="text-dark fw-medium"><?php echo date('M d, Y', strtotime($doc['uploaded_at'])); ?></div>
                                     <div class="text-muted small"><?php echo date('h:i A', strtotime($doc['uploaded_at'])); ?></div>
                                 </td>
@@ -1798,13 +1549,21 @@ if(isset($_GET['success'])) {
                                                     <li><hr class="dropdown-divider"></li>
                                                     <li>
                                                                 <?php 
-                                                                    $p_stat = $doc['physical_status'] ?? 'Stored'; 
+                                                                    $p_stat = $doc['physical_status'] ?? 'Digital'; 
                                                                     $p_stat = ($p_stat === 'Returned') ? 'Stored' : $p_stat;
-                                                                    $stat_color = ($p_stat === 'Borrowed') ? 'text-warning' : 'text-success';
-                                                                    $stat_icon = ($p_stat === 'Borrowed') ? 'fa-hand-holding' : 'fa-check-circle';
+                                                                    
+                                                                    if ($p_stat === 'Digital') {
+                                                                        $stat_color = 'text-secondary';
+                                                                        $stat_icon = 'fa-laptop';
+                                                                        $btn_text = 'Digital Copy Only';
+                                                                    } else {
+                                                                        $stat_color = ($p_stat === 'Borrowed') ? 'text-warning' : 'text-success';
+                                                                        $stat_icon = ($p_stat === 'Borrowed') ? 'fa-hand-holding' : 'fa-check-circle';
+                                                                        $btn_text = 'Physical: ' . $p_stat;
+                                                                    }
                                                                 ?>
-                                                                <button type="button" class="dropdown-item fw-medium text-dark" onclick="openPhysicalLocationModal(<?php echo $doc['doc_id']; ?>, '<?php echo htmlspecialchars(addslashes($doc['file_name'])); ?>', '<?php echo htmlspecialchars(addslashes($doc['category'])); ?>', '<?php echo $p_stat; ?>', '<?php echo $doc['drawer_id'] ?? ''; ?>', '<?php echo $doc['cat_id'] ?? ''; ?>')">
-                                                                    <i class="fas <?php echo $stat_icon; ?> <?php echo $stat_color; ?> me-2 w-15px text-center"></i> Physical: <?php echo $p_stat; ?>
+                                                                <button type="button" class="dropdown-item fw-medium text-dark" onclick="openPhysicalLocationModal(<?php echo $doc['doc_id']; ?>, '<?php echo htmlspecialchars(addslashes($doc['file_name'])); ?>', '<?php echo htmlspecialchars(addslashes($doc['category'])); ?>', '<?php echo $p_stat; ?>', '<?php echo $doc['drawer_id'] ?? ''; ?>', '<?php echo $doc['cat_id'] ?? ''; ?>', '<?php echo htmlspecialchars(addslashes($doc['full_physical_path'] ?? '')); ?>')">
+                                                                    <i class="fas <?php echo $stat_icon; ?> <?php echo $stat_color; ?> me-2 w-15px text-center"></i> <?php echo $btn_text; ?>
                                                                 </button>
                                                             </li>
                                                 <?php endif; ?>
@@ -1883,31 +1642,29 @@ if(isset($_GET['success'])) {
 
 <!-- IN-SYSTEM DOCUMENT VIEWER MODAL -->
 <div class="modal fade" id="documentViewerModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-fullscreen">
-        <div class="modal-content border-0 bg-transparent">
+    <div class="modal-dialog modal-fullscreen m-0">
+        <div class="modal-content border-0 bg-transparent rounded-0">
             
-            <!-- Modern Dark Glass Overlay -->
-            <div class="position-absolute w-100 h-100" style="background-color: rgba(15, 23, 42, 0.75); backdrop-filter: blur(5px); z-index: 1040;"></div>
+            <!-- Modern Dark Glass Overlay (Edge-to-Edge) -->
+            <div class="position-absolute w-100 h-100" style="background-color: rgba(15, 23, 42, 0.9); backdrop-filter: blur(8px); z-index: 1040;"></div>
             
-            <!-- Sleek White Header Bar -->
-            <div class="d-flex justify-content-between align-items-center px-4 py-3 position-absolute top-0 w-100 shadow-sm" style="z-index: 1060; background: #ffffff;">
+            <!-- Ultra-Sleek White Header Bar -->
+            <div class="d-flex justify-content-between align-items-center px-4 py-2 position-absolute top-0 w-100 bg-white shadow-sm" style="z-index: 1060;">
                 <div class="d-flex align-items-center text-dark">
-                    <div class="bg-primary bg-opacity-10 text-primary rounded-circle d-flex align-items-center justify-content-center me-3" style="width: 36px; height: 36px;">
-                        <i class="fas fa-file-alt"></i>
-                    </div>
-                    <h6 class="fw-bold mb-0 text-truncate letter-spacing-tight" id="viewerFileName" style="max-width: 500px;">Document Preview</h6>
+                    <i class="fas fa-file-image text-primary fs-5 me-3"></i>
+                    <h6 class="fw-bold mb-0 text-truncate letter-spacing-tight" id="viewerFileName" style="max-width: 60vw; font-size: 0.95rem;">Document Preview</h6>
                 </div>
-                <div class="d-flex gap-3 align-items-center">
-                    <a id="viewerDownloadBtn" href="#" download class="btn btn-sm btn-outline-primary fw-bold px-4 rounded-pill shadow-sm transition-all">
-                        <i class="fas fa-download me-1"></i> Download
+                <div class="d-flex gap-2 align-items-center">
+                    <a id="viewerDownloadBtn" href="#" download class="btn btn-light rounded-circle shadow-none d-flex align-items-center justify-content-center border-0 text-primary preview-action-btn" style="width: 35px; height: 35px; background: #f1f5f9;" title="Download File">
+                        <i class="fas fa-download fs-6"></i>
                     </a>
-                    <button type="button" class="btn btn-light rounded-circle shadow-none d-flex align-items-center justify-content-center border" data-bs-dismiss="modal" title="Close" style="width: 36px; height: 36px; transition: all 0.2s;">
-                        <i class="fas fa-times fs-5 text-secondary"></i>
+                    <button type="button" class="btn btn-light rounded-circle shadow-none d-flex align-items-center justify-content-center border-0 text-danger preview-action-btn" data-bs-dismiss="modal" title="Close Preview" style="width: 35px; height: 35px; background: #f1f5f9;">
+                        <i class="fas fa-times fs-5"></i>
                     </button>
                 </div>
             </div>
 
-            <div class="modal-body p-0 d-flex justify-content-center align-items-center overflow-hidden" style="height: 100vh; touch-action: none; position: relative; z-index: 1050; padding-top: 60px !important;">
+            <div class="modal-body p-0 d-flex justify-content-center align-items-center overflow-hidden" style="height: 100vh; width: 100vw; touch-action: none; position: relative; z-index: 1050; padding-top: 45px !important;">
                 
                 <!-- Modern Loader -->
                 <div id="viewerLoader" class="position-absolute text-center" style="z-index: 1040;">
@@ -1915,24 +1672,24 @@ if(isset($_GET['success'])) {
                     <div class="fw-bold text-white text-uppercase letter-spacing-tight" style="font-size: 0.85rem; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">Loading Document...</div>
                 </div>
 
-                <div id="viewerContentWrapper" style="transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1); transform-origin: center center; display:flex; justify-content:center; align-items:center; width: 100%; height: 100%;">
-                    <img id="documentViewerImage" src="" draggable="false" class="shadow-lg" style="display:none; max-width: 90vw; max-height: 85vh; object-fit: contain;" />
-                    <iframe id="documentViewerFrame" src="" class="shadow-lg bg-white" style="display:none; width: 85vw; height: 85vh; border: none;"></iframe>
+                <div id="viewerContentWrapper" style="transition: transform 0.2s ease; transform-origin: center center; display:flex; justify-content:center; align-items:center; width: 100%; height: 100%;">
+                    <img id="documentViewerImage" src="" draggable="false" class="shadow-lg rounded-3" style="display:none; max-width: 95vw; max-height: 85vh; object-fit: contain;" />
+                    <iframe id="documentViewerFrame" src="" class="shadow-lg rounded-3 bg-white" style="display:none; width: 90vw; height: 85vh; border: none;"></iframe>
                 </div>
-            </div> <!-- DITO YUNG NAWAWALANG DIV KAYA NASIRA ANG SYSTEM -->
+            </div>
 
             <!-- Modern White Pill Zoom Controls -->
             <div class="position-absolute bottom-0 start-50 translate-middle-x mb-4" style="z-index: 1060;" id="zoomControlsContainer">
-                <div class="d-flex align-items-center bg-white rounded-pill px-2 py-1 shadow">
-                    <button type="button" class="btn btn-link text-secondary shadow-none p-2 text-decoration-none" onclick="zoomViewer('out')" title="Zoom Out">
+                <div class="d-flex align-items-center bg-white rounded-pill px-2 py-1 shadow-sm border border-light">
+                    <button type="button" class="btn btn-link text-secondary shadow-none p-2 text-decoration-none preview-zoom-btn" onclick="zoomViewer('out')" title="Zoom Out">
                         <i class="fas fa-minus fs-6"></i>
                     </button>
                     <span id="viewerZoomLevel" class="text-dark fw-bold px-3 fs-sm" style="min-width: 65px; text-align: center; cursor: default;">100%</span>
-                    <button type="button" class="btn btn-link text-secondary shadow-none p-2 text-decoration-none" onclick="zoomViewer('in')" title="Zoom In">
+                    <button type="button" class="btn btn-link text-secondary shadow-none p-2 text-decoration-none preview-zoom-btn" onclick="zoomViewer('in')" title="Zoom In">
                         <i class="fas fa-plus fs-6"></i>
                     </button>
                     <div class="border-start mx-1" style="height: 18px;"></div>
-                    <button type="button" class="btn btn-link text-secondary shadow-none p-2 text-decoration-none" onclick="zoomViewer('reset')" title="Fit to Screen">
+                    <button type="button" class="btn btn-link text-secondary shadow-none p-2 text-decoration-none preview-zoom-btn" onclick="zoomViewer('reset')" title="Fit to Screen">
                         <i class="fas fa-expand fs-6"></i>
                     </button>
                 </div>
@@ -2105,9 +1862,15 @@ if(isset($_GET['success'])) {
                 <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal" style="margin-top: -15px;"></button>
             </div>
             <div class="modal-body p-4 bg-f8f9fa rounded-bottom-4">
-                <div class="alert bg-white border text-dark fs-sm mb-4 shadow-sm rounded-3">
-                    <i class="fas fa-file-alt text-primary me-2"></i><span class="fw-bold" id="plDocName"></span><br>
-                    <small class="text-muted"><i class="fas fa-folder text-secondary me-1 mt-2"></i> Stored in Folder: <span id="plDocCategory" class="fw-bold"></span></small>
+                <div class="alert bg-white border text-dark fs-sm mb-4 shadow-sm rounded-3 p-3">
+                    <div class="d-flex align-items-center mb-1">
+                        <i class="fas fa-file-alt text-primary fs-4 me-3 flex-shrink-0"></i>
+                        <span class="fw-bold fs-md text-truncate text-dark" id="plDocName"></span>
+                    </div>
+                    <div class="pt-3 mt-2 border-top border-light">
+                        <div class="text-muted fs-xs text-uppercase fw-bold letter-spacing-tight mb-2">Physical Storage Path</div>
+                        <div id="plFullPath" class="lh-base w-100" style="word-break: break-word;"></div>
+                    </div>
                 </div>
                 <div class="mb-4">
                     <label class="form-label fw-bold small text-muted text-uppercase letter-spacing-tight">Current Physical Status</label>
@@ -2119,9 +1882,21 @@ if(isset($_GET['success'])) {
 
                 <div class="d-flex justify-content-between align-items-center mt-4 pt-3 border-top border-light">
                     <button type="button" class="btn btn-light bg-white border fw-medium px-4 shadow-sm rounded-pill" data-bs-dismiss="modal">Close</button>
-                    <a href="#" id="plGoToCabinetBtn" class="btn btn-primary fw-bold px-4 shadow-sm rounded-pill d-none">
-                        <i class="fas fa-external-link-alt me-2"></i> Manage in Virtual Cabinet
-                    </a>
+                    <div class="d-flex gap-2">
+                        <a href="#" id="plGoToCabinetBtn" class="btn btn-primary fw-bold px-4 shadow-sm rounded-pill d-none">
+                            <i class="fas fa-external-link-alt me-2"></i> Manage in Virtual Cabinet
+                        </a>
+                        <form action="actions/physical_location_handler.php" method="POST" id="plStoreForm" class="m-0 d-none">
+                            <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                            <input type="hidden" name="action" value="update_location">
+                            <input type="hidden" name="doc_id" id="plStoreDocId">
+                            <input type="hidden" name="status" value="Stored">
+                            <input type="hidden" name="return_url" value="<?php echo htmlspecialchars($_SERVER['REQUEST_URI']); ?>">
+                            <button type="submit" class="btn btn-success fw-bold px-4 shadow-sm rounded-pill">
+                                <i class="fas fa-print me-2"></i> Store in Cabinet
+                            </button>
+                        </form>
+                    </div>
                 </div>
             </div>
         </div>
@@ -2175,8 +1950,9 @@ if(isset($_GET['success'])) {
                 <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal" style="margin-top: -15px;"></button>
             </div>
             <div class="modal-body p-4 bg-f8f9fa rounded-bottom-4">
-                <form action="actions/upload_handler.php" method="POST" enctype="multipart/form-data">
+                <form action="actions/document_handler.php" method="POST" enctype="multipart/form-data">
                     <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                    <input type="hidden" name="action" value="upload">
                     <input type="file" name="document" id="uploadDocumentInput" class="d-none" required>
                     
                     <div class="mb-4 position-relative">
@@ -2239,8 +2015,10 @@ if(isset($_GET['success'])) {
                             </div>
                         </div>
                         
-                        <div class="d-flex justify-content-center mt-3">
-                            <span id="uploadChosenFileText" class="badge bg-secondary bg-opacity-10 text-secondary border px-3 py-1 fs-xs fw-medium text-truncate" style="max-width: 100%;">No file selected yet.</span>
+                        <div class="d-flex justify-content-center mt-3 flex-column align-items-center">
+                            <span id="uploadChosenFileText" class="badge bg-secondary bg-opacity-10 text-secondary border px-3 py-1 fs-xs fw-medium text-truncate mb-2" style="max-width: 100%;">No file selected yet.</span>
+                            <!-- Document Preview inside Main Upload Modal -->
+                            <img id="mainUploadPreview" class="d-none rounded-3 shadow-sm border border-secondary border-opacity-25" style="max-height: 180px; max-width: 100%; object-fit: contain;" alt="Selected file preview">
                         </div>
 
                         <!-- START: Document Classification UI -->
@@ -2263,36 +2041,7 @@ if(isset($_GET['success'])) {
                         <!-- END: Document Classification UI -->
                     </div>
 
-                    <div id="cameraPanel" class="d-none mb-4 mt-4">
-                        <div class="position-relative rounded-4 bg-dark overflow-hidden shadow border border-4 border-dark mx-auto" style="max-width: 100%;">
-                            <div class="ratio ratio-4x3 bg-black">
-                                <video id="cameraVideo" class="w-100 h-100 object-fit-cover" autoplay playsinline muted></video>
-                                <img id="cameraPreviewImage" class="w-100 h-100 object-fit-cover d-none" alt="Captured photo preview">
-                                <canvas id="cameraCanvas" class="d-none"></canvas>
-                            </div>
-                            <div class="position-absolute top-0 start-0 w-100 h-100 pointer-events-none" style="background: rgba(0,0,0,0.15);">
-                                <div class="position-absolute top-0 start-0 border-top border-start border-white m-3" style="width: 35px; height: 35px; border-width: 3px !important; border-top-left-radius: 6px;"></div>
-                                <div class="position-absolute top-0 end-0 border-top border-end border-white m-3" style="width: 35px; height: 35px; border-width: 3px !important; border-top-right-radius: 6px;"></div>
-                                <div class="position-absolute bottom-0 start-0 border-bottom border-start border-white m-3" style="width: 35px; height: 35px; border-width: 3px !important; border-bottom-left-radius: 6px;"></div>
-                                <div class="position-absolute bottom-0 end-0 border-bottom border-end border-white m-3" style="width: 35px; height: 35px; border-width: 3px !important; border-bottom-right-radius: 6px;"></div>
-                                <div class="position-absolute top-50 start-50 translate-middle text-white opacity-50"><i class="fas fa-plus fs-4"></i></div>
-                            </div>
-                        </div>
-                        
-                        <div id="cameraStatusMessage" class="fs-xs fw-bold text-center text-muted mt-3 mb-3 px-3 py-1 bg-white rounded-pill border mx-auto shadow-sm" style="width: fit-content; max-width: 100%;"></div>
-                        
-                        <div class="d-flex justify-content-center gap-2">
-                            <button type="button" id="capturePhotoBtn" class="btn btn-primary rounded-pill shadow-sm px-4 py-2 fw-bold d-flex align-items-center modal-btn-hover">
-                                <i class="fas fa-camera fs-5 me-2"></i> Capture
-                            </button>
-                            <button type="button" id="retakePhotoBtn" class="btn btn-light bg-white border border-secondary rounded-pill shadow-sm px-4 py-2 fw-bold text-dark d-none align-items-center modal-btn-hover">
-                                <i class="fas fa-redo-alt me-2"></i> Retake
-                            </button>
-                            <button type="button" id="usePhotoBtn" class="btn btn-success rounded-pill shadow-sm px-4 py-2 fw-bold d-none align-items-center modal-btn-hover">
-                                <i class="fas fa-check-circle me-2"></i> Confirm & Use
-                            </button>
-                        </div>
-                    </div>
+                    <!-- Camera UI migrated to standalone modal -->
 
                     <div class="mb-4 mt-3">
                         <label class="form-label text-muted fs-xs fw-bold text-uppercase letter-spacing-tight">Initial Sharing Access</label>
@@ -2311,7 +2060,8 @@ if(isset($_GET['success'])) {
                         </div>
                     </div>
 
-                    <button type="submit" class="btn btn-primary w-100 fw-bold shadow-sm rounded-pill py-2 modal-btn-hover">
+                    <!-- DAGDAG: Nilagyan ng id="uploadSubmitBtn" -->
+                    <button type="submit" id="uploadSubmitBtn" class="btn btn-primary w-100 fw-bold shadow-sm rounded-pill py-2 modal-btn-hover transition-all">
                         <i class="fas fa-check-circle me-2"></i> Upload and Index File
                     </button>
                 </form>
@@ -2320,6 +2070,68 @@ if(isset($_GET['success'])) {
     </div>
 </div>
 <?php endif; ?>
+
+<!-- SEPARATE CAMERA MODAL -->
+<div class="modal fade sleek-modal" id="cameraModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered" style="max-width: 500px;">
+        <div class="modal-content shadow-lg border-0 rounded-4">
+            <div class="modal-header bg-white border-bottom pb-3 pt-4 px-4 rounded-top-4">
+                <div>
+                    <h5 class="modal-title fw-bold text-dark fs-5 letter-spacing-tight"><i class="fas fa-camera text-primary me-2"></i>Document Scanner</h5>
+                    <p class="text-muted mb-0 fs-xs mt-1">Position your document within the frame.</p>
+                </div>
+                <button type="button" class="btn-close shadow-none" onclick="closeCameraModal()" style="margin-top: -15px;"></button>
+            </div>
+            <div class="modal-body p-4 bg-f8f9fa rounded-bottom-4">
+                <div id="cameraPanel">
+                    <!-- Modern Enterprise Scanner Viewfinder (No Crosshair) -->
+                    <div class="p-2 bg-white border rounded-4 shadow-sm mx-auto" style="max-width: 100%;">
+                        <div class="position-relative rounded-3 overflow-hidden bg-black" style="border: 1px solid #e2e8f0;">
+                                <!-- Pinalitan ng Portrait Aspect Ratio (3/4 or approx 8.5x11/13) para saktong document frame -->
+                                <div class="position-relative w-100" style="aspect-ratio: 3/4.2;">
+                                    <video id="cameraVideo" class="position-absolute top-0 start-0 w-100 h-100 object-fit-cover" autoplay playsinline muted></video>
+                                    <!-- Pinalitan ng object-fit-contain para makita ng buo ang na-crop na document nang walang putol -->
+                                    <img id="cameraPreviewImage" class="position-absolute top-0 start-0 w-100 h-100 object-fit-contain d-none" style="background-color: #000;" alt="Captured photo preview">
+                                    <canvas id="cameraCanvas" class="d-none"></canvas>
+                                </div>
+                                
+                                <!-- Document Scanner Guides & Overlay -->
+                            <div class="position-absolute top-0 start-0 w-100 h-100 pointer-events-none d-flex flex-column justify-content-between p-3" style="background: rgba(0,0,0,0.05);">
+                                <div class="d-flex justify-content-between">
+                                    <div style="width: 30px; height: 30px; border-top: 3px solid rgba(255,255,255,0.9); border-left: 3px solid rgba(255,255,255,0.9); border-top-left-radius: 8px;"></div>
+                                    <div style="width: 30px; height: 30px; border-top: 3px solid rgba(255,255,255,0.9); border-right: 3px solid rgba(255,255,255,0.9); border-top-right-radius: 8px;"></div>
+                                </div>
+                                <div class="d-flex justify-content-between">
+                                    <div style="width: 30px; height: 30px; border-bottom: 3px solid rgba(255,255,255,0.9); border-left: 3px solid rgba(255,255,255,0.9); border-bottom-left-radius: 8px;"></div>
+                                    <div style="width: 30px; height: 30px; border-bottom: 3px solid rgba(255,255,255,0.9); border-right: 3px solid rgba(255,255,255,0.9); border-bottom-right-radius: 8px;"></div>
+                                </div>
+                            </div>
+                            
+                            <!-- Floating Status Pill inside Camera -->
+                            <div class="position-absolute bottom-0 start-50 translate-middle-x w-100 text-center mb-3 px-2 pointer-events-none">
+                                <div id="cameraStatusMessage" class="d-inline-block bg-white px-3 py-2 fs-xs fw-bold shadow rounded-pill text-truncate" style="max-width: 90%; border: 1px solid rgba(0,0,0,0.1);"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Sleek Camera Controls -->
+                    <div class="d-flex justify-content-center gap-2 mt-4">
+                        <button type="button" class="btn btn-light bg-white border fw-medium px-4 shadow-sm rounded-pill transition-all" onclick="closeCameraModal()">Cancel</button>
+                        <button type="button" id="capturePhotoBtn" class="btn btn-primary rounded-pill shadow-sm px-4 py-2 fw-bold d-flex align-items-center modal-btn-hover transition-all">
+                            <i class="fas fa-camera fs-5 me-2"></i> Capture
+                        </button>
+                        <button type="button" id="retakePhotoBtn" class="btn btn-light bg-white border border-secondary border-opacity-25 rounded-pill shadow-sm px-4 py-2 fw-bold text-dark d-none align-items-center modal-btn-hover transition-all">
+                            <i class="fas fa-redo-alt text-muted me-2"></i> Retake
+                        </button>
+                        <button type="button" id="usePhotoBtn" class="btn btn-success rounded-pill shadow-sm px-4 py-2 fw-bold d-none align-items-center modal-btn-hover transition-all">
+                            <i class="fas fa-check-circle me-2"></i> Confirm & Use
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 
 <?php endif; ?> <!-- End If Non-Admin For Restricted Modals -->
 
@@ -2676,6 +2488,9 @@ if(isset($_GET['success'])) {
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+<!-- OpenCV.js for Smart Document Edge Detection & Auto-Crop -->
+<script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="console.log('OpenCV Engine Loaded');"></script>
+<script src="assets/js/mobile-document-viewer.js"></script>
 
 <script>
     $(document).ready(function() {
@@ -2725,6 +2540,24 @@ if(isset($_GET['success'])) {
             window.history.replaceState(null, null, '<?php echo $exact_return_url; ?>');
         }
     });
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const targetDoc = urlParams.get('doc');
+    if (targetDoc) {
+        setTimeout(() => {
+            let el = document.getElementById('target-doc-' + targetDoc);
+            if (el) {
+                // I-scroll ng saktong gitna para kitang kita
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                el.classList.add('highlight-target-file');
+                
+                // Remove highlighting class strictly after the 4-second animation finishes
+                setTimeout(() => {
+                    el.classList.remove('highlight-target-file');
+                }, 4000); 
+            }
+        }, 500); // Standard rendering delay
+    }
 
     <?php if ($role !== 'Admin'): ?>
     let uploadCameraStream = null;
@@ -2782,13 +2615,11 @@ if(isset($_GET['success'])) {
     }
 
     function resetUploadCameraPanel() {
-        const { cameraPanel, cameraVideo, cameraPreviewImage, capturePhotoBtn, retakePhotoBtn, usePhotoBtn } = uploadModalElements();
-        if (!cameraPanel) return;
+        const { cameraVideo, cameraPreviewImage, capturePhotoBtn, retakePhotoBtn, usePhotoBtn } = uploadModalElements();
 
         stopUploadCameraStream();
         clearCapturedPhotoUrl();
 
-        cameraPanel.classList.add('d-none');
         if (cameraVideo) cameraVideo.classList.remove('d-none');
         if (cameraPreviewImage) {
             cameraPreviewImage.classList.add('d-none');
@@ -2796,8 +2627,20 @@ if(isset($_GET['success'])) {
         }
         if (capturePhotoBtn) capturePhotoBtn.classList.remove('d-none');
         if (retakePhotoBtn) retakePhotoBtn.classList.add('d-none');
-        if (usePhotoBtn) usePhotoBtn.classList.add('d-none');
+        if (usePhotoBtn) {
+            usePhotoBtn.classList.add('d-none');
+            usePhotoBtn.innerHTML = '<i class="fas fa-check-circle me-2"></i> Confirm & Use';
+            usePhotoBtn.className = 'btn btn-success rounded-pill shadow-sm px-4 py-2 fw-bold d-none align-items-center modal-btn-hover transition-all';
+            usePhotoBtn.style.pointerEvents = 'auto';
+        }
         setUploadStatus('');
+    }
+
+    function closeCameraModal() {
+        stopUploadCameraStream();
+        const camModal = bootstrap.Modal.getInstance(document.getElementById('cameraModal'));
+        if(camModal) camModal.hide();
+        new bootstrap.Modal(document.getElementById('uploadModal')).show();
     }
 
     function getCapturedFileName() {
@@ -2818,15 +2661,26 @@ if(isset($_GET['success'])) {
     }
 
     async function startUploadCamera() {
-        const { fileInput, cameraPanel, cameraVideo, cameraPreviewImage, capturePhotoBtn, retakePhotoBtn, usePhotoBtn } = uploadModalElements();
-        if (!cameraPanel || !cameraVideo) return;
+        const { fileInput, cameraVideo } = uploadModalElements();
+        if (!cameraVideo) return;
+
+        const camModalEl = document.getElementById('cameraModal');
+        if (!camModalEl.classList.contains('show')) {
+            const upModal = bootstrap.Modal.getInstance(document.getElementById('uploadModal'));
+            if(upModal) upModal.hide();
+            new bootstrap.Modal(camModalEl).show();
+        }
 
         resetUploadCameraPanel();
-        if (fileInput) {
-            fileInput.value = '';
-        }
+        if (fileInput) fileInput.value = '';
         setChosenFileText('No file selected yet.');
-        cameraPanel.classList.remove('d-none');
+        
+        const mainPreview = document.getElementById('mainUploadPreview');
+        if (mainPreview) {
+            mainPreview.classList.add('d-none');
+            mainPreview.src = '';
+        }
+
         setUploadStatus('Requesting camera access...');
 
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -2834,7 +2688,10 @@ if(isset($_GET['success'])) {
             return;
         }
 
+        // HD Constraints
         const constraintsList = [
+            { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false },
+            { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
             { video: { facingMode: { ideal: 'environment' } }, audio: false },
             { video: true, audio: false }
         ];
@@ -2851,27 +2708,13 @@ if(isset($_GET['success'])) {
         }
 
         if (!uploadCameraStream) {
-            const errorName = lastError && lastError.name ? lastError.name : 'Error';
-            const friendlyMessage = errorName === 'NotAllowedError' || errorName === 'PermissionDeniedError'
-                ? 'Camera permission was denied. You can still use Browse Files.'
-                : errorName === 'NotFoundError' || errorName === 'OverconstrainedError'
-                    ? 'No usable camera was found on this device. Use Browse Files instead.'
-                    : 'Unable to open the camera right now. Use Browse Files instead.';
-            setUploadStatus(friendlyMessage, true);
+            setUploadStatus('Unable to open the camera. Please use Browse Files instead.', true);
             return;
         }
 
         cameraVideo.srcObject = uploadCameraStream;
-        try {
-            await cameraVideo.play();
-        } catch (error) {
-            // Some browsers resolve the stream but still require a user gesture before playback.
-        }
+        try { await cameraVideo.play(); } catch (error) { }
 
-        if (cameraPreviewImage) cameraPreviewImage.classList.add('d-none');
-        if (capturePhotoBtn) capturePhotoBtn.classList.remove('d-none');
-        if (retakePhotoBtn) retakePhotoBtn.classList.add('d-none');
-        if (usePhotoBtn) usePhotoBtn.classList.add('d-none');
         setUploadStatus('Live camera ready. Capture a photo when you are ready.');
     }
 
@@ -2884,114 +2727,145 @@ if(isset($_GET['success'])) {
             return;
         }
 
-        cameraCanvas.width = cameraVideo.videoWidth;
-        cameraCanvas.height = cameraVideo.videoHeight;
+        const vWidth = cameraVideo.videoWidth;
+        const vHeight = cameraVideo.videoHeight;
         const context = cameraCanvas.getContext('2d');
-        if (!context) {
-            setUploadStatus('Unable to access the camera canvas. Please try again.', true);
-            return;
-        }
-        context.drawImage(cameraVideo, 0, 0, cameraCanvas.width, cameraCanvas.height);
+        if (!context) return;
 
-        cameraCanvas.toBlob(function(blob) {
-            if (!blob) {
-                setUploadStatus('Unable to capture the photo. Please try again.', true);
-                return;
-            }
+        // SMART PORTRAIT CROPPER
+        const targetAspectRatio = 3 / 4.2; 
+        let cropWidth, cropHeight, sx, sy;
 
-            clearCapturedPhotoUrl();
-            const file = setFileInputFromBlob(blob);
-            if (!file) {
-                setUploadStatus('Unable to prepare the captured photo for upload.', true);
-                return;
-            }
-
-            capturedPhotoUrl = URL.createObjectURL(file);
-            cameraPreviewImage.src = capturedPhotoUrl;
-            cameraPreviewImage.classList.remove('d-none');
-            cameraVideo.classList.add('d-none');
-            if (capturePhotoBtn) capturePhotoBtn.classList.add('d-none');
-            if (retakePhotoBtn) retakePhotoBtn.classList.remove('d-none');
-            if (usePhotoBtn) usePhotoBtn.classList.remove('d-none');
-            setUploadStatus('Photo captured. Review it, then choose Use Photo or Retake.');
-        }, 'image/jpeg', 0.92);
-    }
-
-    function useCapturedUploadPhoto() {
-        const { fileInput } = uploadModalElements();
-        if (!fileInput || !fileInput.files || !fileInput.files.length) {
-            setUploadStatus('Capture a photo first before using it.', true);
-            return;
-        }
-
-        setChosenFileText(`Selected file: ${fileInput.files[0].name}`);
-        setUploadStatus('Captured photo selected for upload.');
-        stopUploadCameraStream();
-        
-        analyzeDocument(fileInput.files[0]); // Added Document Analysis
-    }
-
-    function browseUploadFiles() {
-        const { fileInput } = uploadModalElements();
-        if (!fileInput) return;
-
-        resetUploadCameraPanel();
-        fileInput.click();
-    }
-
-    function handleUploadFileSelection(event) {
-        const file = event.target.files && event.target.files[0];
-        if (!file) {
-            setChosenFileText('No file selected yet.');
-            document.getElementById('classificationSuggestion').classList.add('d-none');
-            return;
-        }
-
-        setChosenFileText(`Selected file: ${file.name}`);
-        if (!file.type.startsWith('image/')) {
-            resetUploadCameraPanel();
-        }
-        
-        analyzeDocument(file); // Added Document Analysis
-    }
-
-    // --- DAGDAG: CUSTOM DROPDOWN HELPERS ---
-    function setUploadCategory(val, suggestedText = null) {
-        document.getElementById('uploadCategoryInput').value = val;
-        const textSpan = document.getElementById('uploadCategoryText');
-        textSpan.innerText = suggestedText ? suggestedText : val;
-        textSpan.classList.remove('text-muted');
-        textSpan.classList.add('text-dark', 'fw-bold');
-        if(suggestedText) {
-            textSpan.classList.add('text-success');
+        if ((vWidth / vHeight) > targetAspectRatio) {
+            cropHeight = vHeight;
+            cropWidth = vHeight * targetAspectRatio;
+            sx = (vWidth - cropWidth) / 2;
+            sy = 0;
         } else {
-            textSpan.classList.remove('text-success');
-        }
-    }
-
-    function setUploadAccess(val, textHTML) {
-        document.getElementById('uploadAccessInput').value = val;
-        document.getElementById('uploadAccessText').innerHTML = textHTML;
-    }
-
-    // --- REFINED CAMERA CAPTURE FUNCTION (RESETTER) ---
-    function captureUploadPhoto() {
-        const { cameraVideo, cameraPreviewImage, cameraCanvas, capturePhotoBtn, retakePhotoBtn, usePhotoBtn } = uploadModalElements();
-        if (!cameraVideo || !cameraCanvas || !cameraPreviewImage) return;
-
-        if (!cameraVideo.videoWidth || !cameraVideo.videoHeight) {
-            setUploadStatus('Camera preview is not ready yet. Please try again.', true);
-            return;
+            cropWidth = vWidth;
+            cropHeight = vWidth / targetAspectRatio;
+            sx = 0;
+            sy = (vHeight - cropHeight) / 2;
         }
 
-        cameraCanvas.width = cameraVideo.videoWidth;
-        cameraCanvas.height = cameraVideo.videoHeight;
-        const context = cameraCanvas.getContext('2d');
-        if (!context) {
-            setUploadStatus('Unable to access the camera canvas. Please try again.', true);
-            return;
+        // I-set ang canvas sa totoong portrait dimensions ng na-crop na image
+        cameraCanvas.width = Math.round(cropWidth);
+        cameraCanvas.height = Math.round(cropHeight);
+
+        // Kukunin lang ang saktong nakikita sa viewfinder (Ito ang magsisilbing Fallback natin)
+        context.drawImage(
+            cameraVideo, 
+            sx, sy, cropWidth, cropHeight, 
+            0, 0, cameraCanvas.width, cameraCanvas.height
+        );
+
+        // ========================================================
+        // SMART OPENCV DOCUMENT EDGE DETECTION & PERSPECTIVE WARP
+        // ========================================================
+        let src = null, dst = null, contours = null, hierarchy = null, maxContour = null;
+        let srcCoords = null, dstCoords = null, M = null, warped = null, approx = null;
+
+        try {
+            if (typeof cv !== 'undefined' && cv.Mat) {
+                src = cv.imread(cameraCanvas);
+                dst = new cv.Mat();
+                
+                // 1. Grayscale and Blur for Edge Detection
+                cv.cvtColor(src, dst, cv.COLOR_RGBA2GRAY, 0);
+                cv.GaussianBlur(dst, dst, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
+                cv.Canny(dst, dst, 75, 200, 3, false);
+                
+                contours = new cv.MatVector();
+                hierarchy = new cv.Mat();
+                cv.findContours(dst, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
+                
+                let maxArea = 0;
+                maxContour = new cv.Mat();
+                let found = false;
+                
+                // 2. Hanapin ang pinakamalaking quadrilateral (Paper Edges)
+                for (let i = 0; i < contours.size(); ++i) {
+                    let cnt = contours.get(i);
+                    let area = cv.contourArea(cnt);
+                    
+                    // Kailangang sakop ng papel ang at least 20% ng viewfinder
+                    if (area > maxArea && area > (cameraCanvas.width * cameraCanvas.height * 0.20)) { 
+                        let peri = cv.arcLength(cnt, true);
+                        approx = new cv.Mat();
+                        cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
+                        
+                        if (approx.rows === 4) {
+                            maxArea = area;
+                            approx.copyTo(maxContour);
+                            found = true;
+                        }
+                        approx.delete();
+                        approx = null; // Prevent double deletion sa finally block
+                    }
+                }
+                
+                if (found) {
+                    setUploadStatus('Document edges detected! Applying auto-crop...', false);
+                    let pts = [];
+                    for (let i = 0; i < 4; i++) {
+                        pts.push({ x: maxContour.data32S[i * 2], y: maxContour.data32S[i * 2 + 1] });
+                    }
+                    
+                    // 3. Ayusin ang corners: Top-Left, Top-Right, Bottom-Right, Bottom-Left
+                    pts.sort((a, b) => a.y - b.y);
+                    let top = pts.slice(0, 2).sort((a, b) => a.x - b.x);
+                    let bottom = pts.slice(2, 4).sort((a, b) => a.x - b.x);
+                    let orderedPts = [top[0], top[1], bottom[1], bottom[0]];
+                    
+                    // 4. Kalkulahin ang totoong width at height ng papel
+                    let widthA = Math.hypot(orderedPts[2].x - orderedPts[3].x, orderedPts[2].y - orderedPts[3].y);
+                    let widthB = Math.hypot(orderedPts[1].x - orderedPts[0].x, orderedPts[1].y - orderedPts[0].y);
+                    let maxWidth = Math.max(widthA, widthB);
+                    
+                    let heightA = Math.hypot(orderedPts[1].x - orderedPts[2].x, orderedPts[1].y - orderedPts[2].y);
+                    let heightB = Math.hypot(orderedPts[0].x - orderedPts[3].x, orderedPts[0].y - orderedPts[3].y);
+                    let maxHeight = Math.max(heightA, heightB);
+                    
+                    srcCoords = cv.matFromArray(4, 1, cv.CV_32FC2, [
+                        orderedPts[0].x, orderedPts[0].y,
+                        orderedPts[1].x, orderedPts[1].y,
+                        orderedPts[2].x, orderedPts[2].y,
+                        orderedPts[3].x, orderedPts[3].y
+                    ]);
+                    
+                    dstCoords = cv.matFromArray(4, 1, cv.CV_32FC2, [
+                        0, 0,
+                        maxWidth - 1, 0,
+                        maxWidth - 1, maxHeight - 1,
+                        0, maxHeight - 1
+                    ]);
+                    
+                    // 5. Flatten ang papel (Perspective Warp) at i-overwrite sa Canvas
+                    M = cv.getPerspectiveTransform(srcCoords, dstCoords);
+                    warped = new cv.Mat();
+                    cv.warpPerspective(src, warped, M, new cv.Size(maxWidth, maxHeight), cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar());
+                    
+                    cameraCanvas.width = maxWidth;
+                    cameraCanvas.height = maxHeight;
+                    cv.imshow(cameraCanvas, warped);
+                }
+            }
+        } catch (e) {
+            console.warn("OpenCV Auto-Crop Error (Fallback to normal crop):", e);
+        } finally {
+            // SAFE MEMORY CLEANUP: Ito ay palaging tatakbo kahit magka-error ang OpenCV
+            if (src) src.delete();
+            if (dst) dst.delete();
+            if (contours) contours.delete();
+            if (hierarchy) hierarchy.delete();
+            if (maxContour) maxContour.delete();
+            if (srcCoords) srcCoords.delete();
+            if (dstCoords) dstCoords.delete();
+            if (M) M.delete();
+            if (warped) warped.delete();
+            if (approx) approx.delete(); 
         }
-        context.drawImage(cameraVideo, 0, 0, cameraCanvas.width, cameraCanvas.height);
+        // ========================================================
 
         cameraCanvas.toBlob(function(blob) {
             if (!blob) {
@@ -3001,16 +2875,12 @@ if(isset($_GET['success'])) {
 
             clearCapturedPhotoUrl();
             const file = setFileInputFromBlob(blob);
-            if (!file) {
-                setUploadStatus('Unable to prepare the captured photo for upload.', true);
-                return;
-            }
+            if (!file) return;
 
-            // RESET THE CONFIRM BUTTON just in case galing sa retake
             if (usePhotoBtn) {
                 usePhotoBtn.innerHTML = '<i class="fas fa-check-circle me-2"></i> Confirm & Use';
-                usePhotoBtn.className = 'btn btn-success rounded-pill shadow-sm px-4 py-2 fw-bold align-items-center modal-btn-hover';
-                usePhotoBtn.style.pointerEvents = 'auto'; // I-enable ulit ang click
+                usePhotoBtn.className = 'btn btn-success rounded-pill shadow-sm px-4 py-2 fw-bold align-items-center modal-btn-hover transition-all';
+                usePhotoBtn.style.pointerEvents = 'auto';
             }
 
             capturedPhotoUrl = URL.createObjectURL(file);
@@ -3026,7 +2896,6 @@ if(isset($_GET['success'])) {
         }, 'image/jpeg', 0.92);
     }
 
-    // --- REFINED CAMERA USE FUNCTION (INTERACTIVE CHECKMARK) ---
     function useCapturedUploadPhoto() {
         const { fileInput } = uploadModalElements();
         if (!fileInput || !fileInput.files || !fileInput.files.length) {
@@ -3037,31 +2906,85 @@ if(isset($_GET['success'])) {
         setChosenFileText(`Selected file: ${fileInput.files[0].name}`);
         setUploadStatus('Captured photo confirmed and ready for upload.');
         
-        // HINDI na natin itatago ang camera panel para kita pa rin yung photo at "Retake"
-        // stopUploadCameraStream();  <- Tinanggal ito
-        
-        // INTERACTIVE CHECKMARK
-        const useBtn = document.getElementById('usePhotoBtn');
-        if (useBtn) {
-            useBtn.innerHTML = '<i class="fas fa-check-double me-2"></i> Confirmed & Applied';
-            // Palitan ang style para halatang na-click na
-            useBtn.className = 'btn btn-outline-success bg-white text-success border border-success rounded-pill shadow-sm px-4 py-2 fw-bold align-items-center';
-            useBtn.style.pointerEvents = 'none'; // I-disable pansamantala para iwas spam-click
+        const mainPreview = document.getElementById('mainUploadPreview');
+        if (mainPreview && capturedPhotoUrl) {
+            mainPreview.src = capturedPhotoUrl;
+            mainPreview.classList.remove('d-none');
         }
         
-        // I-trigger agad ang AI Document Scanner
+        closeCameraModal();
         analyzeDocument(fileInput.files[0]); 
     }
 
-    // START: Document Classification AJAX Engine
+    function browseUploadFiles() {
+        const { fileInput } = uploadModalElements();
+        if (!fileInput) return;
+        fileInput.click();
+    }
+
+    function handleUploadFileSelection(event) {
+        const file = event.target.files && event.target.files[0];
+        const mainPreview = document.getElementById('mainUploadPreview');
+        
+        if (!file) {
+            setChosenFileText('No file selected yet.');
+            document.getElementById('classificationSuggestion').classList.add('d-none');
+            if (mainPreview) mainPreview.classList.add('d-none');
+            return;
+        }
+
+        setChosenFileText(`Selected file: ${file.name}`);
+        
+        if (file.type.startsWith('image/')) {
+            if (mainPreview) {
+                mainPreview.src = URL.createObjectURL(file);
+                mainPreview.classList.remove('d-none');
+            }
+        } else {
+            if (mainPreview) mainPreview.classList.add('d-none');
+        }
+        
+        analyzeDocument(file); 
+    }
+
+    // CUSTOM DROPDOWN HELPERS
+    function setUploadCategory(val, suggestedText = null) {
+        document.getElementById('uploadCategoryInput').value = val;
+        const textSpan = document.getElementById('uploadCategoryText');
+        textSpan.innerText = suggestedText ? suggestedText : val;
+        textSpan.classList.remove('text-muted');
+        textSpan.classList.add('text-dark', 'fw-bold');
+        if(suggestedText) textSpan.classList.add('text-success');
+        else textSpan.classList.remove('text-success');
+    }
+
+    function setUploadAccess(val, textHTML) {
+        document.getElementById('uploadAccessInput').value = val;
+        document.getElementById('uploadAccessText').innerHTML = textHTML;
+    }
+
+    function setPhysicalStatus(val, textHTML) {
+        document.getElementById('uploadPhysicalInput').value = val;
+        document.getElementById('uploadPhysicalText').innerHTML = textHTML;
+    }
+
+    // DOCUMENT CLASSIFICATION AJAX ENGINE
     async function analyzeDocument(file) {
         const suggestionBox = document.getElementById('classificationSuggestion');
         const loader = document.getElementById('classificationLoader');
         const icon = document.getElementById('classificationIcon');
         const nameDisplay = document.getElementById('suggestedFolderName');
         const actions = document.getElementById('classificationActions');
+        const submitBtn = document.getElementById('uploadSubmitBtn'); // Kinuha ang Submit Button
         
-        // Reset UI to scanning state
+        // DAGDAG: I-disable ang Submit Button para iwas spam-click habang nag-s-scan
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Scanning document...';
+            submitBtn.classList.replace('btn-primary', 'btn-secondary');
+            submitBtn.style.cursor = 'not-allowed';
+        }
+        
         suggestionBox.classList.remove('d-none', 'bg-success', 'border-success');
         suggestionBox.classList.add('bg-primary', 'border-primary');
         icon.classList.replace('fa-check-circle', 'fa-magic');
@@ -3074,63 +2997,37 @@ if(isset($_GET['success'])) {
 
         let clientSideText = "";
         
-        // 1. Kapag Image, gamitin ang Tesseract OCR
         if (file.type.startsWith('image/')) {
             nameDisplay.innerText = "Preprocessing Image...";
             try {
-                // DAGDAG: STRICT IMAGE SANITIZER
                 const safeImage = await new Promise((resolve, reject) => {
                     const img = new Image();
                     img.onload = () => {
                         const canvas = document.createElement('canvas');
-                        canvas.width = img.width;
-                        canvas.height = img.height;
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0);
+                        canvas.width = img.width; canvas.height = img.height;
+                        canvas.getContext('2d').drawImage(img, 0, 0);
                         resolve(canvas.toDataURL('image/png'));
                         URL.revokeObjectURL(img.src);
                     };
-                    img.onerror = () => {
-                        // KUNG MAG-FAIL ANG BROWSER NA BUKSAN ANG IMAGE, IHINTO AGAD ANG PROSESO.
-                        // Ibig sabihin nito ay corrupted ang file o isa itong HEIC file na ni-rename to JPG.
-                        reject("UNSUPPORTED_FORMAT");
-                    };
+                    img.onerror = () => reject("UNSUPPORTED_FORMAT");
                     img.src = URL.createObjectURL(file);
                 });
 
-                console.warn("=== INITIALIZING TESSERACT OCR ===");
                 const worker = await Tesseract.createWorker("eng", 1, {
                     logger: function(m) {
-                        console.log("OCR Status:", m.status, Math.round(m.progress * 100) + "%");
-                        if (m.status === 'recognizing text') {
-                            nameDisplay.innerText = "Scanning Image: " + Math.round(m.progress * 100) + "%";
-                        } else {
-                            nameDisplay.innerText = "OCR: " + m.status + "...";
-                        }
+                        if (m.status === 'recognizing text') nameDisplay.innerText = "Scanning Image: " + Math.round(m.progress * 100) + "%";
+                        else nameDisplay.innerText = "OCR: " + m.status + "...";
                     }
                 });
                 
                 nameDisplay.innerText = "Extracting text from image...";
                 const ret = await worker.recognize(safeImage);
                 clientSideText = ret.data.text;
-                
-                console.warn("=== FRONTEND OCR EXTRACTED TEXT ===");
-                console.warn(clientSideText ? clientSideText : "[WALANG NABASANG TEXT SA IMAGE - BLANK]");
-                console.warn("===================================");
-                
                 await worker.terminate();
             } catch (error) {
-                if (error === "UNSUPPORTED_FORMAT") {
-                    console.warn("Browser cannot render this image. It might be a HEIC file renamed to JPG, or a corrupted file.");
-                    nameDisplay.innerText = "Unsupported Format. Please use a real JPG or PNG.";
-                } else {
-                    console.error("=== OCR CRASHED ===");
-                    console.error("Error Details:", error);
-                    nameDisplay.innerText = "Image Scan Failed. (Check Console)";
-                }
+                nameDisplay.innerText = error === "UNSUPPORTED_FORMAT" ? "Unsupported Format. Please use a real JPG or PNG." : "Image Scan Failed. (Check Console)";
             }
         }
-        // 2. Kapag PDF, gamitin ang Mozilla PDF.js
         else if (file.type === 'application/pdf') {
             nameDisplay.innerText = "Reading PDF Content...";
             try {
@@ -3139,18 +3036,13 @@ if(isset($_GET['success'])) {
                 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 
                 const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-                
-                // Basahin hanggang unang 3 pages para mabilis
                 const maxPages = Math.min(pdf.numPages, 3);
                 for (let i = 1; i <= maxPages; i++) {
                     const page = await pdf.getPage(i);
                     const textContent = await page.getTextContent();
-                    const pageText = textContent.items.map(item => item.str).join(' ');
-                    clientSideText += pageText + " ";
+                    clientSideText += textContent.items.map(item => item.str).join(' ') + " ";
                 }
-            } catch (error) {
-                console.error("PDF Parsing Failed:", error);
-            }
+            } catch (error) { }
         }
 
         nameDisplay.innerText = "Analyzing extracted content...";
@@ -3162,16 +3054,12 @@ if(isset($_GET['success'])) {
         formData.append('csrf_token', document.querySelector('input[name="csrf_token"]').value);
 
         $.ajax({
-            url: 'actions/document_handler.php', // NA-UPDATE NA NATIN ITO SA BAGONG FILENAME MO
+            url: 'actions/document_handler.php', 
             type: 'POST',
             data: formData,
             processData: false,
             contentType: false,
             success: function(response) {
-                console.warn("=== PHP TEXT EXTRACTION DEBUG ===");
-                console.warn("EXTRACTED TEXT:\n", response.debug_text ? response.debug_text : "[BLANK]");
-                console.warn("=================================");
-
                 loader.classList.add('d-none');
                 icon.classList.remove('d-none');
                 
@@ -3181,9 +3069,7 @@ if(isset($_GET['success'])) {
                     
                     document.getElementById('btnAcceptSuggestion').onclick = function() {
                         const catInput = document.getElementById('uploadCategoryInput');
-                        if (catInput) {
-                            setUploadCategory(response.suggested_category, response.suggested_category + ' (Auto-Suggested)');
-                        }
+                        if (catInput) setUploadCategory(response.suggested_category, response.suggested_category + ' (Auto-Suggested)');
                         
                         suggestionBox.classList.replace('bg-primary', 'bg-success');
                         suggestionBox.classList.replace('border-primary', 'border-success');
@@ -3193,21 +3079,25 @@ if(isset($_GET['success'])) {
                         actions.classList.add('d-none');
                     };
                     
-                    document.getElementById('btnRejectSuggestion').onclick = function() {
-                        suggestionBox.classList.add('d-none');
-                    };
+                    document.getElementById('btnRejectSuggestion').onclick = function() { suggestionBox.classList.add('d-none'); };
                 } else {
                     suggestionBox.classList.add('d-none'); 
                 }
             },
-            error: function(xhr) {
-                console.error("Server Error:", xhr.responseText);
-                suggestionBox.classList.add('d-none');
+            error: function() { suggestionBox.classList.add('d-none'); },
+            complete: function() {
+                // DAGDAG: I-enable ulit ang Submit Button kapag tapos na ang scanning (success man o error)
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fas fa-check-circle me-2"></i> Upload and Index File';
+                    submitBtn.classList.replace('btn-secondary', 'btn-primary');
+                    submitBtn.style.cursor = 'pointer';
+                }
             }
         });
     }
-    // END: Document Classification AJAX Engine
 
+    // MODAL EVENT LISTENERS
     const uploadModal = document.getElementById('uploadModal');
     if (uploadModal) {
         const { fileInput, browseBtn, cameraBtn, capturePhotoBtn, retakePhotoBtn, usePhotoBtn } = uploadModalElements();
@@ -3219,9 +3109,14 @@ if(isset($_GET['success'])) {
         if (fileInput) fileInput.addEventListener('change', handleUploadFileSelection);
 
         uploadModal.addEventListener('hidden.bs.modal', function () {
-            resetUploadCameraPanel();
             if (fileInput) fileInput.value = '';
             setChosenFileText('No file selected yet.');
+            const mainPreview = document.getElementById('mainUploadPreview');
+            if (mainPreview) {
+                mainPreview.classList.add('d-none');
+                mainPreview.src = '';
+            }
+            document.getElementById('classificationSuggestion').classList.add('d-none');
         });
     }
 
@@ -3266,6 +3161,8 @@ if(isset($_GET['success'])) {
                     startX = e.clientX - translateX;
                     startY = e.clientY - translateY;
                     imgViewer.style.cursor = 'grabbing';
+                    // FIX: Tanggalin ang animation/transition delay habang hinihila para ultra-smooth!
+                    document.getElementById('viewerContentWrapper').style.transition = 'none'; 
                 }
             };
             window.onmousemove = function(e) {
@@ -3275,8 +3172,12 @@ if(isset($_GET['success'])) {
                 updateTransform();
             };
             window.onmouseup = function() {
-                isDragging = false;
-                imgViewer.style.cursor = currentZoom > 1 ? 'grab' : 'default';
+                if (isDragging) {
+                    isDragging = false;
+                    imgViewer.style.cursor = currentZoom > 1 ? 'grab' : 'default';
+                    // FIX: Ibalik ang animation kapag binitiwan na para smooth ang zoom
+                    document.getElementById('viewerContentWrapper').style.transition = 'transform 0.2s ease'; 
+                }
             };
         } else if (isPdf) {
             zoomControls.style.display = 'none';
@@ -3314,6 +3215,10 @@ if(isset($_GET['success'])) {
 
     function zoomViewer(action) {
         const img = document.getElementById('documentViewerImage');
+        const wrapper = document.getElementById('viewerContentWrapper');
+        
+        wrapper.style.transition = 'transform 0.2s ease'; // Ensure zoom animation is active
+        
         if (action === 'in' && currentZoom < 3) currentZoom += 0.25;
         else if (action === 'out' && currentZoom > 0.5) currentZoom -= 0.25;
         else if (action === 'reset') { currentZoom = 1; translateX = 0; translateY = 0; }
@@ -3324,7 +3229,6 @@ if(isset($_GET['success'])) {
         if(currentZoom <= 1) { translateX = 0; translateY = 0; }
         updateTransform();
     }
-    
     function updateTransform() {
         document.getElementById('viewerContentWrapper').style.transform = `scale(${currentZoom}) translate(${translateX/currentZoom}px, ${translateY/currentZoom}px)`;
     }
@@ -3482,15 +3386,57 @@ if(isset($_GET['success'])) {
         new bootstrap.Modal(document.getElementById('legalHoldModal')).show();
     }
 
-    function openPhysicalLocationModal(docId, fileName, category, currentStatus, drawerId, folderId) {
+    function openPhysicalLocationModal(docId, fileName, category, currentStatus, drawerId, folderId, fullPhysicalPath = '') {
         document.getElementById('plDocName').innerText = fileName;
-        document.getElementById('plDocCategory').innerText = category;
+        document.getElementById('plStoreDocId').value = docId; // Set ID para sa Store in Cabinet Form
+        
+        let pathHtml = '';
+        
+        // CHECK 1: Kung digital palang at wala pang physical copy
+        if (currentStatus === 'Digital') {
+            pathHtml = '<div class="text-muted fs-sm py-1"><i class="fas fa-laptop text-secondary me-2"></i>This document is currently digital-only. No physical copy is stored yet.</div>';
+        } 
+        // CHECK 2: Kung ang mismong folder ay hindi naka-map sa Cabinet
+        else if (!drawerId || drawerId == 0 || drawerId == '') {
+            pathHtml = '<div class="text-muted fs-sm py-1"><i class="fas fa-info-circle text-secondary me-2"></i>The folder for this document is not mapped to a physical cabinet.</div>';
+        } 
+        // CHECK 3: Kung physically stored/borrowed na at may kumpletong location path
+        else if (fullPhysicalPath && fullPhysicalPath.trim() !== '') {
+            let pathArr = fullPhysicalPath.split(' > ');
+            const icons = ['fa-building', 'fa-door-open', 'fa-server', 'fa-window-minimize', 'fa-folder-open'];
+            
+            pathHtml = '<div class="d-flex flex-wrap align-items-center gap-2 mt-1">';
+            pathArr.forEach((step, idx) => {
+                let icon = icons[idx] || 'fa-map-marker-alt';
+                let isLast = idx === (pathArr.length - 1);
+                
+                let badgeClass = isLast ? 'bg-primary text-white shadow-sm border border-primary' : 'bg-f8f9fa text-dark border shadow-sm';
+                let iconClass = isLast ? 'text-white opacity-75' : 'text-primary opacity-75';
+                
+                pathHtml += `<span class="badge ${badgeClass} px-3 py-2 fs-xs fw-bold rounded-pill"><i class="fas ${icon} ${iconClass} me-1"></i> ${step}</span>`;
+                
+                if (!isLast) {
+                    pathHtml += `<i class="fas fa-chevron-right text-secondary opacity-50 mx-1" style="font-size: 0.7rem;"></i>`;
+                }
+            });
+            pathHtml += '</div>';
+        } else {
+            pathHtml = '<div class="text-muted fs-sm py-1"><i class="fas fa-info-circle me-2 text-secondary"></i>Location data unavailable.</div>';
+        }
+        
+        document.getElementById('plFullPath').innerHTML = pathHtml;
         
         let statusBox = document.getElementById('plDynamicStatusBox');
         let cabLink = document.getElementById('plGoToCabinetBtn');
+        let storeForm = document.getElementById('plStoreForm');
         
-        // Kapag naka-map ang document sa Virtual Cabinet
-        if (drawerId && folderId) {
+        // DEFAULT: I-reset at itago muna ang mga buttons
+        cabLink.href = '#';
+        cabLink.classList.add('d-none');
+        if (storeForm) storeForm.classList.add('d-none');
+
+        // Kapag naka-map ang folder SA Cabinet, AT idineklara bilang Physical (Stored o Borrowed)
+        if (drawerId && folderId && currentStatus !== 'Digital') {
             cabLink.href = 'virtual_cabinet.php?drawer=' + drawerId + '&folder=' + folderId + '&doc=' + docId;
             cabLink.classList.remove('d-none');
             
@@ -3502,16 +3448,43 @@ if(isset($_GET['success'])) {
                 statusBox.className = 'p-3 bg-success bg-opacity-10 border border-success border-opacity-25 rounded-3 shadow-sm d-flex align-items-center';
             }
         } 
-        // Kapag WALA pang virtual cabinet mapping ang file
+        // Kapag DIGITAL ONLY
         else {
-            cabLink.href = '#';
-            cabLink.classList.add('d-none');
-            
-            statusBox.innerHTML = '<div class="bg-secondary text-white rounded-circle d-flex align-items-center justify-content-center me-3 shadow-sm flex-shrink-0" style="width: 42px; height: 42px;"><i class="fas fa-exclamation-circle fs-5"></i></div><div><h6 class="mb-0 fw-bold text-dark">Unmapped Document</h6><div class="fs-xs text-muted">This document is not yet assigned to a physical drawer.</div></div>';
+            statusBox.innerHTML = '<div class="bg-secondary text-white rounded-circle d-flex align-items-center justify-content-center me-3 shadow-sm flex-shrink-0" style="width: 42px; height: 42px;"><i class="fas fa-laptop fs-5"></i></div><div><h6 class="mb-0 fw-bold text-dark">Digital Copy Only</h6><div class="fs-xs text-muted">This is purely a digital file. No physical document is stored in the cabinet.</div></div>';
             statusBox.className = 'p-3 bg-light border border-secondary border-opacity-25 rounded-3 shadow-sm d-flex align-items-center';
+            
+            // KUNG MAY CABINET NA NAKA-ASSIGN SA FOLDER NA ITO, ILABAS ANG "STORE IN CABINET" BUTTON!
+            if (drawerId && folderId && storeForm) {
+                storeForm.classList.remove('d-none');
+            }
         }
 
         new bootstrap.Modal(document.getElementById('physicalLocationModal')).show();
+    }
+
+    function confirmReplacePhysical() {
+        Swal.fire({
+            title: '<span class="fs-5 fw-bold text-dark letter-spacing-tight mt-2">Replace Physical Copy?</span>',
+            html: '<p class="text-muted fs-sm mb-0">Confirm that you have printed the latest digital version, replaced the old physical copy in the cabinet, and segregated the old copy as Superseded.</p>',
+            icon: 'warning',
+            width: 400,
+            padding: '1.5rem',
+            showCancelButton: true,
+            confirmButtonText: 'Verify Replacement',
+            cancelButtonText: 'Cancel',
+            customClass: {
+                popup: 'rounded-4 shadow-lg border-0',
+                confirmButton: 'btn btn-warning text-dark btn-sm fw-bold px-4 rounded-pill w-100',
+                cancelButton: 'btn btn-light btn-sm fw-medium px-4 rounded-pill border w-100 bg-white text-dark',
+                actions: 'd-flex w-100 mt-4 gap-2 flex-row-reverse'
+            },
+            buttonsStyling: false,
+            focusCancel: true
+        }).then((result) => {
+            if (result.isConfirmed) {
+                document.getElementById('formReplacePhysical').submit();
+            }
+        });
     }
     <?php endif; ?>
 
@@ -3962,6 +3935,13 @@ if(isset($_GET['success'])) {
                     actTitle = 'Removed Legal Hold';
                     dotColor = 'bg-secondary';
                     actContent = '<div class="fs-xs text-muted"><i class="fas fa-balance-scale-left me-1"></i> Standard policies resumed</div>';
+                } 
+                else if (act.type === 'physical_replaced') {
+                    actTitle = 'Synchronized Physical Copy';
+                    dotColor = 'bg-info';
+                    actContent = `<div class="bg-info bg-opacity-10 rounded-3 p-2 border border-info border-opacity-25 mt-1">
+                                    <div class="fs-xs text-dark fw-medium"><i class="fas fa-sync-alt text-info me-1"></i> Physical copy replaced. <br>Superseded: <span class="text-danger fw-bold">v${parseFloat(act.old_version).toFixed(1)}</span> <i class="fas fa-arrow-right mx-1 text-muted"></i> Synced to: <span class="text-success fw-bold">v${parseFloat(act.new_version).toFixed(1)}</span></div>
+                                  </div>`;
                 } 
                 else {
                     // Fallback to Rename logic

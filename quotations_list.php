@@ -48,22 +48,33 @@ $result = $stmt->get_result();
     <title>Client Quotations - Fixie DRMS</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
-    <link href="assets/css/style.css" rel="stylesheet">
-    <link href="assets/css/custom_fixie.css" rel="stylesheet"> <!-- External CSS Link -->
+    <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
+    <link href="assets/css/compact-mobile-lists.css" rel="stylesheet">
+    <link href="assets/css/mobile-drive-lists.css?v=<?php echo filemtime(__DIR__ . '/assets/css/mobile-drive-lists.css'); ?>" rel="stylesheet"> 
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body>
+<body class="page-quotation-list">
     <?php include 'sidebar.php'; ?>
     <div class="main-content fade-in">
         
         <!-- Premium Header Area -->
         <div class="page-header">
-            <div>
-                <h3 class="fw-bold mb-1 text-slate-900 tracking-tight">Client Quotations</h3>
-                <span class="text-muted fs-sm">Track outgoing offers and Client Purchase Orders</span>
+            <div class="list-title-row d-flex align-items-center justify-content-between gap-2">
+                <div class="list-title-copy">
+                    <h3 class="fw-bold mb-0 text-slate-900 tracking-tight">Client Quotations</h3>
+                    <span class="list-title-subtitle text-muted fs-sm d-none d-md-block mt-1">Track outgoing offers and Client Purchase Orders</span>
+                </div>
+                <?php if($_SESSION['role'] == 'Sales Staff'): ?>
+                    <a href="create_quotation.php" class="mobile-list-create-action d-inline-flex d-md-none align-items-center justify-content-center" title="Create Quotation" aria-label="Create Quotation">
+                        <svg class="mobile-list-create-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                            <path d="M12 5v14M5 12h14"></path>
+                        </svg>
+                        <span class="visually-hidden">Create Quotation</span>
+                    </a>
+                <?php endif; ?>
             </div>
 
             <form method="GET" action="quotations_list.php" class="sleek-filter-bar m-0">
@@ -84,7 +95,7 @@ $result = $stmt->get_result();
                 <?php endif; ?>
 
                 <?php if($_SESSION['role'] == 'Sales Staff'): ?>
-                    <a href="create_quotation.php" class="btn-gradient-primary text-decoration-none d-flex align-items-center">
+                    <a href="create_quotation.php" class="btn-gradient-primary text-decoration-none d-flex align-items-center" title="Create Quotation" aria-label="Create Quotation">
                         <i class="fas fa-plus me-2"></i> Draft Quotation
                     </a>
                 <?php endif; ?>
@@ -153,9 +164,14 @@ $result = $stmt->get_result();
                                                 <i class="fas fa-file-contract"></i>
                                             </div>
                                             <div class="doc-details">
-                                                <span class="doc-title"><?php echo $q_num; ?></span>
-                                                <span class="data-label"><?php echo $c_name; ?></span>
-                                            </div>
+    <span class="doc-title"><?php echo $q_num; ?></span>
+    <span class="mobile-list-subline">
+        <span class="data-label"><?php echo $c_name; ?></span>
+        <span class="mobile-list-status <?php echo $badge; ?>">
+            <?php echo htmlspecialchars($status_label); ?>
+        </span>
+    </span>
+</div>
                                         </div>
                                     </td>
                                     <td class="currency-data" data-label="Quoted Value">
@@ -182,7 +198,7 @@ $result = $stmt->get_result();
                                             <?php if ($_SESSION['role'] === 'Sales Staff'): ?>
                                                 
                                                 <?php if ($s === 'Pending Approval' || $s === 'Pending PO'): ?>
-                                                    <button type="button" class="btn-quick-act btn-quick-outline submit-approval-btn" data-quotation-id="<?php echo $q_id; ?>" data-quotation-number="<?php echo htmlspecialchars($row['quotation_number'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
+                                                    <button type="button" class="btn-quick-act btn-quick-outline submit-approval-btn d-none d-md-inline-flex" data-quotation-id="<?php echo $q_id; ?>" data-quotation-number="<?php echo htmlspecialchars($row['quotation_number'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
                                                         <i class="fas fa-file-signature me-1"></i> Submit Approval
                                                     </button>
                                                 <?php endif; ?>
@@ -198,7 +214,7 @@ $result = $stmt->get_result();
                                             
                                             <!-- Universal View Details -->
                                             <a href="view_quotation.php?id=<?php echo $q_id; ?>" class="btn-view-icon" title="View Document">
-                                                <i class="fas fa-eye"></i>
+                                                <i class="fas fa-chevron-right"></i>
                                             </a>
                                         </div>
                                     </td>
@@ -213,17 +229,17 @@ $result = $stmt->get_result();
     </div>
 
     <!-- Client approval submission modal -->
-    <div class="modal fade" id="receivePoModal" tabindex="-1" aria-hidden="true">
+    <div class="modal fade quotation-approval-modal" id="receivePoModal" tabindex="-1" aria-labelledby="receivePoModalTitle" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content p-1 border-0 modal-24px">
+            <div class="modal-content p-1 border-0 modal-24px quotation-approval-modal-content">
                 <form action="actions/quotation_handler.php" method="POST" enctype="multipart/form-data">
-                    <div class="modal-header border-0 pb-0 pt-4 px-4 justify-content-center position-relative">
-                        <button type="button" class="btn-close position-absolute end-0 me-4 fs-xs" data-bs-dismiss="modal"></button>
+                    <div class="modal-header border-0 pb-0 pt-4 px-4 justify-content-center position-relative quotation-approval-modal-header">
+                        <button type="button" class="btn-close position-absolute end-0 me-4 fs-xs" data-bs-dismiss="modal" aria-label="Close"></button>
                         <div class="text-center w-100">
-                            <div class="mb-3 mx-auto d-flex align-items-center justify-content-center bg-soft-success text-success box-56">
+                            <div class="mb-3 mx-auto d-flex align-items-center justify-content-center bg-soft-success text-success box-56 quotation-approval-modal-icon">
                                 <i class="fas fa-file-signature fs-4"></i>
                             </div>
-                            <h5 class="fw-bold text-dark mb-1 tracking-tight">Submit Client Approval</h5>
+                            <h5 class="fw-bold text-dark mb-1 tracking-tight" id="receivePoModalTitle">Submit Client Approval</h5>
                             <p class="text-muted mb-0 fs-sm">Record the client confirmation for <strong id="modalQuoteNumber" class="text-primary"></strong>.</p>
                         </div>
                     </div>
@@ -233,12 +249,12 @@ $result = $stmt->get_result();
                         <input type="hidden" name="action" value="receive_po">
                         <input type="hidden" name="quotation_id" id="modalQuotationId" value="">
                         
-                        <div class="d-flex align-items-start gap-2 p-3 mb-4 rounded-3 bg-slate-50-border">
+                        <div class="d-flex align-items-start gap-2 p-3 mb-4 rounded-3 bg-slate-50-border quotation-approval-note">
                             <i class="fas fa-shield-alt text-primary mt-1"></i>
                             <small class="text-muted">Attach a clear proof of the client’s approval. The quotation will become <strong class="text-success">Client Approved</strong> after submission.</small>
                         </div>
 
-                        <div class="mb-4 text-start">
+                        <div class="mb-4 text-start quotation-approval-field">
                             <label class="form-label label-upper-muted">Mode of Approval <span class="text-danger">*</span></label>
                             <select name="approval_mode" class="form-select form-select-lg sleek-select w-100 input-sleek-lg" required>
                                 <option value="" disabled selected>Select the approval channel...</option>
@@ -253,7 +269,7 @@ $result = $stmt->get_result();
                         </div>
 
                         <!-- Stylized File Upload Area -->
-                        <div class="mb-4 text-start">
+                        <div class="mb-4 text-start quotation-approval-field">
                             <label class="form-label label-upper-muted">Proof of Approval <span class="text-danger">*</span></label>
                             <div class="position-relative">
                                 <input type="file" name="po_file" id="approvalProofFile" class="form-control form-control-lg input-file-dashed" accept=".pdf,.png,.jpg,.jpeg" required>
@@ -265,7 +281,7 @@ $result = $stmt->get_result();
                             </div>
                         </div>
                         
-                        <div class="d-flex gap-2 pt-2">
+                        <div class="d-flex gap-2 pt-2 quotation-approval-actions">
                             <button type="button" class="btn btn-light w-50 py-2 btn-modal-cancel" data-bs-dismiss="modal">Cancel</button>
                             <button type="submit" class="btn btn-success w-50 py-2 btn-modal-submit">Submit Approval</button>
                         </div>

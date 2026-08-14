@@ -42,20 +42,31 @@ $result = $stmt->get_result();
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
     <link href="assets/css/style.css" rel="stylesheet">
-    <link href="assets/css/custom_fixie.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
+    <link href="assets/css/compact-mobile-lists.css" rel="stylesheet">
+    <link href="assets/css/mobile-drive-lists.css?v=<?php echo filemtime(__DIR__ . '/assets/css/mobile-drive-lists.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
 </head>
-<body>
+<body class="page-pr-list">
     <?php include 'sidebar.php'; ?>
     <div class="main-content fade-in">
         
         <!-- Premium Header Area -->
         <div class="page-header">
-            <div>
-                <h3 class="fw-bold mb-1 text-slate-900 tracking-tight">Purchase Requests</h3>
-                <span class="text-muted fs-sm">Review and manage all requested procurements</span>
+            <div class="list-title-row d-flex align-items-center justify-content-between gap-2">
+                <div class="list-title-copy">
+                    <h3 class="fw-bold mb-0 text-slate-900 tracking-tight">Purchase Requests</h3>
+                    <span class="list-title-subtitle text-muted fs-sm d-none d-md-block mt-1">Review and manage all requested procurements</span>
+                </div>
+                <?php if($_SESSION['role'] == 'Sales Staff'): ?>
+                    <a href="quotations_list.php" class="mobile-list-create-action d-inline-flex d-md-none align-items-center justify-content-center" title="Create Purchase Request" aria-label="Create Purchase Request">
+                        <svg class="mobile-list-create-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                            <path d="M12 5v14M5 12h14"></path>
+                        </svg>
+                        <span class="visually-hidden">Create Purchase Request</span>
+                    </a>
+                <?php endif; ?>
             </div>
 
             <form method="GET" action="pr_list.php" class="sleek-filter-bar m-0">
@@ -77,7 +88,7 @@ $result = $stmt->get_result();
                 <?php endif; ?>
 
                 <?php if($_SESSION['role'] == 'Sales Staff'): ?>
-                    <a href="quotations_list.php" class="btn-gradient-primary text-decoration-none d-flex align-items-center">
+                    <a href="quotations_list.php" class="btn-gradient-primary text-decoration-none d-flex align-items-center" title="Create Purchase Request" aria-label="Create Purchase Request">
                         <i class="fas fa-plus me-2"></i> Submit Request
                     </a>
                 <?php endif; ?>
@@ -136,9 +147,14 @@ $result = $stmt->get_result();
                                                 <i class="fas fa-file-signature"></i>
                                             </div>
                                             <div class="doc-details">
-                                                <span class="doc-title"><?php echo htmlspecialchars($row['pr_number']); ?></span>
-                                                <span class="data-label"><?php echo htmlspecialchars($row['client_name']); ?></span>
-                                            </div>
+    <span class="doc-title"><?php echo htmlspecialchars($row['pr_number']); ?></span>
+    <span class="mobile-list-subline">
+        <span class="data-label"><?php echo htmlspecialchars($row['client_name']); ?></span>
+        <span class="mobile-list-status <?php echo $badge; ?>">
+            <?php echo str_replace('_', ' ', $row['status']); ?>
+        </span>
+    </span>
+</div>
                                         </div>
                                     </td>
                                     <td class="currency-data" data-label="Estimated Value">

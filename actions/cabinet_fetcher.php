@@ -7,6 +7,14 @@ ob_start();
 require '../config/db_connect.php';
 require '../config/functions.php';
 
+// =========================================================
+// STRICT ANTI-CACHE HEADERS (Para laging fresh ang bilang)
+// =========================================================
+header('Content-Type: application/json');
+header('Cache-Control: no-cache, no-store, must-revalidate');
+header('Pragma: no-cache');
+header('Expires: 0');
+
 try {
     // Auto-create missing tables silently para hindi mag-error
     $conn->query("CREATE TABLE IF NOT EXISTS `physical_borrowing_logs` (
@@ -31,8 +39,6 @@ try {
     )");
 } catch (Exception $e) { }
 
-header('Content-Type: application/json');
-
 if (!isset($_SESSION['user_id'])) {
     ob_end_clean();
     echo json_encode(['status' => 'error', 'message' => 'Unauthorized access.']);
@@ -52,24 +58,28 @@ try {
         
         $folders = [];
         while ($row = $res->fetch_assoc()) {
-            // Safe aggregation query that prevents crashing
+            // =========================================================
+            // SMART INNER JOIN QUERY (Tanging physical files lang ang bibilangin)
+            // =========================================================
             $count_stmt = $conn->prepare("
                 SELECT 
-                    COUNT(*) as total,
-                    SUM(CASE WHEN record_phase IN ('Working', 'For Review', 'Converted') OR record_phase IS NULL THEN 1 ELSE 0 END) as working_cnt,
-                    SUM(CASE WHEN record_phase = 'Official' THEN 1 ELSE 0 END) as official_cnt,
-                    SUM(CASE WHEN status = 'Archived' THEN 1 ELSE 0 END) as archived_cnt
-                FROM documents 
-                WHERE category = ? AND status != 'Recycled'
+                    COUNT(d.doc_id) as total,
+                    COALESCE(SUM(CASE WHEN d.status != 'Archived' AND (d.record_phase IN ('Working', 'For Review', 'Draft', 'Under Review', 'Pending Approval', 'Needs Revision', 'Rejected', 'Approved') OR d.record_phase IS NULL) THEN 1 ELSE 0 END), 0) as working_cnt,
+                    COALESCE(SUM(CASE WHEN d.status != 'Archived' AND d.record_phase = 'Official' THEN 1 ELSE 0 END), 0) as official_cnt,
+                    COALESCE(SUM(CASE WHEN d.status = 'Archived' THEN 1 ELSE 0 END), 0) as archived_cnt
+                FROM documents d
+                INNER JOIN virt_document_locations l ON d.doc_id = l.document_id
+                INNER JOIN document_categories cat ON d.category = cat.sub_category
+                WHERE cat.id = ? AND d.status != 'Recycled' AND (d.record_phase != 'Converted' OR d.record_phase IS NULL)
             ");
-            $count_stmt->bind_param("s", $row['name']);
+            $count_stmt->bind_param("i", $row['id']);
             $count_stmt->execute();
             $count_res = $count_stmt->get_result()->fetch_assoc();
             
-            $row['doc_count'] = $count_res['total'] ?? 0;
-            $row['working_count'] = $count_res['working_cnt'] ?? 0;
-            $row['official_count'] = $count_res['official_cnt'] ?? 0;
-            $row['archived_count'] = $count_res['archived_cnt'] ?? 0;
+            $row['doc_count'] = intval($count_res['total']);
+            $row['working_count'] = intval($count_res['working_cnt']);
+            $row['official_count'] = intval($count_res['official_cnt']);
+            $row['archived_count'] = intval($count_res['archived_cnt']);
             $folders[] = $row;
         }
         
@@ -93,15 +103,15 @@ try {
         }
         $cat = $cat_res['sub_category'];
 
-        // Safe Document Fetch
+        // Safe Document Fetch (Naka-INNER JOIN)
         $stmt2 = $conn->prepare("
             SELECT d.file_name, d.category, d.po_id, d.doc_id, d.status AS doc_status, 
                    d.record_phase, d.disposition_status,
-                   COALESCE(l.status, 'Stored') as status, 
+                   l.status as status, 
                    COALESCE(l.last_updated, d.uploaded_at) as last_updated
             FROM documents d 
-            LEFT JOIN virt_document_locations l ON d.doc_id = l.document_id 
-            WHERE d.category = ? AND d.status != 'Recycled'
+            INNER JOIN virt_document_locations l ON d.doc_id = l.document_id 
+            WHERE d.category = ? AND d.status != 'Recycled' AND (d.record_phase != 'Converted' OR d.record_phase IS NULL)
             ORDER BY last_updated DESC
         ");
         $stmt2->bind_param("s", $cat);
@@ -132,11 +142,11 @@ try {
         $search_sql = "
             SELECT d.doc_id, d.file_name, d.record_number, d.status as lifecycle_status,
                    d.record_phase, d.disposition_status,
-                   COALESCE(l.status, 'Stored') as physical_status,
+                   l.status as physical_status,
                    CONCAT_WS(' > ', b.name, r.name, c.name, dr.name, cat.sub_category) as full_physical_path,
                    dr.id as target_drawer_id
             FROM documents d
-            LEFT JOIN virt_document_locations l ON d.doc_id = l.document_id
+            INNER JOIN virt_document_locations l ON d.doc_id = l.document_id
             LEFT JOIN document_categories cat ON d.category = cat.sub_category
             LEFT JOIN virt_drawers dr ON cat.drawer_id = dr.id
             LEFT JOIN virt_cabinets c ON dr.cabinet_id = c.id
@@ -144,8 +154,9 @@ try {
             LEFT JOIN virt_buildings b ON r.building_id = b.id
             LEFT JOIN users u ON d.uploaded_by = u.user_id
             WHERE d.status != 'Recycled' 
+            AND (d.record_phase != 'Converted' OR d.record_phase IS NULL)
             AND (
-                d.file_name LIKE ? OR 
+                d.file_name LIKE ? OR
                 d.record_number LIKE ? OR 
                 d.category LIKE ? OR 
                 cat.classification_keywords LIKE ? OR
@@ -174,7 +185,8 @@ try {
         
         $doc_sql = "
             SELECT d.*, u.full_name as owner_name, COALESCE(l.status, 'Stored') as physical_status,
-                   CONCAT_WS(' > ', b.name, r.name, c.name, dr.name, cat.sub_category) as full_physical_path
+                   CONCAT_WS(' > ', b.name, r.name, c.name, dr.name, cat.sub_category) as full_physical_path,
+                   cat.parent_category
             FROM documents d
             LEFT JOIN virt_document_locations l ON d.doc_id = l.document_id
             LEFT JOIN document_categories cat ON d.category = cat.sub_category
@@ -196,7 +208,8 @@ try {
             exit();
         }
 
-        $borrow_sql = "SELECT pbl.*, u.full_name as recorded_by FROM physical_borrowing_logs pbl JOIN users u ON pbl.user_id = u.user_id WHERE pbl.document_id = ? ORDER BY pbl.action_date DESC";
+        // FIX: Nagdagdag ng LIMIT 15 para hindi humina ang server kapag sobrang dami na ng logs
+        $borrow_sql = "SELECT pbl.*, u.full_name as recorded_by FROM physical_borrowing_logs pbl JOIN users u ON pbl.user_id = u.user_id WHERE pbl.document_id = ? ORDER BY pbl.action_date DESC LIMIT 15";
         $b_stmt = $conn->prepare($borrow_sql);
         $b_stmt->bind_param("i", $doc_id);
         $b_stmt->execute();
@@ -207,6 +220,21 @@ try {
         $m_stmt->bind_param("i", $doc_id);
         $m_stmt->execute();
         $move_logs = $m_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+
+        $dig_v = floatval($document['current_version']);
+        $phy_v = floatval($document['physical_version'] ?? 1.0);
+        $sync_status = "Up To Date";
+        
+        if ($document['physical_status'] === 'Borrowed') {
+            $sync_status = "Borrowed";
+        } elseif ($dig_v > $phy_v) {
+            $sync_status = "Replacement Required";
+        } elseif ($document['physical_status'] === 'Digital') {
+            $sync_status = "No Physical Copy";
+        }
+
+        $document['physical_version'] = $phy_v;
+        $document['sync_status'] = $sync_status;
 
         ob_end_clean();
         echo json_encode([

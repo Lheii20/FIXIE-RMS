@@ -58,72 +58,52 @@ if ($pr['status'] == 'Rejected') {
 <html lang="en">
 <head>
     <title>View PR <?php echo htmlspecialchars($pr['pr_number']); ?> - Fixie DRMS</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
-    <link href="assets/css/style.css" rel="stylesheet">
+    <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <!-- SweetAlert2 CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        body, .main-content { font-family: 'Inter', sans-serif; }
-        .sleek-popup { border-radius: 16px !important; font-family: 'Inter', sans-serif; }
-        .swal2-textarea { 
-            font-size: 0.9rem !important; 
-            border-radius: 10px !important; 
-            border: 1px solid #cbd5e1 !important; 
-            box-shadow: none !important; 
-        }
-        .swal2-textarea:focus {
-            border-color: #ef4444 !important;
-            box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1) !important;
-        }
-        .reject-callout {
-            background-color: #fef2f2;
-            border: 1px solid #fecaca;
-            border-left: 4px solid #ef4444;
-            border-radius: 8px;
-            padding: 12px 16px;
-            margin-top: 16px;
-        }
-    </style>
+    
 </head>
-<body>
+<body class="page-view-pr">
 
     <?php include 'sidebar.php'; ?>
 
     <div class="main-content fade-in">
-        <div class="container-fluid" style="max-width: 1200px;">
+        <div class="container-fluid view-doc-shell" style="max-width: 1200px;">
             
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <div class="d-flex align-items-center">
-                    <a href="pr_list.php" class="btn btn-light border me-3 shadow-sm" style="border-radius: 10px;"><i class="fas fa-arrow-left"></i></a>
-                    <div>
+            <div class="view-doc-header view-pr-header d-flex justify-content-between align-items-center mb-4">
+                <div class="view-doc-title-group d-flex align-items-center">
+                    <a href="pr_list.php" class="view-doc-back btn btn-light border me-3 shadow-sm" style="border-radius: 10px;" aria-label="Back to purchase requests"><i class="fas fa-arrow-left"></i></a>
+                    <div class="view-doc-title">
                         <h3 class="fw-bold mb-0 text-dark" style="letter-spacing: -0.5px;">Purchase Request Details</h3>
                         <p class="text-muted mb-0" style="font-size: 0.85rem;">Review the requested items before approval.</p>
                     </div>
                 </div>
-                <div class="d-flex align-items-center gap-2">
+                <div class="view-doc-header-actions d-flex align-items-center gap-2">
                     <?php if($pr['status'] == 'Pending'): ?>
-                        <span class="badge bg-warning text-dark border border-warning px-3 py-2 shadow-sm" style="font-size: 0.8rem;"><i class="fas fa-clock me-1"></i> Pending Approval</span>
+                        <span class="view-doc-status badge bg-warning text-dark border border-warning px-3 py-2 shadow-sm" style="font-size: 0.8rem;"><i class="fas fa-clock me-1"></i> Pending Approval</span>
                     <?php elseif($pr['status'] == 'Approved'): ?>
-                        <span class="badge bg-success bg-opacity-10 text-success border border-success px-3 py-2 shadow-sm" style="font-size: 0.8rem;"><i class="fas fa-check-circle me-1"></i> Approved</span>
+                        <span class="view-doc-status badge bg-success bg-opacity-10 text-success border border-success px-3 py-2 shadow-sm" style="font-size: 0.8rem;"><i class="fas fa-check-circle me-1"></i> Approved</span>
                     <?php elseif($pr['status'] == 'Rejected'): ?>
-                        <span class="badge bg-danger bg-opacity-10 text-danger border border-danger px-3 py-2 shadow-sm" style="font-size: 0.8rem;"><i class="fas fa-times-circle me-1"></i> Rejected</span>
+                        <span class="view-doc-status badge bg-danger bg-opacity-10 text-danger border border-danger px-3 py-2 shadow-sm" style="font-size: 0.8rem;"><i class="fas fa-times-circle me-1"></i> Rejected</span>
                     <?php elseif($pr['status'] == 'Converted_to_PO'): ?>
-                        <span class="badge bg-primary bg-opacity-10 text-primary border border-primary px-3 py-2 shadow-sm" style="font-size: 0.8rem;"><i class="fas fa-file-invoice me-1"></i> Converted to PO</span>
+                        <span class="view-doc-status badge bg-primary bg-opacity-10 text-primary border border-primary px-3 py-2 shadow-sm" style="font-size: 0.8rem;"><i class="fas fa-file-invoice me-1"></i> Converted to PO</span>
                     <?php endif; ?>
 
                     <?php if($can_convert): ?>
-                        <a href="create_po.php?pr_id=<?php echo $pr_id; ?>" class="btn btn-primary shadow-sm fw-bold px-3 ms-2" style="border-radius: 8px; font-size: 0.85rem;">
-                            <i class="fas fa-plus-circle me-1"></i> Convert to PO
+                        <a href="create_po.php?pr_id=<?php echo $pr_id; ?>" class="view-doc-primary-action btn btn-primary shadow-sm fw-bold px-3 ms-2" style="border-radius: 8px; font-size: 0.85rem;" aria-label="Convert to purchase order">
+                            <i class="fas fa-plus-circle me-1"></i><span>Convert to PO</span>
                         </a>
                     <?php endif; ?>
                 </div>
             </div>
 
-            <div class="row g-4 mb-4">
+            <div class="row g-4 mb-4 view-summary-grid">
                 <div class="col-md-8">
-                    <div class="card shadow-sm border-0 h-100" style="border-radius: 16px;">
+                    <div class="card shadow-sm border-0 h-100 view-info-card" style="border-radius: 16px;">
                         <div class="card-body p-4">
                             <div class="d-flex align-items-center mb-3 pb-2 border-bottom border-light">
                                 <div class="bg-light text-primary rounded-circle d-flex align-items-center justify-content-center me-3" style="width: 40px; height: 40px;">
@@ -171,7 +151,7 @@ if ($pr['status'] == 'Rejected') {
                     </div>
                 </div>
                 <div class="col-md-4">
-                    <div class="card shadow-sm border-0 h-100" style="border-radius: 16px; background: linear-gradient(135deg, #eff6ff, #dbeafe);">
+                    <div class="card shadow-sm border-0 h-100 view-total-card" style="border-radius: 16px; background: linear-gradient(135deg, #eff6ff, #dbeafe);">
                         <div class="card-body p-4 d-flex flex-column justify-content-center text-center">
                             <div class="bg-white text-primary rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3 shadow-sm" style="width: 48px; height: 48px;">
                                 <i class="fas fa-coins fs-4"></i>
@@ -183,13 +163,13 @@ if ($pr['status'] == 'Rejected') {
                 </div>
             </div>
 
-            <div class="card shadow-sm border-0 mb-4" style="border-radius: 16px; overflow: hidden;">
+            <div class="card shadow-sm border-0 mb-4 view-items-card" style="border-radius: 16px; overflow: hidden;">
                 <div class="card-header bg-white py-3 border-bottom border-light">
                     <h6 class="m-0 fw-bold text-dark"><i class="fas fa-list-ul me-2 text-primary"></i> Requested Items List</h6>
                 </div>
                 <div class="card-body p-0">
                     <div class="table-responsive">
-                        <table class="table table-hover align-middle mb-0">
+                        <table class="table table-hover align-middle mb-0 view-items-table">
                             <thead class="bg-light text-secondary" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">
                                 <tr>
                                     <th class="ps-4 py-3 border-bottom-0">Item & Specifications</th>
@@ -225,8 +205,13 @@ if ($pr['status'] == 'Rejected') {
                 </div>
             </div>
 
+            <div class="view-mobile-grand-total d-md-none" aria-label="Grand Total Estimate">
+                <span>Grand Total Estimate</span>
+                <strong>₱ <?php echo number_format($pr['amount'], 2); ?></strong>
+            </div>
+
             <?php if($can_approve): ?>
-            <div class="card shadow-sm border-0 border-top border-warning border-3 mb-5" style="border-radius: 16px;">
+            <div class="card shadow-sm border-0 border-top border-warning border-3 mb-5 view-decision-card" style="border-radius: 16px;">
                 <div class="card-body p-4 d-flex justify-content-between align-items-center flex-wrap gap-3">
                     <div>
                         <h5 class="fw-bold text-dark mb-1">Approval Decision</h5>

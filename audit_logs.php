@@ -309,7 +309,7 @@ $activeUsersCount = count($distinctUsers);
     <title>Audit Trail - Fixie DRMS</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
-    <link href="assets/css/style.css" rel="stylesheet">
+    <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
@@ -318,23 +318,23 @@ $activeUsersCount = count($distinctUsers);
     <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
-<body>
+<body class="page-audit-logs">
     <?php include 'sidebar.php'; ?>
     
     <div class="main-content fade-in">
         
-        <header class="mb-4 pb-2 border-bottom d-flex flex-wrap justify-content-between align-items-center gap-3">
-            <div class="flex-grow-1">
+        <header class="admin-page-header audit-page-header mb-4 pb-2 border-bottom d-flex flex-wrap justify-content-between align-items-center gap-3">
+            <div class="admin-page-title flex-grow-1">
                 <h5 class="fw-bold mb-1 text-main tracking-tight"><i class="fas fa-shield-alt text-primary me-2"></i>System Audit Trail</h5>
                 <p class="text-muted mb-0 fs-sm">Monitor enterprise activity, security events, and user actions.</p>
             </div>
             
-            <button class="btn-modern btn-primary-modern" onclick="openExportModal()">
-                <i class="fas fa-file-export"></i> Export Configuration
+            <button class="audit-export-action btn-modern btn-primary-modern" onclick="openExportModal()" aria-label="Export audit logs">
+                <i class="fas fa-file-export" aria-hidden="true"></i><span class="audit-export-label">Export Configuration</span>
             </button>
         </header>
 
-        <div class="row g-3 mb-4">
+        <div class="row g-3 mb-4 audit-kpi-grid">
             <div class="col-xl-3 col-md-6">
                 <div class="kpi-corp-card accent-blue">
                     <div class="kpi-corp-header">
@@ -369,10 +369,10 @@ $activeUsersCount = count($distinctUsers);
             </div>
         </div>
 
-        <div class="corp-widget p-0 overflow-hidden mb-4 d-flex flex-column bg-white">
+        <div class="corp-widget p-0 overflow-hidden mb-4 d-flex flex-column bg-white audit-log-widget">
             
-            <div class="p-3 border-bottom d-flex flex-wrap gap-3 align-items-end">
-                <div class="min-w-180">
+            <div class="p-3 border-bottom d-flex flex-wrap gap-3 align-items-end audit-filter-bar">
+                <div class="min-w-180 audit-filter-module">
                     <label class="form-label fw-semibold text-muted mb-1 fs-xs text-uppercase">Module Focus</label>
                     <select class="form-select form-select-sm sleek-input" id="filterModule">
                         <option value="">All Modules</option>
@@ -385,7 +385,7 @@ $activeUsersCount = count($distinctUsers);
                         <option value="System">System Operations</option>
                     </select>
                 </div>
-                <div class="min-w-160">
+                <div class="min-w-160 audit-filter-category">
                     <label class="form-label fw-semibold text-muted mb-1 fs-xs text-uppercase">Action Category</label>
                     <select class="form-select form-select-sm sleek-input" id="filterCategory">
                         <option value="">All Categories</option>
@@ -396,7 +396,7 @@ $activeUsersCount = count($distinctUsers);
                         <option value="Deletion">Deletion</option>
                     </select>
                 </div>
-                <div class="flex-grow-1 ms-auto max-w-350">
+                <div class="flex-grow-1 ms-auto max-w-350 audit-filter-search">
                     <label class="form-label fw-semibold text-muted mb-1 fs-xs text-uppercase">Search Records</label>
                     <div class="input-group input-group-sm sleek-input-group">
                         <span class="input-group-text bg-transparent text-muted border-end-0"><i class="fas fa-search fa-xs"></i></span>
@@ -405,8 +405,8 @@ $activeUsersCount = count($distinctUsers);
                 </div>
             </div>
 
-            <div class="table-responsive flex-grow-1">
-                <table id="auditTable" class="table table-corp align-middle mb-0 w-100">
+            <div class="table-responsive flex-grow-1 audit-table-wrap">
+                <table id="auditTable" class="table table-corp align-middle mb-0 w-100 audit-responsive-table">
                     <thead>
                         <tr>
                             <th class="ps-4">Activity Timeline</th>
@@ -422,8 +422,22 @@ $activeUsersCount = count($distinctUsers);
                             $timeFormatted = date('M d, Y h:i A', strtotime($log['timestamp']));
                             $safeRole = htmlspecialchars($log['role'] ?? 'Unknown');
                         ?>
-                        <tr class="timeline-row">
-                            <td class="ps-4 max-w-380">
+                        <tr class="timeline-row audit-clickable-row"
+                            role="button"
+                            tabindex="0"
+                            aria-label="View audit details for <?= htmlspecialchars(strip_tags($p['sentence'])) ?>"
+                            onclick="viewAuditDetails(this)"
+                            onkeydown="if(event.key === 'Enter' || event.key === ' '){ event.preventDefault(); viewAuditDetails(this); }"
+                            data-log-id="<?= htmlspecialchars($log['log_id']) ?>"
+                            data-user="<?= htmlspecialchars($log['full_name'] ?: 'System Administrator') ?>"
+                            data-role="<?= $safeRole ?>"
+                            data-action="<?= htmlspecialchars($log['action_type']) ?>"
+                            data-ip="<?= htmlspecialchars($log['ip_address']) ?>"
+                            data-time="<?= htmlspecialchars($timeFormatted) ?>"
+                            data-module="<?= htmlspecialchars($p['module']) ?>"
+                            data-desc="<?= htmlspecialchars($log['description']) ?>"
+                            data-sentence="<?= htmlspecialchars($p['sentence']) ?>">
+                            <td class="ps-4 max-w-380 audit-primary-cell">
                                 <div class="d-flex align-items-start py-1">
                                     <div class="icon-circle-sm bg-soft-<?= $p['color'] ?> flex-shrink-0 me-3 mt-1">
                                         <i class="fas fa-<?= $p['icon'] ?>"></i>
@@ -433,6 +447,11 @@ $activeUsersCount = count($distinctUsers);
                                         <?php if(!empty($p['details'])): ?>
                                             <div class="timeline-details"><i class="fas fa-level-up-alt fa-rotate-90 text-muted me-1 fs-xs"></i> <?= $p['details'] ?></div>
                                         <?php endif; ?>
+                                        <div class="audit-mobile-meta d-md-none">
+                                            <span class="audit-mobile-module"><?= htmlspecialchars($p['module']) ?></span>
+                                            <span class="audit-mobile-category bg-soft-<?= $p['color'] ?>"><?= htmlspecialchars($p['category']) ?></span>
+                                            <span class="audit-mobile-date"><?= date('M d, Y', strtotime($log['timestamp'])) ?></span>
+                                        </div>
                                     </div>
                                 </div>
                             </td>
@@ -442,19 +461,8 @@ $activeUsersCount = count($distinctUsers);
                                 <div class="text-main fw-semibold fs-sm"><?= date('M d, Y', strtotime($log['timestamp'])) ?></div>
                                 <div class="text-muted fs-xs"><?= date('h:i:s A', strtotime($log['timestamp'])) ?></div>
                             </td>
-                            <td class="text-end pe-4">
-                                <button class="btn-view-details" 
-                                        onclick="viewAuditDetails(this)"
-                                        data-log-id="<?= htmlspecialchars($log['log_id']) ?>"
-                                        data-user="<?= htmlspecialchars($log['full_name'] ?: 'System Administrator') ?>"
-                                        data-role="<?= $safeRole ?>"
-                                        data-action="<?= htmlspecialchars($log['action_type']) ?>"
-                                        data-ip="<?= htmlspecialchars($log['ip_address']) ?>"
-                                        data-time="<?= htmlspecialchars($timeFormatted) ?>"
-                                        data-module="<?= htmlspecialchars($p['module']) ?>"
-                                        data-desc="<?= htmlspecialchars($log['description']) ?>"
-                                        data-sentence="<?= htmlspecialchars($p['sentence']) ?>"
-                                        >View</button>
+                            <td class="text-end pe-4 audit-action-cell">
+                                <span class="btn-view-details" aria-hidden="true"><span class="audit-view-label">View</span><i class="audit-view-icon fas fa-chevron-right"></i></span>
                             </td>
                         </tr>
                         <?php endforeach; ?>
@@ -462,21 +470,21 @@ $activeUsersCount = count($distinctUsers);
                 </table>
             </div>
 
-            <div class="p-3 border-top bg-light d-flex flex-wrap align-items-center justify-content-between gap-3">
+            <div class="audit-pagination-bar p-3 border-top bg-light d-flex flex-wrap align-items-center justify-content-between gap-3">
                 <div class="text-muted fw-medium fs-sm" id="customPageInfo">Showing 0-0 of 0 records</div>
-                <div class="d-flex align-items-center flex-wrap gap-4">
-                    <div class="d-flex align-items-center gap-2">
+                <div class="audit-pagination-controls d-flex align-items-center flex-wrap gap-4">
+                    <div class="audit-page-length d-flex align-items-center gap-2">
                         <span class="text-muted fw-medium fs-xs">Rows per page:</span>
                         <select id="customPageLength" class="form-select form-select-sm sleek-input py-1 w-auto">
                             <option value="15">15</option><option value="30">30</option><option value="50">50</option><option value="100">100</option>
                         </select>
                     </div>
-                    <div class="d-flex align-items-center gap-2 text-muted fw-medium fs-xs">
+                    <div class="audit-page-jump d-flex align-items-center gap-2 text-muted fw-medium fs-xs">
                         Page <input type="number" id="customPageInput" class="page-input-styled" min="1" value="1"> of <span id="customTotalPages">1</span>
                     </div>
-                    <div class="btn-group shadow-sm">
-                        <button class="btn-pagination" id="customPrevBtn"><i class="fas fa-chevron-left me-2 fs-xs"></i> Previous</button>
-                        <button class="btn-pagination" id="customNextBtn">Next <i class="fas fa-chevron-right ms-2 fs-xs"></i></button>
+                    <div class="audit-page-buttons btn-group shadow-sm">
+                        <button class="btn-pagination" id="customPrevBtn" aria-label="Previous page"><i class="fas fa-chevron-left fs-xs"></i><span class="audit-pagination-label">Previous</span></button>
+                        <button class="btn-pagination" id="customNextBtn" aria-label="Next page"><span class="audit-pagination-label">Next</span><i class="fas fa-chevron-right fs-xs"></i></button>
                     </div>
                 </div>
             </div>
@@ -484,7 +492,7 @@ $activeUsersCount = count($distinctUsers);
         </div>
     </div>
 
-    <div class="modal fade sleek-modal" id="auditDetailsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal fade sleek-modal audit-details-modal" id="auditDetailsModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered modal-lg">
             <div class="modal-content shadow">
                 <div class="modal-header">
@@ -525,7 +533,7 @@ $activeUsersCount = count($distinctUsers);
         </div>
     </div>
     
-    <div class="modal fade sleek-modal" id="exportModal" tabindex="-1" aria-hidden="true">
+    <div class="modal fade sleek-modal audit-export-modal" id="exportModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content shadow-lg border-0">
                 <div class="modal-header bg-light">
