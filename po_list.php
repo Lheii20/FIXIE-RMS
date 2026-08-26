@@ -1,7 +1,15 @@
 <?php 
 require 'config/db_connect.php'; 
 require 'config/functions.php';
-if(!isset($_SESSION['user_id'])) header("Location: index.php");
+require_once 'config/workflow_access.php';
+
+drms_require_workflow_roles([
+    'Procurement',
+    'GM',
+    'President',
+    'Finance',
+    'Supply Chain',
+]);
 
 $current_user_id = (int)$_SESSION['user_id'];
 $current_role = $_SESSION['role'];

@@ -1,8 +1,9 @@
 <?php 
 require 'config/db_connect.php'; 
 require 'config/functions.php';
+require_once 'config/workflow_access.php';
 
-if(!isset($_SESSION['user_id'])) header("Location: index.php");
+drms_require_login();
 
 $role = $_SESSION['role'];
 $executives = ['GM', 'President'];
@@ -78,6 +79,7 @@ $doc_date     = getDateFilter('uploaded_at', $period);
 $req_date     = getDateFilter('requested_at', $period);
 $pr_date      = getDateFilter('date_created', $period);
 $po_date      = getDateFilter('date_created', $period);
+$po_collection_date = getDateFilter('po.date_created', $period);
 $q_date       = getDateFilter('created_at', $period);
 $po_hist_date = getDateFilter('timestamp', $period); 
 $payment_date = getDateFilter('created_at', $period);
@@ -113,6 +115,183 @@ function fetch_chart_data($conn, $sql, $types, $params, $single = false) {
         }
     }
     return $single ? [] : [];
+}
+
+// ====================================================
+// SHARED COLLECTION DECISION-SUPPORT POSITION
+// ====================================================
+// Collected legacy POs may predate the payment ledger. Their Collected status
+// remains the authoritative settlement marker, while open POs use actual
+// payment rows to calculate the live balance.
+$collection_dss = [
+    'outstanding_amount' => 0.0,
+    'open_count' => 0,
+    'overdue_amount' => 0.0,
+    'overdue_count' => 0,
+    'due_soon_amount' => 0.0,
+    'due_soon_count' => 0,
+    'missing_due_amount' => 0.0,
+    'missing_due_count' => 0,
+    'collected_value' => 0.0,
+    'receivable_value' => 0.0,
+    'collection_rate' => 0.0,
+];
+
+if ($can_view_financials) {
+    try {
+        $collection_position_sql = "SELECT
+                COALESCE(SUM(
+                    CASE
+                        WHEN position.status IN ('Delivered', 'Partially-Collected')
+                         AND position.balance > 0
+                        THEN position.balance
+                        ELSE 0
+                    END
+                ), 0) AS outstanding_amount,
+                SUM(
+                    CASE
+                        WHEN position.status IN ('Delivered', 'Partially-Collected')
+                         AND position.balance > 0
+                        THEN 1
+                        ELSE 0
+                    END
+                ) AS open_count,
+                COALESCE(SUM(
+                    CASE
+                        WHEN position.status IN ('Delivered', 'Partially-Collected')
+                         AND position.balance > 0
+                         AND position.due_date < CURDATE()
+                        THEN position.balance
+                        ELSE 0
+                    END
+                ), 0) AS overdue_amount,
+                SUM(
+                    CASE
+                        WHEN position.status IN ('Delivered', 'Partially-Collected')
+                         AND position.balance > 0
+                         AND position.due_date < CURDATE()
+                        THEN 1
+                        ELSE 0
+                    END
+                ) AS overdue_count,
+                COALESCE(SUM(
+                    CASE
+                        WHEN position.status IN ('Delivered', 'Partially-Collected')
+                         AND position.balance > 0
+                         AND position.due_date BETWEEN CURDATE()
+                             AND DATE_ADD(CURDATE(), INTERVAL 3 DAY)
+                        THEN position.balance
+                        ELSE 0
+                    END
+                ), 0) AS due_soon_amount,
+                SUM(
+                    CASE
+                        WHEN position.status IN ('Delivered', 'Partially-Collected')
+                         AND position.balance > 0
+                         AND position.due_date BETWEEN CURDATE()
+                             AND DATE_ADD(CURDATE(), INTERVAL 3 DAY)
+                        THEN 1
+                        ELSE 0
+                    END
+                ) AS due_soon_count,
+                COALESCE(SUM(
+                    CASE
+                        WHEN position.status IN ('Delivered', 'Partially-Collected')
+                         AND position.balance > 0
+                         AND position.due_date IS NULL
+                        THEN position.balance
+                        ELSE 0
+                    END
+                ), 0) AS missing_due_amount,
+                SUM(
+                    CASE
+                        WHEN position.status IN ('Delivered', 'Partially-Collected')
+                         AND position.balance > 0
+                         AND position.due_date IS NULL
+                        THEN 1
+                        ELSE 0
+                    END
+                ) AS missing_due_count,
+                COALESCE(SUM(position.collected_value), 0) AS collected_value,
+                COALESCE(SUM(position.amount), 0) AS receivable_value
+            FROM (
+                SELECT
+                    base.po_id,
+                    base.status,
+                    base.amount,
+                    base.collected_value,
+                    base.due_date,
+                    GREATEST(base.amount - base.collected_value, 0) AS balance
+                FROM (
+                    SELECT
+                        po.po_id,
+                        po.status,
+                        po.amount,
+                        CASE
+                            WHEN po.status = 'Collected' THEN po.amount
+                            ELSE LEAST(
+                                COALESCE(payment_summary.total_paid, 0),
+                                po.amount
+                            )
+                        END AS collected_value,
+                        COALESCE(
+                            NULLIF(receipt.collection_due_date, ''),
+                            NULLIF(po.expected_collection_date, '')
+                        ) AS due_date
+                    FROM purchase_orders po
+                    LEFT JOIN (
+                        SELECT po_id, SUM(amount_paid) AS total_paid
+                        FROM payments
+                        GROUP BY po_id
+                    ) payment_summary
+                        ON payment_summary.po_id = po.po_id
+                    LEFT JOIN po_delivery_receipts receipt
+                        ON receipt.delivery_receipt_id = (
+                            SELECT MAX(receipt_candidate.delivery_receipt_id)
+                            FROM po_delivery_receipts receipt_candidate
+                            WHERE receipt_candidate.po_id = po.po_id
+                              AND receipt_candidate.record_status = 'Active'
+                        )
+                    WHERE po.status IN (
+                        'Delivered',
+                        'Partially-Collected',
+                        'Collected'
+                    )
+                      AND {$po_collection_date['sql']}
+                ) base
+            ) position";
+
+        $collection_result = fetch_chart_data(
+            $conn,
+            $collection_position_sql,
+            $po_collection_date['types'],
+            $po_collection_date['params'],
+            true
+        );
+
+        foreach ($collection_dss as $key => $default_value) {
+            if ($key !== 'collection_rate' && isset($collection_result[$key])) {
+                $collection_dss[$key] = is_int($default_value)
+                    ? (int) $collection_result[$key]
+                    : (float) $collection_result[$key];
+            }
+        }
+        if ($collection_dss['receivable_value'] > 0) {
+            $collection_dss['collection_rate'] = min(
+                max(
+                    ($collection_dss['collected_value'] /
+                        $collection_dss['receivable_value']) * 100,
+                    0
+                ),
+                100
+            );
+        }
+    } catch (Throwable $error) {
+        error_log(
+            'Phase 5F collection DSS calculation failed: ' .
+            $error->getMessage()
+        );
+    }
 }
 
 // ====================================================
@@ -283,10 +462,25 @@ if ($is_sales_staff) {
 // ==========================================
 // PROCUREMENT STATS & CHARTS
 // ==========================================
-$proc_stats = ['total' => 0, 'pending' => 0, 'funded' => 0, 'delivered' => 0];
+$proc_stats = [
+    'total' => 0,
+    'ready_prf' => 0,
+    'pending' => 0,
+    'funded' => 0,
+    'delivered' => 0,
+];
 $proc_charts = [];
 
 if ($role === 'Procurement') {
+    $proc_stats['ready_prf'] = get_count(
+        $conn,
+        "SELECT COUNT(*)
+         FROM purchase_requests
+         WHERE status = 'Approved'
+           AND {$pr_date['sql']}",
+        $pr_date['types'],
+        $pr_date['params']
+    );
     $proc_stats['total'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE {$po_date['sql']}", $po_date['types'], $po_date['params']);
     $proc_stats['pending'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status IN ('Pending', 'GM-Approved', 'Finance-Approved', 'President-Approved') AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
     $proc_stats['funded'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Funded' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
@@ -350,7 +544,28 @@ $exec_stats = ['active_docs' => 0, 'archived_docs' => 0, 'pending_pr' => 0, 'pen
 if (in_array($role, $executives)) {
     $exec_stats['active_docs'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE status = 'Active' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
     $exec_stats['archived_docs'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE status = 'Archived' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
-    $exec_stats['pending_pr'] = get_count($conn, "SELECT COUNT(*) FROM purchase_requests WHERE status = 'Pending' AND {$pr_date['sql']}", $pr_date['types'], $pr_date['params']);
+    if ($role === 'GM') {
+        $pr_queue_condition = "(
+            workflow_version = 1
+            OR (workflow_version = 2 AND current_approval_stage = 'GM Review')
+        )";
+    } else {
+        $pr_queue_condition = "(
+            workflow_version = 1
+            OR (workflow_version = 2 AND current_approval_stage = 'Owner Approval')
+        )";
+    }
+
+    $exec_stats['pending_pr'] = get_count(
+        $conn,
+        "SELECT COUNT(*)
+         FROM purchase_requests
+         WHERE status = 'Pending'
+           AND {$pr_queue_condition}
+           AND {$pr_date['sql']}",
+        $pr_date['types'],
+        $pr_date['params']
+    );
     
     if ($role === 'GM') {
         $exec_stats['pending_po'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Pending' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
@@ -503,8 +718,16 @@ if (in_array($role, $executives)) {
     $q_turn = "SELECT status_to as stage, ROUND(AVG(TIMESTAMPDIFF(HOUR, (SELECT MIN(timestamp) FROM po_history h2 WHERE h2.po_id = po_history.po_id), timestamp)), 1) as avg_hours FROM po_history WHERE status_to IN ('GM-Approved', 'Finance-Approved', 'President-Approved', 'Funded', 'Delivered') AND {$po_hist_date['sql']} GROUP BY status_to";
     $gm_charts['turnaround'] = fetch_chart_data($conn, $q_turn, $po_hist_date['types'], $po_hist_date['params'], false);
 
-    $q_uncollected = "SELECT SUM(amount) as total_uncollected, COUNT(*) as count_uncollected FROM purchase_orders WHERE status IN ('Delivered', 'Partially-Collected') AND {$po_date['sql']}";
-    $gm_charts['uncollected'] = fetch_chart_data($conn, $q_uncollected, $po_date['types'], $po_date['params'], true);
+    $gm_charts['uncollected'] = [
+        'total_uncollected' => $collection_dss['outstanding_amount'],
+        'count_uncollected' => $collection_dss['open_count'],
+        'overdue_amount' => $collection_dss['overdue_amount'],
+        'overdue_count' => $collection_dss['overdue_count'],
+        'due_soon_amount' => $collection_dss['due_soon_amount'],
+        'due_soon_count' => $collection_dss['due_soon_count'],
+        'missing_due_amount' => $collection_dss['missing_due_amount'],
+        'missing_due_count' => $collection_dss['missing_due_count'],
+    ];
     
     $q_aging = "SELECT p.po_number, p.status, p.current_location, TIMESTAMPDIFF(HOUR, COALESCE((SELECT MAX(timestamp) FROM po_history ph WHERE ph.po_id = p.po_id), p.date_created), NOW()) as hours_stagnant FROM purchase_orders p WHERE p.status NOT IN ('Collected', 'Rejected', 'Invalid') AND {$po_date['sql']} ORDER BY hours_stagnant DESC LIMIT 1";
     $gm_charts['aging_po'] = fetch_chart_data($conn, $q_aging, $po_date['types'], $po_date['params'], true);
@@ -560,16 +783,47 @@ if (in_array($role, $executives)) {
 }
 
 $finance_charts = [];
-$finance_stats = ['pending_po' => 0, 'funded_po' => 0, 'uncollected_amount' => 0, 'total_revenue' => 0];
+$finance_stats = [
+    'pending_prf' => 0,
+    'pending_po' => 0,
+    'funded_po' => 0,
+    'uncollected_amount' => 0,
+    'collected_value' => 0,
+    'collection_rate' => 0,
+    'open_collection_count' => 0,
+    'overdue_amount' => 0,
+    'overdue_count' => 0,
+    'due_soon_amount' => 0,
+    'due_soon_count' => 0,
+    'missing_due_amount' => 0,
+    'missing_due_count' => 0,
+];
 
 if ($role === 'Finance') {
+    $finance_stats['pending_prf'] = get_count(
+        $conn,
+        "SELECT COUNT(*)
+         FROM purchase_requests
+         WHERE workflow_version = 2
+           AND status = 'Pending'
+           AND current_approval_stage = 'Finance Review'
+           AND {$pr_date['sql']}",
+        $pr_date['types'],
+        $pr_date['params']
+    );
     $finance_stats['pending_po'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'GM-Approved' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
     $finance_stats['funded_po'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Funded' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
     
-    $q_fin_kpi = "SELECT SUM(CASE WHEN status IN ('Delivered', 'Partially-Collected') THEN amount ELSE 0 END) as uncollected, SUM(CASE WHEN status IN ('Collected', 'Partially-Collected') THEN amount ELSE 0 END) as total_rev FROM purchase_orders WHERE {$po_date['sql']}";
-    $fin_kpi_res = fetch_chart_data($conn, $q_fin_kpi, $po_date['types'], $po_date['params'], true);
-    $finance_stats['uncollected_amount'] = $fin_kpi_res['uncollected'] ?? 0;
-    $finance_stats['total_revenue'] = $fin_kpi_res['total_rev'] ?? 0;
+    $finance_stats['uncollected_amount'] = $collection_dss['outstanding_amount'];
+    $finance_stats['collected_value'] = $collection_dss['collected_value'];
+    $finance_stats['collection_rate'] = $collection_dss['collection_rate'];
+    $finance_stats['open_collection_count'] = $collection_dss['open_count'];
+    $finance_stats['overdue_amount'] = $collection_dss['overdue_amount'];
+    $finance_stats['overdue_count'] = $collection_dss['overdue_count'];
+    $finance_stats['due_soon_amount'] = $collection_dss['due_soon_amount'];
+    $finance_stats['due_soon_count'] = $collection_dss['due_soon_count'];
+    $finance_stats['missing_due_amount'] = $collection_dss['missing_due_amount'];
+    $finance_stats['missing_due_count'] = $collection_dss['missing_due_count'];
 
     $stmt_monthly = $conn->query("SELECT DATE_FORMAT(date_created, '%Y-%m') as month_str, SUM(amount) as total_sales FROM purchase_orders WHERE status NOT IN ('Rejected', 'Invalid') GROUP BY month_str ORDER BY month_str ASC LIMIT 12");
     $historical = []; if($stmt_monthly) { while($r = $stmt_monthly->fetch_assoc()) { $historical[] = $r; } }
@@ -621,11 +875,40 @@ if ($role === 'Finance') {
     }
     $finance_charts['mom_labels'] = array_slice($mom_labels, -6); $finance_charts['mom_rev'] = array_slice($mom_rev, -6); $finance_charts['mom_pct'] = array_slice($mom_pct, -6);
 
-    $q_stacked = "SELECT client_name, SUM(amount) as total_revenue, SUM(CASE WHEN status = 'Collected' THEN amount WHEN status = 'Partially-Collected' THEN COALESCE((SELECT SUM(amount_paid) FROM payments WHERE po_id = purchase_orders.po_id), 0) ELSE 0 END) as collected_amount FROM purchase_orders WHERE status NOT IN ('Rejected', 'Invalid') AND {$po_date['sql']} GROUP BY client_name ORDER BY total_revenue DESC LIMIT 5";
-    $stacked_data = fetch_chart_data($conn, $q_stacked, $po_date['types'], $po_date['params'], false);
+    $q_stacked = "SELECT
+            po.client_name,
+            SUM(po.amount) AS total_revenue,
+            SUM(
+                CASE
+                    WHEN po.status = 'Collected' THEN po.amount
+                    ELSE LEAST(
+                        COALESCE(payment_summary.total_paid, 0),
+                        po.amount
+                    )
+                END
+            ) AS collected_amount
+        FROM purchase_orders po
+        LEFT JOIN (
+            SELECT po_id, SUM(amount_paid) AS total_paid
+            FROM payments
+            GROUP BY po_id
+        ) payment_summary
+            ON payment_summary.po_id = po.po_id
+        WHERE po.status IN ('Delivered', 'Partially-Collected', 'Collected')
+          AND {$po_collection_date['sql']}
+        GROUP BY po.client_name
+        ORDER BY total_revenue DESC
+        LIMIT 5";
+    $stacked_data = fetch_chart_data(
+        $conn,
+        $q_stacked,
+        $po_collection_date['types'],
+        $po_collection_date['params'],
+        false
+    );
     
     $tc_labels = []; $tc_col = []; $tc_uncol = [];
-    foreach($stacked_data as $t) { $tc_labels[] = $t['client_name']; $tc_col[] = (float)$t['collected_amount']; $tc_uncol[] = (float)$t['total_revenue'] - (float)$t['collected_amount']; }
+    foreach($stacked_data as $t) { $tc_labels[] = $t['client_name']; $tc_col[] = (float)$t['collected_amount']; $tc_uncol[] = max((float)$t['total_revenue'] - (float)$t['collected_amount'], 0); }
     $finance_charts['tc_labels'] = $tc_labels; $finance_charts['tc_col'] = $tc_col; $finance_charts['tc_uncol'] = $tc_uncol;
 }
 

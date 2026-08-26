@@ -1,231 +1,607 @@
-<?php 
-require 'config/db_connect.php'; 
-require 'config/functions.php'; 
+<?php
+require 'config/db_connect.php';
+require 'config/functions.php';
 
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Sales Staff') {
-    header("Location: dashboard.php");
+    header('Location: dashboard.php');
     exit();
 }
 
-$quotation_id = isset($_GET['quotation_id']) ? intval($_GET['quotation_id']) : 0;
-$q_data = null;
-$q_items = [];
+$quotation_id = isset($_GET['quotation_id']) ? (int) $_GET['quotation_id'] : 0;
+$quotation = null;
+$quotation_items = [];
+$official_client_po = null;
 
 if ($quotation_id > 0) {
-    $stmt = $conn->prepare("SELECT * FROM quotations WHERE quotation_id = ? AND status = 'PO Received'");
-    $stmt->bind_param("i", $quotation_id);
-    $stmt->execute();
-    $q_data = $stmt->get_result()->fetch_assoc();
-    
-    if ($q_data) {
-        $item_stmt = $conn->prepare("SELECT * FROM quotation_items WHERE quotation_id = ?");
-        $item_stmt->bind_param("i", $quotation_id);
+    $quotation_stmt = $conn->prepare(
+        "SELECT *
+         FROM quotations
+         WHERE quotation_id = ?
+           AND status = 'PO Received'"
+    );
+    $quotation_stmt->bind_param('i', $quotation_id);
+    $quotation_stmt->execute();
+    $quotation = $quotation_stmt->get_result()->fetch_assoc();
+
+    if ($quotation) {
+        $item_stmt = $conn->prepare(
+            "SELECT *
+             FROM quotation_items
+             WHERE quotation_id = ?
+             ORDER BY item_id"
+        );
+        $item_stmt->bind_param('i', $quotation_id);
         $item_stmt->execute();
-        $item_res = $item_stmt->get_result();
-        while ($i_row = $item_res->fetch_assoc()) {
-            $q_items[] = $i_row;
+        $item_result = $item_stmt->get_result();
+
+        while ($item_row = $item_result->fetch_assoc()) {
+            $quotation_items[] = $item_row;
         }
+
+        $official_po_stmt = $conn->prepare(
+            "SELECT
+                approval_record_id,
+                internal_reference,
+                actual_client_po_number,
+                client_po_date,
+                final_approval_date,
+                proof_original_name,
+                proof_file_path,
+                recorded_at
+             FROM client_approval_records
+             WHERE quotation_id = ?
+               AND record_type = 'Official Client PO'
+               AND record_status = 'Active'
+             ORDER BY final_approval_date DESC, recorded_at DESC, approval_record_id DESC
+             LIMIT 1"
+        );
+        $official_po_stmt->bind_param('i', $quotation_id);
+        $official_po_stmt->execute();
+        $official_client_po = $official_po_stmt->get_result()->fetch_assoc();
     }
 }
 
+$is_structured_prf = $quotation &&
+    $official_client_po &&
+    !empty($official_client_po['actual_client_po_number']) &&
+    !empty($official_client_po['client_po_date']) &&
+    !empty($official_client_po['final_approval_date']) &&
+    !empty($official_client_po['proof_file_path']);
+
 $year = date('Y');
-$pr_prefix = "PR-" . $year . "-";
-$pr_stmt = $conn->query("SELECT pr_number FROM purchase_requests ORDER BY pr_id DESC LIMIT 1");
-$next_pr_num = ($pr_stmt->num_rows > 0) ? intval(substr($pr_stmt->fetch_assoc()['pr_number'], -4)) + 1 : 1;
-$display_pr_number = $pr_prefix . str_pad($next_pr_num, 4, "0", STR_PAD_LEFT);
+$pr_prefix = 'PR-' . $year . '-';
+$sequence_stmt = $conn->query(
+    "SELECT MAX(CAST(SUBSTRING_INDEX(pr_number, '-', -1) AS UNSIGNED)) AS latest_sequence
+     FROM purchase_requests
+     WHERE pr_number REGEXP '^PR-[0-9]{4,6}-[0-9]+$'"
+);
+$sequence_row = $sequence_stmt ? $sequence_stmt->fetch_assoc() : null;
+$next_pr_number = ((int) ($sequence_row['latest_sequence'] ?? 0)) + 1;
+$display_pr_number = $pr_prefix . str_pad((string) $next_pr_number, 4, '0', STR_PAD_LEFT);
 
 $category_map = [
-    "01" => "1 - Hardware",
-    "02" => "2 - CCTVs",
-    "03" => "3 - Peripherals",
-    "04" => "4 - Office Supplies",
-    "05" => "5 - WIFI / LAN",
-    "06" => "6 - Printers"
+    '01' => '1 - Hardware',
+    '02' => '2 - CCTVs',
+    '03' => '3 - Peripherals',
+    '04' => '4 - Office Supplies',
+    '05' => '5 - WIFI / LAN',
+    '06' => '6 - Printers',
 ];
+
+$official_po_file_url = $is_structured_prf
+    ? 'download.php?type=client_approval&record_id=' .
+        (int) $official_client_po['approval_record_id']
+    : '';
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Create Purchase Request - Fixie DRMS</title>
+    <title>Prepare Purchase Request Form - Fixie DRMS</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
-    <link href="assets/css/style.css" rel="stylesheet">
+    <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
+    <link href="assets/css/prf-form.css?v=<?php echo filemtime(__DIR__ . '/assets/css/prf-form.css'); ?>" rel="stylesheet">
 </head>
-<body class="page-create-pr">
+<body class="page-create-pr prf-page">
     <?php include 'sidebar.php'; ?>
-    <div class="main-content fade-in">
-        <div class="container-fluid max-w-1400">
-            
-            <div class="d-flex flex-nowrap align-items-center justify-content-start mb-4 create-form-header text-start">
-                <a href="quotations_list.php" class="btn btn-light border me-3 create-form-back-btn" aria-label="Back to quotations"><i class="fas fa-arrow-left"></i></a>
-                <div class="create-form-heading text-start">
-                    <h2 class="fw-bold mb-0">Submit Purchase Request</h2>
-                    <p class="text-muted mb-0 d-none d-md-block">Review auto-filled items from Quotation before submitting PR.</p>
-                </div>
-            </div>
 
-            <?php if(isset($_GET['error'])): ?>
-                <div class="alert alert-danger d-flex align-items-center gap-2 py-2 px-3 mb-3" role="alert">
+    <main class="main-content fade-in">
+        <div class="container-fluid prf-shell">
+            <header class="prf-page-header">
+                <a
+                    href="quotations_list.php"
+                    class="prf-back-button"
+                    aria-label="Back to quotations"
+                >
+                    <i class="fas fa-arrow-left"></i>
+                </a>
+
+                <div class="prf-page-heading">
+                    <div class="prf-eyebrow">Purchase request form</div>
+                    <h2>Prepare PRF</h2>
+                    <p>Review the client order, enter supplier costs, then submit it for approval.</p>
+                </div>
+
+                <?php if ($is_structured_prf): ?>
+                    <span class="prf-workflow-chip">
+                        <i class="fas fa-route"></i>
+                        Sequential approval
+                    </span>
+                <?php endif; ?>
+            </header>
+
+            <?php if (isset($_GET['error']) && trim((string) $_GET['error']) !== ''): ?>
+                <div class="prf-alert prf-alert-danger" role="alert">
                     <i class="fas fa-exclamation-circle"></i>
-                    <span><?php echo htmlspecialchars($_GET['error']); ?></span>
+                    <span><?php echo htmlspecialchars((string) $_GET['error']); ?></span>
                 </div>
             <?php endif; ?>
-            <div id="prValidationMessage" class="alert alert-danger d-none py-2 px-3 mb-3" role="alert"></div>
 
-            <?php if(!$q_data): ?>
-                <div class="card border-0 shadow-sm text-center py-5 mt-4 rounded-12">
-                    <div class="card-body py-5">
-                        <i class="fas fa-file-invoice-dollar fa-4x text-muted mb-4 opacity-50"></i>
-                        <h3 class="fw-bold text-dark">No Quotation Selected</h3>
-                        <p class="text-muted mb-4">You must select a valid Quotation with a received Client PO from the tracker to generate a Purchase Request.</p>
-                        <a href="quotations_list.php" class="btn btn-primary px-4 shadow-sm sleek-btn">
-                            <i class="fas fa-arrow-left me-2"></i> Go to Quotations Tracker
-                        </a>
-                    </div>
-                </div>
-            <?php else: ?>
-                <form action="actions/pr_handler.php" method="POST" id="prForm">
-                    <input type="hidden" name="action" value="create_pr">
-                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                    <input type="hidden" name="quotation_id" id="prQuotationId" value="<?php echo $quotation_id; ?>">
-                    <input type="hidden" name="amount" id="prAmount" value="<?php echo $q_data['amount']; ?>">
-                    
-                    <div class="row g-4">
-                        <div class="col-lg-3">
-                            <div class="card shadow-sm h-100 border-0 rounded-12 overflow-hidden">
-                                <div class="card-header bg-white fw-bold py-3 text-primary border-bottom border-light">
-                                    <i class="fas fa-info-circle me-2"></i> PR Info
-                                </div>
-                                <div class="card-body">
-                                    <label class="small text-muted fw-bold">PR Number</label>
-                                    <input type="text" name="pr_number" id="prNumber" class="form-control bg-light fw-bold text-primary mb-3 sleek-input" value="<?php echo $display_pr_number; ?>" readonly>
-                                    
-                                    <label class="small text-muted fw-bold">Client Name</label>
-                                    <input type="text" name="client_name" id="prClientName" class="form-control bg-light mb-3 sleek-input" value="<?php echo htmlspecialchars($q_data['client_name']); ?>" readonly>
-                                    
-                                    <label class="small text-muted fw-bold">From Client PO / Tracker</label>
-                                    <input type="text" id="prClientPo" class="form-control bg-light sleek-input" value="<?php echo htmlspecialchars($q_data['client_po_number']); ?>" readonly>
-                                </div>
-                            </div>
+            <div
+                id="prValidationMessage"
+                class="prf-alert prf-alert-danger d-none"
+                role="alert"
+                aria-live="polite"
+            ></div>
+
+            <?php if (!$quotation): ?>
+                <section class="prf-empty-state">
+                    <div class="prf-empty-icon"><i class="fas fa-file-invoice-dollar"></i></div>
+                    <h3>No eligible quotation selected</h3>
+                    <p>Select a quotation with a received Client PO that has not yet been converted.</p>
+                    <a href="quotations_list.php" class="btn btn-primary">
+                        Return to quotation tracker
+                    </a>
+                </section>
+
+            <?php elseif ($is_structured_prf): ?>
+                <section class="prf-source-card">
+                    <div class="prf-source-grid">
+                        <div class="prf-source-item prf-source-item-primary">
+                            <span>PR number</span>
+                            <strong><?php echo htmlspecialchars($display_pr_number); ?></strong>
                         </div>
-                        
-                        <div class="col-lg-9">
-                            <div class="card shadow-sm h-100 border-0 rounded-12 overflow-hidden">
-                                <div class="card-header bg-white py-3 border-bottom border-light">
-                                    <span class="fw-bold text-dark"><i class="fas fa-list me-2"></i>Items from Quotation</span>
+                        <div class="prf-source-item">
+                            <span>Client</span>
+                            <strong><?php echo htmlspecialchars($quotation['client_name']); ?></strong>
+                        </div>
+                        <div class="prf-source-item">
+                            <span>Quotation</span>
+                            <strong><?php echo htmlspecialchars($quotation['quotation_number']); ?></strong>
+                        </div>
+                        <div class="prf-source-item">
+                            <span>Official Client PO</span>
+                            <strong><?php echo htmlspecialchars($official_client_po['actual_client_po_number']); ?></strong>
+                        </div>
+                        <div class="prf-source-item">
+                            <span>Final client approval</span>
+                            <strong><?php echo date('M d, Y', strtotime($official_client_po['final_approval_date'])); ?></strong>
+                        </div>
+                        <div class="prf-source-action">
+                            <a
+                                href="<?php echo htmlspecialchars($official_po_file_url); ?>"
+                                target="_blank"
+                                rel="noopener"
+                                class="prf-document-link"
+                            >
+                                <i class="fas fa-paperclip"></i>
+                                View attached PO
+                            </a>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="prf-route-card" aria-label="PRF approval route">
+                    <div class="prf-route-label">Approval route</div>
+                    <div class="prf-route-steps">
+                        <div class="prf-route-step is-current">
+                            <span>1</span>
+                            <div><strong>GM review</strong><small>Commercial check</small></div>
+                        </div>
+                        <i class="fas fa-chevron-right prf-route-arrow"></i>
+                        <div class="prf-route-step">
+                            <span>2</span>
+                            <div><strong>Finance review</strong><small>Funds & supplier</small></div>
+                        </div>
+                        <i class="fas fa-chevron-right prf-route-arrow"></i>
+                        <div class="prf-route-step">
+                            <span>3</span>
+                            <div><strong>Owner approval</strong><small>Final signatory</small></div>
+                        </div>
+                    </div>
+                </section>
+
+                <form
+                    action="actions/pr_handler.php"
+                    method="POST"
+                    enctype="multipart/form-data"
+                    id="prfV2Form"
+                    novalidate
+                >
+                    <input type="hidden" name="action" value="create_pr_v2">
+                    <input
+                        type="hidden"
+                        name="csrf_token"
+                        value="<?php echo htmlspecialchars($_SESSION['csrf_token'] ?? ''); ?>"
+                    >
+                    <input type="hidden" name="quotation_id" value="<?php echo $quotation_id; ?>">
+                    <input type="hidden" name="pr_number" value="<?php echo htmlspecialchars($display_pr_number); ?>">
+
+                    <div class="prf-layout">
+                        <div class="prf-main-column">
+                            <section class="prf-card">
+                                <div class="prf-card-header">
+                                    <div>
+                                        <span class="prf-section-kicker">Cost worksheet</span>
+                                        <h3>Quoted items and supplier cost</h3>
+                                    </div>
+                                    <span class="prf-readonly-note">
+                                        <i class="fas fa-lock"></i>
+                                        Selling prices are locked
+                                    </span>
                                 </div>
-                                <div class="card-body p-0">
-                                    <div class="table-responsive">
-                                        <table class="table table-hover mb-0" id="prItemsTable">
-                                            <thead class="bg-light small">
-                                                <tr>
-                                                    <th>Category & Brand</th>
-                                                    <th>Item Name & Specs</th>
-                                                    <th class="text-center">Qty</th>
-                                                    <th>Unit Price</th>
-                                                    <th class="text-end pe-3">Total</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody class="align-middle">
-                                                <?php foreach($q_items as $idx => $item): ?>
-                                                <?php 
-                                                    $cat_code = $item['category'];
-                                                    $cat_display = isset($category_map[$cat_code]) ? $category_map[$cat_code] : $cat_code; 
+
+                                <div class="prf-cost-table-wrap">
+                                    <table class="prf-cost-table" id="prfCostTable">
+                                        <thead>
+                                            <tr>
+                                                <th>Item</th>
+                                                <th class="text-center">Qty</th>
+                                                <th class="text-end">Selling / unit</th>
+                                                <th>Supplier cost / unit</th>
+                                                <th class="text-end">Cost total</th>
+                                                <th class="text-end">Line profit</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php foreach ($quotation_items as $item): ?>
+                                                <?php
+                                                $category_code = (string) ($item['category'] ?? '');
+                                                $category_label = $category_map[$category_code] ?? $category_code;
                                                 ?>
-                                                <tr>
-                                                    <td class="bg-light w-25-pct" data-label="Category & Brand">
-                                                        <input type="hidden" name="items[<?php echo $idx; ?>][category]" value="<?php echo htmlspecialchars($cat_code); ?>">
-                                                        <input type="hidden" name="items[<?php echo $idx; ?>][brand]" value="<?php echo htmlspecialchars($item['brand']); ?>">
-                                                        <span class="fw-bold text-main"><?php echo htmlspecialchars($cat_display); ?></span><br>
-                                                        <small class="text-muted"><?php echo htmlspecialchars($item['brand']); ?></small>
+                                                <tr
+                                                    data-prf-cost-row
+                                                    data-quantity="<?php echo (int) $item['quantity']; ?>"
+                                                    data-selling-total="<?php echo htmlspecialchars((string) $item['total_price']); ?>"
+                                                >
+                                                    <td data-label="Item">
+                                                        <strong><?php echo htmlspecialchars($item['item_name']); ?></strong>
+                                                        <small>
+                                                            <?php echo htmlspecialchars($category_label); ?>
+                                                            <?php if (!empty($item['brand'])): ?>
+                                                                · <?php echo htmlspecialchars($item['brand']); ?>
+                                                            <?php endif; ?>
+                                                        </small>
+                                                        <?php if (!empty($item['specifications'])): ?>
+                                                            <span><?php echo nl2br(htmlspecialchars($item['specifications'])); ?></span>
+                                                        <?php endif; ?>
                                                     </td>
-                                                    <td data-label="Item & Specifications">
-                                                        <input type="hidden" name="items[<?php echo $idx; ?>][name]" value="<?php echo htmlspecialchars($item['item_name']); ?>">
-                                                        <input type="hidden" name="items[<?php echo $idx; ?>][specs]" value="<?php echo htmlspecialchars($item['specifications']); ?>">
-                                                        <span class="fw-bold text-main"><?php echo htmlspecialchars($item['item_name']); ?></span><br>
-                                                        <small class="text-muted"><?php echo nl2br(htmlspecialchars($item['specifications'])); ?></small>
+                                                    <td data-label="Qty" class="text-center prf-quantity">
+                                                        <?php echo (int) $item['quantity']; ?>
                                                     </td>
-                                                    <td class="text-center fw-medium" data-label="Quantity">
-                                                        <input type="hidden" name="items[<?php echo $idx; ?>][qty]" value="<?php echo $item['quantity']; ?>">
-                                                        <?php echo $item['quantity']; ?>
+                                                    <td data-label="Selling / unit" class="text-end prf-money-locked">
+                                                        ₱<?php echo number_format((float) $item['unit_price'], 2); ?>
                                                     </td>
-                                                    <td class="fw-medium text-main" data-label="Unit Price">
-                                                        <input type="hidden" name="items[<?php echo $idx; ?>][price]" value="<?php echo $item['unit_price']; ?>">
-                                                        ₱ <?php echo number_format($item['unit_price'], 2); ?>
+                                                    <td data-label="Supplier cost / unit">
+                                                        <div class="prf-money-input">
+                                                            <span>₱</span>
+                                                            <input
+                                                                type="number"
+                                                                name="item_costs[<?php echo (int) $item['item_id']; ?>]"
+                                                                class="form-control"
+                                                                min="0.01"
+                                                                step="0.01"
+                                                                inputmode="decimal"
+                                                                placeholder="0.00"
+                                                                required
+                                                                data-prf-unit-cost
+                                                                aria-label="Supplier unit cost for <?php echo htmlspecialchars($item['item_name']); ?>"
+                                                            >
+                                                        </div>
                                                     </td>
-                                                    <td class="bg-light fw-bold text-end pe-3 text-primary" data-label="Total">
-                                                        <input type="hidden" name="items[<?php echo $idx; ?>][total]" value="<?php echo $item['total_price']; ?>">
-                                                        ₱ <?php echo number_format($item['total_price'], 2); ?>
+                                                    <td data-label="Cost total" class="text-end" data-prf-cost-total>₱0.00</td>
+                                                    <td data-label="Line profit" class="text-end prf-line-profit" data-prf-line-profit>
+                                                        ₱<?php echo number_format((float) $item['total_price'], 2); ?>
                                                     </td>
                                                 </tr>
-                                                <?php endforeach; ?>
-                                            </tbody>
-                                        </table>
+                                            <?php endforeach; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </section>
+
+                            <section class="prf-card">
+                                <div class="prf-card-header">
+                                    <div>
+                                        <span class="prf-section-kicker">Supplier record</span>
+                                        <h3>Supplier and payment details</h3>
+                                    </div>
+                                    <span class="prf-required-note"><span>*</span> Required fields</span>
+                                </div>
+
+                                <div class="prf-form-grid">
+                                    <div class="prf-field prf-span-2">
+                                        <label for="supplierName">Supplier name <span>*</span></label>
+                                        <input
+                                            type="text"
+                                            name="supplier_name"
+                                            id="supplierName"
+                                            class="form-control"
+                                            maxlength="150"
+                                            autocomplete="organization"
+                                            required
+                                        >
+                                    </div>
+
+                                    <div class="prf-field">
+                                        <label for="supplierReference">Supplier reference <small>Optional</small></label>
+                                        <input
+                                            type="text"
+                                            name="supplier_reference"
+                                            id="supplierReference"
+                                            class="form-control"
+                                            maxlength="100"
+                                            placeholder="Quote or invoice no."
+                                        >
+                                    </div>
+
+                                    <div class="prf-field">
+                                        <label for="supplierQuoteDate">Quotation date <small>Optional</small></label>
+                                        <input
+                                            type="date"
+                                            name="supplier_quote_date"
+                                            id="supplierQuoteDate"
+                                            class="form-control"
+                                            max="<?php echo date('Y-m-d'); ?>"
+                                        >
+                                    </div>
+
+                                    <div class="prf-field">
+                                        <label for="paymentMethod">Payment method <span>*</span></label>
+                                        <select
+                                            name="payment_method"
+                                            id="paymentMethod"
+                                            class="form-select"
+                                            required
+                                        >
+                                            <option value="" selected disabled>Select method</option>
+                                            <option value="Cash">Cash</option>
+                                            <option value="Bank Transfer">Bank Transfer</option>
+                                            <option value="Check">Check</option>
+                                            <option value="Cash on Delivery">Cash on Delivery</option>
+                                            <option value="Other">Other</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="prf-field">
+                                        <label for="paymentTerms">Supplier payment terms <small>Optional</small></label>
+                                        <input
+                                            type="text"
+                                            name="payment_terms"
+                                            id="paymentTerms"
+                                            class="form-control"
+                                            maxlength="150"
+                                            placeholder="e.g. Full payment before pickup"
+                                        >
+                                    </div>
+
+                                    <div class="prf-conditional-group prf-span-2" data-payment-panel="Bank Transfer" hidden>
+                                        <div class="prf-conditional-heading">
+                                            <i class="fas fa-university"></i> Bank transfer details
+                                        </div>
+                                        <div class="prf-form-grid">
+                                            <div class="prf-field">
+                                                <label for="bankName">Bank name <span>*</span></label>
+                                                <input type="text" name="bank_name" id="bankName" class="form-control" maxlength="150">
+                                            </div>
+                                            <div class="prf-field">
+                                                <label for="bankAccountName">Account name <span>*</span></label>
+                                                <input type="text" name="bank_account_name" id="bankAccountName" class="form-control" maxlength="150">
+                                            </div>
+                                            <div class="prf-field prf-span-2">
+                                                <label for="bankAccountNumber">Account number <span>*</span></label>
+                                                <input type="text" name="bank_account_number" id="bankAccountNumber" class="form-control" maxlength="100" inputmode="numeric">
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="prf-conditional-group prf-span-2" data-payment-panel="Check" hidden>
+                                        <div class="prf-conditional-heading">
+                                            <i class="fas fa-money-check-alt"></i> Check details
+                                        </div>
+                                        <div class="prf-field">
+                                            <label for="checkPayee">Check payee <span>*</span></label>
+                                            <input type="text" name="check_payee" id="checkPayee" class="form-control" maxlength="150">
+                                        </div>
+                                    </div>
+
+                                    <div class="prf-field">
+                                        <label for="otherExpense">Other approved expense <small>Optional</small></label>
+                                        <div class="prf-money-input">
+                                            <span>₱</span>
+                                            <input
+                                                type="number"
+                                                name="other_expense_amount"
+                                                id="otherExpense"
+                                                class="form-control"
+                                                min="0"
+                                                step="0.01"
+                                                inputmode="decimal"
+                                                value="0.00"
+                                            >
+                                        </div>
+                                    </div>
+
+                                    <div class="prf-field">
+                                        <label for="supplierQuoteFile">Supplier quotation <small>Optional</small></label>
+                                        <label class="prf-file-control" for="supplierQuoteFile">
+                                            <i class="fas fa-paperclip"></i>
+                                            <span data-prf-file-name>Select PDF or image</span>
+                                            <strong>Browse</strong>
+                                        </label>
+                                        <input
+                                            type="file"
+                                            name="supplier_quote_file"
+                                            id="supplierQuoteFile"
+                                            class="visually-hidden"
+                                            accept=".pdf,.jpg,.jpeg,.png"
+                                            data-prf-file
+                                        >
+                                        <small class="prf-help-text">PDF, JPG, or PNG · maximum 10 MB</small>
+                                    </div>
+
+                                    <div class="prf-field prf-span-2">
+                                        <label for="supplierRemarks">Remarks</label>
+                                        <textarea
+                                            name="supplier_remarks"
+                                            id="supplierRemarks"
+                                            class="form-control"
+                                            rows="2"
+                                            maxlength="2000"
+                                            placeholder="Add a concise note for GM and Finance"
+                                        ></textarea>
                                     </div>
                                 </div>
-                                <div class="card-footer bg-white text-end p-4 border-top border-light">
-                                    <h5 class="text-muted mb-1 fs-sm text-uppercase tracking-wide">Total PR Amount</h5>
-                                    <h2 class="fw-bold text-primary m-0 tracking-tight">₱ <?php echo number_format($q_data['amount'], 2); ?></h2>
-                                </div>
-                            </div>
+                            </section>
                         </div>
-                    </div>
-                    
-                    <div class="d-flex justify-content-end gap-3 mt-4 mb-5 create-form-actions">
-                        <button type="submit" class="btn btn-success px-5 fw-bold shadow-sm sleek-btn">Submit PR <i class="fas fa-paper-plane ms-2"></i></button>
+
+                        <aside class="prf-summary-card" aria-label="PRF financial summary">
+                            <div class="prf-summary-heading">
+                                <span>Financial summary</span>
+                                <small>Auto-calculated</small>
+                            </div>
+
+                            <div class="prf-summary-row">
+                                <span>Client selling amount</span>
+                                <strong data-prf-selling-total>₱<?php echo number_format((float) $quotation['amount'], 2); ?></strong>
+                            </div>
+                            <div class="prf-summary-row">
+                                <span>Cost of goods</span>
+                                <strong data-prf-cogs>₱0.00</strong>
+                            </div>
+                            <div class="prf-summary-row">
+                                <span>Other expense</span>
+                                <strong data-prf-other-expense>₱0.00</strong>
+                            </div>
+                            <div class="prf-summary-row prf-summary-request">
+                                <span>Funds requested</span>
+                                <strong data-prf-requested-fund>₱0.00</strong>
+                            </div>
+
+                            <div class="prf-profit-panel" data-prf-profit-panel>
+                                <span>Projected gross profit</span>
+                                <strong data-prf-gross-profit>
+                                    ₱<?php echo number_format((float) $quotation['amount'], 2); ?>
+                                </strong>
+                                <small data-prf-margin>100.00% margin</small>
+                            </div>
+
+                            <div class="prf-summary-note">
+                                <i class="fas fa-info-circle"></i>
+                                Finance will verify supplier and payment information after GM review.
+                            </div>
+
+                            <button type="submit" class="prf-submit-button" data-prf-submit>
+                                <span>Submit to GM</span>
+                                <i class="fas fa-arrow-right"></i>
+                            </button>
+                        </aside>
                     </div>
                 </form>
+
+            <?php else: ?>
+                <section class="prf-alert prf-alert-warning" role="status">
+                    <i class="fas fa-history"></i>
+                    <div>
+                        <strong>Legacy Client PO record</strong>
+                        <span>
+                            This quotation was created before structured Client PO records.
+                            It will continue through the existing legacy PR workflow.
+                        </span>
+                    </div>
+                </section>
+
+                <form action="actions/pr_handler.php" method="POST" id="legacyPrForm">
+                    <input type="hidden" name="action" value="create_pr">
+                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'] ?? ''); ?>">
+                    <input type="hidden" name="quotation_id" id="prQuotationId" value="<?php echo $quotation_id; ?>">
+                    <input type="hidden" name="amount" id="prAmount" value="<?php echo htmlspecialchars((string) $quotation['amount']); ?>">
+                    <input type="hidden" name="pr_number" id="prNumber" value="<?php echo htmlspecialchars($display_pr_number); ?>">
+                    <input type="hidden" name="client_name" id="prClientName" value="<?php echo htmlspecialchars($quotation['client_name']); ?>">
+
+                    <section class="prf-card">
+                        <div class="prf-card-header">
+                            <div>
+                                <span class="prf-section-kicker">Legacy request</span>
+                                <h3><?php echo htmlspecialchars($display_pr_number); ?></h3>
+                            </div>
+                            <span class="prf-workflow-chip is-legacy">Legacy workflow</span>
+                        </div>
+
+                        <div class="prf-legacy-meta">
+                            <div><span>Client</span><strong><?php echo htmlspecialchars($quotation['client_name']); ?></strong></div>
+                            <div><span>Quotation</span><strong><?php echo htmlspecialchars($quotation['quotation_number']); ?></strong></div>
+                            <div><span>Client PO reference</span><strong id="prClientPo"><?php echo htmlspecialchars((string) $quotation['client_po_number']); ?></strong></div>
+                            <div><span>Selling amount</span><strong>₱<?php echo number_format((float) $quotation['amount'], 2); ?></strong></div>
+                        </div>
+
+                        <div class="table-responsive">
+                            <table class="table mb-0" id="prItemsTable">
+                                <thead>
+                                    <tr>
+                                        <th>Item</th>
+                                        <th>Category & brand</th>
+                                        <th class="text-center">Qty</th>
+                                        <th class="text-end">Unit price</th>
+                                        <th class="text-end">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($quotation_items as $index => $item): ?>
+                                        <tr>
+                                            <td data-label="Item">
+                                                <input type="hidden" name="items[<?php echo $index; ?>][name]" value="<?php echo htmlspecialchars($item['item_name']); ?>">
+                                                <input type="hidden" name="items[<?php echo $index; ?>][specs]" value="<?php echo htmlspecialchars((string) $item['specifications']); ?>">
+                                                <strong><?php echo htmlspecialchars($item['item_name']); ?></strong>
+                                                <small><?php echo nl2br(htmlspecialchars((string) $item['specifications'])); ?></small>
+                                            </td>
+                                            <td data-label="Category & brand">
+                                                <input type="hidden" name="items[<?php echo $index; ?>][category]" value="<?php echo htmlspecialchars((string) $item['category']); ?>">
+                                                <input type="hidden" name="items[<?php echo $index; ?>][brand]" value="<?php echo htmlspecialchars((string) $item['brand']); ?>">
+                                                <?php echo htmlspecialchars((string) $item['category']); ?> · <?php echo htmlspecialchars((string) $item['brand']); ?>
+                                            </td>
+                                            <td data-label="Qty" class="text-center">
+                                                <input type="hidden" name="items[<?php echo $index; ?>][qty]" value="<?php echo (int) $item['quantity']; ?>">
+                                                <?php echo (int) $item['quantity']; ?>
+                                            </td>
+                                            <td data-label="Unit price" class="text-end">
+                                                <input type="hidden" name="items[<?php echo $index; ?>][price]" value="<?php echo htmlspecialchars((string) $item['unit_price']); ?>">
+                                                ₱<?php echo number_format((float) $item['unit_price'], 2); ?>
+                                            </td>
+                                            <td data-label="Total" class="text-end">
+                                                <input type="hidden" name="items[<?php echo $index; ?>][total]" value="<?php echo htmlspecialchars((string) $item['total_price']); ?>">
+                                                <strong>₱<?php echo number_format((float) $item['total_price'], 2); ?></strong>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="prf-legacy-actions">
+                            <button type="submit" class="prf-submit-button">
+                                Submit legacy PR <i class="fas fa-arrow-right"></i>
+                            </button>
+                        </div>
+                    </section>
+                </form>
             <?php endif; ?>
-            
         </div>
-    </div>
+    </main>
+
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        const prForm = document.getElementById('prForm');
-        const prValidationMessage = document.getElementById('prValidationMessage');
-
-        if (prForm) {
-            prForm.addEventListener('submit', function(event) {
-                const rows = Array.from(prForm.querySelectorAll('#prItemsTable tbody tr'));
-                const requiredValues = [
-                    document.getElementById('prNumber').value.trim(),
-                    document.getElementById('prClientName').value.trim(),
-                    document.getElementById('prClientPo').value.trim()
-                ];
-                let errorMessage = '';
-
-                if (requiredValues.some(value => value === '') || Number(document.getElementById('prQuotationId').value) < 1) {
-                    errorMessage = 'PR number, client name, and Client PO reference are required.';
-                } else if (Number(document.getElementById('prAmount').value) <= 0) {
-                    errorMessage = 'The PR amount must be greater than zero.';
-                } else if (rows.length === 0) {
-                    errorMessage = 'The Purchase Request must contain at least one item.';
-                } else {
-                    const hasInvalidItem = rows.some(row => {
-                        const category = row.querySelector('input[name$="[category]"]')?.value.trim() || '';
-                        const name = row.querySelector('input[name$="[name]"]')?.value.trim() || '';
-                        const qty = Number(row.querySelector('input[name$="[qty]"]')?.value || 0);
-                        const price = Number(row.querySelector('input[name$="[price]"]')?.value || 0);
-                        return category === '' || name === '' || qty < 1 || price <= 0;
-                    });
-
-                    if (hasInvalidItem) {
-                        errorMessage = 'Every PR item requires a category, item name, quantity, and valid unit price.';
-                    }
-                }
-
-                if (errorMessage !== '') {
-                    event.preventDefault();
-                    prValidationMessage.textContent = errorMessage;
-                    prValidationMessage.classList.remove('d-none');
-                    prValidationMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                } else {
-                    prValidationMessage.classList.add('d-none');
-                }
-            });
-        }
-    </script>
+    <script src="assets/js/prf-form.js?v=<?php echo filemtime(__DIR__ . '/assets/js/prf-form.js'); ?>"></script>
 </body>
 </html>

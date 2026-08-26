@@ -203,13 +203,43 @@ function ensure_user_notification_states($conn, $user_id, $role) {
     ensure_collaboration_tables_exist($conn);
     // The deployment migration marks historic notifications as read. This fallback
     // only creates state rows for role notifications created after the user account.
-    $stmt = $conn->prepare("INSERT IGNORE INTO notification_user_states (notif_id, user_id, is_read, is_pinned, is_deleted)
-        SELECT n.notif_id, ?, 0, 0, 0
-        FROM notifications n
-        INNER JOIN users u ON u.user_id = ?
-        WHERE n.target_role = ? AND n.created_at >= u.created_at");
+    static $supports_personal_recipient = null;
+    if ($supports_personal_recipient === null) {
+        $recipient_column = $conn->query(
+            "SHOW COLUMNS FROM notifications LIKE 'recipient_user_id'"
+        );
+        $supports_personal_recipient = $recipient_column &&
+            $recipient_column->num_rows > 0;
+    }
+
+    if ($supports_personal_recipient) {
+        $stmt = $conn->prepare("INSERT IGNORE INTO notification_user_states (notif_id, user_id, is_read, is_pinned, is_deleted)
+            SELECT n.notif_id, ?, 0, 0, 0
+            FROM notifications n
+            INNER JOIN users u ON u.user_id = ?
+            WHERE n.target_role = ?
+              AND n.created_at >= u.created_at
+              AND (n.recipient_user_id IS NULL OR n.recipient_user_id = ?)");
+    } else {
+        $stmt = $conn->prepare("INSERT IGNORE INTO notification_user_states (notif_id, user_id, is_read, is_pinned, is_deleted)
+            SELECT n.notif_id, ?, 0, 0, 0
+            FROM notifications n
+            INNER JOIN users u ON u.user_id = ?
+            WHERE n.target_role = ? AND n.created_at >= u.created_at");
+    }
+
     if ($stmt) {
-        $stmt->bind_param("iis", $user_id, $user_id, $role);
+        if ($supports_personal_recipient) {
+            $stmt->bind_param(
+                "iisi",
+                $user_id,
+                $user_id,
+                $role,
+                $user_id
+            );
+        } else {
+            $stmt->bind_param("iis", $user_id, $user_id, $role);
+        }
         $stmt->execute();
         $stmt->close();
     }

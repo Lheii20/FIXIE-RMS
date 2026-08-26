@@ -1332,8 +1332,11 @@ if(isset($_GET['success'])) {
                                 if ($is_restricted && !$is_system_admin && !$is_mine && !isset($file_permissions['user_'.$_SESSION['user_id']])) {
                                     $has_file_access = false;
                                 }
+                                $document_file_url = $doc['doc_type'] === 'Proof of Delivery'
+                                    ? 'download.php?type=document&record_id=' . (int) $doc['doc_id']
+                                    : $doc['file_path'];
                             ?>
-                            <tr id="target-doc-<?php echo $doc['doc_id']; ?>" class="<?php echo $has_file_access ? 'cursor-pointer file-row-title' : ''; ?>" <?php if($has_file_access): ?>onclick="openDocumentViewer('<?php echo htmlspecialchars(addslashes($doc['file_path']), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['file_name']), ENT_QUOTES); ?>', <?php echo $is_img ? 'true' : 'false'; ?>)"<?php endif; ?>>
+                            <tr id="target-doc-<?php echo $doc['doc_id']; ?>" class="<?php echo $has_file_access ? 'cursor-pointer file-row-title' : ''; ?>" <?php if($has_file_access): ?>onclick="openDocumentViewer('<?php echo htmlspecialchars(addslashes($document_file_url), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['file_name']), ENT_QUOTES); ?>', <?php echo $is_img ? 'true' : 'false'; ?>)"<?php endif; ?>>
                                 <td class="ps-4 py-3">
                                     <div class="d-flex align-items-center">
                                         <div class="file-icon-md bg-light text-primary me-3 border transition-all rounded-3 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
@@ -1448,8 +1451,11 @@ if(isset($_GET['success'])) {
                                 
                                 $has_file_access = ($my_file_role !== 'None');
                                 $can_edit_file = in_array($my_file_role, ['Editor']);
+                                $document_file_url = $doc['doc_type'] === 'Proof of Delivery'
+                                    ? 'download.php?type=document&record_id=' . (int) $doc['doc_id']
+                                    : $doc['file_path'];
                             ?>
-                            <tr id="target-doc-<?php echo $doc['doc_id']; ?>" class="<?php echo $has_file_access ? 'cursor-pointer file-row-title' : ''; ?>" <?php if($has_file_access): ?>onclick="openDocumentViewer('<?php echo htmlspecialchars(addslashes($doc['file_path']), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['file_name']), ENT_QUOTES); ?>', <?php echo $is_img ? 'true' : 'false'; ?>)"<?php endif; ?>>
+                            <tr id="target-doc-<?php echo $doc['doc_id']; ?>" class="<?php echo $has_file_access ? 'cursor-pointer file-row-title' : ''; ?>" <?php if($has_file_access): ?>onclick="openDocumentViewer('<?php echo htmlspecialchars(addslashes($document_file_url), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['file_name']), ENT_QUOTES); ?>', <?php echo $is_img ? 'true' : 'false'; ?>)"<?php endif; ?>>
                                 <td class="ps-4 py-3">
                                     <div class="d-flex align-items-center">
                                         <div class="file-icon-md bg-light text-primary me-3 border transition-all rounded-3 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
@@ -1526,14 +1532,14 @@ if(isset($_GET['success'])) {
                                             <?php if ($has_file_access): ?>
                                                 <li>
                                                     <button type="button" class="dropdown-item fw-medium text-dark" 
-                                                            onclick="viewFileDetails('<?php echo htmlspecialchars(addslashes($doc['file_name']), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['category'] ?: $doc['doc_type']), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['file_path']), ENT_QUOTES); ?>', '<?php echo date('M d, Y h:i A', strtotime($doc['uploaded_at'])); ?>', '<?php echo htmlspecialchars(addslashes($doc['full_name']), ENT_QUOTES); ?>', '<?php echo base64_encode($doc['rename_history'] ?? '[]'); ?>')">
+                                                            onclick="viewFileDetails('<?php echo htmlspecialchars(addslashes($doc['file_name']), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['category'] ?: $doc['doc_type']), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($document_file_url), ENT_QUOTES); ?>', '<?php echo date('M d, Y h:i A', strtotime($doc['uploaded_at'])); ?>', '<?php echo htmlspecialchars(addslashes($doc['full_name']), ENT_QUOTES); ?>', '<?php echo base64_encode($doc['rename_history'] ?? '[]'); ?>')">
                                                         <i class="fas fa-info-circle text-primary me-2"></i> View Details
                                                     </button>
                                                 </li>
                                                 <li><hr class="dropdown-divider"></li>
 
                                                 <li>
-                                                    <a class="dropdown-item fw-medium text-dark" href="<?php echo htmlspecialchars($doc['file_path']); ?>" download>
+                                                    <a class="dropdown-item fw-medium text-dark" href="<?php echo htmlspecialchars($document_file_url); ?>" download>
                                                         <i class="fas fa-download text-success me-2"></i> Download Record
                                                     </a>
                                                 </li>

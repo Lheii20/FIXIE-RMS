@@ -1,0 +1,417 @@
+.client-approval-modal {
+    --ca-border: #e2e8f0;
+    --ca-muted: #64748b;
+    --ca-text: #0f172a;
+    --ca-surface: #f8fafc;
+    --ca-primary: #2563eb;
+}
+
+.client-approval-modal .modal-dialog {
+    width: calc(100% - 24px);
+    max-width: 620px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.client-approval-modal .modal-content {
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 22px 60px rgba(15, 23, 42, 0.16);
+    overflow: hidden;
+}
+
+.client-approval-modal .modal-content > form {
+    display: flex;
+    min-height: 0;
+    max-height: calc(100vh - 2rem);
+    max-height: calc(100dvh - 2rem);
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.client-approval-modal .modal-header {
+    align-items: flex-start;
+    padding: 20px 22px 16px;
+    border-bottom: 1px solid var(--ca-border);
+    flex: 0 0 auto;
+}
+
+.client-approval-heading {
+    min-width: 0;
+    padding-right: 16px;
+}
+
+.client-approval-eyebrow,
+.client-approval-section-label {
+    color: var(--ca-primary);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+}
+
+.client-approval-heading .modal-title {
+    margin-top: 3px;
+    color: var(--ca-text);
+    font-size: 1.08rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+.client-approval-heading p {
+    margin: 3px 0 0;
+    color: var(--ca-muted);
+    font-size: 0.8rem;
+}
+
+.client-approval-modal .btn-close {
+    width: 28px;
+    height: 28px;
+    margin: 0;
+    padding: 0;
+    background-size: 0.65rem;
+    border-radius: 7px;
+    box-shadow: none;
+}
+
+.client-approval-modal .modal-body {
+    min-height: 0;
+    padding: 18px 22px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-color: #cbd5e1 transparent;
+    scrollbar-width: thin;
+}
+
+.client-approval-modal .modal-body::-webkit-scrollbar {
+    width: 7px;
+}
+
+.client-approval-modal .modal-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.client-approval-modal .modal-body::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border: 2px solid #fff;
+    border-radius: 999px;
+}
+
+.client-approval-modal .modal-body::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+.client-approval-guidance {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    margin-bottom: 16px;
+    padding: 10px 12px;
+    color: #475569;
+    font-size: 0.76rem;
+    line-height: 1.45;
+    background: var(--ca-surface);
+    border: 1px solid var(--ca-border);
+    border-radius: 9px;
+}
+
+.client-approval-guidance i {
+    margin-top: 2px;
+    color: var(--ca-primary);
+}
+
+.client-approval-guidance.is-official {
+    color: #166534;
+    background: #f0fdf4;
+    border-color: #bbf7d0;
+}
+
+.client-approval-guidance.is-official i {
+    color: #16a34a;
+}
+
+.client-approval-field {
+    margin-bottom: 15px;
+}
+
+.client-approval-field > label,
+.client-approval-field > .form-label {
+    display: block;
+    margin-bottom: 6px;
+    color: #334155;
+    font-size: 0.73rem;
+    font-weight: 650;
+}
+
+.client-approval-field .form-control,
+.client-approval-field .form-select {
+    min-height: 40px;
+    padding: 8px 11px;
+    color: var(--ca-text);
+    font-size: 0.82rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    box-shadow: none;
+}
+
+.client-approval-field textarea.form-control {
+    min-height: 66px;
+    resize: vertical;
+}
+
+.client-approval-field .form-control:focus,
+.client-approval-field .form-select:focus {
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.09);
+}
+
+.required-mark {
+    color: #dc2626;
+}
+
+.optional-label {
+    margin-left: 4px;
+    color: #94a3b8;
+    font-size: 0.66rem;
+    font-weight: 500;
+}
+
+.client-approval-official-fields {
+    margin-bottom: 16px;
+    padding: 14px;
+    background: #f8fafc;
+    border: 1px solid var(--ca-border);
+    border-radius: 10px;
+}
+
+.client-approval-official-fields[hidden] {
+    display: none !important;
+}
+
+.client-approval-section-label {
+    margin-bottom: 12px;
+}
+
+.client-approval-file-control {
+    display: flex !important;
+    align-items: center;
+    gap: 11px;
+    min-height: 58px;
+    margin: 0 !important;
+    padding: 10px 11px;
+    background: #fff;
+    border: 1px dashed #94a3b8;
+    border-radius: 9px;
+    cursor: pointer;
+    transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.client-approval-file-control:hover {
+    background: #f8fafc;
+    border-color: var(--ca-primary);
+}
+
+.client-approval-file-control > i {
+    color: #64748b;
+    font-size: 0.95rem;
+}
+
+.client-approval-file-copy {
+    min-width: 0;
+    flex: 1;
+}
+
+.client-approval-file-copy strong,
+.client-approval-file-copy small {
+    display: block;
+}
+
+.client-approval-file-copy strong {
+    overflow: hidden;
+    color: #334155;
+    font-size: 0.76rem;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.client-approval-file-copy small {
+    margin-top: 2px;
+    color: #94a3b8;
+    font-size: 0.66rem;
+    font-weight: 500;
+}
+
+.client-approval-browse {
+    flex: 0 0 auto;
+    padding: 5px 8px;
+    color: #1d4ed8;
+    font-size: 0.69rem;
+    font-weight: 700;
+    background: #eff6ff;
+    border-radius: 6px;
+}
+
+.client-approval-modal .modal-footer {
+    gap: 8px;
+    padding: 13px 22px;
+    background: #f8fafc;
+    border-top: 1px solid var(--ca-border);
+    flex: 0 0 auto;
+}
+
+.client-approval-modal .modal-footer .btn {
+    min-width: 112px;
+    padding: 8px 13px;
+    font-size: 0.77rem;
+    font-weight: 650;
+    border-radius: 8px;
+}
+
+.client-approval-cancel {
+    color: #475569;
+    background: #fff;
+    border: 1px solid #cbd5e1;
+}
+
+.client-approval-submit {
+    background: var(--ca-primary);
+    border-color: var(--ca-primary);
+}
+
+.client-approval-trigger {
+    white-space: nowrap;
+}
+
+.client-approval-timeline {
+    border-radius: 14px;
+    overflow: hidden;
+}
+
+.client-approval-timeline .card-header {
+    padding: 13px 16px;
+}
+
+.client-approval-timeline-row {
+    display: grid;
+    grid-template-columns: minmax(150px, 1.2fr) minmax(130px, 1fr) 110px auto;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 16px;
+    border-top: 1px solid #eef2f7;
+}
+
+.client-approval-timeline-row:first-child {
+    border-top: 0;
+}
+
+.client-approval-record-title {
+    color: #1e293b;
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.client-approval-record-sub {
+    margin-top: 2px;
+    color: #64748b;
+    font-size: 0.68rem;
+}
+
+.client-approval-record-reference {
+    color: #334155;
+    font-size: 0.72rem;
+    font-weight: 650;
+}
+
+.client-approval-record-date {
+    color: #64748b;
+    font-size: 0.69rem;
+}
+
+@media (min-width: 576px) {
+    .client-approval-modal .modal-content > form {
+        max-height: calc(100vh - 3.5rem);
+        max-height: calc(100dvh - 3.5rem);
+    }
+}
+
+.page-quotation-list .sleek-search-submit {
+    position: absolute;
+    z-index: 2;
+    top: 50%;
+    left: 0.38rem;
+    display: inline-flex;
+    width: 32px;
+    height: 32px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    color: #64748b;
+    background: transparent;
+    transform: translateY(-50%);
+    transition: color 0.16s ease, background-color 0.16s ease;
+}
+
+.page-quotation-list .sleek-search-submit i {
+    position: static;
+    transform: none;
+}
+
+.page-quotation-list .sleek-search-submit:hover,
+.page-quotation-list .sleek-search-submit:focus-visible {
+    color: #2563eb;
+    background: #eff6ff;
+    outline: none;
+}
+
+.page-quotation-list .sleek-search-submit:focus-visible {
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
+}
+
+@media (max-width: 767.98px) {
+    .client-approval-modal .modal-dialog {
+        width: calc(100% - 16px);
+    }
+
+    .client-approval-modal .modal-header {
+        padding: 17px 16px 13px;
+    }
+
+    .client-approval-modal .modal-body {
+        padding: 15px 16px;
+    }
+
+    .client-approval-modal .modal-footer {
+        padding: 12px 16px;
+    }
+
+    .client-approval-modal .modal-footer .btn {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .client-approval-official-fields {
+        padding: 12px;
+    }
+
+    .client-approval-timeline-row {
+        grid-template-columns: 1fr auto;
+        gap: 7px 10px;
+    }
+
+    .client-approval-record-reference,
+    .client-approval-record-date {
+        grid-column: 1;
+    }
+}
+
+@media print {
+    .client-approval-modal,
+    .client-approval-trigger,
+    .client-approval-timeline {
+        display: none !important;
+    }
+}

@@ -1,176 +1,395 @@
 <?php
 require 'config/db_connect.php';
+require_once 'config/functions.php';
 
-if (!isset($_SESSION['user_id'])) {
+if (empty($_SESSION['user_id'])) {
     http_response_code(403);
-    exit("Access Denied: Please log in first.");
+    exit('Access denied. Please log in first.');
 }
 
-if (!isset($_GET['file'])) {
-    http_response_code(400);
-    exit("No file specified.");
+$user_id = (int) $_SESSION['user_id'];
+$role = (string) ($_SESSION['role'] ?? '');
+$type = trim((string) ($_GET['type'] ?? 'document'));
+$record_id_input = (string) ($_GET['record_id'] ?? $_GET['doc_id'] ?? '');
+$record_id = ctype_digit($record_id_input) ? (int) $record_id_input : 0;
+$stored_path = '';
+$download_name = '';
+$audit_document_id = null;
+
+function drms_download_error(int $status, string $message): void
+{
+    http_response_code($status);
+    exit($message);
 }
 
-$file = basename($_GET['file']);
-$type = $_GET['type'] ?? 'doc';
-$role = $_SESSION['role'] ?? '';
-$userId = (int) $_SESSION['user_id'];
-
-if ($file === '') {
-    http_response_code(400);
-    exit("Invalid file.");
+function drms_download_role_allowed(string $role, array $roles): bool
+{
+    return in_array($role, $roles, true);
 }
 
-$allowed_types = ['doc', 'avatar', 'payment_proof', 'quotation_proof'];
-if (!in_array($type, $allowed_types, true)) {
-    http_response_code(400);
-    exit("Invalid file type.");
-}
-
-if ($type === 'avatar') {
-    $filepath = 'uploads/avatars/' . $file;
-} elseif ($type === 'payment_proof') {
-    $filepath = 'uploads/payments/' . $file;
-} elseif ($type === 'quotation_proof') {
-    $filepath = 'uploads/pos/' . $file;
-} else {
-    $filepath = 'uploads/' . $file;
-}
-
-if (!file_exists($filepath) || !is_file($filepath)) {
-    http_response_code(404);
-    exit("File not found.");
-}
-
-if ($type === 'payment_proof') {
-    $stmt = $conn->prepare("SELECT po_id, recorded_by FROM payments WHERE proof_file_path = ? LIMIT 1");
-    $stmt->bind_param("s", $file);
-    $stmt->execute();
-    $payment = $stmt->get_result()->fetch_assoc();
-    if (!$payment) {
-        http_response_code(403);
-        exit("Access Denied.");
+function drms_document_is_accessible(
+    mysqli $conn,
+    array $document,
+    int $user_id,
+    string $role
+): bool {
+    if ((int) ($document['uploaded_by'] ?? 0) === $user_id) {
+        return true;
     }
 
-    $allowed_roles = ['Admin', 'Finance', 'GM', 'President'];
-    $is_allowed_role = in_array($role, $allowed_roles, true);
-    $is_recorder = ((int) ($payment['recorded_by'] ?? 0) === $userId);
-    if (!$is_allowed_role && !$is_recorder) {
-        http_response_code(403);
-        exit("Access Denied.");
-    }
-}
-
-if ($type === 'quotation_proof') {
-    $stmt = $conn->prepare("SELECT quotation_id, created_by FROM quotations WHERE po_file_path = ? LIMIT 1");
-    $stmt->bind_param("s", $file);
-    $stmt->execute();
-    $quotation = $stmt->get_result()->fetch_assoc();
-    if (!$quotation) {
-        http_response_code(403);
-        exit("Access Denied.");
+    if (drms_download_role_allowed($role, ['GM', 'President'])) {
+        return true;
     }
 
-    $allowed_roles = ['Admin', 'Sales Staff', 'Procurement', 'GM', 'President', 'Finance'];
-    $is_allowed_role = in_array($role, $allowed_roles, true);
-    $is_creator = ((int) ($quotation['created_by'] ?? 0) === $userId);
-    if (!$is_allowed_role && !$is_creator) {
-        http_response_code(403);
-        exit("Access Denied.");
+    if (
+        ($document['doc_type'] ?? '') === 'Proof of Delivery' &&
+        drms_download_role_allowed($role, ['Finance', 'Supply Chain'])
+    ) {
+        return true;
     }
-}
 
-if ($type === 'doc') {
-    $is_executive = in_array($role, ['GM', 'President'], true);
+    if (
+        !empty($document['po_id']) &&
+        ($document['doc_type'] ?? '') !== 'Proof of Delivery' &&
+        drms_download_role_allowed(
+            $role,
+            ['Procurement', 'GM', 'President', 'Finance', 'Supply Chain']
+        )
+    ) {
+        return true;
+    }
 
-    if (!$is_executive) {
-        $allowed = false;
-        $doc_found = false;
-        $doc_category = null;
-        $uploader_id = null;
+    if (has_permission($conn, $user_id, 'can_view_all_folders')) {
+        return true;
+    }
 
-        if (isset($_GET['doc_id']) && ctype_digit($_GET['doc_id'])) {
-            $doc_id = intval($_GET['doc_id']);
-            $stmt = $conn->prepare("SELECT category, uploaded_by FROM documents WHERE doc_id = ? LIMIT 1");
-            $stmt->bind_param("i", $doc_id);
-            $stmt->execute();
-            $res = $stmt->get_result();
-            if ($row = $res->fetch_assoc()) {
-                $doc_found = true;
-                $doc_category = $row['category'];
-                $uploader_id = $row['uploaded_by'];
-            }
-        }
+    $permissions = json_decode(
+        (string) ($document['file_permissions'] ?? ''),
+        true
+    );
+    $user_permission = is_array($permissions)
+        ? ($permissions['user_' . $user_id] ?? '')
+        : '';
+    if (in_array($user_permission, ['Viewer', 'Editor'], true)) {
+        return true;
+    }
 
-        if (!$doc_found) {
-            $stmt = $conn->prepare("SELECT category, uploaded_by FROM documents WHERE file_name = ? OR file_path LIKE ? LIMIT 1");
-            $like_file = "%" . $file;
-            $stmt->bind_param("ss", $file, $like_file);
-            $stmt->execute();
-            $res = $stmt->get_result();
-            if ($row = $res->fetch_assoc()) {
-                $doc_found = true;
-                $doc_category = $row['category'];
-                $uploader_id = $row['uploaded_by'];
-            }
-        }
+    if (($document['access_type'] ?? 'Folder Default') !== 'Folder Default') {
+        return false;
+    }
 
-        if ($doc_found) {
-            if (empty($doc_category)) {
-                $allowed = true;
-            } elseif ((int) $uploader_id === $userId) {
-                $allowed = true;
-            } else {
-                $stmt = $conn->prepare("SELECT assigned_to_role FROM document_categories WHERE sub_category = ? LIMIT 1");
-                $stmt->bind_param("s", $doc_category);
-                $stmt->execute();
-                $res = $stmt->get_result();
-                if ($row = $res->fetch_assoc()) {
-                    $assigned = $row['assigned_to_role'];
-                    if (!empty($assigned)) {
-                        $roles_allowed = array_map('trim', explode(',', $assigned));
-                        foreach ($roles_allowed as $r) {
-                            if (strcasecmp($r, $role) === 0) {
-                                $allowed = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    $category = trim((string) ($document['category'] ?? ''));
+    if ($category === '') {
+        return false;
+    }
 
-        if (!$allowed) {
-            http_response_code(403);
-            exit("Access Denied: Data Privacy Violation. You only have metadata access. You do not have permission to view or download the contents of this confidential document.");
+    $category_stmt = $conn->prepare(
+        "SELECT
+            GROUP_CONCAT(
+                DISTINCT dc.assigned_to_role
+                SEPARATOR ','
+            ) AS assigned_to_role,
+            MAX(CASE WHEN cra.role_name = ? THEN 1 ELSE 0 END) AS has_role_access
+         FROM document_categories dc
+         LEFT JOIN category_role_access cra
+            ON cra.category_id = dc.id
+         WHERE dc.sub_category = ?
+         LIMIT 1"
+    );
+    $category_stmt->bind_param('ss', $role, $category);
+    $category_stmt->execute();
+    $category_record = $category_stmt->get_result()->fetch_assoc();
+    $category_stmt->close();
+
+    if (!$category_record) {
+        return false;
+    }
+
+    if ((int) ($category_record['has_role_access'] ?? 0) === 1) {
+        return true;
+    }
+
+    $assigned_roles = array_filter(array_map(
+        'trim',
+        explode(',', (string) ($category_record['assigned_to_role'] ?? ''))
+    ));
+
+    foreach ($assigned_roles as $assigned_role) {
+        if (strcasecmp($assigned_role, $role) === 0) {
+            return true;
         }
     }
+
+    return false;
 }
 
-if ($type === 'doc' && isset($_GET['doc_id']) && ctype_digit($_GET['doc_id'])) {
-    require_once 'config/functions.php';
-    log_document_action($conn, $userId, 'DOWNLOAD_DOC', intval($_GET['doc_id']), "Downloaded document: $file", $_SERVER['REQUEST_URI'] ?? null);
+function drms_resolve_upload_path(string $stored_path): string
+{
+    $uploads_root = realpath(__DIR__ . DIRECTORY_SEPARATOR . 'uploads');
+    if ($uploads_root === false) {
+        drms_download_error(404, 'File storage is unavailable.');
+    }
+
+    $normalized_path = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $stored_path);
+    $normalized_path = ltrim($normalized_path, DIRECTORY_SEPARATOR);
+    if (stripos($normalized_path, 'uploads' . DIRECTORY_SEPARATOR) === 0) {
+        $normalized_path = substr(
+            $normalized_path,
+            strlen('uploads' . DIRECTORY_SEPARATOR)
+        );
+    }
+
+    $resolved_path = realpath(
+        $uploads_root . DIRECTORY_SEPARATOR . $normalized_path
+    );
+    $required_prefix = $uploads_root . DIRECTORY_SEPARATOR;
+
+    if (
+        $resolved_path === false ||
+        !is_file($resolved_path) ||
+        strncmp($resolved_path, $required_prefix, strlen($required_prefix)) !== 0
+    ) {
+        drms_download_error(404, 'File not found.');
+    }
+
+    return $resolved_path;
 }
 
-$finfo = finfo_open(FILEINFO_MIME_TYPE);
-$mimeType = finfo_file($finfo, $filepath);
-finfo_close($finfo);
+try {
+    if ($type === 'avatar') {
+        $avatar_file = basename((string) ($_GET['file'] ?? ''));
+        if ($avatar_file === '') {
+            drms_download_error(400, 'Invalid avatar file.');
+        }
 
-header("Content-Type: " . $mimeType);
-header("Content-Length: " . filesize($filepath));
+        $avatar_stmt = $conn->prepare(
+            "SELECT avatar
+             FROM users
+             WHERE user_id = ?
+             LIMIT 1"
+        );
+        $avatar_stmt->bind_param('i', $user_id);
+        $avatar_stmt->execute();
+        $avatar_record = $avatar_stmt->get_result()->fetch_assoc();
+        $avatar_stmt->close();
 
-if (in_array($mimeType, ['image/jpeg', 'image/png', 'image/gif', 'application/pdf'], true)) {
-    header("Content-Disposition: inline; filename=\"" . $file . "\"");
-} else {
-    header("Content-Disposition: attachment; filename=\"" . $file . "\"");
+        if (
+            !$avatar_record ||
+            basename((string) ($avatar_record['avatar'] ?? '')) !== $avatar_file
+        ) {
+            drms_download_error(403, 'Access denied.');
+        }
+
+        $stored_path = 'uploads/avatars/' . $avatar_file;
+        $download_name = $avatar_file;
+    } elseif ($type === 'client_approval') {
+        if ($record_id < 1) {
+            drms_download_error(400, 'Invalid client approval record.');
+        }
+
+        $stmt = $conn->prepare(
+            "SELECT proof_original_name, proof_file_path, recorded_by
+             FROM client_approval_records
+             WHERE approval_record_id = ?
+             LIMIT 1"
+        );
+        $stmt->bind_param('i', $record_id);
+        $stmt->execute();
+        $record = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        $allowed = drms_download_role_allowed(
+            $role,
+            ['Sales Staff', 'Procurement', 'GM', 'Finance', 'President']
+        ) || (int) ($record['recorded_by'] ?? 0) === $user_id;
+        if (!$record || !$allowed) {
+            drms_download_error(403, 'Access denied.');
+        }
+
+        $stored_path = 'uploads/pos/' . basename($record['proof_file_path']);
+        $download_name = (string) $record['proof_original_name'];
+    } elseif ($type === 'supplier_quote') {
+        if ($record_id < 1) {
+            drms_download_error(400, 'Invalid supplier quotation record.');
+        }
+
+        $stmt = $conn->prepare(
+            "SELECT
+                supplier_quote_original_name,
+                supplier_quote_file_path,
+                created_by
+             FROM pr_supplier_details
+             WHERE supplier_detail_id = ?
+               AND record_status = 'Active'
+             LIMIT 1"
+        );
+        $stmt->bind_param('i', $record_id);
+        $stmt->execute();
+        $record = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        $allowed = drms_download_role_allowed(
+            $role,
+            ['Sales Staff', 'Procurement', 'GM', 'Finance', 'President']
+        ) || (int) ($record['created_by'] ?? 0) === $user_id;
+        if (!$record || !$allowed || empty($record['supplier_quote_file_path'])) {
+            drms_download_error(403, 'Access denied.');
+        }
+
+        $stored_path = 'uploads/supplier_quotes/' .
+            basename($record['supplier_quote_file_path']);
+        $download_name = (string) ($record['supplier_quote_original_name'] ?? '');
+    } elseif ($type === 'fund_release') {
+        if ($record_id < 1) {
+            drms_download_error(400, 'Invalid fund release record.');
+        }
+
+        $stmt = $conn->prepare(
+            "SELECT proof_original_name, proof_file_path, released_by
+             FROM po_supplier_fund_releases
+             WHERE fund_release_id = ?
+               AND record_status = 'Active'
+             LIMIT 1"
+        );
+        $stmt->bind_param('i', $record_id);
+        $stmt->execute();
+        $record = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        $allowed = drms_download_role_allowed(
+            $role,
+            ['Procurement', 'GM', 'Finance', 'President']
+        ) || (int) ($record['released_by'] ?? 0) === $user_id;
+        if (!$record || !$allowed) {
+            drms_download_error(403, 'Access denied.');
+        }
+
+        $stored_path = 'uploads/fund_releases/' .
+            basename($record['proof_file_path']);
+        $download_name = (string) $record['proof_original_name'];
+    } elseif ($type === 'payment_proof') {
+        if ($record_id < 1) {
+            drms_download_error(400, 'Invalid payment record.');
+        }
+
+        $stmt = $conn->prepare(
+            "SELECT payment_id, proof_file_path, recorded_by
+             FROM payments
+             WHERE payment_id = ?
+             LIMIT 1"
+        );
+        $stmt->bind_param('i', $record_id);
+        $stmt->execute();
+        $record = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        $allowed = drms_download_role_allowed(
+            $role,
+            ['Finance', 'GM', 'President']
+        ) || (int) ($record['recorded_by'] ?? 0) === $user_id;
+        if (!$record || !$allowed || empty($record['proof_file_path'])) {
+            drms_download_error(403, 'Access denied.');
+        }
+
+        $stored_path = 'uploads/payments/' .
+            basename($record['proof_file_path']);
+        $download_name = basename($record['proof_file_path']);
+    } elseif ($type === 'document') {
+        if ($record_id < 1) {
+            drms_download_error(400, 'Invalid document record.');
+        }
+
+        $stmt = $conn->prepare(
+            "SELECT
+                doc_id,
+                po_id,
+                doc_type,
+                file_name,
+                file_path,
+                category,
+                uploaded_by,
+                status,
+                access_type,
+                file_permissions
+             FROM documents
+             WHERE doc_id = ?
+             LIMIT 1"
+        );
+        $stmt->bind_param('i', $record_id);
+        $stmt->execute();
+        $record = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if (
+            !$record ||
+            !drms_document_is_accessible($conn, $record, $user_id, $role)
+        ) {
+            drms_download_error(403, 'Access denied.');
+        }
+
+        $stored_path = (string) $record['file_path'];
+        $download_name = (string) $record['file_name'];
+        $audit_document_id = (int) $record['doc_id'];
+    } else {
+        drms_download_error(400, 'Invalid file type.');
+    }
+} catch (mysqli_sql_exception $error) {
+    error_log('Secure file lookup failed: ' . $error->getMessage());
+    drms_download_error(500, 'The file could not be opened right now.');
 }
 
-header("Cache-Control: private, max-age=0, must-revalidate");
-header("Pragma: public");
+$absolute_path = drms_resolve_upload_path($stored_path);
+$safe_name = trim(str_replace(["\r", "\n", '"'], '', $download_name));
+if ($safe_name === '') {
+    $safe_name = basename($absolute_path);
+}
 
-ob_clean();
-flush();
-readfile($filepath);
-exit;
-?>
+if ($audit_document_id !== null) {
+    log_document_action(
+        $conn,
+        $user_id,
+        'DOWNLOAD_DOC',
+        $audit_document_id,
+        'Opened document: ' . $safe_name,
+        $_SERVER['REQUEST_URI'] ?? null
+    );
+}
 
+$file_info = new finfo(FILEINFO_MIME_TYPE);
+$mime_type = $file_info->file($absolute_path) ?: 'application/octet-stream';
+$inline_types = [
+    'application/pdf',
+    'image/gif',
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+];
+$disposition = in_array($mime_type, $inline_types, true)
+    ? 'inline'
+    : 'attachment';
+$fallback_name = preg_replace('/[^A-Za-z0-9._-]/', '_', $safe_name);
+if ($fallback_name === '' || $fallback_name === null) {
+    $fallback_name = 'document';
+}
+
+header('Content-Type: ' . $mime_type);
+header('Content-Length: ' . filesize($absolute_path));
+header('Content-Disposition: ' . $disposition . '; filename="' .
+    $fallback_name . '"; filename*=UTF-8\'\'' . rawurlencode($safe_name));
+header('X-Content-Type-Options: nosniff');
+header('Cache-Control: private, no-store, max-age=0, must-revalidate');
+header('Pragma: no-cache');
+header('Expires: 0');
+
+while (ob_get_level() > 0) {
+    ob_end_clean();
+}
+
+$stream = fopen($absolute_path, 'rb');
+if ($stream === false) {
+    drms_download_error(500, 'The file could not be opened right now.');
+}
+
+fpassthru($stream);
+fclose($stream);
+exit();

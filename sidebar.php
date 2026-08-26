@@ -42,6 +42,35 @@ if (isset($_SESSION['user_id'])) {
 }
 
 $role = $_SESSION['role'];
+
+if ($role === 'Finance') {
+    $collection_reminder_helper =
+        __DIR__ . '/config/collection_reminders.php';
+    if (is_file($collection_reminder_helper)) {
+        require_once $collection_reminder_helper;
+
+        $collection_sync_date = date('Y-m-d');
+        if (
+            ($_SESSION['phase5c_collection_sync_date'] ?? '') !==
+            $collection_sync_date
+        ) {
+            try {
+                phase5c_sync_collection_reminders(
+                    $conn,
+                    (int) $_SESSION['user_id']
+                );
+                $_SESSION['phase5c_collection_sync_date'] =
+                    $collection_sync_date;
+            } catch (Throwable $collection_reminder_error) {
+                error_log(
+                    'Phase 5C collection reminder sync failed: ' .
+                    $collection_reminder_error->getMessage()
+                );
+            }
+        }
+    }
+}
+
 $unread_count = get_unread_notification_count($conn, (int)$_SESSION['user_id'], $role);
 
 $can_view_audit = false;
@@ -135,7 +164,7 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
             if(in_array($role, $ops_roles)): 
             ?>
             <div class="saas-nav-item has-dropdown">
-                <a href="#" class="saas-nav-link <?php echo (in_array($current_page, ['pr_list.php', 'create_pr.php', 'view_pr.php', 'po_list.php', 'create_po.php', 'view_po.php', 'quotations_list.php', 'create_quotation.php', 'view_quotation.php'])) ? 'active' : ''; ?>">
+                <a href="#" class="saas-nav-link <?php echo (in_array($current_page, ['pr_list.php', 'create_pr.php', 'view_pr.php', 'po_list.php', 'create_po.php', 'view_po.php', 'quotations_list.php', 'create_quotation.php', 'view_quotation.php', 'collection_monitoring.php', 'collection_aging.php', 'collection_ledger.php', 'collection_followup.php', 'collection_statement.php', 'record_collection_payment.php'])) ? 'active' : ''; ?>">
                     <i class="fas fa-layer-group"></i> Operations <i class="fas fa-chevron-down ms-1 fs-xs"></i>
                 </a>
                 <div class="saas-dropdown shadow-sm">
@@ -149,6 +178,10 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
                     
                     <?php if(in_array($role, ['Procurement', 'GM', 'President', 'Finance', 'Supply Chain'])): ?>
                         <a href="po_list.php"><i class="fas fa-file-invoice"></i> Purchase Orders</a>
+                    <?php endif; ?>
+
+                    <?php if(in_array($role, ['Finance', 'GM', 'President'])): ?>
+                        <a href="collection_monitoring.php"><i class="fas fa-hand-holding-usd"></i> Collections</a>
                     <?php endif; ?>
                 </div>
             </div>
@@ -254,6 +287,7 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
         <?php if($role == 'Sales Staff'): ?><a href="quotations_list.php" class="mobile-side-nav__link <?php echo (in_array($current_page, ['quotations_list.php', 'create_quotation.php', 'view_quotation.php'])) ? 'active' : ''; ?>"><i class="fas fa-file-invoice-dollar"></i>Quotations</a><?php endif; ?>
         <?php if(in_array($role, ['Sales Staff', 'Procurement', 'GM', 'President', 'Finance'])): ?><a href="pr_list.php" class="mobile-side-nav__link <?php echo (in_array($current_page, ['pr_list.php', 'create_pr.php', 'view_pr.php'])) ? 'active' : ''; ?>"><i class="fas fa-clipboard-list"></i>Purchase Requests</a><?php endif; ?>
         <?php if(in_array($role, ['Procurement', 'GM', 'President', 'Finance', 'Supply Chain'])): ?><a href="po_list.php" class="mobile-side-nav__link <?php echo (in_array($current_page, ['po_list.php', 'create_po.php', 'view_po.php'])) ? 'active' : ''; ?>"><i class="fas fa-file-invoice"></i>Purchase Orders</a><?php endif; ?>
+        <?php if(in_array($role, ['Finance', 'GM', 'President'])): ?><a href="collection_monitoring.php" class="mobile-side-nav__link <?php echo (in_array($current_page, ['collection_monitoring.php', 'collection_aging.php', 'collection_ledger.php', 'collection_followup.php', 'collection_statement.php', 'record_collection_payment.php'])) ? 'active' : ''; ?>"><i class="fas fa-hand-holding-usd"></i>Collections</a><?php endif; ?>
     </div>
     <?php endif; ?>
     
@@ -358,6 +392,15 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
                         <a href="po_list.php">
                             <div class="cp-item-icon cp-icon-info"><i class="fas fa-file-invoice"></i></div> 
                             <div><div class="cp-item-title">Purchase Orders</div><small class="cp-item-desc">View PO directory</small></div>
+                        </a>
+                    </li>
+                <?php endif; ?>
+
+                <?php if(in_array($role, ['Finance', 'GM', 'President'])): ?>
+                    <li data-keywords="finance collections overview receivables overdue aging payment ledger proof due tracker">
+                        <a href="collection_monitoring.php">
+                            <div class="cp-item-icon cp-icon-success"><i class="fas fa-hand-holding-usd"></i></div>
+                            <div><div class="cp-item-title">Collections</div><small class="cp-item-desc">Overview, receivables, payments, and proof</small></div>
                         </a>
                     </li>
                 <?php endif; ?>

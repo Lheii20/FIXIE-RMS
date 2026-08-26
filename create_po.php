@@ -1,539 +1,619 @@
-<?php 
-require 'config/db_connect.php'; 
+<?php
+require 'config/db_connect.php';
 require 'config/functions.php';
 
-if(!isset($_SESSION['user_id']) || $_SESSION['role'] != 'Procurement') {
-    header("Location: dashboard.php");
+if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Procurement') {
+    header('Location: dashboard.php');
     exit();
 }
 
-$display_po_number = "PO-" . date('Y') . "-[Auto-Generated]";
+function phase3c_display_date(?string $value, string $fallback = 'Not provided'): string
+{
+    if (!$value || strtotime($value) === false) {
+        return $fallback;
+    }
 
-$categories = [];
-$cats_query = $conn->query("SELECT code, name FROM item_categories ORDER BY code ASC");
-if ($cats_query) {
-    while($row = $cats_query->fetch_assoc()) { $categories[] = $row; }
+    return date('M d, Y', strtotime($value));
 }
 
-$brands = [];
-$brands_query = $conn->query("SELECT brand_name FROM brands ORDER BY brand_name ASC");
-if ($brands_query) {
-    while($row = $brands_query->fetch_assoc()) { $brands[] = $row['brand_name']; }
+function phase3c_display_datetime(?string $value, string $fallback = 'Not recorded'): string
+{
+    if (!$value || strtotime($value) === false) {
+        return $fallback;
+    }
+
+    return date('M d, Y · h:i A', strtotime($value));
 }
 
-$pr_id_val = '';
-$client_name_val = '';
-$pr_amount_val = 0;
-$pr_items_json = '[]';
-$source_quotation_number = '';
+function phase3c_mask_account(?string $value): string
+{
+    $account = trim((string) $value);
+    if ($account === '') {
+        return 'Not provided';
+    }
 
-if (isset($_GET['pr_id'])) {
-    $pr_id = intval($_GET['pr_id']);
-    $pr_query = $conn->query("SELECT pr.client_name, pr.amount, q.quotation_number AS source_quotation_number 
-                              FROM purchase_requests pr 
-                              LEFT JOIN quotations q ON q.quotation_id = pr.quotation_id 
-                              WHERE pr.pr_id = $pr_id AND pr.status = 'Approved'");
-    
-    if ($pr_query && $pr_query->num_rows > 0) {
-        $pr_data = $pr_query->fetch_assoc();
-        $pr_id_val = $pr_id;
-        $client_name_val = htmlspecialchars($pr_data['client_name']);
-        $pr_amount_val = floatval($pr_data['amount']);
-        $source_quotation_number = $pr_data['source_quotation_number'] ?? '';
-        
-        $items_query = $conn->query("SELECT category, brand, item_name, specifications, quantity, unit_price, total_price FROM pr_items WHERE pr_id = $pr_id");
-        $items_arr = [];
-        
-        while ($i = $items_query->fetch_assoc()) {
-            $cat_code = '01';
-            $c = strtolower($i['category']);
-            $matched = false;
-            foreach ($categories as $dbc) {
-                if (stripos($c, strtolower($dbc['name'])) !== false || stripos(strtolower($dbc['name']), $c) !== false) {
-                    $cat_code = $dbc['code']; $matched = true; break;
-                }
-            }
-            if (!$matched) {
-                if(strpos($c, 'cctv') !== false) $cat_code = '02';
-                elseif(strpos($c, 'peripheral') !== false) $cat_code = '03';
-                elseif(strpos($c, 'office') !== false) $cat_code = '04';
-                elseif(strpos($c, 'wifi') !== false || strpos($c, 'lan') !== false) $cat_code = '05';
-                elseif(strpos($c, 'print') !== false) $cat_code = '06';
-            }
-            $items_arr[] = [
-                'category' => $cat_code,
-                'brand' => htmlspecialchars($i['brand'] ?? 'Generic/Other'),
-                'name' => htmlspecialchars($i['item_name']),
-                'specs' => htmlspecialchars($i['specifications'] ?? ''),
-                'qty' => $i['quantity'],
-                'price' => $i['unit_price'],
-                'origQty' => $i['quantity']
-            ];
+    $visible = substr($account, -4);
+    return '•••• ' . $visible;
+}
+
+$pr_id = isset($_GET['pr_id']) ? (int) $_GET['pr_id'] : 0;
+$pr = null;
+$pr_items = [];
+$approval_records = [];
+$approval_map = [];
+$eligibility_error = '';
+
+if ($pr_id > 0) {
+    $pr_stmt = $conn->prepare(
+        "SELECT
+            request.*,
+            quotation.quotation_number,
+            client_po.internal_reference AS client_po_internal_reference,
+            client_po.actual_client_po_number,
+            client_po.client_po_date,
+            client_po.final_approval_date AS client_final_approval_date,
+            client_po.proof_original_name AS client_po_file_name,
+            client_po.proof_file_path AS client_po_file_path,
+            supplier.supplier_detail_id,
+            supplier.supplier_name,
+            supplier.supplier_reference,
+            supplier.supplier_quote_date,
+            supplier.quoted_cost_amount,
+            supplier.payment_method,
+            supplier.payment_terms,
+            supplier.bank_name,
+            supplier.bank_account_name,
+            supplier.bank_account_number,
+            supplier.check_payee,
+            supplier.supplier_quote_original_name,
+            supplier.supplier_quote_file_path,
+            supplier.remarks AS supplier_remarks,
+            final_approver.full_name AS final_approver_name
+         FROM purchase_requests request
+         INNER JOIN quotations quotation
+            ON quotation.quotation_id = request.quotation_id
+         INNER JOIN client_approval_records client_po
+            ON client_po.approval_record_id = request.client_approval_record_id
+           AND client_po.quotation_id = request.quotation_id
+           AND client_po.record_type = 'Official Client PO'
+           AND client_po.record_status = 'Active'
+         INNER JOIN pr_supplier_details supplier
+            ON supplier.pr_id = request.pr_id
+           AND supplier.record_status = 'Active'
+         LEFT JOIN users final_approver
+            ON final_approver.user_id = request.final_approved_by
+         WHERE request.pr_id = ?
+           AND request.status = 'Approved'
+           AND request.workflow_version = 2
+           AND request.current_approval_stage = 'Official Approved'
+           AND request.final_approved_by IS NOT NULL
+           AND request.final_approved_at IS NOT NULL
+           AND client_po.actual_client_po_number IS NOT NULL
+           AND client_po.actual_client_po_number <> ''
+           AND client_po.final_approval_date IS NOT NULL
+           AND NOT EXISTS (
+                SELECT 1
+                FROM purchase_orders existing_po
+                WHERE existing_po.pr_id = request.pr_id
+           )
+         LIMIT 1"
+    );
+    $pr_stmt->bind_param('i', $pr_id);
+    $pr_stmt->execute();
+    $pr = $pr_stmt->get_result()->fetch_assoc();
+
+    if ($pr) {
+        $items_stmt = $conn->prepare(
+            "SELECT
+                item_id,
+                category,
+                brand,
+                item_name,
+                specifications,
+                quantity,
+                unit_price,
+                unit_cost,
+                total_price,
+                total_cost,
+                line_profit_amount
+             FROM pr_items
+             WHERE pr_id = ?
+             ORDER BY item_id"
+        );
+        $items_stmt->bind_param('i', $pr_id);
+        $items_stmt->execute();
+        $items_result = $items_stmt->get_result();
+
+        while ($item = $items_result->fetch_assoc()) {
+            $pr_items[] = $item;
         }
-        $pr_items_json = json_encode($items_arr, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+
+        $approval_stmt = $conn->prepare(
+            "SELECT
+                approval.approval_cycle,
+                approval.stage_sequence,
+                approval.approval_stage,
+                approval.required_role,
+                approval.decision,
+                approval.acted_at,
+                actor.full_name AS acted_by_name
+             FROM pr_approval_records approval
+             LEFT JOIN users actor
+                ON actor.user_id = approval.acted_by
+             WHERE approval.pr_id = ?
+               AND approval.approval_cycle = (
+                    SELECT MAX(cycle_record.approval_cycle)
+                    FROM pr_approval_records cycle_record
+                    WHERE cycle_record.pr_id = ?
+               )
+             ORDER BY approval.stage_sequence"
+        );
+        $approval_stmt->bind_param('ii', $pr_id, $pr_id);
+        $approval_stmt->execute();
+        $approval_result = $approval_stmt->get_result();
+
+        while ($approval = $approval_result->fetch_assoc()) {
+            $approval_records[] = $approval;
+            $approval_map[$approval['approval_stage']] = $approval;
+        }
+
+        $required_approvals = [
+            'GM Review' => ['role' => 'GM', 'sequence' => 1],
+            'Finance Review' => ['role' => 'Finance', 'sequence' => 2],
+            'Owner Approval' => ['role' => 'President', 'sequence' => 3],
+        ];
+
+        if (count($approval_records) !== count($required_approvals)) {
+            $eligibility_error = 'The latest PRF approval cycle is incomplete.';
+        }
+
+        foreach ($required_approvals as $stage => $requirement) {
+            $approval = $approval_map[$stage] ?? null;
+            if (
+                !$approval ||
+                $approval['required_role'] !== $requirement['role'] ||
+                (int) $approval['stage_sequence'] !== $requirement['sequence'] ||
+                $approval['decision'] !== 'Approved' ||
+                empty($approval['acted_by_name']) ||
+                empty($approval['acted_at'])
+            ) {
+                $eligibility_error =
+                    'The PRF must contain completed GM, Finance, and Owner approvals.';
+                break;
+            }
+        }
+
+        if (empty($pr_items)) {
+            $eligibility_error = 'The approved PRF does not contain any items.';
+        }
     }
 }
+
+$can_create_po = $pr && $eligibility_error === '';
+$display_po_number = 'PO-' . date('Y') . '-[Auto]';
+$client_po_file_url = $pr && !empty($pr['client_po_file_path'])
+    ? 'download.php?type=client_approval&record_id=' .
+        (int) $pr['client_approval_record_id']
+    : '';
+$supplier_quote_url = $pr && !empty($pr['supplier_quote_file_path'])
+    ? 'download.php?type=supplier_quote&record_id=' .
+        (int) $pr['supplier_detail_id']
+    : '';
+$gross_profit_is_negative = $pr && (float) $pr['gross_profit_amount'] < 0;
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Create PO - Fixie DRMS</title>
+    <title>Create Purchase Order - Fixie DRMS</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
-    <link href="assets/css/style.css" rel="stylesheet">
+    <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <link href="assets/css/prf-form.css?v=<?php echo filemtime(__DIR__ . '/assets/css/prf-form.css'); ?>" rel="stylesheet">
+    <link href="assets/css/po-conversion.css?v=<?php echo filemtime(__DIR__ . '/assets/css/po-conversion.css'); ?>" rel="stylesheet">
 </head>
-<body class="page-create-po">
+<body class="page-create-po prf-page po-conversion-page">
     <?php include 'sidebar.php'; ?>
-    
-    <div class="main-content fade-in">
-        <div class="container-fluid max-w-1300">
-            
-            <div class="d-flex flex-nowrap align-items-center justify-content-start mb-4 mt-2 create-form-header text-start">
-                <a href="po_list.php" class="btn btn-white shadow-sm rounded-custom d-flex align-items-center justify-content-center me-3 box-38 border create-form-back-btn" aria-label="Back to purchase orders"><i class="fas fa-arrow-left text-secondary"></i></a>
-                <div class="create-form-heading text-start">
-                    <h4 class="fw-bold text-dark mb-0 tracking-tight">Purchase Order</h4>
-                    <p class="text-muted mb-0 fs-sm d-none d-md-block">Draft your official purchase document.</p>
-                </div>
-            </div>
 
-            <div class="split-card row g-0">
-                
-                <div class="col-lg-3 left-panel d-none d-lg-block">
-                    <div class="p-4 position-sticky sticky-top-85">
-                        <h6 class="fw-bold text-muted text-uppercase mb-4 fs-xs tracking-wider">Encoding Progress</h6>
-                        
-                        <div class="vertical-stepper">
-                            <div class="step-node active" id="nav-step1">
-                                <div class="step-icon">1</div>
-                                <div class="step-text">
-                                    <h6 class="fw-bold fs-sm text-dark mb-0">Basic Info</h6>
-                                    <small class="text-muted fs-xs">Client details & Document</small>
-                                </div>
-                            </div>
-                            <div class="step-line" id="nav-line"></div>
-                            <div class="step-node" id="nav-step2">
-                                <div class="step-icon">2</div>
-                                <div class="step-text">
-                                    <h6 class="fw-bold fs-sm text-dark mb-0">Order Items</h6>
-                                    <small class="text-muted fs-xs">Specifications & Pricing</small>
-                                </div>
-                            </div>
+    <main class="main-content fade-in">
+        <div class="container-fluid prf-shell">
+            <header class="prf-page-header">
+                <a
+                    href="pr_list.php?queue=mine"
+                    class="prf-back-button"
+                    aria-label="Back to approved Purchase Requests"
+                >
+                    <i class="fas fa-arrow-left"></i>
+                </a>
+
+                <div class="prf-page-heading">
+                    <div class="prf-eyebrow">Purchase order conversion</div>
+                    <h2>Create PO from approved PRF</h2>
+                    <p>Verify the locked approval, supplier, and financial snapshot before funding.</p>
+                </div>
+
+                <?php if ($can_create_po): ?>
+                    <span class="prf-workflow-chip">
+                        <i class="fas fa-lock"></i>
+                        Approved PRF handoff
+                    </span>
+                <?php endif; ?>
+            </header>
+
+            <?php if (isset($_GET['error']) && trim((string) $_GET['error']) !== ''): ?>
+                <div class="prf-alert prf-alert-danger" role="alert">
+                    <i class="fas fa-exclamation-circle"></i>
+                    <span><?php echo htmlspecialchars((string) $_GET['error']); ?></span>
+                </div>
+            <?php endif; ?>
+
+            <div
+                id="poValidationMessage"
+                class="prf-alert prf-alert-danger d-none"
+                role="alert"
+                aria-live="polite"
+            ></div>
+
+            <?php if (!$pr): ?>
+                <section class="prf-empty-state">
+                    <div class="prf-empty-icon"><i class="fas fa-file-circle-check"></i></div>
+                    <h3>No eligible approved PRF selected</h3>
+                    <p>
+                        Select a Version 2 PRF that completed GM, Finance, and Owner approval
+                        and has not yet been converted to a PO.
+                    </p>
+                    <a href="pr_list.php?queue=mine" class="btn btn-primary">
+                        View PRFs ready for PO
+                    </a>
+                </section>
+
+            <?php else: ?>
+                <section class="prf-source-card po-source-card">
+                    <div class="prf-source-grid po-source-grid">
+                        <div class="prf-source-item prf-source-item-primary">
+                            <span>New PO number</span>
+                            <strong><?php echo htmlspecialchars($display_po_number); ?></strong>
+                        </div>
+                        <div class="prf-source-item">
+                            <span>Approved PRF</span>
+                            <strong><?php echo htmlspecialchars($pr['pr_number']); ?></strong>
+                        </div>
+                        <div class="prf-source-item">
+                            <span>Client</span>
+                            <strong><?php echo htmlspecialchars($pr['client_name']); ?></strong>
+                        </div>
+                        <div class="prf-source-item">
+                            <span>Quotation</span>
+                            <strong><?php echo htmlspecialchars($pr['quotation_number']); ?></strong>
+                        </div>
+                        <div class="prf-source-item">
+                            <span>Official Client PO</span>
+                            <strong><?php echo htmlspecialchars($pr['actual_client_po_number']); ?></strong>
+                        </div>
+                        <div class="prf-source-action">
+                            <?php if ($client_po_file_url !== ''): ?>
+                                <a
+                                    href="<?php echo htmlspecialchars($client_po_file_url); ?>"
+                                    target="_blank"
+                                    rel="noopener"
+                                    class="prf-document-link"
+                                >
+                                    <i class="fas fa-paperclip"></i>
+                                    View Client PO
+                                </a>
+                            <?php endif; ?>
                         </div>
                     </div>
-                </div>
+                </section>
 
-                <div class="col-lg-9 p-3 p-md-4 right-panel">
-                    
-                    <div id="mobileGrandTotalWrapper" class="d-lg-none mb-3 pb-2 border-bottom d-flex justify-content-between align-items-center">
-                        <span class="badge bg-primary text-white" id="mobile-step-indicator">Step 1 of 2</span>
-                        <h5 class="fw-bold text-primary m-0" id="mobileGrandTotal">₱ 0.00</h5>
+                <section class="prf-route-card po-approval-route" aria-label="Completed PRF approval and next PO step">
+                    <div class="prf-route-label">Verified route</div>
+                    <div class="prf-route-steps">
+                        <?php
+                        $route_stages = [
+                            'GM Review' => 'GM review',
+                            'Finance Review' => 'Finance review',
+                            'Owner Approval' => 'Owner approval',
+                        ];
+                        ?>
+                        <?php foreach ($route_stages as $stage_key => $stage_label): ?>
+                            <?php $route_approval = $approval_map[$stage_key] ?? null; ?>
+                            <div class="prf-route-step po-route-complete">
+                                <span><i class="fas fa-check"></i></span>
+                                <div>
+                                    <strong><?php echo htmlspecialchars($stage_label); ?></strong>
+                                    <small>
+                                        <?php echo htmlspecialchars((string) ($route_approval['acted_by_name'] ?? 'Missing')); ?>
+                                    </small>
+                                </div>
+                            </div>
+                            <i class="fas fa-chevron-right prf-route-arrow"></i>
+                        <?php endforeach; ?>
+                        <div class="prf-route-step is-current po-route-next">
+                            <span>4</span>
+                            <div><strong>Funding release</strong><small>Next · Finance</small></div>
+                        </div>
                     </div>
+                </section>
 
-                    <form action="actions/po_handler.php" method="POST" id="poForm" enctype="multipart/form-data" onkeydown="return event.key != 'Enter';">
-                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                <?php if ($eligibility_error !== ''): ?>
+                    <section class="prf-alert prf-alert-danger" role="alert">
+                        <i class="fas fa-shield-alt"></i>
+                        <div>
+                            <strong>PO creation is blocked</strong>
+                            <span><?php echo htmlspecialchars($eligibility_error); ?></span>
+                        </div>
+                    </section>
+                <?php else: ?>
+                    <form
+                        action="actions/po_handler.php"
+                        method="POST"
+                        enctype="multipart/form-data"
+                        id="approvedPrfPoForm"
+                        novalidate
+                    >
                         <input type="hidden" name="action" value="create">
-                        <input type="hidden" id="hiddenGrandTotal">
-                        <?php if($pr_id_val): ?><input type="hidden" name="pr_id" value="<?php echo $pr_id_val; ?>"><?php endif; ?>
+                        <input
+                            type="hidden"
+                            name="csrf_token"
+                            value="<?php echo htmlspecialchars($_SESSION['csrf_token'] ?? ''); ?>"
+                        >
+                        <input type="hidden" name="pr_id" value="<?php echo $pr_id; ?>">
 
-                        <div class="wizard-step active-step" id="step1">
-                            <h5 class="fw-bold text-dark mb-3">Client Information</h5>
-                            
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <label class="form-label-sleek">Generated PO Number</label>
-                                    <input type="text" class="form-control soft-input text-primary fw-bold bg-light-blue" value="<?php echo $display_po_number; ?>" readonly>
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label-sleek">Client / Agency Name <span class="req-star">*</span></label>
-                                    <input type="text" name="client_name" id="clientName" class="form-control soft-input" value="<?php echo $client_name_val; ?>" placeholder="e.g. Department of Education" required>
+                        <div class="po-conversion-layout">
+                            <div class="po-main-column">
+                                <section class="prf-card">
+                                    <div class="prf-card-header">
+                                        <div>
+                                            <span class="prf-section-kicker">Approved order</span>
+                                            <h3>Locked PRF items</h3>
+                                        </div>
+                                        <span class="prf-readonly-note">
+                                            <i class="fas fa-lock"></i>
+                                            Values cannot be edited
+                                        </span>
+                                    </div>
+
+                                    <div class="po-item-table-wrap">
+                                        <table class="po-item-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Item</th>
+                                                    <th>Category / brand</th>
+                                                    <th class="text-center">Qty</th>
+                                                    <th class="text-end">Selling / unit</th>
+                                                    <th class="text-end">Cost / unit</th>
+                                                    <th class="text-end">Selling total</th>
+                                                    <th class="text-end">Cost total</th>
+                                                    <th class="text-end">Line profit</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <?php foreach ($pr_items as $item): ?>
+                                                    <tr>
+                                                        <td data-label="Item">
+                                                            <strong><?php echo htmlspecialchars($item['item_name']); ?></strong>
+                                                            <?php if (trim((string) $item['specifications']) !== ''): ?>
+                                                                <small><?php echo nl2br(htmlspecialchars((string) $item['specifications'])); ?></small>
+                                                            <?php endif; ?>
+                                                        </td>
+                                                        <td data-label="Category / brand">
+                                                            <?php echo htmlspecialchars(trim((string) $item['category']) !== '' ? $item['category'] : 'Uncategorized'); ?>
+                                                            <small><?php echo htmlspecialchars(trim((string) $item['brand']) !== '' ? $item['brand'] : 'No brand'); ?></small>
+                                                        </td>
+                                                        <td data-label="Qty" class="text-center po-table-quantity">
+                                                            <?php echo (int) $item['quantity']; ?>
+                                                        </td>
+                                                        <td data-label="Selling / unit" class="text-end po-table-money">
+                                                            ₱<?php echo number_format((float) $item['unit_price'], 2); ?>
+                                                        </td>
+                                                        <td data-label="Cost / unit" class="text-end po-table-money">
+                                                            ₱<?php echo number_format((float) $item['unit_cost'], 2); ?>
+                                                        </td>
+                                                        <td data-label="Selling total" class="text-end po-table-money">
+                                                            ₱<?php echo number_format((float) $item['total_price'], 2); ?>
+                                                        </td>
+                                                        <td data-label="Cost total" class="text-end po-table-money">
+                                                            ₱<?php echo number_format((float) $item['total_cost'], 2); ?>
+                                                        </td>
+                                                        <td
+                                                            data-label="Line profit"
+                                                            class="text-end po-table-profit<?php echo (float) $item['line_profit_amount'] < 0 ? ' is-negative' : ''; ?>"
+                                                        >
+                                                            ₱<?php echo number_format((float) $item['line_profit_amount'], 2); ?>
+                                                        </td>
+                                                    </tr>
+                                                <?php endforeach; ?>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </section>
+
+                                <section class="prf-card">
+                                    <div class="prf-card-header">
+                                        <div>
+                                            <span class="prf-section-kicker">Supplier handoff</span>
+                                            <h3>Approved supplier and payment details</h3>
+                                        </div>
+                                        <span class="prf-readonly-note">
+                                            <i class="fas fa-check-circle"></i>
+                                            Finance verified
+                                        </span>
+                                    </div>
+
+                                    <div class="po-supplier-grid">
+                                        <div class="po-detail po-detail-primary">
+                                            <span>Supplier</span>
+                                            <strong><?php echo htmlspecialchars($pr['supplier_name']); ?></strong>
+                                        </div>
+                                        <div class="po-detail">
+                                            <span>Supplier reference</span>
+                                            <strong><?php echo htmlspecialchars(trim((string) $pr['supplier_reference']) !== '' ? $pr['supplier_reference'] : 'Not provided'); ?></strong>
+                                        </div>
+                                        <div class="po-detail">
+                                            <span>Supplier quote date</span>
+                                            <strong><?php echo htmlspecialchars(phase3c_display_date($pr['supplier_quote_date'])); ?></strong>
+                                        </div>
+                                        <div class="po-detail">
+                                            <span>Payment method</span>
+                                            <strong><?php echo htmlspecialchars($pr['payment_method']); ?></strong>
+                                        </div>
+                                        <div class="po-detail">
+                                            <span>Payment terms</span>
+                                            <strong><?php echo htmlspecialchars(trim((string) $pr['payment_terms']) !== '' ? $pr['payment_terms'] : 'Not provided'); ?></strong>
+                                        </div>
+
+                                        <?php if ($pr['payment_method'] === 'Bank Transfer'): ?>
+                                            <div class="po-detail">
+                                                <span>Bank</span>
+                                                <strong><?php echo htmlspecialchars((string) $pr['bank_name']); ?></strong>
+                                            </div>
+                                            <div class="po-detail">
+                                                <span>Account name</span>
+                                                <strong><?php echo htmlspecialchars((string) $pr['bank_account_name']); ?></strong>
+                                            </div>
+                                            <div class="po-detail">
+                                                <span>Account number</span>
+                                                <strong class="po-sensitive-value">
+                                                    <?php echo htmlspecialchars(phase3c_mask_account($pr['bank_account_number'])); ?>
+                                                </strong>
+                                            </div>
+                                        <?php elseif ($pr['payment_method'] === 'Check'): ?>
+                                            <div class="po-detail">
+                                                <span>Check payee</span>
+                                                <strong><?php echo htmlspecialchars((string) $pr['check_payee']); ?></strong>
+                                            </div>
+                                        <?php endif; ?>
+
+                                        <div class="po-detail po-detail-wide">
+                                            <span>Supplier remarks</span>
+                                            <strong><?php echo nl2br(htmlspecialchars(trim((string) $pr['supplier_remarks']) !== '' ? $pr['supplier_remarks'] : 'No supplier remarks.')); ?></strong>
+                                        </div>
+
+                                        <div class="po-detail po-detail-action">
+                                            <span>Supplier quotation</span>
+                                            <?php if ($supplier_quote_url !== ''): ?>
+                                                <a
+                                                    href="<?php echo htmlspecialchars($supplier_quote_url); ?>"
+                                                    target="_blank"
+                                                    rel="noopener"
+                                                    class="prf-document-link"
+                                                >
+                                                    <i class="fas fa-paperclip"></i>
+                                                    View supplier quote
+                                                </a>
+                                            <?php else: ?>
+                                                <strong>Not attached</strong>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                </section>
+
+                                <section class="prf-card">
+                                    <div class="prf-card-header">
+                                        <div>
+                                            <span class="prf-section-kicker">Additional evidence</span>
+                                            <h3>Optional PO supporting document</h3>
+                                        </div>
+                                        <span class="prf-readonly-note">Optional</span>
+                                    </div>
+
+                                    <div class="po-document-panel">
+                                        <div class="po-document-copy">
+                                            <i class="fas fa-file-shield"></i>
+                                            <div>
+                                                <strong>Official Client PO is already linked</strong>
+                                                <span>Attach only an additional PDF or image when Procurement needs it.</span>
+                                            </div>
+                                        </div>
+
+                                        <div class="prf-field po-file-field">
+                                            <label class="prf-file-control" for="poSupportingDocument">
+                                                <i class="fas fa-paperclip"></i>
+                                                <span data-po-file-name>Select supporting file</span>
+                                                <strong>Browse</strong>
+                                            </label>
+                                            <input
+                                                type="file"
+                                                name="po_document"
+                                                id="poSupportingDocument"
+                                                class="visually-hidden"
+                                                accept=".pdf,.jpg,.jpeg,.png"
+                                                data-po-file
+                                            >
+                                            <small class="prf-help-text">PDF, JPG, or PNG · maximum 10 MB</small>
+                                        </div>
+                                    </div>
+                                </section>
+                            </div>
+
+                            <aside class="prf-summary-card po-summary-card" aria-label="Approved PO financial snapshot">
+                                <div class="prf-summary-heading">
+                                    <span>Approved snapshot</span>
+                                    <small>Read-only</small>
                                 </div>
 
-                                <?php if($source_quotation_number): ?>
-                                <div class="col-md-12">
-                                    <div class="fs-sm text-muted"><i class="fas fa-link text-primary me-1"></i>Source quotation: <strong class="text-dark"><?php echo htmlspecialchars($source_quotation_number); ?></strong></div>
+                                <div class="po-summary-reference">
+                                    <span>PRF final approval</span>
+                                    <strong><?php echo htmlspecialchars(phase3c_display_datetime($pr['final_approved_at'])); ?></strong>
+                                    <small><?php echo htmlspecialchars((string) $pr['final_approver_name']); ?></small>
                                 </div>
-                                <?php endif; ?>
 
-                                <div class="col-md-12 mt-3">
-                                    <div class="p-3 rounded-custom dashed-upload-box">
-                                        <i class="fas fa-cloud-upload-alt text-primary fs-4 mb-1 opacity-75"></i>
-                                        <label class="form-label-sleek d-block text-dark mb-1">Attach Quotation File <small class="text-muted text-lowercase fw-normal">(Optional)</small></label>
-                                        <input type="file" name="po_document" class="form-control soft-input mx-auto max-w-350" accept=".pdf,.png,.jpg,.jpeg">
+                                <div class="prf-summary-row">
+                                    <span>Client selling amount</span>
+                                    <strong>₱<?php echo number_format((float) $pr['amount'], 2); ?></strong>
+                                </div>
+                                <div class="prf-summary-row">
+                                    <span>Cost of goods</span>
+                                    <strong>₱<?php echo number_format((float) $pr['cost_of_goods_amount'], 2); ?></strong>
+                                </div>
+                                <div class="prf-summary-row">
+                                    <span>Other expense</span>
+                                    <strong>₱<?php echo number_format((float) $pr['other_expense_amount'], 2); ?></strong>
+                                </div>
+                                <div class="prf-summary-row prf-summary-request">
+                                    <span>Funds requested</span>
+                                    <strong>₱<?php echo number_format((float) $pr['requested_fund_amount'], 2); ?></strong>
+                                </div>
+
+                                <div class="prf-profit-panel<?php echo $gross_profit_is_negative ? ' is-negative' : ''; ?>">
+                                    <span>Approved gross profit</span>
+                                    <strong>₱<?php echo number_format((float) $pr['gross_profit_amount'], 2); ?></strong>
+                                    <small><?php echo number_format((float) $pr['gross_margin_percent'], 2); ?>% margin</small>
+                                </div>
+
+                                <div class="po-next-step">
+                                    <i class="fas fa-coins"></i>
+                                    <div>
+                                        <strong>Next: Finance funding</strong>
+                                        <span>No duplicate GM–Finance–Owner approval.</span>
                                     </div>
                                 </div>
-                            </div>
-                        </div>
 
-                        <div class="wizard-step" id="step2">
-                            <div class="d-flex justify-content-between align-items-center mb-3">
-                                <h5 class="fw-bold text-dark m-0">Line Items</h5>
-                                <button type="button" class="btn btn-sm btn-outline-primary fw-bold rounded-custom px-3" onclick="addItemRow()">
-                                    <i class="fas fa-plus me-1"></i> Add Row
+                                <label class="po-confirmation" for="poConfirmApprovedData">
+                                    <input
+                                        type="checkbox"
+                                        id="poConfirmApprovedData"
+                                        data-po-confirm
+                                        required
+                                    >
+                                    <span>I verified the locked PRF, supplier, and Client PO references.</span>
+                                </label>
+
+                                <button type="submit" class="prf-submit-button" data-po-submit>
+                                    <span>Create PO &amp; send to Finance</span>
+                                    <i class="fas fa-arrow-right"></i>
                                 </button>
-                            </div>
-                            
-                            <div id="dynamicWarnings" class="bg-danger bg-opacity-10 rounded-custom px-3 py-2 mb-3 d-none d-flex align-items-center">
-                                <small id="warnQty" class="text-danger fw-bold me-3 d-none"><i class="fas fa-exclamation-circle me-1"></i> Quantity limit exceeded</small>
-                                <small id="warnBudget" class="text-danger fw-bold d-none"><i class="fas fa-exclamation-circle me-1"></i> Over Budget Detected</small>
-                            </div>
-
-                            <div class="table-container">
-                                <table class="table table-glass w-100" id="itemsTable">
-                                    <thead>
-                                        <tr>
-                                            <th class="w-20">Category & Brand <span class="req-star">*</span></th>
-                                            <th style="width: 32%;">Description & Specs <span class="req-star">*</span></th>
-                                            <th style="width: 10%;">Qty <span class="req-star">*</span></th>
-                                            <th style="width: 16%;">Unit Price <span class="req-star">*</span></th>
-                                            <th style="width: 16%;">Line Total</th>
-                                            <th style="width: 6%;" class="text-center">Del</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="itemsBody"></tbody>
-                                </table>
-                            </div>
+                            </aside>
                         </div>
                     </form>
-                </div>
-            </div>
+                <?php endif; ?>
+            <?php endif; ?>
         </div>
-    </div>
-
-    <div class="glass-bar-container">
-        <div class="glass-bar">
-            <div class="d-flex align-items-center gap-2">
-                <div class="bg-primary bg-opacity-10 text-primary rounded-custom d-flex align-items-center justify-content-center d-none d-md-flex box-42">
-                    <i class="fas fa-calculator fs-5"></i>
-                </div>
-                <div class="calc-total-box">
-                    <small class="text-primary text-uppercase fw-bold d-block fs-xs tracking-wider">Calculated Total</small>
-                    <h4 class="fw-bold text-primary m-0 tracking-tight text-nowrap" id="floatingGrandTotal">₱ 0.00</h4>
-                </div>
-            </div>
-            
-            <div id="btn-group-step1" class="d-flex gap-2 ms-auto align-items-center">
-                <button type="button" class="btn btn-primary fw-bold rounded-custom shadow-sm btn-glass-action" onclick="goToStep('step2')">
-                    <span class="d-none d-sm-inline">Proceed to Items</span>
-                    <span class="d-inline d-sm-none">Next</span> 
-                    <i class="fas fa-arrow-right ms-1"></i>
-                </button>
-            </div>
-            <div id="btn-group-step2" class="d-flex gap-2 ms-auto align-items-center d-none">
-                <button type="button" class="btn btn-light fw-bold rounded-custom border btn-glass-action" onclick="goToStep('step1')">
-                    <i class="fas fa-arrow-left me-1"></i> 
-                    <span class="d-none d-sm-inline">Back</span>
-                </button>
-                <button type="button" class="btn btn-success fw-bold rounded-custom shadow-sm btn-glass-action" onclick="submitPOForm();">
-                    <span class="d-none d-sm-inline">Submit Order</span>
-                    <span class="d-inline d-sm-none">Submit</span> 
-                    <i class="fas fa-check-circle ms-1"></i>
-                </button>
-            </div>
-        </div>
-    </div>
+    </main>
 
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    
-    <script>
-        const Toast = Swal.mixin({ toast: true, position: 'bottom-end', showConfirmButton: false, timer: 2800, timerProgressBar: true, customClass: { popup: 'form-validation-toast shadow-sm border' } });
-
-        <?php if(isset($_GET['success'])): ?>
-            Toast.fire({ icon: 'success', title: '<?php echo addslashes(htmlspecialchars($_GET['success'])); ?>' });
-            window.history.replaceState(null, null, window.location.pathname<?php echo isset($_GET['pr_id']) ? " + '?pr_id=" . htmlspecialchars($_GET['pr_id']) . "'" : ""; ?>);
-        <?php endif; ?>
-
-        <?php if(isset($_GET['error'])): ?>
-            Toast.fire({ icon: 'error', title: '<?php echo addslashes(htmlspecialchars($_GET['error'])); ?>' });
-            window.history.replaceState(null, null, window.location.pathname<?php echo isset($_GET['pr_id']) ? " + '?pr_id=" . htmlspecialchars($_GET['pr_id']) . "'" : ""; ?>);
-            // Revert back to step 1 if there's a backend error
-            document.addEventListener('DOMContentLoaded', () => { goToStep('step1'); });
-        <?php endif; ?>
-
-        function hasValidRequiredValue(field) {
-            const value = typeof field.value === 'string' ? field.value.trim() : field.value;
-            return value !== '' && field.checkValidity();
-        }
-
-        function clearValidPOFieldState(field) {
-            if (!hasValidRequiredValue(field)) return;
-            const originalQty = parseInt(field.getAttribute('data-orig-qty')) || 0;
-            const isOverOriginalQty = field.classList.contains('qty-input') && originalQty > 0 && parseInt(field.value) > originalQty;
-            if (!isOverOriginalQty) field.classList.remove('is-invalid');
-        }
-
-        function clearPOFieldErrorOnEntry(event) {
-            const field = event.target;
-            if (!field.matches('[required]')) return;
-
-            const value = typeof field.value === 'string' ? field.value.trim() : field.value;
-            if (value === '') return;
-
-            const originalQty = parseInt(field.getAttribute('data-orig-qty')) || 0;
-            const isOverOriginalQty = field.classList.contains('qty-input') && originalQty > 0 && parseInt(field.value) > originalQty;
-            if (!isOverOriginalQty) field.classList.remove('is-invalid');
-        }
-
-        function showInvalidPOField(field, message) {
-            field.classList.add('is-invalid');
-            if (field.closest('#step1') && !document.getElementById('step1').classList.contains('active-step')) {
-                goToStep('step1');
-            }
-            Toast.fire({ icon: 'error', title: message });
-            window.setTimeout(() => {
-                field.focus({ preventScroll: true });
-                field.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                field.reportValidity();
-            }, 100);
-        }
-
-        function validatePOForm() {
-            const form = document.getElementById('poForm');
-            const rows = form.querySelectorAll('#itemsBody tr');
-
-            if (rows.length === 0) {
-                Toast.fire({ icon: 'error', title: 'Add at least one item before submitting the Purchase Order.' });
-                return false;
-            }
-
-            const requiredFields = Array.from(form.querySelectorAll('[required]'));
-            requiredFields.forEach(clearValidPOFieldState);
-            const invalidField = requiredFields.find(field => !hasValidRequiredValue(field));
-            if (invalidField) {
-                showInvalidPOField(invalidField, 'Please complete every required field before submitting.');
-                return false;
-            }
-
-            if ((parseFloat(document.getElementById('hiddenGrandTotal').value) || 0) <= 0) {
-                Toast.fire({ icon: 'error', title: 'The Purchase Order total must be greater than zero.' });
-                return false;
-            }
-
-            return true;
-        }
-
-        function submitPOForm() {
-            const form = document.getElementById('poForm');
-            if (validatePOForm()) {
-                form.requestSubmit();
-            }
-        }
-
-        function goToStep(step) {
-            if(step === 'step2') {
-                const stepOneFields = Array.from(document.querySelectorAll('#step1 [required]'));
-                stepOneFields.forEach(clearValidPOFieldState);
-                const firstInvalid = stepOneFields.find(field => !hasValidRequiredValue(field));
-                if (firstInvalid) {
-                    showInvalidPOField(firstInvalid, 'Please complete all required client information.');
-                    return;
-                }
-                $('#step1').removeClass('active-step'); $('#step2').addClass('active-step');
-                
-                $('#nav-step1').removeClass('active').addClass('completed');
-                $('#nav-step1 .step-icon').html('<i class="fas fa-check"></i>');
-                $('#nav-step2').addClass('active');
-                $('#btn-group-step1').addClass('d-none');
-                $('#btn-group-step2').removeClass('d-none');
-            } else {
-                $('#step2').removeClass('active-step'); $('#step1').addClass('active-step');
-                
-                $('#nav-step2').removeClass('active');
-                $('#nav-step1').removeClass('completed').addClass('active');
-                $('#nav-step1 .step-icon').html('1');
-                $('#btn-group-step2').addClass('d-none');
-                $('#btn-group-step1').removeClass('d-none');
-            }
-        }
-
-        const dbCategories = <?php echo json_encode($categories, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
-        const dbBrands = <?php echo json_encode($brands, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
-        let itemIndex = 0;
-        const prefilledItems = <?php echo $pr_items_json; ?>; 
-        const originalPrAmount = <?php echo json_encode($pr_amount_val, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
-        const draftKey = 'po_draft_' + <?php echo json_encode($pr_id_val ? $pr_id_val : 'new', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
-        
-        function addItemRow(data = null) {
-            const tbody = document.getElementById('itemsBody');
-            const row = tbody.insertRow();
-            
-            const cat = data ? data.category : '';
-            const brand = data ? data.brand : 'Generic/Other';
-            const name = data ? data.name : '';
-            const specs = data ? data.specs : '';
-            const qty = data ? data.qty : 1;
-            const price = data ? parseFloat(data.price).toFixed(2) : '';
-            const origQtyAttr = (data && data.origQty) ? `data-orig-qty="${data.origQty}"` : `data-orig-qty="0"`;
-
-            let catOptions = `<option value="" disabled ${!cat ? 'selected' : ''}>Category...</option>`;
-            dbCategories.forEach(c => { catOptions += `<option value="${c.code}" ${cat == c.code ? 'selected' : ''}>${parseInt(c.code)} - ${c.name}</option>`; });
-            
-            let brandOptions = `<option value="Generic/Other" ${brand === 'Generic/Other' ? 'selected' : ''}>Select Brand</option>`;
-            dbBrands.forEach(b => { if(b !== 'Generic/Other') { brandOptions += `<option value="${b}" ${brand === b ? 'selected' : ''}>${b}</option>`; } });
-            
-            row.innerHTML = `
-                <td data-label="Category & Brand">
-                    <select name="items[${itemIndex}][category]" class="form-select soft-input mb-2" required>${catOptions}</select>
-                    <select name="items[${itemIndex}][brand]" class="form-select soft-input text-muted brand-select">${brandOptions}</select>
-                </td>
-                <td data-label="Description & Specs">
-                    <input type="text" name="items[${itemIndex}][name]" class="form-control soft-input mb-2 fw-bold" placeholder="Item Name" value="${name}" required>
-                    <textarea name="items[${itemIndex}][specs]" class="form-control soft-input spec-textarea" rows="1" placeholder="Specifications..." oninput="this.style.height = 'auto'; this.style.height = this.scrollHeight + 'px';">${specs}</textarea>
-                </td>
-                <td data-label="Quantity">
-                    <input type="number" name="items[${itemIndex}][qty]" class="form-control soft-input text-center qty-input" value="${qty}" min="1" step="1" ${origQtyAttr} oninput="this.value = this.value.replace(/[^0-9]/g, ''); calculateRow(this);" required>
-                </td>
-                <td data-label="Unit Price">
-                    <div class="soft-input-group w-100">
-                        <span class="input-group-text">₱</span>
-                        <input type="number" step="0.01" min="0.01" name="items[${itemIndex}][price]" class="form-control soft-input price-input" placeholder="0.00" value="${price}" oninput="calculateRow(this)" onkeypress="return isNumberKey(event)" required>
-                    </div>
-                </td>
-                <td data-label="Line Total">
-                    <input type="text" class="form-control bg-transparent text-lg-end fw-bold total-display border-0 px-0 fs-6 text-primary" value="0.00" readonly>
-                    <input type="hidden" class="total-input" value="0">
-                </td>
-                <td data-label="Action" class="align-middle border-0">
-                    <div class="d-flex align-items-center justify-content-lg-center h-100 mt-2 mt-lg-0">
-                        <button type="button" class="btn text-danger bg-danger bg-opacity-10 border-0 rounded-custom d-inline-flex align-items-center justify-content-center w-100 max-w-120 h-36 p-0" onclick="removeRow(this)" title="Delete Row"><i class="fas fa-trash-alt m-0 fs-sm"></i> <span class="d-lg-none ms-2 fw-bold fs-sm">Remove Item</span></button>
-                    </div>
-                </td>
-            `;
-            
-            if (data && data.brand) {
-                const brandSelect = row.querySelector('.brand-select');
-                if (brandSelect) {
-                    brandSelect.value = data.brand;
-                    if (!brandSelect.value) { brandSelect.value = 'Generic/Other'; }
-                }
-            }
-
-            const specTextArea = row.querySelector('.spec-textarea');
-            if(specTextArea && specTextArea.value) {
-                setTimeout(() => {
-                    specTextArea.style.height = 'auto';
-                    specTextArea.style.height = specTextArea.scrollHeight + 'px';
-                }, 10);
-            }
-
-            const newPriceInput = row.querySelector('.price-input');
-            calculateRow(newPriceInput);
-
-            itemIndex++;
-        }
-        
-        function isNumberKey(evt) {
-            var charCode = (evt.which) ? evt.which : evt.keyCode;
-            if (charCode != 46 && charCode > 31 && (charCode < 48 || charCode > 57)) return false;
-            return true;
-        }
-        
-        function calculateRow(input) {
-            const row = input.closest('tr');
-            const qty = parseFloat(row.querySelector('.qty-input').value) || 0;
-            const price = parseFloat(row.querySelector('.price-input').value) || 0;
-            const total = qty * price;
-            
-            row.querySelector('.total-display').value = total.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-            row.querySelector('.total-input').value = total;
-            calculateGrandTotal();
-        }
-        
-        function calculateGrandTotal() {
-            let grandTotal = 0; let qtyExceeded = false;
-            document.querySelectorAll('.total-input').forEach(input => { grandTotal += parseFloat(input.value) || 0; });
-            document.querySelectorAll('.qty-input').forEach(input => {
-                const origQty = parseInt(input.getAttribute('data-orig-qty')) || 0;
-                const currentQty = parseInt(input.value) || 0;
-                if (origQty > 0 && currentQty > origQty) { qtyExceeded = true; }
-            });
-            
-            const formattedTotal = '₱ ' + grandTotal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-            document.getElementById('floatingGrandTotal').innerText = formattedTotal;
-            document.getElementById('mobileGrandTotal').innerText = formattedTotal;
-            document.getElementById('hiddenGrandTotal').value = grandTotal;
-            
-            checkWarnings(grandTotal, qtyExceeded);
-        }
-        
-        function checkWarnings(grandTotal, qtyExceeded) {
-            const warningBox = document.getElementById('dynamicWarnings');
-            const warnQty = document.getElementById('warnQty');
-            const warnBudget = document.getElementById('warnBudget');
-            let showWarnings = false;
-
-            document.querySelectorAll('.qty-input').forEach(input => {
-                const origQty = parseInt(input.getAttribute('data-orig-qty')) || 0;
-                const currentQty = parseInt(input.value) || 0;
-                if (origQty > 0 && currentQty > origQty) { input.classList.add('is-invalid'); } 
-                else { input.classList.remove('is-invalid'); }
-            });
-
-            if (qtyExceeded) { warnQty.classList.remove('d-none'); showWarnings = true; } else { warnQty.classList.add('d-none'); }
-            if (originalPrAmount > 0 && grandTotal > originalPrAmount) { warnBudget.classList.remove('d-none'); showWarnings = true; } else { warnBudget.classList.add('d-none'); }
-
-            if (showWarnings) { warningBox.classList.remove('d-none'); } else { warningBox.classList.add('d-none'); }
-        }
-        
-        function removeRow(btn) { btn.closest('tr').remove(); calculateGrandTotal(); saveDraft(); }
-
-        function saveDraft() {
-            let items = [];
-            document.querySelectorAll('#itemsBody tr').forEach((row) => {
-                let cat = row.querySelector('select[name$="[category]"]').value;
-                let brand = row.querySelector('select[name$="[brand]"]').value;
-                let name = row.querySelector('input[name$="[name]"]').value;
-                let specs = row.querySelector('textarea[name$="[specs]"]').value;
-                let qty = row.querySelector('input[name$="[qty]"]').value;
-                let price = row.querySelector('input[name$="[price]"]').value;
-                let origQty = row.querySelector('input[name$="[qty]"]').getAttribute('data-orig-qty');
-                items.push({ category: cat, brand: brand, name: name, specs: specs, qty: qty, price: price, origQty: origQty });
-            });
-            let draftData = { client_name: document.getElementById('clientName').value, items: items };
-            localStorage.setItem(draftKey, JSON.stringify(draftData));
-        }
-
-        function loadDraft() {
-            let draft = localStorage.getItem(draftKey);
-            if (draft) {
-                try {
-                    draft = JSON.parse(draft);
-                    if(draft.client_name) document.getElementById('clientName').value = draft.client_name;
-                    if (draft.items && draft.items.length > 0) {
-                        draft.items.forEach(item => addItemRow(item));
-                        return true;
-                    }
-                } catch(e) {}
-            }
-            return false;
-        }
-
-        const poFormElement = document.getElementById('poForm');
-        poFormElement.addEventListener('input', function(event) {
-            clearPOFieldErrorOnEntry(event);
-            saveDraft();
-        });
-        poFormElement.addEventListener('change', function(event) {
-            clearPOFieldErrorOnEntry(event);
-            saveDraft();
-        });
-        poFormElement.addEventListener('submit', function(event) {
-            if (!validatePOForm()) {
-                event.preventDefault();
-                return;
-            }
-            localStorage.removeItem(draftKey);
-        });
-        
-        window.onload = function() {
-            if (!loadDraft()) {
-                if (prefilledItems.length > 0) { prefilledItems.forEach(item => addItemRow(item)); } 
-                else { addItemRow(); }
-            }
-        };
-    </script>
+    <script src="assets/js/po-conversion.js?v=<?php echo filemtime(__DIR__ . '/assets/js/po-conversion.js'); ?>"></script>
 </body>
 </html>

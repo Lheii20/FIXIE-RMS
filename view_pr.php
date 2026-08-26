@@ -1,345 +1,590 @@
-<?php 
-require 'config/db_connect.php'; 
+<?php
+require 'config/db_connect.php';
 require 'config/functions.php';
+require_once 'config/workflow_access.php';
 
-if(!isset($_SESSION['user_id'])) {
-    header("Location: index.php");
+drms_require_workflow_roles([
+    'Sales Staff',
+    'Procurement',
+    'GM',
+    'President',
+    'Finance',
+]);
+
+$pr_id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
+
+if ($pr_id < 1) {
+    header('Location: pr_list.php?error=' . rawurlencode('Invalid Purchase Request.'));
     exit();
 }
 
-$pr_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
+$pr_stmt = $conn->prepare(
+    "SELECT
+        p.*,
+        creator.full_name AS creator_name,
+        creator.role AS creator_role,
+        final_approver.full_name AS final_approver_name,
+        q.quotation_number,
+        q.status AS quotation_status,
+        client_po.actual_client_po_number,
+        client_po.client_po_date,
+        client_po.final_approval_date AS client_final_approval_date,
+        client_po.proof_original_name AS client_po_file_name,
+        client_po.proof_file_path AS client_po_file_path
+     FROM purchase_requests p
+     LEFT JOIN users creator
+       ON creator.user_id = p.created_by
+     LEFT JOIN users final_approver
+       ON final_approver.user_id = p.final_approved_by
+     LEFT JOIN quotations q
+       ON q.quotation_id = p.quotation_id
+     LEFT JOIN client_approval_records client_po
+       ON client_po.approval_record_id = p.client_approval_record_id
+     WHERE p.pr_id = ?
+     LIMIT 1"
+);
+$pr_stmt->bind_param('i', $pr_id);
+$pr_stmt->execute();
+$pr = $pr_stmt->get_result()->fetch_assoc();
 
-$stmt = $conn->query("SELECT p.*, u.full_name, u.role FROM purchase_requests p LEFT JOIN users u ON p.created_by = u.user_id WHERE p.pr_id = $pr_id");
-if($stmt->num_rows == 0) {
-    header("Location: pr_list.php?error=PR Not Found");
+if (!$pr) {
+    header('Location: pr_list.php?error=' . rawurlencode('Purchase Request not found.'));
     exit();
 }
-$pr = $stmt->fetch_assoc();
 
-$items_stmt = $conn->query("SELECT * FROM pr_items WHERE pr_id = $pr_id");
-
-$source_quotation = null;
-if (!empty($pr['quotation_id'])) {
-    $source_stmt = $conn->prepare("SELECT quotation_id, quotation_number, status FROM quotations WHERE quotation_id = ?");
-    $source_stmt->bind_param("i", $pr['quotation_id']);
-    $source_stmt->execute();
-    $source_quotation = $source_stmt->get_result()->fetch_assoc();
+$items_stmt = $conn->prepare(
+    "SELECT *
+     FROM pr_items
+     WHERE pr_id = ?
+     ORDER BY item_id"
+);
+$items_stmt->bind_param('i', $pr_id);
+$items_stmt->execute();
+$items_result = $items_stmt->get_result();
+$items = [];
+while ($item = $items_result->fetch_assoc()) {
+    $items[] = $item;
 }
 
-$role = $_SESSION['role'];
-$can_approve = in_array($role, ['GM', 'President']) && $pr['status'] == 'Pending';
-$can_convert = ($role == 'Procurement' && $pr['status'] == 'Approved');
+$is_sequential = (int) ($pr['workflow_version'] ?? 1) === 2;
+$supplier = null;
+$approval_records = [];
+$current_approval = null;
 
-// Safely fetch rejection reason dynamically
-$pr_remarks = isset($pr['remarks']) ? $pr['remarks'] : '';
-$rejection_reason = "";
+if ($is_sequential) {
+    $supplier_stmt = $conn->prepare(
+        "SELECT *
+         FROM pr_supplier_details
+         WHERE pr_id = ?
+           AND record_status = 'Active'
+         LIMIT 1"
+    );
+    $supplier_stmt->bind_param('i', $pr_id);
+    $supplier_stmt->execute();
+    $supplier = $supplier_stmt->get_result()->fetch_assoc();
 
-if ($pr['status'] == 'Rejected') {
-    if (!empty($pr_remarks)) {
-        $rejection_reason = $pr_remarks;
-    } else {
-        // Fallback: Check if there is a pr_history table and fetch the latest rejection remarks
-        $check_hist = $conn->query("SHOW TABLES LIKE 'pr_history'");
-        if ($check_hist && $check_hist->num_rows > 0) {
-            $rej_stmt = $conn->prepare("SELECT remarks FROM pr_history WHERE pr_id = ? AND status_to LIKE '%Rejected%' ORDER BY timestamp DESC LIMIT 1");
-            if($rej_stmt) {
-                $rej_stmt->bind_param("i", $pr_id);
-                $rej_stmt->execute();
-                $rej_res = $rej_stmt->get_result();
-                if ($r = $rej_res->fetch_assoc()) {
-                    $rejection_reason = $r['remarks'];
-                }
-            }
+    $approval_stmt = $conn->prepare(
+        "SELECT
+            approval.*,
+            actor.full_name AS acted_by_name
+         FROM pr_approval_records approval
+         LEFT JOIN users actor
+           ON actor.user_id = approval.acted_by
+         WHERE approval.pr_id = ?
+           AND approval.approval_cycle = (
+               SELECT MAX(cycle_record.approval_cycle)
+               FROM pr_approval_records cycle_record
+               WHERE cycle_record.pr_id = ?
+           )
+         ORDER BY approval.stage_sequence"
+    );
+    $approval_stmt->bind_param('ii', $pr_id, $pr_id);
+    $approval_stmt->execute();
+    $approval_result = $approval_stmt->get_result();
+
+    while ($approval = $approval_result->fetch_assoc()) {
+        $approval_records[] = $approval;
+        if (
+            $approval['decision'] === 'Pending' &&
+            $approval['approval_stage'] === $pr['current_approval_stage']
+        ) {
+            $current_approval = $approval;
         }
     }
+}
+
+$role = (string) $_SESSION['role'];
+$can_decide_sequential = $is_sequential &&
+    $pr['status'] === 'Pending' &&
+    $current_approval &&
+    $role === $current_approval['required_role'];
+$can_decide_legacy = !$is_sequential &&
+    $pr['status'] === 'Pending' &&
+    in_array($role, ['GM', 'President'], true);
+$can_decide = $can_decide_sequential || $can_decide_legacy;
+$can_convert = $role === 'Procurement' && $pr['status'] === 'Approved';
+
+$approval_action = $is_sequential ? 'approve_pr_v2' : 'approve_pr';
+$rejection_action = $is_sequential ? 'reject_pr_v2' : 'reject_pr';
+$decision_stage = $is_sequential && $current_approval
+    ? $current_approval['approval_stage']
+    : 'Management Approval';
+$approval_button_label = $is_sequential && $decision_stage === 'Owner Approval'
+    ? 'Final approve'
+    : 'Approve stage';
+
+$status_label = str_replace('_', ' ', (string) $pr['status']);
+$status_class = 'is-pending';
+$status_icon = 'fa-clock';
+
+if ($pr['status'] === 'Approved') {
+    $status_label = $is_sequential ? 'Officially Approved' : 'Approved';
+    $status_class = 'is-approved';
+    $status_icon = 'fa-check-circle';
+} elseif ($pr['status'] === 'Rejected') {
+    $status_label = 'Rejected';
+    $status_class = 'is-rejected';
+    $status_icon = 'fa-times-circle';
+} elseif ($pr['status'] === 'Converted_to_PO') {
+    $status_label = 'Converted to PO';
+    $status_class = 'is-converted';
+    $status_icon = 'fa-file-invoice';
+} elseif ($is_sequential) {
+    $status_label = (string) $pr['current_approval_stage'];
+}
+
+$client_po_link = !empty($pr['client_po_file_path'])
+    ? 'download.php?type=client_approval&record_id=' .
+        (int) $pr['client_approval_record_id']
+    : '';
+$supplier_quote_link = $supplier && !empty($supplier['supplier_quote_file_path'])
+    ? 'download.php?type=supplier_quote&record_id=' .
+        (int) $supplier['supplier_detail_id']
+    : '';
+
+$category_map = [
+    '01' => 'Hardware',
+    '02' => 'CCTVs',
+    '03' => 'Peripherals',
+    '04' => 'Office Supplies',
+    '05' => 'WIFI / LAN',
+    '06' => 'Printers',
+];
+
+function prf_review_date(?string $value, string $format = 'M d, Y'): string
+{
+    if (!$value) {
+        return '—';
+    }
+
+    $timestamp = strtotime($value);
+    return $timestamp ? date($format, $timestamp) : '—';
+}
+
+function prf_review_money($value): string
+{
+    return '₱' . number_format((float) $value, 2);
 }
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>View PR <?php echo htmlspecialchars($pr['pr_number']); ?> - Fixie DRMS</title>
+    <title><?php echo htmlspecialchars($pr['pr_number']); ?> - Purchase Request</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
     <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
-    <!-- SweetAlert2 CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    
+    <link href="assets/css/prf-review.css?v=<?php echo filemtime(__DIR__ . '/assets/css/prf-review.css'); ?>" rel="stylesheet">
 </head>
-<body class="page-view-pr">
-
+<body class="page-view-pr prf-review-page">
     <?php include 'sidebar.php'; ?>
 
-    <div class="main-content fade-in">
-        <div class="container-fluid view-doc-shell" style="max-width: 1200px;">
-            
-            <div class="view-doc-header view-pr-header d-flex justify-content-between align-items-center mb-4">
-                <div class="view-doc-title-group d-flex align-items-center">
-                    <a href="pr_list.php" class="view-doc-back btn btn-light border me-3 shadow-sm" style="border-radius: 10px;" aria-label="Back to purchase requests"><i class="fas fa-arrow-left"></i></a>
-                    <div class="view-doc-title">
-                        <h3 class="fw-bold mb-0 text-dark" style="letter-spacing: -0.5px;">Purchase Request Details</h3>
-                        <p class="text-muted mb-0" style="font-size: 0.85rem;">Review the requested items before approval.</p>
-                    </div>
-                </div>
-                <div class="view-doc-header-actions d-flex align-items-center gap-2">
-                    <?php if($pr['status'] == 'Pending'): ?>
-                        <span class="view-doc-status badge bg-warning text-dark border border-warning px-3 py-2 shadow-sm" style="font-size: 0.8rem;"><i class="fas fa-clock me-1"></i> Pending Approval</span>
-                    <?php elseif($pr['status'] == 'Approved'): ?>
-                        <span class="view-doc-status badge bg-success bg-opacity-10 text-success border border-success px-3 py-2 shadow-sm" style="font-size: 0.8rem;"><i class="fas fa-check-circle me-1"></i> Approved</span>
-                    <?php elseif($pr['status'] == 'Rejected'): ?>
-                        <span class="view-doc-status badge bg-danger bg-opacity-10 text-danger border border-danger px-3 py-2 shadow-sm" style="font-size: 0.8rem;"><i class="fas fa-times-circle me-1"></i> Rejected</span>
-                    <?php elseif($pr['status'] == 'Converted_to_PO'): ?>
-                        <span class="view-doc-status badge bg-primary bg-opacity-10 text-primary border border-primary px-3 py-2 shadow-sm" style="font-size: 0.8rem;"><i class="fas fa-file-invoice me-1"></i> Converted to PO</span>
-                    <?php endif; ?>
+    <main class="main-content fade-in">
+        <div class="container-fluid prf-review-shell">
+            <header class="prf-review-header">
+                <a href="pr_list.php" class="prf-review-back" aria-label="Back to purchase requests">
+                    <i class="fas fa-arrow-left"></i>
+                </a>
 
-                    <?php if($can_convert): ?>
-                        <a href="create_po.php?pr_id=<?php echo $pr_id; ?>" class="view-doc-primary-action btn btn-primary shadow-sm fw-bold px-3 ms-2" style="border-radius: 8px; font-size: 0.85rem;" aria-label="Convert to purchase order">
-                            <i class="fas fa-plus-circle me-1"></i><span>Convert to PO</span>
+                <div class="prf-review-heading">
+                    <span class="prf-review-eyebrow">Purchase request</span>
+                    <h2><?php echo htmlspecialchars($pr['pr_number']); ?></h2>
+                    <p><?php echo htmlspecialchars($pr['client_name']); ?></p>
+                </div>
+
+                <div class="prf-review-header-actions">
+                    <?php if ($is_sequential): ?>
+                        <span class="prf-review-version"><i class="fas fa-route"></i> Sequential PRF</span>
+                    <?php else: ?>
+                        <span class="prf-review-version is-legacy"><i class="fas fa-history"></i> Legacy PR</span>
+                    <?php endif; ?>
+                    <span class="prf-review-status <?php echo $status_class; ?>">
+                        <i class="fas <?php echo $status_icon; ?>"></i>
+                        <?php echo htmlspecialchars($status_label); ?>
+                    </span>
+                </div>
+            </header>
+
+            <?php if (isset($_GET['success']) && trim((string) $_GET['success']) !== ''): ?>
+                <div class="prf-review-alert is-success" data-prf-review-alert role="status">
+                    <i class="fas fa-check-circle"></i>
+                    <span><?php echo htmlspecialchars((string) $_GET['success']); ?></span>
+                    <button type="button" data-dismiss-prf-alert aria-label="Dismiss"><i class="fas fa-times"></i></button>
+                </div>
+            <?php endif; ?>
+
+            <?php if (isset($_GET['error']) && trim((string) $_GET['error']) !== ''): ?>
+                <div class="prf-review-alert is-error" data-prf-review-alert role="alert">
+                    <i class="fas fa-exclamation-circle"></i>
+                    <span><?php echo htmlspecialchars((string) $_GET['error']); ?></span>
+                    <button type="button" data-dismiss-prf-alert aria-label="Dismiss"><i class="fas fa-times"></i></button>
+                </div>
+            <?php endif; ?>
+
+            <section class="prf-review-source-card">
+                <div class="prf-review-source-item is-primary">
+                    <span>Client</span>
+                    <strong><?php echo htmlspecialchars($pr['client_name']); ?></strong>
+                </div>
+                <div class="prf-review-source-item">
+                    <span>Source quotation</span>
+                    <?php if (!empty($pr['quotation_number'])): ?>
+                        <a href="view_quotation.php?id=<?php echo (int) $pr['quotation_id']; ?>">
+                            <?php echo htmlspecialchars($pr['quotation_number']); ?>
+                        </a>
+                    <?php else: ?>
+                        <strong>—</strong>
+                    <?php endif; ?>
+                </div>
+                <div class="prf-review-source-item">
+                    <span>Official Client PO</span>
+                    <strong><?php echo htmlspecialchars($pr['actual_client_po_number'] ?: 'Legacy reference'); ?></strong>
+                </div>
+                <div class="prf-review-source-item">
+                    <span>Submitted by</span>
+                    <strong><?php echo htmlspecialchars($pr['creator_name'] ?: 'Unknown user'); ?></strong>
+                    <small><?php echo htmlspecialchars($pr['creator_role'] ?: '—'); ?></small>
+                </div>
+                <div class="prf-review-source-item">
+                    <span>Date submitted</span>
+                    <strong><?php echo prf_review_date($pr['submitted_for_approval_at'] ?: $pr['date_created'], 'M d, Y · h:i A'); ?></strong>
+                </div>
+                <div class="prf-review-source-documents">
+                    <?php if ($client_po_link !== ''): ?>
+                        <a href="<?php echo htmlspecialchars($client_po_link); ?>" target="_blank" rel="noopener">
+                            <i class="fas fa-paperclip"></i> Client PO
+                        </a>
+                    <?php endif; ?>
+                    <?php if ($supplier_quote_link !== ''): ?>
+                        <a href="<?php echo htmlspecialchars($supplier_quote_link); ?>" target="_blank" rel="noopener">
+                            <i class="fas fa-file-alt"></i> Supplier quote
                         </a>
                     <?php endif; ?>
                 </div>
-            </div>
+            </section>
 
-            <div class="row g-4 mb-4 view-summary-grid">
-                <div class="col-md-8">
-                    <div class="card shadow-sm border-0 h-100 view-info-card" style="border-radius: 16px;">
-                        <div class="card-body p-4">
-                            <div class="d-flex align-items-center mb-3 pb-2 border-bottom border-light">
-                                <div class="bg-light text-primary rounded-circle d-flex align-items-center justify-content-center me-3" style="width: 40px; height: 40px;">
-                                    <i class="fas fa-info-circle fs-5"></i>
-                                </div>
-                                <h6 class="text-uppercase text-dark fw-bold m-0" style="letter-spacing: 0.5px;">General Information</h6>
-                            </div>
-                            
-                            <div class="row g-3">
-                                <div class="col-sm-6">
-                                    <small class="text-muted d-block mb-1" style="font-size: 0.75rem;">PR Number</small>
-                                    <span class="fw-bold text-primary fs-6">#<?php echo htmlspecialchars($pr['pr_number']); ?></span>
-                                </div>
-                                <div class="col-sm-6">
-                                    <small class="text-muted d-block mb-1" style="font-size: 0.75rem;">Client Name</small>
-                                    <span class="fw-bold text-dark fs-6"><?php echo htmlspecialchars($pr['client_name']); ?></span>
-                                </div>
-                                <?php if($source_quotation): ?>
-                                <div class="col-sm-6">
-                                    <small class="text-muted d-block mb-1" style="font-size: 0.75rem;">Source Quotation</small>
-                                    <a class="fw-bold text-primary text-decoration-none" href="view_quotation.php?id=<?php echo (int)$source_quotation['quotation_id']; ?>">
-                                        <i class="fas fa-link me-1"></i><?php echo htmlspecialchars($source_quotation['quotation_number']); ?>
-                                    </a>
-                                </div>
-                                <?php endif; ?>
-                                <div class="col-sm-6">
-                                    <small class="text-muted d-block mb-1" style="font-size: 0.75rem;">Requested By</small>
-                                    <span class="fw-medium text-dark" style="font-size: 0.9rem;"><i class="fas fa-user-circle text-muted me-1"></i> <?php echo htmlspecialchars($pr['full_name']); ?> <span class="text-muted small">(<?php echo htmlspecialchars($pr['role']); ?>)</span></span>
-                                </div>
-                                <div class="col-sm-6">
-                                    <small class="text-muted d-block mb-1" style="font-size: 0.75rem;">Date Created</small>
-                                    <span class="fw-medium text-dark" style="font-size: 0.9rem;"><i class="far fa-calendar-alt text-muted me-1"></i> <?php echo date('F d, Y h:i A', strtotime($pr['date_created'])); ?></span>
-                                </div>
-                            </div>
-
-                            <!-- Sleek Inline Rejection Reason -->
-                            <?php if($pr['status'] == 'Rejected' && !empty($rejection_reason)): ?>
-                            <div class="reject-callout">
-                                <div class="text-danger fw-bold small text-uppercase mb-1" style="letter-spacing: 0.5px;"><i class="fas fa-exclamation-triangle me-1"></i> Reason for Rejection</div>
-                                <div class="text-dark fw-medium" style="font-size: 0.9rem;">&ldquo;<?php echo nl2br(htmlspecialchars($rejection_reason)); ?>&rdquo;</div>
-                            </div>
-                            <?php endif; ?>
-
+            <?php if ($is_sequential): ?>
+                <section class="prf-review-route-card" aria-label="PRF approval progress">
+                    <div class="prf-review-section-title">
+                        <div>
+                            <span>Approval progress</span>
+                            <h3>Sequential review route</h3>
                         </div>
+                        <small>Stages cannot be skipped</small>
                     </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card shadow-sm border-0 h-100 view-total-card" style="border-radius: 16px; background: linear-gradient(135deg, #eff6ff, #dbeafe);">
-                        <div class="card-body p-4 d-flex flex-column justify-content-center text-center">
-                            <div class="bg-white text-primary rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3 shadow-sm" style="width: 48px; height: 48px;">
-                                <i class="fas fa-coins fs-4"></i>
-                            </div>
-                            <h6 class="text-uppercase text-primary fw-bold small mb-2" style="letter-spacing: 0.5px;">Grand Total Estimate</h6>
-                            <h2 class="fw-bold text-primary mb-0" style="letter-spacing: -0.5px;">₱ <?php echo number_format($pr['amount'], 2); ?></h2>
-                        </div>
-                    </div>
-                </div>
-            </div>
 
-            <div class="card shadow-sm border-0 mb-4 view-items-card" style="border-radius: 16px; overflow: hidden;">
-                <div class="card-header bg-white py-3 border-bottom border-light">
-                    <h6 class="m-0 fw-bold text-dark"><i class="fas fa-list-ul me-2 text-primary"></i> Requested Items List</h6>
-                </div>
-                <div class="card-body p-0">
-                    <div class="table-responsive">
-                        <table class="table table-hover align-middle mb-0 view-items-table">
-                            <thead class="bg-light text-secondary" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">
-                                <tr>
-                                    <th class="ps-4 py-3 border-bottom-0">Item & Specifications</th>
-                                    <th class="py-3 border-bottom-0">Category & Brand</th>
-                                    <th class="text-center py-3 border-bottom-0">Qty</th>
-                                    <th class="text-end py-3 border-bottom-0">Unit Price</th>
-                                    <th class="text-end pe-4 py-3 border-bottom-0">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php while($item = $items_stmt->fetch_assoc()): ?>
-                                <tr>
-                                    <td class="ps-4 py-3">
-                                        <div class="fw-bold text-dark" style="font-size: 0.95rem;"><?php echo htmlspecialchars($item['item_name']); ?></div>
-                                        <?php if(!empty($item['specifications'])): ?>
-                                            <div class="text-muted fst-italic mt-1" style="font-size: 0.8rem;"><?php echo nl2br(htmlspecialchars($item['specifications'])); ?></div>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <span class="badge bg-light text-dark border me-1 px-2 py-1"><?php echo htmlspecialchars($item['category']); ?></span>
-                                        <?php if(!empty($item['brand'])): ?>
-                                            <span class="badge bg-light text-secondary border px-2 py-1"><?php echo htmlspecialchars($item['brand']); ?></span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="text-center fw-bold text-dark"><?php echo $item['quantity']; ?></td>
-                                    <td class="text-end text-muted fw-medium" style="font-family: monospace;">₱<?php echo number_format($item['unit_price'], 2); ?></td>
-                                    <td class="text-end pe-4 fw-bold text-primary" style="font-family: monospace;">₱<?php echo number_format($item['total_price'], 2); ?></td>
-                                </tr>
-                                <?php endwhile; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
+                    <div class="prf-review-route">
+                        <?php foreach ($approval_records as $approval): ?>
+                            <?php
+                            $step_class = 'is-waiting';
+                            $step_icon = (string) $approval['stage_sequence'];
 
-            <div class="view-mobile-grand-total d-md-none" aria-label="Grand Total Estimate">
-                <span>Grand Total Estimate</span>
-                <strong>₱ <?php echo number_format($pr['amount'], 2); ?></strong>
-            </div>
+                            if ($approval['decision'] === 'Approved') {
+                                $step_class = 'is-approved';
+                                $step_icon = '<i class="fas fa-check"></i>';
+                            } elseif ($approval['decision'] === 'Rejected') {
+                                $step_class = 'is-rejected';
+                                $step_icon = '<i class="fas fa-times"></i>';
+                            } elseif ($approval['decision'] === 'Returned') {
+                                $step_class = 'is-closed';
+                                $step_icon = '<i class="fas fa-minus"></i>';
+                            } elseif ($approval['approval_stage'] === $pr['current_approval_stage']) {
+                                $step_class = 'is-current';
+                            }
 
-            <?php if($can_approve): ?>
-            <div class="card shadow-sm border-0 border-top border-warning border-3 mb-5 view-decision-card" style="border-radius: 16px;">
-                <div class="card-body p-4 d-flex justify-content-between align-items-center flex-wrap gap-3">
-                    <div>
-                        <h5 class="fw-bold text-dark mb-1">Approval Decision</h5>
-                        <p class="text-muted small m-0">Review the details above before making a decision. The requestor will be notified.</p>
+                            $stage_display = $approval['approval_stage'] === 'Owner Approval'
+                                ? 'Owner / President Approval'
+                                : $approval['approval_stage'];
+                            ?>
+                            <article class="prf-review-route-step <?php echo $step_class; ?>">
+                                <div class="prf-review-step-marker"><?php echo $step_icon; ?></div>
+                                <div class="prf-review-step-copy">
+                                    <div class="prf-review-step-heading">
+                                        <strong><?php echo htmlspecialchars($stage_display); ?></strong>
+                                        <span><?php echo htmlspecialchars($approval['decision']); ?></span>
+                                    </div>
+                                    <small>Required role: <?php echo htmlspecialchars($approval['required_role']); ?></small>
+
+                                    <?php if ($approval['acted_by_name']): ?>
+                                        <p>
+                                            <?php echo htmlspecialchars($approval['acted_by_name']); ?>
+                                            · <?php echo prf_review_date($approval['acted_at'], 'M d, Y · h:i A'); ?>
+                                        </p>
+                                    <?php elseif ($approval['decision'] === 'Pending' && $step_class === 'is-current'): ?>
+                                        <p>Waiting for the assigned reviewer</p>
+                                    <?php else: ?>
+                                        <p>Not yet available</p>
+                                    <?php endif; ?>
+
+                                    <?php if (!empty($approval['decision_remarks'])): ?>
+                                        <blockquote><?php echo nl2br(htmlspecialchars($approval['decision_remarks'])); ?></blockquote>
+                                    <?php endif; ?>
+                                </div>
+                            </article>
+                        <?php endforeach; ?>
                     </div>
-                    <div class="d-flex gap-2">
-                        <button type="button" class="btn btn-outline-danger px-4 fw-bold shadow-sm" style="border-radius: 8px;" onclick="confirmRejectPR(event, '<?php echo $pr_id; ?>', '<?php echo htmlspecialchars($pr['pr_number']); ?>')">
-                            <i class="fas fa-times me-2"></i> Reject PR
-                        </button>
-                        <button type="button" class="btn btn-success px-4 fw-bold shadow-sm" style="border-radius: 8px;" onclick="confirmApprovePR(event, '<?php echo $pr_id; ?>', '<?php echo htmlspecialchars($pr['pr_number']); ?>')">
-                            <i class="fas fa-check me-2"></i> Approve PR
-                        </button>
-                    </div>
-                </div>
-            </div>
+                </section>
             <?php endif; ?>
 
-        </div>
-    </div>
+            <div class="prf-review-layout">
+                <div class="prf-review-main-column">
+                    <?php if ($is_sequential): ?>
+                        <section class="prf-review-card">
+                            <div class="prf-review-card-header">
+                                <div>
+                                    <span>Financial review</span>
+                                    <h3>Cost and profit summary</h3>
+                                </div>
+                                <small>Prepared by Sales Staff</small>
+                            </div>
 
-    <!-- Hidden Form for SweetAlert Submission -->
-    <form id="dynamicActionForm" action="actions/pr_handler.php" method="POST" style="display: none;">
-        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
-        <input type="hidden" name="action" id="dynamicAction">
-        <input type="hidden" name="pr_id" id="dynamicPrId">
-        <input type="hidden" name="remarks" id="dynamicRemarks">
-    </form>
+                            <div class="prf-review-financial-grid">
+                                <div><span>Client selling amount</span><strong><?php echo prf_review_money($pr['amount']); ?></strong></div>
+                                <div><span>Cost of goods</span><strong><?php echo prf_review_money($pr['cost_of_goods_amount']); ?></strong></div>
+                                <div><span>Other expense</span><strong><?php echo prf_review_money($pr['other_expense_amount']); ?></strong></div>
+                                <div class="is-requested"><span>Funds requested</span><strong><?php echo prf_review_money($pr['requested_fund_amount']); ?></strong></div>
+                                <div class="is-profit <?php echo (float) $pr['gross_profit_amount'] < 0 ? 'is-negative' : ''; ?>">
+                                    <span>Projected gross profit</span>
+                                    <strong><?php echo prf_review_money($pr['gross_profit_amount']); ?></strong>
+                                    <small><?php echo number_format((float) $pr['gross_margin_percent'], 2); ?>% margin</small>
+                                </div>
+                            </div>
+                        </section>
+                    <?php endif; ?>
+
+                    <section class="prf-review-card">
+                        <div class="prf-review-card-header">
+                            <div>
+                                <span><?php echo $is_sequential ? 'Cost worksheet' : 'Requested items'; ?></span>
+                                <h3>Item breakdown</h3>
+                            </div>
+                            <small><?php echo count($items); ?> item line<?php echo count($items) === 1 ? '' : 's'; ?></small>
+                        </div>
+
+                        <div class="prf-review-table-wrap">
+                            <table class="prf-review-table">
+                                <thead>
+                                    <tr>
+                                        <th>Item</th>
+                                        <th class="text-center">Qty</th>
+                                        <th class="text-end">Selling / unit</th>
+                                        <?php if ($is_sequential): ?>
+                                            <th class="text-end">Supplier cost / unit</th>
+                                            <th class="text-end">Cost total</th>
+                                            <th class="text-end">Line profit</th>
+                                        <?php else: ?>
+                                            <th class="text-end">Selling total</th>
+                                        <?php endif; ?>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($items as $item): ?>
+                                        <?php $category = $category_map[$item['category']] ?? $item['category']; ?>
+                                        <tr>
+                                            <td data-label="Item">
+                                                <strong><?php echo htmlspecialchars($item['item_name']); ?></strong>
+                                                <small>
+                                                    <?php echo htmlspecialchars((string) $category); ?>
+                                                    <?php if (!empty($item['brand'])): ?>
+                                                        · <?php echo htmlspecialchars($item['brand']); ?>
+                                                    <?php endif; ?>
+                                                </small>
+                                                <?php if (!empty($item['specifications'])): ?>
+                                                    <span><?php echo nl2br(htmlspecialchars($item['specifications'])); ?></span>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td data-label="Qty" class="text-center"><?php echo (int) $item['quantity']; ?></td>
+                                            <td data-label="Selling / unit" class="text-end"><?php echo prf_review_money($item['unit_price']); ?></td>
+                                            <?php if ($is_sequential): ?>
+                                                <td data-label="Supplier cost / unit" class="text-end"><?php echo prf_review_money($item['unit_cost']); ?></td>
+                                                <td data-label="Cost total" class="text-end"><?php echo prf_review_money($item['total_cost']); ?></td>
+                                                <td data-label="Line profit" class="text-end prf-review-profit <?php echo (float) $item['line_profit_amount'] < 0 ? 'is-negative' : ''; ?>">
+                                                    <?php echo prf_review_money($item['line_profit_amount']); ?>
+                                                </td>
+                                            <?php else: ?>
+                                                <td data-label="Selling total" class="text-end"><strong><?php echo prf_review_money($item['total_price']); ?></strong></td>
+                                            <?php endif; ?>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <?php if ($is_sequential && $supplier): ?>
+                        <section class="prf-review-card">
+                            <div class="prf-review-card-header">
+                                <div>
+                                    <span>Supplier record</span>
+                                    <h3>Supplier and payment details</h3>
+                                </div>
+                                <?php if ($supplier_quote_link !== ''): ?>
+                                    <a class="prf-review-header-link" href="<?php echo htmlspecialchars($supplier_quote_link); ?>" target="_blank" rel="noopener">
+                                        <i class="fas fa-paperclip"></i> View quotation
+                                    </a>
+                                <?php endif; ?>
+                            </div>
+
+                            <div class="prf-review-detail-grid">
+                                <div><span>Supplier name</span><strong><?php echo htmlspecialchars($supplier['supplier_name']); ?></strong></div>
+                                <div><span>Supplier reference</span><strong><?php echo htmlspecialchars($supplier['supplier_reference'] ?: '—'); ?></strong></div>
+                                <div><span>Quotation date</span><strong><?php echo prf_review_date($supplier['supplier_quote_date']); ?></strong></div>
+                                <div><span>Payment method</span><strong><?php echo htmlspecialchars($supplier['payment_method']); ?></strong></div>
+                                <div class="prf-review-span-2"><span>Payment terms</span><strong><?php echo htmlspecialchars($supplier['payment_terms'] ?: '—'); ?></strong></div>
+
+                                <?php if ($supplier['payment_method'] === 'Bank Transfer'): ?>
+                                    <div><span>Bank name</span><strong><?php echo htmlspecialchars($supplier['bank_name']); ?></strong></div>
+                                    <div><span>Account name</span><strong><?php echo htmlspecialchars($supplier['bank_account_name']); ?></strong></div>
+                                    <div class="prf-review-span-2"><span>Account number</span><strong class="prf-review-monospace"><?php echo htmlspecialchars($supplier['bank_account_number']); ?></strong></div>
+                                <?php elseif ($supplier['payment_method'] === 'Check'): ?>
+                                    <div class="prf-review-span-2"><span>Check payee</span><strong><?php echo htmlspecialchars($supplier['check_payee']); ?></strong></div>
+                                <?php endif; ?>
+
+                                <?php if (!empty($supplier['remarks'])): ?>
+                                    <div class="prf-review-span-2"><span>Supplier remarks</span><p><?php echo nl2br(htmlspecialchars($supplier['remarks'])); ?></p></div>
+                                <?php endif; ?>
+                            </div>
+                        </section>
+                    <?php endif; ?>
+                </div>
+
+                <aside class="prf-review-side-column">
+                    <?php if ($can_decide): ?>
+                        <form
+                            action="actions/pr_handler.php"
+                            method="POST"
+                            id="prfDecisionForm"
+                            class="prf-review-decision-card"
+                            data-pr-number="<?php echo htmlspecialchars($pr['pr_number']); ?>"
+                            data-decision-stage="<?php echo htmlspecialchars($decision_stage); ?>"
+                            novalidate
+                        >
+                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'] ?? ''); ?>">
+                            <input type="hidden" name="action" id="prfDecisionAction" value="">
+                            <input type="hidden" name="pr_id" value="<?php echo $pr_id; ?>">
+
+                            <div class="prf-review-decision-heading">
+                                <span>Your decision</span>
+                                <small><?php echo htmlspecialchars($decision_stage); ?></small>
+                            </div>
+
+                            <?php if ($is_sequential): ?>
+                                <div class="prf-review-role-note">
+                                    <i class="fas fa-user-shield"></i>
+                                    Signed in as <?php echo htmlspecialchars($role); ?>
+                                </div>
+                            <?php endif; ?>
+
+                            <label for="decisionRemarks">
+                                Decision remarks
+                                <small>Required when rejecting</small>
+                            </label>
+                            <textarea
+                                name="remarks"
+                                id="decisionRemarks"
+                                rows="3"
+                                maxlength="2000"
+                                placeholder="Add a concise review note"
+                            ></textarea>
+                            <div class="prf-review-field-error d-none" id="decisionRemarksError" role="alert"></div>
+
+                            <div class="prf-review-decision-actions">
+                                <button
+                                    type="button"
+                                    class="prf-review-reject-button"
+                                    data-prf-decision="reject"
+                                    data-action-value="<?php echo $rejection_action; ?>"
+                                >
+                                    <i class="fas fa-times"></i> Reject
+                                </button>
+                                <button
+                                    type="button"
+                                    class="prf-review-approve-button"
+                                    data-prf-decision="approve"
+                                    data-action-value="<?php echo $approval_action; ?>"
+                                >
+                                    <i class="fas fa-check"></i> <?php echo $approval_button_label; ?>
+                                </button>
+                            </div>
+
+                            <p class="prf-review-decision-footnote">
+                                <?php if ($is_sequential && $decision_stage !== 'Owner Approval'): ?>
+                                    Approval forwards this PRF to the next reviewer.
+                                <?php elseif ($is_sequential): ?>
+                                    This is the final approval that makes the PRF official.
+                                <?php else: ?>
+                                    This legacy record follows the existing approval behavior.
+                                <?php endif; ?>
+                            </p>
+                        </form>
+                    <?php elseif ($can_convert): ?>
+                        <section class="prf-review-side-card is-ready">
+                            <div class="prf-review-side-icon"><i class="fas fa-check"></i></div>
+                            <span>Official PRF</span>
+                            <h3>Ready for PO conversion</h3>
+                            <p>The approval route is complete. Procurement can prepare the supplier Purchase Order.</p>
+                            <a href="create_po.php?pr_id=<?php echo $pr_id; ?>">
+                                Convert to PO <i class="fas fa-arrow-right"></i>
+                            </a>
+                        </section>
+                    <?php elseif ($pr['status'] === 'Rejected'): ?>
+                        <section class="prf-review-side-card is-rejected">
+                            <div class="prf-review-side-icon"><i class="fas fa-times"></i></div>
+                            <span>Decision recorded</span>
+                            <h3>PRF rejected</h3>
+                            <p><?php echo nl2br(htmlspecialchars($pr['remarks'] ?: 'No rejection reason was recorded.')); ?></p>
+                        </section>
+                    <?php elseif ($is_sequential && $pr['status'] === 'Pending' && $current_approval): ?>
+                        <section class="prf-review-side-card is-waiting">
+                            <div class="prf-review-side-icon"><i class="fas fa-hourglass-half"></i></div>
+                            <span>Current stage</span>
+                            <h3><?php echo htmlspecialchars($pr['current_approval_stage']); ?></h3>
+                            <p>This PRF is waiting for a <?php echo htmlspecialchars($current_approval['required_role']); ?> user.</p>
+                        </section>
+                    <?php elseif ($pr['status'] === 'Approved'): ?>
+                        <section class="prf-review-side-card is-ready">
+                            <div class="prf-review-side-icon"><i class="fas fa-check"></i></div>
+                            <span>Approval complete</span>
+                            <h3><?php echo $is_sequential ? 'Officially approved' : 'Approved'; ?></h3>
+                            <p>
+                                <?php if (!empty($pr['final_approver_name'])): ?>
+                                    Final approval by <?php echo htmlspecialchars($pr['final_approver_name']); ?> on
+                                    <?php echo prf_review_date($pr['final_approved_at'], 'M d, Y · h:i A'); ?>.
+                                <?php else: ?>
+                                    This request is ready for the next procurement step.
+                                <?php endif; ?>
+                            </p>
+                        </section>
+                    <?php endif; ?>
+                </aside>
+            </div>
+        </div>
+    </main>
 
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    
-    <script>
-        // SweetAlert2 Toast Notification Configuration (Moved to bottom-end)
-        const Toast = Swal.mixin({
-            toast: true,
-            position: 'bottom-end',
-            showConfirmButton: false,
-            timer: 4000,
-            timerProgressBar: true,
-            customClass: { popup: 'shadow-lg rounded-3' },
-            didOpen: (toast) => {
-                toast.addEventListener('mouseenter', Swal.stopTimer)
-                toast.addEventListener('mouseleave', Swal.resumeTimer)
-            }
-        });
-
-        // Trigger Toasts based on PHP GET parameters (Alert Banners removed)
-        <?php if(isset($_GET['success'])): ?>
-            Toast.fire({
-                icon: 'success',
-                title: '<?php echo addslashes(htmlspecialchars($_GET['success'])); ?>'
-            });
-            window.history.replaceState(null, null, window.location.pathname + "?id=<?php echo $pr_id; ?>");
-        <?php endif; ?>
-
-        <?php if(isset($_GET['error'])): ?>
-            Toast.fire({
-                icon: 'error',
-                title: '<?php echo addslashes(htmlspecialchars($_GET['error'])); ?>'
-            });
-            window.history.replaceState(null, null, window.location.pathname + "?id=<?php echo $pr_id; ?>");
-        <?php endif; ?>
-
-        // Safe Approval Function
-        function confirmApprovePR(e, id, prNumber) {
-            e.preventDefault();
-            e.stopPropagation();
-
-            Swal.fire({
-                title: 'Approve Request?',
-                html: "<span class='text-muted' style='font-size: 0.9rem;'>Are you sure you want to approve <b>" + prNumber + "</b>?</span>",
-                icon: 'success',
-                showCancelButton: true,
-                confirmButtonText: '<i class="fas fa-check me-1"></i> Yes, Approve',
-                cancelButtonText: 'Cancel',
-                buttonsStyling: false,
-                customClass: { 
-                    popup: 'sleek-popup', 
-                    confirmButton: 'btn btn-success px-4 py-2 shadow-sm fw-bold', 
-                    cancelButton: 'btn btn-light px-4 py-2 border fw-bold ms-2' 
-                }
-            }).then((result) => {
-                if (result.isConfirmed) {
-                    $('#dynamicAction').val('approve_pr'); 
-                    $('#dynamicPrId').val(id);
-                    $('#dynamicRemarks').val('');
-                    $('#dynamicActionForm').submit();
-                }
-            });
-        }
-
-        // Strict Rejection Function
-        function confirmRejectPR(e, id, prNumber) {
-            e.preventDefault();
-            e.stopPropagation();
-
-            Swal.fire({
-                title: 'Reject Request',
-                html: "<span class='text-muted' style='font-size: 0.9rem;'>Please state the reason for rejecting <b>" + prNumber + "</b>:</span>",
-                icon: 'warning',
-                input: 'textarea',
-                inputPlaceholder: 'Enter your reason here (Required)...',
-                showCancelButton: true,
-                confirmButtonText: '<i class="fas fa-times me-1"></i> Submit Rejection',
-                cancelButtonText: 'Cancel',
-                buttonsStyling: false,
-                customClass: { 
-                    popup: 'sleek-popup', 
-                    confirmButton: 'btn btn-danger px-4 py-2 shadow-sm fw-bold', 
-                    cancelButton: 'btn btn-light px-4 py-2 border fw-bold ms-2' 
-                },
-                preConfirm: (reason) => {
-                    if (!reason || reason.trim() === '') {
-                        Swal.showValidationMessage('Rejection reason cannot be empty!');
-                        return false;
-                    }
-                    return reason.trim();
-                }
-            }).then((result) => {
-                if (result.isConfirmed) {
-                    $('#dynamicAction').val('reject_pr'); 
-                    $('#dynamicPrId').val(id);
-                    $('#dynamicRemarks').val(result.value);
-                    $('#dynamicActionForm').submit();
-                }
-            });
-        }
-    </script>
+    <script src="assets/js/prf-review.js?v=<?php echo filemtime(__DIR__ . '/assets/js/prf-review.js'); ?>"></script>
 </body>
 </html>

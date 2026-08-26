@@ -205,7 +205,7 @@
             <div class="row g-3 mb-3">
                 <div class="col-xl-3 col-md-6"><a href="documents.php" class="text-decoration-none"><div class="kpi-corp-card accent-blue"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Active Records</p><h3 class="kpi-corp-value mt-1"><?php echo $exec_stats['active_docs']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-folder-open"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-primary box-12" style="font-size: 5px;"></i> Current working files</div></div></a></div>
                 <div class="col-xl-3 col-md-6"><a href="documents.php?view_filter=All" class="text-decoration-none"><div class="kpi-corp-card accent-slate"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Archived Docs</p><h3 class="kpi-corp-value mt-1"><?php echo $exec_stats['archived_docs']; ?></h3></div><div class="kpi-corp-icon bg-secondary bg-opacity-10 text-secondary"><i class="fas fa-archive"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-secondary box-12" style="font-size: 5px;"></i> Safely stored records</div></div></a></div>
-                <div class="col-xl-3 col-md-6"><a href="pr_list.php?filter=Pending" class="text-decoration-none"><div class="kpi-corp-card accent-amber"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Pending PRs</p><h3 class="kpi-corp-value mt-1"><?php echo $exec_stats['pending_pr']; ?></h3></div><div class="kpi-corp-icon bg-warning bg-opacity-10 text-warning"><i class="fas fa-file-signature"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-warning box-12" style="font-size: 5px;"></i> Awaiting your approval</div></div></a></div>
+                <div class="col-xl-3 col-md-6"><a href="pr_list.php?queue=mine" class="text-decoration-none"><div class="kpi-corp-card accent-amber"><div class="kpi-corp-header"><div><p class="kpi-corp-title">My PRF Queue</p><h3 class="kpi-corp-value mt-1"><?php echo $exec_stats['pending_pr']; ?></h3></div><div class="kpi-corp-icon bg-warning bg-opacity-10 text-warning"><i class="fas fa-file-signature"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-warning box-12" style="font-size: 5px;"></i> Assigned to your stage</div></div></a></div>
                 <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=Pending" class="text-decoration-none"><div class="kpi-corp-card accent-rose"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Pending POs</p><h3 class="kpi-corp-value mt-1"><?php echo $exec_stats['pending_po']; ?></h3></div><div class="kpi-corp-icon bg-danger bg-opacity-10 text-danger"><i class="fas fa-stamp"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-danger box-12" style="font-size: 5px;"></i> Action required</div></div></a></div>
             </div>
 
@@ -222,13 +222,44 @@
 
                 $uncoll_amt = $gm_charts['uncollected']['total_uncollected'] ?? 0; 
                 $uncoll_cnt = $gm_charts['uncollected']['count_uncollected'] ?? 0;
-                
-                $insights[] = [
-                    'status' => ($uncoll_amt > 0) ? 'warning' : 'success', 
-                    'icon' => ($uncoll_amt > 0) ? 'fa-file-invoice-dollar' : 'fa-check-double', 
-                    'title' => ($uncoll_amt > 0) ? 'Pending Collections Alert' : 'Collections Up-to-date', 
-                    'desc' => ($uncoll_amt > 0) ? "<strong>₱ " . number_format($uncoll_amt, 2) . "</strong> across <strong>{$uncoll_cnt}</strong> delivered PO(s) are awaiting full collection. Advise Finance to follow up." : "All delivered purchase orders within this period have been fully collected."
-                ];
+                $overdue_amt = $gm_charts['uncollected']['overdue_amount'] ?? 0;
+                $overdue_cnt = $gm_charts['uncollected']['overdue_count'] ?? 0;
+                $due_soon_amt = $gm_charts['uncollected']['due_soon_amount'] ?? 0;
+                $due_soon_cnt = $gm_charts['uncollected']['due_soon_count'] ?? 0;
+                $missing_due_amt = $gm_charts['uncollected']['missing_due_amount'] ?? 0;
+                $missing_due_cnt = $gm_charts['uncollected']['missing_due_count'] ?? 0;
+
+                if ($overdue_amt > 0) {
+                    $insights[] = [
+                        'status' => 'danger',
+                        'icon' => 'fa-triangle-exclamation',
+                        'title' => 'Overdue Collections Alert',
+                        'desc' => "<strong>₱ " . number_format($overdue_amt, 2) . "</strong> across <strong>{$overdue_cnt}</strong> PO(s) is already overdue. Total open collection exposure is <strong>₱ " . number_format($uncoll_amt, 2) . "</strong>."
+                    ];
+                } elseif ($missing_due_cnt > 0) {
+                    $insights[] = [
+                        'status' => 'warning',
+                        'icon' => 'fa-calendar-xmark',
+                        'title' => 'Collection Due-Date Gap',
+                        'desc' => "<strong>{$missing_due_cnt}</strong> open PO(s), totaling <strong>₱ " . number_format($missing_due_amt, 2) . "</strong>, have no reliable collection due date. Finance should review the legacy delivery record."
+                    ];
+                } elseif ($due_soon_amt > 0) {
+                    $insights[] = [
+                        'status' => 'warning',
+                        'icon' => 'fa-clock',
+                        'title' => 'Collections Due Within 3 Days',
+                        'desc' => "<strong>₱ " . number_format($due_soon_amt, 2) . "</strong> across <strong>{$due_soon_cnt}</strong> PO(s) is approaching its client payment deadline. Proactive Finance follow-up is advised."
+                    ];
+                } else {
+                    $insights[] = [
+                        'status' => ($uncoll_amt > 0) ? 'warning' : 'success',
+                        'icon' => ($uncoll_amt > 0) ? 'fa-file-invoice-dollar' : 'fa-check-double',
+                        'title' => ($uncoll_amt > 0) ? 'Pending Collection Exposure' : 'Collections Up-to-date',
+                        'desc' => ($uncoll_amt > 0)
+                            ? "<strong>₱ " . number_format($uncoll_amt, 2) . "</strong> across <strong>{$uncoll_cnt}</strong> delivered PO(s) remains collectible, with no currently overdue balance."
+                            : "All delivered purchase orders within this period have been fully collected."
+                    ];
+                }
 
                 $aging_po = $gm_charts['aging_po'] ?? null; 
                 $hrs_stag = isset($aging_po['hours_stagnant']) ? (int)$aging_po['hours_stagnant'] : 0;
@@ -374,10 +405,10 @@
         <!-- ============================================== -->
         <?php elseif ($_SESSION['role'] === 'Finance'): ?>
             <div class="row g-3 mb-3">
-                <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=GM-Approved" class="text-decoration-none"><div class="kpi-corp-card accent-rose"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Pending Approvals</p><h3 class="kpi-corp-value mt-1"><?php echo $finance_stats['pending_po']; ?></h3></div><div class="kpi-corp-icon bg-danger bg-opacity-10 text-danger"><i class="fas fa-file-signature"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-danger box-12" style="font-size: 5px;"></i> Needs your validation</div></div></a></div>
-                <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=Funded" class="text-decoration-none"><div class="kpi-corp-card accent-emerald"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Funded Orders</p><h3 class="kpi-corp-value mt-1"><?php echo $finance_stats['funded_po']; ?></h3></div><div class="kpi-corp-icon bg-success bg-opacity-10 text-success"><i class="fas fa-money-bill-wave"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-success box-12" style="font-size: 5px;"></i> Approved budget</div></div></a></div>
-                <div class="col-xl-3 col-md-6"><div class="kpi-corp-card accent-amber"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Uncollected Sales</p><h3 class="kpi-corp-value mt-1 text-md">₱ <?php echo number_format($finance_stats['uncollected_amount'], 2); ?></h3></div><div class="kpi-corp-icon bg-warning bg-opacity-10 text-warning"><i class="fas fa-cash-register"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-warning box-12" style="font-size: 5px;"></i> Pending receivables</div></div></div>
-                <div class="col-xl-3 col-md-6"><div class="kpi-corp-card accent-purple"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Total Revenue</p><h3 class="kpi-corp-value mt-1 text-md">₱ <?php echo number_format($finance_stats['total_revenue'], 2); ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10" style="color: #8b5cf6;"><i class="fas fa-chart-line"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle box-12" style="color: #8b5cf6; font-size: 5px;"></i> Generated sales</div></div></div>
+                <div class="col-xl-3 col-md-6"><a href="pr_list.php?queue=mine" class="text-decoration-none"><div class="kpi-corp-card accent-rose"><div class="kpi-corp-header"><div><p class="kpi-corp-title">PRFs to Review</p><h3 class="kpi-corp-value mt-1"><?php echo $finance_stats['pending_prf']; ?></h3></div><div class="kpi-corp-icon bg-danger bg-opacity-10 text-danger"><i class="fas fa-calculator"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-danger box-12" style="font-size: 5px;"></i> COGS and fund validation</div></div></a></div>
+                <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=GM-Approved" class="text-decoration-none"><div class="kpi-corp-card accent-emerald"><div class="kpi-corp-header"><div><p class="kpi-corp-title">POs to Validate</p><h3 class="kpi-corp-value mt-1"><?php echo $finance_stats['pending_po']; ?></h3></div><div class="kpi-corp-icon bg-success bg-opacity-10 text-success"><i class="fas fa-file-signature"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-success box-12" style="font-size: 5px;"></i> Purchase order validation</div></div></a></div>
+                <div class="col-xl-3 col-md-6"><a href="collection_monitoring.php" class="text-decoration-none"><div class="kpi-corp-card accent-amber"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Outstanding Balance</p><h3 class="kpi-corp-value mt-1 text-md">₱ <?php echo number_format($finance_stats['uncollected_amount'], 2); ?></h3></div><div class="kpi-corp-icon bg-warning bg-opacity-10 text-warning"><i class="fas fa-cash-register"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-warning box-12" style="font-size: 5px;"></i> <?php echo number_format($finance_stats['open_collection_count']); ?> open receivable<?php echo $finance_stats['open_collection_count'] === 1 ? '' : 's'; ?></div></div></a></div>
+                <div class="col-xl-3 col-md-6"><a href="collection_ledger.php" class="text-decoration-none"><div class="kpi-corp-card accent-purple"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Collected Value</p><h3 class="kpi-corp-value mt-1 text-md">₱ <?php echo number_format($finance_stats['collected_value'], 2); ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10" style="color: #8b5cf6;"><i class="fas fa-chart-line"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle box-12" style="color: #8b5cf6; font-size: 5px;"></i> <?php echo number_format($finance_stats['collection_rate'], 1); ?>% collection realization</div></div></a></div>
             </div>
 
             <?php 
@@ -404,21 +435,73 @@
                     'desc' => "For the latest recorded month, total cash inflows (₱ ".number_format((float)$cf_in, 2).") " . ($is_positive ? "exceeded" : "fell short of") . " total outflows (₱ ".number_format((float)$cf_out, 2).")."
                 ];
                 
-                $uncol_total = array_sum($finance_charts['tc_uncol'] ?? [0]);
-                
+                $outstanding_amount = (float) $finance_stats['uncollected_amount'];
+                $overdue_amount = (float) $finance_stats['overdue_amount'];
+                $overdue_count = (int) $finance_stats['overdue_count'];
+                $due_soon_amount = (float) $finance_stats['due_soon_amount'];
+                $due_soon_count = (int) $finance_stats['due_soon_count'];
+                $missing_due_amount = (float) $finance_stats['missing_due_amount'];
+                $missing_due_count = (int) $finance_stats['missing_due_count'];
+
+                if ($overdue_amount > 0) {
+                    $fin_insights[] = [
+                        'status' => 'danger',
+                        'icon' => 'fa-triangle-exclamation',
+                        'title' => 'Immediate Collection Required',
+                        'desc' => "<strong>₱ " . number_format($overdue_amount, 2) . "</strong> across <strong>{$overdue_count}</strong> receivable(s) is overdue. Prioritize these accounts in Collection Monitoring."
+                    ];
+                } elseif ($missing_due_count > 0) {
+                    $fin_insights[] = [
+                        'status' => 'warning',
+                        'icon' => 'fa-calendar-xmark',
+                        'title' => 'Due-Date Review Required',
+                        'desc' => "<strong>{$missing_due_count}</strong> open receivable(s), totaling <strong>₱ " . number_format($missing_due_amount, 2) . "</strong>, have no reliable due date. Review the delivery record before aging analysis."
+                    ];
+                } elseif ($due_soon_amount > 0) {
+                    $fin_insights[] = [
+                        'status' => 'warning',
+                        'icon' => 'fa-clock',
+                        'title' => 'Collections Due Within 3 Days',
+                        'desc' => "<strong>₱ " . number_format($due_soon_amount, 2) . "</strong> across <strong>{$due_soon_count}</strong> receivable(s) needs proactive client follow-up."
+                    ];
+                } else {
+                    $fin_insights[] = [
+                        'status' => ($outstanding_amount > 0) ? 'primary' : 'success',
+                        'icon' => ($outstanding_amount > 0) ? 'fa-file-invoice-dollar' : 'fa-check-double',
+                        'title' => ($outstanding_amount > 0) ? 'Receivables Within Term' : 'No Open Receivables',
+                        'desc' => ($outstanding_amount > 0)
+                            ? "The remaining <strong>₱ " . number_format($outstanding_amount, 2) . "</strong> is still within the recorded client payment term."
+                            : "All delivered receivables in the selected period are fully collected."
+                    ];
+                }
+
+                $collection_rate = (float) $finance_stats['collection_rate'];
+                $collection_position_value =
+                    (float) $finance_stats['collected_value'] +
+                    $outstanding_amount;
                 $fin_insights[] = [
-                    'status' => ($uncol_total > 0) ? 'warning' : 'success', 
-                    'icon' => ($uncol_total > 0) ? 'fa-exclamation-triangle' : 'fa-check-double', 
-                    'title' => ($uncol_total > 0) ? 'Outstanding Receivables Detected' : 'Healthy Receivables', 
-                    'desc' => ($uncol_total > 0) ? "There is <strong>₱ " . number_format($uncol_total, 2) . "</strong> in unpaid balances from your top clients. Immediate collection efforts are strongly advised." : "No critical overdue receivables detected from your major clients."
+                    'status' => $collection_position_value <= 0
+                        ? 'secondary'
+                        : ($collection_rate >= 90
+                            ? 'success'
+                            : ($collection_rate >= 75 ? 'primary' : 'warning')),
+                    'icon' => 'fa-percent',
+                    'title' => 'Collection Realization Rate',
+                    'desc' => $collection_position_value > 0
+                        ? "<strong>" . number_format($collection_rate, 1) . "%</strong> of delivered receivable value is already collected, leaving <strong>₱ " . number_format($outstanding_amount, 2) . "</strong> outstanding."
+                        : "No delivered receivable value is available for collection-rate analysis in the selected period."
                 ];
                 
+                $p_prf = $finance_stats['pending_prf'];
                 $p_po = $finance_stats['pending_po'];
+                $finance_action_count = $p_prf + $p_po;
                 $fin_insights[] = [
-                    'status' => ($p_po > 0) ? 'warning' : 'success', 
+                    'status' => ($finance_action_count > 0) ? 'warning' : 'success', 
                     'icon' => 'fa-stamp', 
-                    'title' => ($p_po > 0) ? 'Action Required' : 'Queue Cleared', 
-                    'desc' => ($p_po > 0) ? "You currently have <strong>{$p_po}</strong> purchase orders flagged as GM-Approved waiting for your financial validation." : "No pending purchase orders waiting for finance approval."
+                    'title' => ($finance_action_count > 0) ? 'Finance Queue Requires Action' : 'Finance Queue Cleared', 
+                    'desc' => ($finance_action_count > 0)
+                        ? "You have <strong>{$p_prf}</strong> PRF(s) awaiting COGS review and <strong>{$p_po}</strong> PO(s) awaiting financial validation."
+                        : "No PRFs or purchase orders are waiting for your approval."
                 ];
             ?>
             <div class="row g-3 mb-3 align-items-stretch">
@@ -459,7 +542,7 @@
         <!-- ============================================== -->
         <?php elseif ($_SESSION['role'] === 'Procurement'): ?>
             <div class="row g-3 mb-3">
-                <div class="col-xl-3 col-md-6"><a href="po_list.php" class="text-decoration-none"><div class="kpi-corp-card accent-blue"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Total Orders</p><h3 class="kpi-corp-value mt-1"><?php echo $proc_stats['total']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-shopping-cart"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-primary box-12" style="font-size: 5px;"></i> All generated POs</div></div></a></div>
+                <div class="col-xl-3 col-md-6"><a href="pr_list.php?queue=mine" class="text-decoration-none"><div class="kpi-corp-card accent-blue"><div class="kpi-corp-header"><div><p class="kpi-corp-title">PRFs Ready for PO</p><h3 class="kpi-corp-value mt-1"><?php echo $proc_stats['ready_prf']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-clipboard-check"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-primary box-12" style="font-size: 5px;"></i> Officially approved handoff</div></div></a></div>
                 <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=In_Progress" class="text-decoration-none"><div class="kpi-corp-card accent-amber"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Pending Approvals</p><h3 class="kpi-corp-value mt-1"><?php echo $proc_stats['pending']; ?></h3></div><div class="kpi-corp-icon bg-warning bg-opacity-10 text-warning"><i class="fas fa-hourglass-half"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-warning box-12" style="font-size: 5px;"></i> Waiting for sign-off</div></div></a></div>
                 <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=Funded" class="text-decoration-none"><div class="kpi-corp-card accent-emerald"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Funded Orders</p><h3 class="kpi-corp-value mt-1"><?php echo $proc_stats['funded']; ?></h3></div><div class="kpi-corp-icon bg-success bg-opacity-10 text-success"><i class="fas fa-money-bill-wave"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-success box-12" style="font-size: 5px;"></i> Ready for purchasing</div></div></a></div>
                 <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=Completed" class="text-decoration-none"><div class="kpi-corp-card accent-purple"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Delivered / Collected</p><h3 class="kpi-corp-value mt-1"><?php echo $proc_stats['delivered']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10" style="color: #8b5cf6;"><i class="fas fa-truck-loading"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle box-12" style="color: #8b5cf6; font-size: 5px;"></i> Successfully completed</div></div></a></div>
@@ -503,12 +586,17 @@
                     ]; 
                 }
                 
+                $ready_prf = $proc_stats['ready_prf'];
                 $p_po = $proc_stats['pending'];
                 $proc_insights[] = [
-                    'status' => ($p_po > 0) ? 'warning' : 'success', 
+                    'status' => ($ready_prf > 0) ? 'primary' : (($p_po > 0) ? 'warning' : 'success'), 
                     'icon' => 'fa-clipboard-list', 
-                    'title' => 'Pending Tracker', 
-                    'desc' => ($p_po > 0) ? "There are <strong>{$p_po}</strong> encoded purchase orders waiting for executive or finance approval." : "All your encoded purchase orders have been fully processed and approved."
+                    'title' => ($ready_prf > 0) ? 'New Official PRF Handoff' : 'Procurement Queue', 
+                    'desc' => ($ready_prf > 0)
+                        ? "There are <strong>{$ready_prf}</strong> officially approved PRF(s) ready for supplier PO preparation. You also have <strong>{$p_po}</strong> encoded PO(s) moving through approval."
+                        : (($p_po > 0)
+                            ? "There are <strong>{$p_po}</strong> encoded purchase orders waiting for executive or finance approval."
+                            : "No approved PRFs are awaiting conversion and all encoded purchase orders are processed.")
                 ];
             ?>
             <div class="row g-3 mb-3 align-items-stretch">

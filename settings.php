@@ -1,8 +1,9 @@
 <?php 
 require 'config/db_connect.php'; 
 require 'config/functions.php';
+require_once 'config/workflow_access.php';
 
-if(!isset($_SESSION['user_id'])) header("Location: index.php");
+drms_require_login();
 
 $user_id = $_SESSION['user_id'];
 $role = $_SESSION['role'];

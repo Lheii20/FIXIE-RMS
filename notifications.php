@@ -84,13 +84,29 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
                             $msg_raw = $row['message'];
                             $msg_display = htmlspecialchars($msg_raw);
                             $target_url = "#";
+                            $stored_target_url = trim((string) ($row['target_url'] ?? ''));
+                            if (
+                                $stored_target_url !== '' &&
+                                preg_match(
+                                    '/^[a-zA-Z0-9_\/-]+\.php(?:\?[a-zA-Z0-9_=&%.-]+)?$/',
+                                    $stored_target_url
+                                )
+                            ) {
+                                $target_url = $stored_target_url;
+                            }
                             $icon = 'fa-bell'; 
                             $icon_style = 'icon-default';
 
                             $msg_lower = strtolower($msg_raw);
-                            
+                             
                             // ICON DETERMINATION
-                            if (strpos($msg_lower, 'approved') !== false) { $icon = 'fa-check-circle'; $icon_style = 'icon-success'; }
+                            if (strpos($msg_lower, 'collection') !== false) {
+                                $icon = 'fa-comments-dollar';
+                                $icon_style = strpos($msg_lower, 'overdue') !== false
+                                    ? 'icon-danger'
+                                    : 'icon-warning';
+                            }
+                            elseif (strpos($msg_lower, 'approved') !== false) { $icon = 'fa-check-circle'; $icon_style = 'icon-success'; }
                             elseif (strpos($msg_lower, 'rejected') !== false) { $icon = 'fa-times-circle'; $icon_style = 'icon-danger'; }
                             elseif (strpos($msg_lower, 'requesting to') !== false || strpos($msg_lower, 'account request') !== false) { $icon = 'fa-user-shield'; $icon_style = 'icon-warning'; }
                             elseif (strpos($msg_lower, 'alert') !== false) { $icon = 'fa-exclamation-triangle'; $icon_style = 'icon-warning'; }
@@ -100,48 +116,50 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
                             // ==========================================
                             // URL AND DISPLAY RESOLUTION ENGINE
                             // ==========================================
-                            // 1. Solve the "PO #124" issue dynamically
-                            if (preg_match('/PO\s*#(\d+)/i', $msg_raw, $m)) {
-                                $po_id_val = intval($m[1]);
-                                $get_po = $conn->query("SELECT po_number FROM purchase_orders WHERE po_id = $po_id_val");
-                                if ($get_po && $get_po->num_rows > 0) {
-                                    $real_po = $get_po->fetch_assoc()['po_number'];
-                                    $msg_display = htmlspecialchars(str_replace("PO #" . $po_id_val, $real_po, $msg_raw));
+                            if ($target_url === '#') {
+                                // 1. Solve the "PO #124" issue dynamically
+                                if (preg_match('/PO\s*#(\d+)/i', $msg_raw, $m)) {
+                                    $po_id_val = intval($m[1]);
+                                    $get_po = $conn->query("SELECT po_number FROM purchase_orders WHERE po_id = $po_id_val");
+                                    if ($get_po && $get_po->num_rows > 0) {
+                                        $real_po = $get_po->fetch_assoc()['po_number'];
+                                        $msg_display = htmlspecialchars(str_replace("PO #" . $po_id_val, $real_po, $msg_raw));
+                                    }
+                                    $target_url = "view_po.php?id=" . $po_id_val;
                                 }
-                                $target_url = "view_po.php?id=" . $po_id_val;
-                            } 
-                            // 2. Direct exact PO Number format matches
-                            elseif (preg_match('/(PO-202\d-\d{4})/i', $msg_raw, $m)) {
-                                $target_url = "po_list.php?search=" . urlencode($m[1]); 
-                            }
-                            // 3. Direct PR Number format matches
-                            elseif (preg_match('/(PR-202\d-\d{4})/i', $msg_raw, $m)) {
-                                $target_url = "pr_list.php?search=" . urlencode($m[1]);
-                            }
-                            // 4. Document / Disposition alerts
-                            elseif (stripos($msg_raw, 'retention alert') !== false || stripos($msg_raw, 'document') !== false) {
-                                $target_url = "documents.php?disposition=1";
-                            }
-                            // 5. Account Requests Routing
-                            elseif (stripos($msg_raw, 'Account Request:') !== false || stripos($msg_raw, 'requesting to') !== false) {
-                                $target_url = "admin_requests.php";
-                            }
-                            elseif (stripos($msg_raw, 'Your account request') !== false) {
-                                $target_url = "settings.php";
-                            }
-                            // 6. Generic Routing
-                            elseif (stripos($msg_raw, 'quotation') !== false) {
-                                $target_url = "quotations_list.php";
-                            }
-                            elseif (stripos($msg_raw, 'purchase request') !== false) {
-                                $target_url = "pr_list.php";
-                            }
-                            elseif (stripos($msg_raw, 'purchase order') !== false) {
-                                $target_url = "po_list.php";
+                                // 2. Direct exact PO Number format matches
+                                elseif (preg_match('/(PO-202\d-\d{4})/i', $msg_raw, $m)) {
+                                    $target_url = "po_list.php?search=" . urlencode($m[1]); 
+                                }
+                                // 3. Direct PR Number format matches
+                                elseif (preg_match('/(PR-202\d-\d{4})/i', $msg_raw, $m)) {
+                                    $target_url = "pr_list.php?search=" . urlencode($m[1]);
+                                }
+                                // 4. Document / Disposition alerts
+                                elseif (stripos($msg_raw, 'retention alert') !== false || stripos($msg_raw, 'document') !== false) {
+                                    $target_url = "documents.php?disposition=1";
+                                }
+                                // 5. Account Requests Routing
+                                elseif (stripos($msg_raw, 'Account Request:') !== false || stripos($msg_raw, 'requesting to') !== false) {
+                                    $target_url = "admin_requests.php";
+                                }
+                                elseif (stripos($msg_raw, 'Your account request') !== false) {
+                                    $target_url = "settings.php";
+                                }
+                                // 6. Generic Routing
+                                elseif (stripos($msg_raw, 'quotation') !== false) {
+                                    $target_url = "quotations_list.php";
+                                }
+                                elseif (stripos($msg_raw, 'purchase request') !== false) {
+                                    $target_url = "pr_list.php";
+                                }
+                                elseif (stripos($msg_raw, 'purchase order') !== false) {
+                                    $target_url = "po_list.php";
+                                }
                             }
                         ?>
-                        
-                        <div class="notif-card <?php echo $status_class; ?>" id="notif-<?php echo $row['notif_id']; ?>" onclick="handleNotifClick(<?php echo $row['notif_id']; ?>, '<?php echo $target_url; ?>', event)">
+                         
+                        <div class="notif-card <?php echo $status_class; ?>" id="notif-<?php echo $row['notif_id']; ?>" onclick="handleNotifClick(<?php echo $row['notif_id']; ?>, <?php echo htmlspecialchars(json_encode($target_url), ENT_QUOTES, 'UTF-8'); ?>, event)">
                             <?php if($is_pinned): ?><i class="fas fa-thumbtack pin-indicator"></i><?php endif; ?>
                             
                             <div class="d-flex align-items-center w-100 notification-card-main">

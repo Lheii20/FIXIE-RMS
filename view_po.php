@@ -1,10 +1,17 @@
 <?php 
 require 'config/db_connect.php'; 
 require 'config/functions.php';
+require_once 'config/workflow_access.php';
 
 date_default_timezone_set('Asia/Manila');
 
-if(!isset($_SESSION['user_id'])) header("Location: index.php");
+drms_require_workflow_roles([
+    'Procurement',
+    'GM',
+    'President',
+    'Finance',
+    'Supply Chain',
+]);
 
 $po_id = $_GET['id'] ?? 0;
 if(!is_numeric($po_id)) die("Invalid PO ID");
@@ -147,6 +154,95 @@ while($p = $payment_query->fetch_assoc()){
 }
 $balance = $po['amount'] - $total_paid;
 
+$fund_release = null;
+$delivery_request = null;
+$delivery_receipt = null;
+if ((int) ($po['source_pr_workflow_version'] ?? 1) === 2) {
+    $fund_release_stmt = $conn->prepare(
+        "SELECT
+            funding.*,
+            finance_user.full_name AS released_by_name,
+            supplier.supplier_name
+         FROM po_supplier_fund_releases funding
+         LEFT JOIN users finance_user
+            ON finance_user.user_id = funding.released_by
+         LEFT JOIN pr_supplier_details supplier
+            ON supplier.supplier_detail_id =
+                funding.supplier_detail_id
+         WHERE funding.po_id = ?
+           AND funding.record_status = 'Active'
+         ORDER BY funding.release_cycle DESC
+         LIMIT 1"
+    );
+    $fund_release_stmt->bind_param('i', $po_id);
+    $fund_release_stmt->execute();
+    $fund_release =
+        $fund_release_stmt->get_result()->fetch_assoc();
+
+    $delivery_request_stmt = $conn->prepare(
+        "SELECT
+            delivery_request.*,
+            plan.logistics_status,
+            plan.provider_type,
+            plan.provider_name,
+            plan.planned_pickup_at,
+            plan.planned_delivery_at,
+            plan.return_reason,
+            preparer.full_name AS prepared_by_name,
+            reviewer.full_name AS reviewed_by_name,
+            returner.full_name AS returned_by_name
+         FROM po_delivery_requests delivery_request
+         LEFT JOIN po_delivery_plans plan
+            ON plan.delivery_request_id =
+                delivery_request.delivery_request_id
+           AND plan.record_status = 'Active'
+         LEFT JOIN users preparer
+            ON preparer.user_id = delivery_request.prepared_by
+         LEFT JOIN users reviewer
+            ON reviewer.user_id = plan.reviewed_by
+         LEFT JOIN users returner
+            ON returner.user_id = plan.returned_by
+         WHERE delivery_request.po_id = ?
+           AND delivery_request.record_status = 'Active'
+         ORDER BY delivery_request.request_cycle DESC
+         LIMIT 1"
+    );
+    $delivery_request_stmt->bind_param('i', $po_id);
+    $delivery_request_stmt->execute();
+    $delivery_request =
+        $delivery_request_stmt->get_result()->fetch_assoc();
+
+    $delivery_receipt_stmt = $conn->prepare(
+        "SELECT
+            receipt.*,
+            recorder.full_name AS recorded_by_name,
+            receipt_document.doc_id AS receipt_document_id
+         FROM po_delivery_receipts receipt
+         LEFT JOIN users recorder
+            ON recorder.user_id = receipt.recorded_by
+         LEFT JOIN documents receipt_document
+            ON receipt_document.po_id = receipt.po_id
+           AND receipt_document.file_hash = receipt.proof_file_hash
+           AND receipt_document.doc_type = 'Proof of Delivery'
+           AND receipt_document.status = 'Active'
+         WHERE receipt.po_id = ?
+           AND receipt.record_status = 'Active'
+         ORDER BY receipt.receipt_cycle DESC
+         LIMIT 1"
+    );
+    $delivery_receipt_stmt->bind_param('i', $po_id);
+    $delivery_receipt_stmt->execute();
+    $delivery_receipt =
+        $delivery_receipt_stmt->get_result()->fetch_assoc();
+}
+
+$delivery_planning_ui_pending =
+    (int) ($po['source_pr_workflow_version'] ?? 1) === 2 &&
+    $po['status'] === 'Delivery Requested';
+$delivery_completion_ui_pending =
+    (int) ($po['source_pr_workflow_version'] ?? 1) === 2 &&
+    $po['status'] === 'For Pick-up/Delivery';
+
 $can_delete_files = in_array($role, ['GM', 'President', 'Procurement']);
 $can_upload_files = ($role == 'Procurement');
 
@@ -159,6 +255,9 @@ $can_upload_files = ($role == 'Procurement');
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
     <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
+    <link href="assets/css/funding-release.css?v=<?php echo filemtime(__DIR__ . '/assets/css/funding-release.css'); ?>" rel="stylesheet">
+    <link href="assets/css/delivery-request.css?v=<?php echo filemtime(__DIR__ . '/assets/css/delivery-request.css'); ?>" rel="stylesheet">
+    <link href="assets/css/delivery-completion.css?v=<?php echo filemtime(__DIR__ . '/assets/css/delivery-completion.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
@@ -175,9 +274,59 @@ $can_upload_files = ($role == 'Procurement');
                 
                 <?php if ($is_approver && $can_execute_task): ?>
                     <div class="view-po-decision-actions d-inline-flex align-items-center gap-2 m-0 p-0">
-                        <button type="button" class="btn btn-sm btn-success px-4 shadow-sm fw-bold rounded-8" 
-                                onclick="<?php echo $approve_action === 'mark_delivered' ? "openDeliveryProofModal()" : "confirmApprovePO(event, '" . $approve_action . "', '" . $po['po_id'] . "', '" . htmlspecialchars($po['po_number'], ENT_QUOTES) . "', '" . htmlspecialchars($approve_label, ENT_QUOTES) . "')"; ?>">
-                            <i class="fas fa-check-circle me-1"></i> <?php echo htmlspecialchars($approve_label); ?>
+                        <?php
+                        $structured_funding_action =
+                            $approve_action === 'mark_funded' &&
+                            (int) ($po['source_pr_workflow_version'] ?? 1) === 2;
+                        $structured_delivery_request_action =
+                            $approve_action === 'create_delivery_request' &&
+                            (int) ($po['source_pr_workflow_version'] ?? 1) === 2;
+                        $structured_logistics_review_action =
+                            $delivery_planning_ui_pending &&
+                            $role === 'Supply Chain';
+                        $structured_delivery_completion_action =
+                            $delivery_completion_ui_pending &&
+                            $role === 'Supply Chain';
+                        if ($structured_delivery_completion_action) {
+                            $primary_action_onclick =
+                                "window.location.href='complete_delivery.php?po_id=" .
+                                (int) $po['po_id'] . "'";
+                        } elseif ($structured_logistics_review_action) {
+                            $primary_action_onclick =
+                                "window.location.href='review_delivery_request.php?po_id=" .
+                                (int) $po['po_id'] . "'";
+                        } elseif ($approve_action === 'mark_delivered') {
+                            $primary_action_onclick = 'openDeliveryProofModal()';
+                        } elseif ($structured_funding_action) {
+                            $primary_action_onclick =
+                                "window.location.href='release_funding.php?po_id=" .
+                                (int) $po['po_id'] . "'";
+                        } elseif ($structured_delivery_request_action) {
+                            $primary_action_onclick =
+                                "window.location.href='create_delivery_request.php?po_id=" .
+                                (int) $po['po_id'] . "'";
+                        } else {
+                            $primary_action_onclick =
+                                "confirmApprovePO(event, '" .
+                                $approve_action . "', '" .
+                                $po['po_id'] . "', '" .
+                                htmlspecialchars(
+                                    $po['po_number'],
+                                    ENT_QUOTES
+                                ) . "', '" .
+                                htmlspecialchars(
+                                    $approve_label,
+                                    ENT_QUOTES
+                                ) . "')";
+                        }
+                        ?>
+                        <button
+                            type="button"
+                            class="btn btn-sm btn-success px-4 shadow-sm fw-bold rounded-8"
+                            onclick="<?php echo $primary_action_onclick; ?>"
+                        >
+                            <i class="fas <?php echo $structured_funding_action ? 'fa-coins' : ($structured_delivery_request_action ? 'fa-clipboard-check' : ($structured_logistics_review_action ? 'fa-route' : ($structured_delivery_completion_action ? 'fa-box-check' : 'fa-check-circle'))); ?> me-1"></i>
+                            <?php echo htmlspecialchars($structured_delivery_completion_action ? 'Complete Client Delivery' : ($structured_logistics_review_action ? 'Review & Schedule' : $approve_label)); ?>
                         </button>
 
                         <?php if ($can_reject): ?>
@@ -228,6 +377,154 @@ $can_upload_files = ($role == 'Procurement');
         </div>
         <?php endif; ?>
 
+        <?php if ($fund_release): ?>
+            <section class="funding-proof-summary no-print" aria-label="Supplier funding evidence">
+                <div class="funding-proof-icon">
+                    <i class="fas fa-shield-check"></i>
+                </div>
+                <div class="funding-proof-title">
+                    <strong>Supplier funding verified</strong>
+                    <span>
+                        Release cycle <?php echo (int) $fund_release['release_cycle']; ?>
+                        · Finance evidence recorded
+                    </span>
+                </div>
+                <div class="funding-proof-item">
+                    <span>Released amount</span>
+                    <strong>₱<?php echo number_format((float) $fund_release['released_amount'], 2); ?></strong>
+                </div>
+                <div class="funding-proof-item">
+                    <span>Supplier</span>
+                    <strong><?php echo htmlspecialchars((string) $fund_release['supplier_name']); ?></strong>
+                </div>
+                <div class="funding-proof-item">
+                    <span>Method / reference</span>
+                    <strong>
+                        <?php echo htmlspecialchars($fund_release['release_method']); ?>
+                        · <?php echo htmlspecialchars($fund_release['reference_number']); ?>
+                    </strong>
+                </div>
+                <div class="funding-proof-item">
+                    <span>Released by</span>
+                    <strong><?php echo htmlspecialchars((string) $fund_release['released_by_name']); ?></strong>
+                </div>
+                <div class="funding-proof-item">
+                    <span>Released at</span>
+                    <strong><?php echo date('M d, Y · h:i A', strtotime($fund_release['released_at'])); ?></strong>
+                </div>
+                <?php if (in_array($role, ['Procurement', 'GM', 'President', 'Finance'], true)): ?>
+                    <a
+                        href="download.php?type=fund_release&amp;record_id=<?php echo (int) $fund_release['fund_release_id']; ?>"
+                        target="_blank"
+                        rel="noopener"
+                        class="funding-proof-link"
+                    >
+                        <i class="fas fa-paperclip"></i>
+                        View proof
+                    </a>
+                <?php endif; ?>
+            </section>
+        <?php endif; ?>
+
+        <?php if ($delivery_request): ?>
+            <section class="delivery-request-summary no-print" aria-label="Delivery request record">
+                <div class="delivery-request-summary-icon">
+                    <i class="fas fa-truck-loading"></i>
+                </div>
+                <div class="delivery-request-summary-title">
+                    <strong><?php echo htmlspecialchars($delivery_request['request_number']); ?></strong>
+                    <span>
+                        <?php echo htmlspecialchars($delivery_request['request_status']); ?>
+                        · Logistics <?php echo htmlspecialchars((string) ($delivery_request['logistics_status'] ?? 'Pending Review')); ?>
+                    </span>
+                </div>
+                <div class="delivery-request-summary-item">
+                    <span><?php echo $delivery_request['logistics_status'] === 'Scheduled' ? 'Provider' : 'Request type'; ?></span>
+                    <strong><?php echo htmlspecialchars($delivery_request['logistics_status'] === 'Scheduled' ? trim((string) $delivery_request['provider_type'] . ' · ' . (string) $delivery_request['provider_name'], ' ·') : $delivery_request['request_type']); ?></strong>
+                </div>
+                <div class="delivery-request-summary-item">
+                    <span>Supplier ready</span>
+                    <strong><?php echo date('M d, Y · h:i A', strtotime($delivery_request['supplier_ready_confirmed_at'])); ?></strong>
+                </div>
+                <div class="delivery-request-summary-item">
+                    <span><?php echo $delivery_request['logistics_status'] === 'Scheduled' ? 'Final pick-up' : 'Preferred pick-up'; ?></span>
+                    <?php $pickup_display = $delivery_request['logistics_status'] === 'Scheduled' ? $delivery_request['planned_pickup_at'] : $delivery_request['preferred_pickup_at']; ?>
+                    <strong><?php echo !empty($pickup_display) ? date('M d, Y · h:i A', strtotime($pickup_display)) : 'Not required'; ?></strong>
+                </div>
+                <div class="delivery-request-summary-item">
+                    <span><?php echo $delivery_request['logistics_status'] === 'Scheduled' ? 'Final delivery' : 'Preferred delivery'; ?></span>
+                    <?php $delivery_display = $delivery_request['logistics_status'] === 'Scheduled' ? $delivery_request['planned_delivery_at'] : $delivery_request['preferred_delivery_at']; ?>
+                    <strong><?php echo !empty($delivery_display) ? date('M d, Y · h:i A', strtotime($delivery_display)) : 'Not required'; ?></strong>
+                </div>
+                <div class="delivery-request-summary-item">
+                    <span><?php echo $delivery_request['logistics_status'] === 'Scheduled' ? 'Reviewed by' : ($delivery_request['logistics_status'] === 'Returned' ? 'Returned by' : 'Prepared by'); ?></span>
+                    <strong><?php echo htmlspecialchars((string) ($delivery_request['logistics_status'] === 'Scheduled' ? ($delivery_request['reviewed_by_name'] ?? 'Supply Chain') : ($delivery_request['logistics_status'] === 'Returned' ? ($delivery_request['returned_by_name'] ?? 'Supply Chain') : ($delivery_request['prepared_by_name'] ?? 'Procurement')))); ?></strong>
+                </div>
+                <span class="delivery-request-summary-status">
+                    <i class="fas fa-clock"></i>
+                    <?php echo htmlspecialchars((string) ($delivery_request['logistics_status'] ?? 'Pending Review')); ?>
+                </span>
+            </section>
+            <?php if ($delivery_request['logistics_status'] === 'Returned' && !empty($delivery_request['return_reason'])): ?>
+                <section class="delivery-return-notice no-print" role="alert">
+                    <i class="fas fa-undo-alt"></i>
+                    <div>
+                        <strong>Delivery request returned for correction</strong>
+                        <span><?php echo htmlspecialchars($delivery_request['return_reason']); ?></span>
+                    </div>
+                </section>
+            <?php endif; ?>
+        <?php endif; ?>
+
+        <?php if ($delivery_receipt): ?>
+            <section class="delivery-receipt-summary no-print" aria-label="Verified client delivery receipt">
+                <div class="delivery-receipt-summary-icon">
+                    <i class="fas fa-box-check"></i>
+                </div>
+                <div class="delivery-receipt-summary-title">
+                    <strong>Client delivery verified</strong>
+                    <span>
+                        <?php echo htmlspecialchars((string) ($delivery_receipt['client_receipt_reference'] ?: 'Official proof of delivery recorded')); ?>
+                    </span>
+                </div>
+                <div class="delivery-receipt-summary-item">
+                    <span>Actual handover</span>
+                    <strong><?php echo date('M d, Y · h:i A', strtotime($delivery_receipt['actual_handover_at'])); ?></strong>
+                </div>
+                <div class="delivery-receipt-summary-item">
+                    <span>Received by</span>
+                    <strong><?php echo htmlspecialchars((string) $delivery_receipt['recipient_name']); ?></strong>
+                </div>
+                <div class="delivery-receipt-summary-item">
+                    <span>Delivered quantity</span>
+                    <strong><?php echo number_format((int) $delivery_receipt['delivered_item_quantity']); ?> / <?php echo number_format((int) $delivery_receipt['expected_item_quantity']); ?></strong>
+                </div>
+                <div class="delivery-receipt-summary-item">
+                    <span>Condition</span>
+                    <strong><?php echo htmlspecialchars((string) $delivery_receipt['delivery_condition']); ?></strong>
+                </div>
+                <div class="delivery-receipt-summary-item">
+                    <span>Collection due</span>
+                    <strong><?php echo date('M d, Y', strtotime($delivery_receipt['collection_due_date'])); ?></strong>
+                </div>
+                <?php if (
+                    !empty($delivery_receipt['proof_file_path']) &&
+                    !empty($delivery_receipt['receipt_document_id']) &&
+                    in_array($role, ['GM', 'President', 'Finance', 'Supply Chain'], true)
+                ): ?>
+                    <a
+                        href="download.php?type=document&amp;record_id=<?php echo (int) $delivery_receipt['receipt_document_id']; ?>"
+                        target="_blank"
+                        rel="noopener"
+                        class="delivery-receipt-proof-link"
+                    >
+                        <i class="fas fa-paperclip"></i>
+                        View proof
+                    </a>
+                <?php endif; ?>
+            </section>
+        <?php endif; ?>
+
         <div class="row g-4 screen-only-cards view-po-content-grid">
             <div class="col-lg-8">
                 
@@ -255,8 +552,10 @@ $can_upload_files = ($role == 'Procurement');
                             </div>
                             <div class="col-md-6">
                                 <small class="text-muted d-block mb-1 fs-xs">Quotation Ref</small>
-                                <?php if($source_quotation): ?>
+                                <?php if($source_quotation && $role !== 'Supply Chain'): ?>
                                     <a href="view_quotation.php?id=<?php echo (int)$source_quotation['quotation_id']; ?>" class="fw-medium text-primary text-decoration-none"><i class="fas fa-link me-1"></i><?php echo htmlspecialchars($source_quotation['quotation_number']); ?></a>
+                                <?php elseif($source_quotation): ?>
+                                    <div class="fw-medium text-dark"><?php echo htmlspecialchars($source_quotation['quotation_number']); ?></div>
                                 <?php else: ?>
                                     <div class="fw-medium text-dark"><?php echo htmlspecialchars($po['quotation_number']) ?: '--'; ?></div>
                                 <?php endif; ?>
@@ -330,12 +629,18 @@ $can_upload_files = ($role == 'Procurement');
                 <div class="card border-0 shadow-sm mb-4 payment-card rounded-16 overflow-hidden">
                     <div class="card-header bg-white fw-bold py-3 d-flex justify-content-between align-items-center border-bottom border-light">
                         <span class="fs-6 text-dark"><i class="fas fa-hand-holding-usd me-2 text-success"></i> Payment History</span>
-                        
-                        <?php if($balance > 0.01): ?>
-                            <span class="badge bg-warning text-dark px-3 py-2 shadow-sm rounded-8">Balance: ₱ <?php echo number_format($balance, 2); ?></span>
-                        <?php else: ?>
-                            <span class="badge bg-success px-3 py-2 shadow-sm rounded-8"><i class="fas fa-check-double me-1"></i> Fully Paid</span>
-                        <?php endif; ?>
+                        <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+                            <?php if(in_array($_SESSION['role'], ['Finance', 'GM', 'President'], true)): ?>
+                                <a href="collection_statement.php?po_id=<?php echo (int) $po_id; ?>" class="btn btn-sm btn-outline-primary fw-bold rounded-8 px-3" target="_blank" rel="noopener">
+                                    <i class="fas fa-file-invoice-dollar me-1"></i> Statement
+                                </a>
+                            <?php endif; ?>
+                            <?php if($balance > 0.01): ?>
+                                <span class="badge bg-warning text-dark px-3 py-2 shadow-sm rounded-8">Balance: ₱ <?php echo number_format($balance, 2); ?></span>
+                            <?php else: ?>
+                                <span class="badge bg-success px-3 py-2 shadow-sm rounded-8"><i class="fas fa-check-double me-1"></i> Fully Paid</span>
+                            <?php endif; ?>
+                        </div>
                     </div>
                     
                     <div class="card-body p-0">
@@ -367,7 +672,7 @@ $can_upload_files = ($role == 'Procurement');
                                         <td class="py-3 align-middle">
                                             <div class="small fw-bold text-dark text-break"><?php echo htmlspecialchars($pay['reference_number'] ?? '--'); ?></div>
                                             <?php if(!empty($pay['proof_file_path'])): ?>
-                                                <a href="download.php?type=payment_proof&file=<?php echo rawurlencode(basename($pay['proof_file_path'])); ?>" target="_blank" rel="noopener" class="small text-primary text-decoration-none"><i class="fas fa-paperclip me-1"></i>View proof</a>
+                                                <a href="download.php?type=payment_proof&amp;record_id=<?php echo (int) $pay['payment_id']; ?>" target="_blank" rel="noopener" class="small text-primary text-decoration-none"><i class="fas fa-paperclip me-1"></i>View proof</a>
                                             <?php endif; ?>
                                         </td>
                                         <td class="text-end pe-4 fw-bold text-success align-middle py-3 font-monospace fs-105rem">+ ₱ <?php echo number_format($pay['amount_paid'], 2); ?></td>
@@ -382,9 +687,11 @@ $can_upload_files = ($role == 'Procurement');
                     <?php if($balance > 0.01 && $_SESSION['role'] == 'Finance' && $can_execute_task): ?>
                     <div class="card-footer bg-light p-4 border-top">
                         <h6 class="fw-bold mb-3 text-primary"><i class="fas fa-plus-circle me-2"></i> Record New Payment</h6>
-                        <form action="actions/po_handler.php" method="POST" enctype="multipart/form-data" id="paymentForm" class="po-payment-form">
+                        <form action="actions/collection_payment_handler.php" method="POST" enctype="multipart/form-data" id="paymentForm" class="po-payment-form">
                             <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                             <input type="hidden" name="action" value="add_payment">
+                            <input type="hidden" name="return_to" value="view_po">
+                            <input type="hidden" name="payment_confirmation" value="1">
                             <input type="hidden" name="po_id" value="<?php echo $po_id; ?>">
                             
                             <div class="row g-3 align-items-end">
@@ -469,7 +776,7 @@ $can_upload_files = ($role == 'Procurement');
                             if($docs->num_rows > 0):
                                 while($doc = $docs->fetch_assoc()):
                                     $fileNameOnly = basename($doc['file_path']);
-                                    $secureLink = "download.php?file=" . rawurlencode($fileNameOnly) . "&doc_id=" . intval($doc['doc_id']);
+                                    $secureLink = "download.php?type=document&record_id=" . intval($doc['doc_id']);
                                     $ext = strtolower(pathinfo($doc['file_name'], PATHINFO_EXTENSION));
                                     $isImage = in_array($ext, ['jpg', 'jpeg', 'png', 'gif']);
                                     $isPdf = ($ext == 'pdf');
