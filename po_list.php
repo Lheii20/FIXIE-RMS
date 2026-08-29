@@ -14,8 +14,23 @@ drms_require_workflow_roles([
 $current_user_id = (int)$_SESSION['user_id'];
 $current_role = $_SESSION['role'];
 ensure_collaboration_tables_exist($conn);
-$search = $_GET['search'] ?? '';
-$valid_filters = ['all', 'Pending', 'In_Progress', 'Completed', 'Rejected', 'my_tasks', 'unassigned'];
+$search = substr(trim((string) ($_GET['search'] ?? '')), 0, 100);
+$valid_filters = [
+    'all',
+    'Pending',
+    'In_Progress',
+    'GM-Approved',
+    'Finance-Approved',
+    'President-Approved',
+    'Funded',
+    'Delivery_Queue',
+    'Completed',
+    'Awaiting_Collection',
+    'Paid',
+    'Rejected',
+    'my_tasks',
+    'unassigned',
+];
 $filter = (isset($_GET['filter']) && in_array($_GET['filter'], $valid_filters)) ? $_GET['filter'] : 'all';
 
 $sql = "SELECT p.*, a.assignment_id, a.assigned_to, a.assigned_role, u.full_name AS assignee_name
@@ -36,8 +51,15 @@ if (!empty($search)) {
 
 if ($filter != 'all') {
     if ($filter == 'Pending') { $sql .= " AND p.status = 'Pending'"; }
-    elseif ($filter == 'In_Progress') { $sql .= " AND p.status IN ('GM-Approved', 'Finance-Approved', 'President-Approved', 'Funded')"; }
-    elseif ($filter == 'Completed') { $sql .= " AND p.status = 'Collected'"; }
+    elseif ($filter == 'In_Progress') { $sql .= " AND p.status IN ('Pending', 'GM-Approved', 'Finance-Approved', 'President-Approved')"; }
+    elseif ($filter == 'GM-Approved') { $sql .= " AND p.status = 'GM-Approved'"; }
+    elseif ($filter == 'Finance-Approved') { $sql .= " AND p.status = 'Finance-Approved'"; }
+    elseif ($filter == 'President-Approved') { $sql .= " AND p.status = 'President-Approved'"; }
+    elseif ($filter == 'Funded') { $sql .= " AND p.status = 'Funded'"; }
+    elseif ($filter == 'Delivery_Queue') { $sql .= " AND p.status IN ('Delivery Requested', 'For Pick-up/Delivery')"; }
+    elseif ($filter == 'Completed') { $sql .= " AND p.status = 'Delivered'"; }
+    elseif ($filter == 'Awaiting_Collection') { $sql .= " AND p.status = 'Delivered' AND p.collection_status IN ('Unpaid', 'Partially Paid')"; }
+    elseif ($filter == 'Paid') { $sql .= " AND p.status = 'Delivered' AND p.collection_status = 'Paid'"; }
     elseif ($filter == 'Rejected') { $sql .= " AND p.status = 'Rejected'"; }
     elseif ($filter == 'my_tasks') { $sql .= " AND a.assigned_to = ?"; $params[] = $current_user_id; $types .= 'i'; }
     elseif ($filter == 'unassigned') { $sql .= " AND a.assignment_id IS NULL"; }
@@ -73,8 +95,9 @@ if ($wf_query) {
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
-<body class="page-po-list">
+<body class="page-po-list workflow-ui">
     <?php include 'sidebar.php'; ?>
     <div class="main-content fade-in">
         
@@ -102,9 +125,16 @@ if ($wf_query) {
                 
                 <select name="filter" class="sleek-select" onchange="this.form.submit()">
                     <option value="all" <?php echo ($filter == 'all') ? 'selected' : ''; ?>>All Records</option>
-                    <option value="Pending" <?php echo ($filter == 'Pending') ? 'selected' : ''; ?>>Pending Approval</option>
-                    <option value="In_Progress" <?php echo ($filter == 'In_Progress') ? 'selected' : ''; ?>>In Progress</option>
-                    <option value="Completed" <?php echo ($filter == 'Completed') ? 'selected' : ''; ?>>Completed</option>
+                    <option value="In_Progress" <?php echo ($filter == 'In_Progress') ? 'selected' : ''; ?>>All Approval Stages</option>
+                    <option value="Pending" <?php echo ($filter == 'Pending') ? 'selected' : ''; ?>>Awaiting GM Approval</option>
+                    <option value="GM-Approved" <?php echo ($filter == 'GM-Approved') ? 'selected' : ''; ?>>Awaiting Finance Validation</option>
+                    <option value="Finance-Approved" <?php echo ($filter == 'Finance-Approved') ? 'selected' : ''; ?>>Awaiting Owner Approval</option>
+                    <option value="President-Approved" <?php echo ($filter == 'President-Approved') ? 'selected' : ''; ?>>Awaiting Fund Release</option>
+                    <option value="Funded" <?php echo ($filter == 'Funded') ? 'selected' : ''; ?>>Supplier Coordination</option>
+                    <option value="Delivery_Queue" <?php echo ($filter == 'Delivery_Queue') ? 'selected' : ''; ?>>Delivery Coordination</option>
+                    <option value="Completed" <?php echo ($filter == 'Completed') ? 'selected' : ''; ?>>Delivered Orders</option>
+                    <option value="Awaiting_Collection" <?php echo ($filter == 'Awaiting_Collection') ? 'selected' : ''; ?>>Delivered · Awaiting Payment</option>
+                    <option value="Paid" <?php echo ($filter == 'Paid') ? 'selected' : ''; ?>>Delivered · Fully Paid</option>
                     <option value="Rejected" <?php echo ($filter == 'Rejected') ? 'selected' : ''; ?>>Rejected</option>
                     <option value="my_tasks" <?php echo ($filter == 'my_tasks') ? 'selected' : ''; ?>>My Tasks</option>
                     <option value="unassigned" <?php echo ($filter == 'unassigned') ? 'selected' : ''; ?>>Unassigned Tasks</option>

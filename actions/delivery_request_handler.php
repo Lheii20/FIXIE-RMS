@@ -3,6 +3,7 @@ session_start();
 
 require '../config/db_connect.php';
 require '../config/functions.php';
+require_once '../config/workflow_feedback.php';
 
 date_default_timezone_set('Asia/Manila');
 
@@ -12,11 +13,13 @@ function phase4b_redirect(int $po_id, string $type, string $message): void
         ? '../create_delivery_request.php?po_id=' . $po_id
         : '../po_list.php?filter=my_tasks';
 
-    header(
-        'Location: ' . $destination . '&' . $type . '=' .
-        rawurlencode($message)
-    );
-    exit();
+    $public_message = $type === 'error'
+        ? drms_public_feedback_message(
+            $message,
+            'The delivery request could not be completed. No workflow changes were saved.'
+        )
+        : drms_feedback_clean_text($message);
+    drms_redirect_with_feedback($destination, $type, $public_message);
 }
 
 function phase4b_parse_datetime(string $value): ?DateTime
@@ -130,11 +133,13 @@ function phase4c_redirect_review(
         ? '../review_delivery_request.php?po_id=' . $po_id
         : '../po_list.php?filter=my_tasks';
 
-    header(
-        'Location: ' . $destination . '&' . $type . '=' .
-        rawurlencode($message)
-    );
-    exit();
+    $public_message = $type === 'error'
+        ? drms_public_feedback_message(
+            $message,
+            'The logistics decision could not be completed. No workflow changes were saved.'
+        )
+        : drms_feedback_clean_text($message);
+    drms_redirect_with_feedback($destination, $type, $public_message);
 }
 
 if (!isset($_SESSION['user_id'])) {
@@ -278,7 +283,6 @@ if (in_array(
                 po.po_number,
                 po.client_name,
                 po.status,
-                po.source_pr_workflow_version,
                 delivery_request.delivery_request_id,
                 delivery_request.request_number,
                 delivery_request.request_type,
@@ -305,7 +309,6 @@ if (in_array(
 
         if (
             !$review ||
-            (int) $review['source_pr_workflow_version'] !== 2 ||
             $review['status'] !== 'Delivery Requested' ||
             $review['request_status'] !== 'Submitted' ||
             $review['logistics_status'] !== 'Pending Review'
@@ -637,14 +640,14 @@ if (in_array(
         exit();
     } catch (Throwable $error) {
         $conn->rollback();
-        error_log(
-            'Phase 4C logistics review failed for PO ' . $po_id . ': ' .
-            $error->getMessage()
+        drms_log_workflow_failure(
+            'Logistics review for PO ' . $po_id,
+            $error
         );
 
         $public_error = $error instanceof DomainException
             ? $error->getMessage()
-            : 'The logistics decision could not be completed. Verify the Phase 4A workflow and try again.';
+            : 'The logistics decision could not be completed. No workflow changes were saved. Please try again.';
         phase4c_redirect_review($po_id, 'error', $public_error);
     }
 }
@@ -834,7 +837,6 @@ try {
         "SELECT
             po.po_number,
             po.status,
-            po.source_pr_workflow_version,
             po.supplier_detail_id,
             supplier.supplier_name,
             funding.fund_release_id
@@ -857,7 +859,6 @@ try {
 
     if (
         !$po ||
-        (int) $po['source_pr_workflow_version'] !== 2 ||
         $po['status'] !== 'Funded'
     ) {
         throw new DomainException(
@@ -880,7 +881,7 @@ try {
 
     if (!$rule || $rule['next_status'] !== 'Delivery Requested') {
         throw new DomainException(
-            'The delivery-request workflow is unavailable. Verify that Phase 4A is installed.'
+            'The delivery-request workflow is currently unavailable. Please ask an administrator to review the workflow configuration.'
         );
     }
 
@@ -1196,14 +1197,15 @@ try {
 } catch (Throwable $error) {
     $conn->rollback();
 
-    error_log(
-        'Phase 4B delivery request failed for PO ' . $po_id . ': ' .
-        $error->getMessage()
+    drms_log_workflow_failure(
+        'Delivery request submission for PO ' . $po_id,
+        $error
     );
 
     $public_error = $error instanceof DomainException
         ? $error->getMessage()
-        : 'The delivery request could not be submitted. Verify that Phase 4A and the Phase 4B handoff migration are installed.';
+        : 'The delivery request could not be submitted. No workflow changes were saved. Please try again.';
 
     phase4b_redirect($po_id, 'error', $public_error);
 }
+

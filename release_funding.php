@@ -1,6 +1,7 @@
 <?php
 require 'config/db_connect.php';
 require 'config/functions.php';
+require_once 'config/workflow_feedback.php';
 
 date_default_timezone_set('Asia/Manila');
 
@@ -34,9 +35,14 @@ $po = null;
 $active_assignment = null;
 $existing_release = null;
 $eligibility_error = '';
+$request_error = drms_public_feedback_message(
+    $_GET['error'] ?? '',
+    'The supplier funding action could not be completed. No changes were saved.'
+);
 
 if ($po_id > 0) {
-    $po_stmt = $conn->prepare(
+    try {
+        $po_stmt = $conn->prepare(
         "SELECT
             po.*,
             supplier.supplier_name,
@@ -68,12 +74,11 @@ if ($po_id > 0) {
            AND client_po.record_type = 'Official Client PO'
            AND client_po.record_status = 'Active'
          WHERE po.po_id = ?
-           AND po.source_pr_workflow_version = 2
          LIMIT 1"
-    );
-    $po_stmt->bind_param('i', $po_id);
-    $po_stmt->execute();
-    $po = $po_stmt->get_result()->fetch_assoc();
+        );
+        $po_stmt->bind_param('i', $po_id);
+        $po_stmt->execute();
+        $po = $po_stmt->get_result()->fetch_assoc();
 
     if ($po) {
         $active_assignment = get_active_po_task_assignment($conn, $po_id);
@@ -109,6 +114,14 @@ if ($po_id > 0) {
                 'This funding task is assigned to ' .
                 $active_assignment['assignee_name'] . '.';
         }
+        }
+    } catch (Throwable $error) {
+        drms_log_workflow_failure('Supplier funding page load', $error);
+        $po = null;
+        $active_assignment = null;
+        $existing_release = null;
+        $eligibility_error =
+            'The supplier funding details could not be loaded. Return to Purchase Orders and try again.';
     }
 }
 
@@ -138,8 +151,9 @@ $reference_placeholder = $po && $po['payment_method'] === 'Cash'
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/prf-form.css?v=<?php echo filemtime(__DIR__ . '/assets/css/prf-form.css'); ?>" rel="stylesheet">
     <link href="assets/css/funding-release.css?v=<?php echo filemtime(__DIR__ . '/assets/css/funding-release.css'); ?>" rel="stylesheet">
+    <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
-<body class="prf-page funding-release-page">
+<body class="prf-page funding-release-page workflow-ui">
     <?php include 'sidebar.php'; ?>
 
     <main class="main-content fade-in">
@@ -161,16 +175,16 @@ $reference_placeholder = $po && $po['payment_method'] === 'Cash'
 
                 <?php if ($can_release): ?>
                     <span class="prf-workflow-chip funding-ready-chip">
-                        <i class="fas fa-shield-check"></i>
+                        <i class="fas fa-shield-alt"></i>
                         Finance assigned
                     </span>
                 <?php endif; ?>
             </header>
 
-            <?php if (isset($_GET['error']) && trim((string) $_GET['error']) !== ''): ?>
+            <?php if ($request_error !== ''): ?>
                 <div class="prf-alert prf-alert-danger" role="alert">
                     <i class="fas fa-exclamation-circle"></i>
-                    <span><?php echo htmlspecialchars((string) $_GET['error']); ?></span>
+                    <span><?php echo htmlspecialchars($request_error); ?></span>
                 </div>
             <?php endif; ?>
 
@@ -182,10 +196,19 @@ $reference_placeholder = $po && $po['payment_method'] === 'Cash'
             ></div>
 
             <?php if (!$po): ?>
+                <?php if ($eligibility_error !== ''): ?>
+                    <section class="prf-alert prf-alert-danger" role="alert">
+                        <i class="fas fa-triangle-exclamation"></i>
+                        <div>
+                            <strong>Funding details are unavailable</strong>
+                            <span><?php echo htmlspecialchars($eligibility_error); ?></span>
+                        </div>
+                    </section>
+                <?php endif; ?>
                 <section class="prf-empty-state">
                     <div class="prf-empty-icon"><i class="fas fa-coins"></i></div>
                     <h3>No eligible funding record selected</h3>
-                    <p>Select an approved Version 2 PO assigned to Finance.</p>
+                    <p>Select an approved PO assigned to your Finance account.</p>
                     <a href="po_list.php?filter=my_tasks" class="btn btn-primary">
                         View my Finance tasks
                     </a>

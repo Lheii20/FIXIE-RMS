@@ -120,9 +120,9 @@ function fetch_chart_data($conn, $sql, $types, $params, $single = false) {
 // ====================================================
 // SHARED COLLECTION DECISION-SUPPORT POSITION
 // ====================================================
-// Collected legacy POs may predate the payment ledger. Their Collected status
-// remains the authoritative settlement marker, while open POs use actual
-// payment rows to calculate the live balance.
+// Clean-start collection metrics use the independent collection_status field
+// and verified payment ledger. Operational PO status remains Delivered after
+// handover, regardless of whether the client is unpaid, partially paid, or paid.
 $collection_dss = [
     'outstanding_amount' => 0.0,
     'open_count' => 0,
@@ -142,7 +142,7 @@ if ($can_view_financials) {
         $collection_position_sql = "SELECT
                 COALESCE(SUM(
                     CASE
-                        WHEN position.status IN ('Delivered', 'Partially-Collected')
+                        WHEN position.collection_status IN ('Unpaid', 'Partially Paid')
                          AND position.balance > 0
                         THEN position.balance
                         ELSE 0
@@ -150,7 +150,7 @@ if ($can_view_financials) {
                 ), 0) AS outstanding_amount,
                 SUM(
                     CASE
-                        WHEN position.status IN ('Delivered', 'Partially-Collected')
+                        WHEN position.collection_status IN ('Unpaid', 'Partially Paid')
                          AND position.balance > 0
                         THEN 1
                         ELSE 0
@@ -158,7 +158,7 @@ if ($can_view_financials) {
                 ) AS open_count,
                 COALESCE(SUM(
                     CASE
-                        WHEN position.status IN ('Delivered', 'Partially-Collected')
+                        WHEN position.collection_status IN ('Unpaid', 'Partially Paid')
                          AND position.balance > 0
                          AND position.due_date < CURDATE()
                         THEN position.balance
@@ -167,7 +167,7 @@ if ($can_view_financials) {
                 ), 0) AS overdue_amount,
                 SUM(
                     CASE
-                        WHEN position.status IN ('Delivered', 'Partially-Collected')
+                        WHEN position.collection_status IN ('Unpaid', 'Partially Paid')
                          AND position.balance > 0
                          AND position.due_date < CURDATE()
                         THEN 1
@@ -176,7 +176,7 @@ if ($can_view_financials) {
                 ) AS overdue_count,
                 COALESCE(SUM(
                     CASE
-                        WHEN position.status IN ('Delivered', 'Partially-Collected')
+                        WHEN position.collection_status IN ('Unpaid', 'Partially Paid')
                          AND position.balance > 0
                          AND position.due_date BETWEEN CURDATE()
                              AND DATE_ADD(CURDATE(), INTERVAL 3 DAY)
@@ -186,7 +186,7 @@ if ($can_view_financials) {
                 ), 0) AS due_soon_amount,
                 SUM(
                     CASE
-                        WHEN position.status IN ('Delivered', 'Partially-Collected')
+                        WHEN position.collection_status IN ('Unpaid', 'Partially Paid')
                          AND position.balance > 0
                          AND position.due_date BETWEEN CURDATE()
                              AND DATE_ADD(CURDATE(), INTERVAL 3 DAY)
@@ -196,7 +196,7 @@ if ($can_view_financials) {
                 ) AS due_soon_count,
                 COALESCE(SUM(
                     CASE
-                        WHEN position.status IN ('Delivered', 'Partially-Collected')
+                        WHEN position.collection_status IN ('Unpaid', 'Partially Paid')
                          AND position.balance > 0
                          AND position.due_date IS NULL
                         THEN position.balance
@@ -205,7 +205,7 @@ if ($can_view_financials) {
                 ), 0) AS missing_due_amount,
                 SUM(
                     CASE
-                        WHEN position.status IN ('Delivered', 'Partially-Collected')
+                        WHEN position.collection_status IN ('Unpaid', 'Partially Paid')
                          AND position.balance > 0
                          AND position.due_date IS NULL
                         THEN 1
@@ -218,6 +218,7 @@ if ($can_view_financials) {
                 SELECT
                     base.po_id,
                     base.status,
+                    base.collection_status,
                     base.amount,
                     base.collected_value,
                     base.due_date,
@@ -226,14 +227,12 @@ if ($can_view_financials) {
                     SELECT
                         po.po_id,
                         po.status,
+                        po.collection_status,
                         po.amount,
-                        CASE
-                            WHEN po.status = 'Collected' THEN po.amount
-                            ELSE LEAST(
-                                COALESCE(payment_summary.total_paid, 0),
-                                po.amount
-                            )
-                        END AS collected_value,
+                        LEAST(
+                            COALESCE(payment_summary.total_paid, 0),
+                            po.amount
+                        ) AS collected_value,
                         COALESCE(
                             NULLIF(receipt.collection_due_date, ''),
                             NULLIF(po.expected_collection_date, '')
@@ -252,11 +251,7 @@ if ($can_view_financials) {
                             WHERE receipt_candidate.po_id = po.po_id
                               AND receipt_candidate.record_status = 'Active'
                         )
-                    WHERE po.status IN (
-                        'Delivered',
-                        'Partially-Collected',
-                        'Collected'
-                    )
+                    WHERE po.status = 'Delivered'
                       AND {$po_collection_date['sql']}
                 ) base
             ) position";
@@ -377,7 +372,7 @@ if ($role === 'Admin') {
 // ==========================================
 // SALES STAFF STATS & CHARTS
 // ==========================================
-$sales_stats = ['total' => 0, 'pending' => 0, 'approved' => 0, 'rejected' => 0, 'pending_quotations' => 0, 'received_client_po' => 0];
+$sales_stats = ['total' => 0, 'pending' => 0, 'approved' => 0, 'rejected' => 0, 'pending_quotations' => 0, 'awaiting_gm_client_po' => 0, 'received_client_po' => 0];
 $sales_charts = [];
 
 if ($is_sales_staff) {
@@ -387,6 +382,7 @@ if ($is_sales_staff) {
     $sales_stats['rejected'] = get_count($conn, "SELECT COUNT(*) FROM purchase_requests WHERE status = 'Rejected' AND {$pr_date['sql']}", $pr_date['types'], $pr_date['params']);
     
     $sales_stats['pending_quotations'] = get_count($conn, "SELECT COUNT(*) FROM quotations WHERE status = 'Pending Approval' AND {$q_date['sql']}", $q_date['types'], $q_date['params']);
+    $sales_stats['awaiting_gm_client_po'] = get_count($conn, "SELECT COUNT(*) FROM quotations WHERE status = 'For GM Acknowledgement' AND {$q_date['sql']}", $q_date['types'], $q_date['params']);
     $sales_stats['received_client_po'] = get_count($conn, "SELECT COUNT(*) FROM quotations WHERE status = 'PO Received' AND {$q_date['sql']}", $q_date['types'], $q_date['params']);
 
     $q_pr_status = "SELECT status, COUNT(*) as count FROM purchase_requests WHERE {$pr_date['sql']} GROUP BY status";
@@ -484,7 +480,7 @@ if ($role === 'Procurement') {
     $proc_stats['total'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE {$po_date['sql']}", $po_date['types'], $po_date['params']);
     $proc_stats['pending'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status IN ('Pending', 'GM-Approved', 'Finance-Approved', 'President-Approved') AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
     $proc_stats['funded'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Funded' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
-    $proc_stats['delivered'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status IN ('Collected', 'Delivered', 'Partially-Collected') AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
+    $proc_stats['delivered'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Delivered' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
 
     $q_status = "SELECT status, COUNT(*) as count FROM purchase_orders WHERE {$po_date['sql']} GROUP BY status";
     $proc_charts['status_dist'] = fetch_chart_data($conn, $q_status, $po_date['types'], $po_date['params'], false);
@@ -539,21 +535,15 @@ if ($role === 'Procurement') {
 // ==========================================
 // EXECUTIVE (GM/PRES) CHART ANALYTICS
 // ==========================================
-$exec_stats = ['active_docs' => 0, 'archived_docs' => 0, 'pending_pr' => 0, 'pending_po' => 0];
+$exec_stats = ['active_docs' => 0, 'archived_docs' => 0, 'pending_pr' => 0, 'pending_po' => 0, 'pending_client_po_ack' => 0];
 
 if (in_array($role, $executives)) {
     $exec_stats['active_docs'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE status = 'Active' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
     $exec_stats['archived_docs'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE status = 'Archived' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
     if ($role === 'GM') {
-        $pr_queue_condition = "(
-            workflow_version = 1
-            OR (workflow_version = 2 AND current_approval_stage = 'GM Review')
-        )";
+        $pr_queue_condition = "current_approval_stage = 'GM Review'";
     } else {
-        $pr_queue_condition = "(
-            workflow_version = 1
-            OR (workflow_version = 2 AND current_approval_stage = 'Owner Approval')
-        )";
+        $pr_queue_condition = "current_approval_stage = 'Owner Approval'";
     }
 
     $exec_stats['pending_pr'] = get_count(
@@ -568,6 +558,15 @@ if (in_array($role, $executives)) {
     );
     
     if ($role === 'GM') {
+        $exec_stats['pending_client_po_ack'] = get_count(
+            $conn,
+            "SELECT COUNT(*)
+             FROM quotations
+             WHERE status = 'For GM Acknowledgement'
+               AND {$q_date['sql']}",
+            $q_date['types'],
+            $q_date['params']
+        );
         $exec_stats['pending_po'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Pending' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
     } else {
         $exec_stats['pending_po'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Finance-Approved' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
@@ -578,19 +577,19 @@ $sc_stats = ['ready_for_delivery' => 0, 'delivered' => 0, 'awaiting_collection' 
 $sc_charts = ['status_dist' => [], 'delivery_trend' => [], 'top_clients' => [], 'proof_coverage' => []];
 
 if ($role === 'Supply Chain') {
-    $sc_stats['ready_for_delivery'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Funded' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
-    $sc_stats['delivered'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status IN ('Delivered', 'Partially-Collected', 'Collected') AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
-    $sc_stats['awaiting_collection'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Delivered' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
-    $sc_stats['completed_collections'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Collected' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
-    $sc_stats['delivery_proofs'] = get_count($conn, "SELECT COUNT(*) FROM documents WHERE doc_type = 'Proof of Delivery' AND status = 'Active' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
+    $sc_stats['ready_for_delivery'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status IN ('Delivery Requested', 'For Pick-up/Delivery') AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
+    $sc_stats['delivered'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Delivered' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
+    $sc_stats['awaiting_collection'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Delivered' AND collection_status IN ('Unpaid', 'Partially Paid') AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
+    $sc_stats['completed_collections'] = get_count($conn, "SELECT COUNT(*) FROM purchase_orders WHERE status = 'Delivered' AND collection_status = 'Paid' AND {$po_date['sql']}", $po_date['types'], $po_date['params']);
+    $sc_stats['delivery_proofs'] = get_count($conn, "SELECT COUNT(DISTINCT po_id) FROM documents WHERE po_id IS NOT NULL AND doc_type = 'Proof of Delivery' AND status = 'Active' AND {$doc_date['sql']}", $doc_date['types'], $doc_date['params']);
 
-    $q_sc_status = "SELECT status, COUNT(*) AS total FROM purchase_orders WHERE status IN ('Funded', 'Delivered', 'Partially-Collected', 'Collected') AND {$po_date['sql']} GROUP BY status";
+    $q_sc_status = "SELECT status, COUNT(*) AS total FROM purchase_orders WHERE status IN ('Delivery Requested', 'For Pick-up/Delivery', 'Delivered') AND {$po_date['sql']} GROUP BY status";
     $sc_charts['status_dist'] = fetch_chart_data($conn, $q_sc_status, $po_date['types'], $po_date['params'], false);
 
-    $q_sc_trend = "SELECT DATE(COALESCE(actual_delivery_date, date_created)) AS delivery_date, COUNT(*) AS total FROM purchase_orders WHERE status IN ('Delivered', 'Partially-Collected', 'Collected') AND {$po_date['sql']} GROUP BY delivery_date ORDER BY delivery_date DESC LIMIT 14";
+    $q_sc_trend = "SELECT DATE(COALESCE(actual_delivery_date, date_created)) AS delivery_date, COUNT(*) AS total FROM purchase_orders WHERE status = 'Delivered' AND {$po_date['sql']} GROUP BY delivery_date ORDER BY delivery_date DESC LIMIT 14";
     $sc_charts['delivery_trend'] = array_reverse(fetch_chart_data($conn, $q_sc_trend, $po_date['types'], $po_date['params'], false));
 
-    $q_sc_clients = "SELECT client_name, COUNT(*) AS total FROM purchase_orders WHERE status IN ('Delivered', 'Partially-Collected', 'Collected') AND {$po_date['sql']} GROUP BY client_name ORDER BY total DESC LIMIT 5";
+    $q_sc_clients = "SELECT client_name, COUNT(*) AS total FROM purchase_orders WHERE status = 'Delivered' AND {$po_date['sql']} GROUP BY client_name ORDER BY total DESC LIMIT 5";
     $sc_charts['top_clients'] = fetch_chart_data($conn, $q_sc_clients, $po_date['types'], $po_date['params'], false);
 
     $sc_charts['proof_coverage'] = [
@@ -618,7 +617,7 @@ if (!in_array($role, ['Admin', 'Finance']) && !in_array($role, $executives)) {
         $stmt_ws = $conn->prepare($ws_sql);
         if(!empty($po_date['params'])) $stmt_ws->bind_param($po_date['types'], ...$po_date['params']);
     } else {
-        $ws_sql = "SELECT po_id as id, po_number as number, client_name, amount, status, current_location, date_created FROM purchase_orders WHERE status NOT IN ('Collected', 'Invalid') AND {$po_date['sql']} ORDER BY date_created DESC LIMIT 10";
+        $ws_sql = "SELECT po_id as id, po_number as number, client_name, amount, status, current_location, date_created FROM purchase_orders WHERE status NOT IN ('Delivered', 'Rejected', 'Invalid') AND {$po_date['sql']} ORDER BY date_created DESC LIMIT 10";
         $stmt_ws = $conn->prepare($ws_sql);
         if(!empty($po_date['params'])) $stmt_ws->bind_param($po_date['types'], ...$po_date['params']);
     }
@@ -704,7 +703,7 @@ if (in_array($role, $executives)) {
             UNION ALL SELECT DATE(created_at), 1, 0, 0, 0, 0 FROM quotations WHERE {$q_date['sql']}
             UNION ALL SELECT DATE(date_created), 0, 1, 0, 0, 0 FROM purchase_orders WHERE {$po_date['sql']}
             UNION ALL SELECT DATE(created_at), 0, 0, 1, 0, 0 FROM payments WHERE {$payment_date['sql']}
-            UNION ALL SELECT DATE(timestamp), 0, 0, 1, 0, 0 FROM po_history WHERE status_to IN ('Funded', 'Delivered', 'Collected', 'Partially-Collected') AND {$po_hist_date['sql']}
+            UNION ALL SELECT DATE(timestamp), 0, 0, 1, 0, 0 FROM po_history WHERE status_to IN ('Funded', 'Delivery Requested', 'For Pick-up/Delivery', 'Delivered') AND {$po_hist_date['sql']}
             UNION ALL SELECT DATE(uploaded_at), 0, 0, 0, 1, 0 FROM documents WHERE {$doc_date['sql']}
             UNION ALL SELECT DATE(timestamp), 0, 0, 0, 0, 1 FROM po_history WHERE status_to LIKE '%Approved%' AND {$po_hist_date['sql']}
         ) as combined GROUP BY a_date ORDER BY a_date DESC LIMIT 15
@@ -729,7 +728,7 @@ if (in_array($role, $executives)) {
         'missing_due_count' => $collection_dss['missing_due_count'],
     ];
     
-    $q_aging = "SELECT p.po_number, p.status, p.current_location, TIMESTAMPDIFF(HOUR, COALESCE((SELECT MAX(timestamp) FROM po_history ph WHERE ph.po_id = p.po_id), p.date_created), NOW()) as hours_stagnant FROM purchase_orders p WHERE p.status NOT IN ('Collected', 'Rejected', 'Invalid') AND {$po_date['sql']} ORDER BY hours_stagnant DESC LIMIT 1";
+    $q_aging = "SELECT p.po_number, p.status, p.current_location, TIMESTAMPDIFF(HOUR, COALESCE((SELECT MAX(timestamp) FROM po_history ph WHERE ph.po_id = p.po_id), p.date_created), NOW()) as hours_stagnant FROM purchase_orders p WHERE p.status NOT IN ('Delivered', 'Rejected', 'Invalid') AND {$po_date['sql']} ORDER BY hours_stagnant DESC LIMIT 1";
     $gm_charts['aging_po'] = fetch_chart_data($conn, $q_aging, $po_date['types'], $po_date['params'], true);
     
     $q_quote_conv = "SELECT COUNT(*) as total_quotes, SUM(CASE WHEN status IN ('PO Received', 'Converted to PR') THEN 1 ELSE 0 END) as converted_quotes FROM quotations WHERE {$q_date['sql']}";
@@ -804,8 +803,7 @@ if ($role === 'Finance') {
         $conn,
         "SELECT COUNT(*)
          FROM purchase_requests
-         WHERE workflow_version = 2
-           AND status = 'Pending'
+         WHERE status = 'Pending'
            AND current_approval_stage = 'Finance Review'
            AND {$pr_date['sql']}",
         $pr_date['types'],
@@ -856,7 +854,7 @@ if ($role === 'Finance') {
 
     $q_in = "SELECT DATE_FORMAT(payment_date, '%Y-%m') as m, SUM(amount_paid) as val FROM payments GROUP BY m";
     $in_data = fetch_chart_data($conn, $q_in, '', []);
-    $q_out = "SELECT DATE_FORMAT(date_created, '%Y-%m') as m, SUM(amount) as val FROM purchase_requests WHERE status IN ('Approved', 'Converted_to_PO') GROUP BY m";
+    $q_out = "SELECT DATE_FORMAT(released_at, '%Y-%m') as m, SUM(released_amount) as val FROM po_supplier_fund_releases WHERE record_status = 'Active' GROUP BY m";
     $out_data = fetch_chart_data($conn, $q_out, '', []);
     $cf_months = [];
     foreach($in_data as $row) { $cf_months[$row['m']] = ['inflow' => $row['val'], 'outflow' => 0]; }
@@ -879,13 +877,10 @@ if ($role === 'Finance') {
             po.client_name,
             SUM(po.amount) AS total_revenue,
             SUM(
-                CASE
-                    WHEN po.status = 'Collected' THEN po.amount
-                    ELSE LEAST(
-                        COALESCE(payment_summary.total_paid, 0),
-                        po.amount
-                    )
-                END
+                LEAST(
+                    COALESCE(payment_summary.total_paid, 0),
+                    po.amount
+                )
             ) AS collected_amount
         FROM purchase_orders po
         LEFT JOIN (
@@ -894,7 +889,7 @@ if ($role === 'Finance') {
             GROUP BY po_id
         ) payment_summary
             ON payment_summary.po_id = po.po_id
-        WHERE po.status IN ('Delivered', 'Partially-Collected', 'Collected')
+        WHERE po.status = 'Delivered'
           AND {$po_collection_date['sql']}
         GROUP BY po.client_name
         ORDER BY total_revenue DESC

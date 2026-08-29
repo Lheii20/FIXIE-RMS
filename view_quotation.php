@@ -2,6 +2,7 @@
 require 'config/db_connect.php';
 require 'config/functions.php';
 require_once 'config/workflow_access.php';
+require_once 'config/client_po_acknowledgement.php';
 
 date_default_timezone_set('Asia/Manila');
 
@@ -73,6 +74,7 @@ while ($approval_record = $approval_result->fetch_assoc()) {
 
 $official_approval_record = null;
 $latest_supporting_record = null;
+$latest_returned_official_record = null;
 
 foreach ($approval_records as $approval_record) {
     if (
@@ -90,16 +92,47 @@ foreach ($approval_records as $approval_record) {
     ) {
         $latest_supporting_record = $approval_record;
     }
+
+    if (
+        $approval_record['record_status'] === 'Returned' &&
+        $approval_record['record_type'] === 'Official Client PO' &&
+        $latest_returned_official_record === null
+    ) {
+        $latest_returned_official_record = $approval_record;
+    }
 }
 
 $role = $_SESSION['role'];
 $is_sales_staff = $role === 'Sales Staff';
-$can_create_pr = $is_sales_staff && $quote['status'] === 'PO Received';
+$is_general_manager = $role === 'GM';
+$phase6b2_ready = phase6b2_is_installed($conn);
+$acknowledgement_source_record = $official_approval_record
+    ?? $latest_returned_official_record;
+$official_po_acknowledgement = (
+    $phase6b2_ready &&
+    $acknowledgement_source_record
+) ? phase6b2_get_active_acknowledgement(
+    $conn,
+    (int) $acknowledgement_source_record['approval_record_id']
+) : null;
+$has_gm_acknowledgement = $official_po_acknowledgement &&
+    $official_po_acknowledgement['decision'] === 'Acknowledged';
+$can_create_pr = $is_sales_staff &&
+    $quote['status'] === 'PO Received' &&
+    (
+        $official_approval_record === null ||
+        $has_gm_acknowledgement
+    );
 $can_submit_approval = $is_sales_staff && in_array(
     $quote['status'],
     ['Pending Approval', 'Pending PO'],
     true
 );
+$can_review_official_po = $is_general_manager &&
+    $phase6b2_ready &&
+    $quote['status'] === 'For GM Acknowledgement' &&
+    $official_approval_record !== null &&
+    $official_po_acknowledgement === null;
 
 $has_structured_official_po = $official_approval_record !== null;
 $has_legacy_approval = !$has_structured_official_po && !empty($quote['client_po_number']);
@@ -113,6 +146,10 @@ if ($status === 'Pending Approval' && $latest_supporting_record !== null) {
     $badge = 'bg-soft-primary';
     $icon = 'fa-comments';
     $status_label = 'Confirmation Recorded';
+} elseif ($status === 'For GM Acknowledgement') {
+    $badge = 'bg-soft-warning';
+    $icon = 'fa-user-check';
+    $status_label = 'For GM Acknowledgement';
 } elseif ($status === 'PO Received') {
     $badge = 'bg-soft-success';
     $icon = 'fa-check-double';
@@ -133,11 +170,13 @@ if ($status === 'Pending Approval' && $latest_supporting_record !== null) {
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
     <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link href="assets/css/client-approval.css?v=<?php echo filemtime(__DIR__ . '/assets/css/client-approval.css'); ?>" rel="stylesheet">
+    <link href="assets/css/client-po-acknowledgement.css?v=<?php echo filemtime(__DIR__ . '/assets/css/client-po-acknowledgement.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
-<body class="page-view-quotation">
+<body class="page-view-quotation workflow-ui">
     <?php include 'sidebar.php'; ?>
 
     <div class="main-content fade-in">
@@ -379,6 +418,191 @@ if ($status === 'Pending Approval' && $latest_supporting_record !== null) {
                 </div>
             </div>
 
+            <?php if (
+                $official_approval_record &&
+                $status === 'For GM Acknowledgement'
+            ): ?>
+                <section class="po-ack-panel no-print <?php echo $phase6b2_ready ? '' : 'is-unavailable'; ?>" aria-labelledby="poAckTitle">
+                    <div class="po-ack-header">
+                        <div class="po-ack-title-wrap">
+                            <span class="po-ack-icon"><i class="fas fa-file-signature"></i></span>
+                            <div>
+                                <h3 class="po-ack-title" id="poAckTitle">General Manager acknowledgment</h3>
+                                <p class="po-ack-subtitle">
+                                    Review the signed Client PO before Sales can prepare the purchase request form.
+                                </p>
+                            </div>
+                        </div>
+                        <span class="po-ack-chip"><i class="fas fa-clock"></i> Awaiting sign-off</span>
+                    </div>
+
+                    <div class="po-ack-body">
+                        <div class="po-ack-summary-grid">
+                            <div class="po-ack-summary-item">
+                                <span>Client PO</span>
+                                <strong><?php echo htmlspecialchars($official_approval_record['actual_client_po_number']); ?></strong>
+                            </div>
+                            <div class="po-ack-summary-item">
+                                <span>PO date</span>
+                                <strong><?php echo date('M d, Y', strtotime($official_approval_record['client_po_date'])); ?></strong>
+                            </div>
+                            <div class="po-ack-summary-item">
+                                <span>Internal reference</span>
+                                <strong><?php echo htmlspecialchars($official_approval_record['internal_reference']); ?></strong>
+                            </div>
+                        </div>
+
+                        <?php if ($can_review_official_po): ?>
+                            <form action="actions/client_po_acknowledgement_handler.php" method="POST">
+                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'] ?? ''); ?>">
+                                <input type="hidden" name="quotation_id" value="<?php echo $quotation_id; ?>">
+                                <input type="hidden" name="approval_record_id" value="<?php echo (int) $official_approval_record['approval_record_id']; ?>">
+
+                                <div class="po-ack-form-grid">
+                                    <div>
+                                        <label for="poAckRemarks" class="po-ack-label">Review remarks</label>
+                                        <textarea
+                                            id="poAckRemarks"
+                                            name="remarks"
+                                            class="po-ack-textarea"
+                                            maxlength="1000"
+                                            placeholder="Optional for approval; required when returning the document."
+                                        ></textarea>
+                                        <label class="po-ack-confirmation" for="poAckConfirmation">
+                                            <input id="poAckConfirmation" type="checkbox" name="confirmation" value="1" required>
+                                            <span>I reviewed the attached official Client PO and confirm this authenticated account as my digital sign-off.</span>
+                                        </label>
+                                    </div>
+
+                                    <div class="po-ack-actions">
+                                        <button
+                                            type="submit"
+                                            name="decision"
+                                            value="Returned"
+                                            class="po-ack-button is-return"
+                                            formnovalidate
+                                        >
+                                            <i class="fas fa-undo-alt"></i> Return to Sales
+                                        </button>
+                                        <button
+                                            type="submit"
+                                            name="decision"
+                                            value="Acknowledged"
+                                            class="po-ack-button is-sign"
+                                        >
+                                            <i class="fas fa-signature"></i> Sign & acknowledge
+                                        </button>
+                                    </div>
+                                </div>
+                            </form>
+                        <?php elseif (!$phase6b2_ready): ?>
+                            <div class="po-ack-note">
+                                <i class="fas fa-triangle-exclamation"></i>
+                                <span>Install the Phase 6B2 SQL migration before processing this sign-off.</span>
+                            </div>
+                        <?php else: ?>
+                            <div class="po-ack-note">
+                                <i class="fas fa-lock"></i>
+                                <span>Only an authenticated General Manager can sign or return this official Client PO.</span>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </section>
+            <?php elseif (
+                $official_approval_record &&
+                $official_po_acknowledgement &&
+                $official_po_acknowledgement['decision'] === 'Acknowledged'
+            ): ?>
+                <section class="po-ack-panel is-approved no-print" aria-label="General Manager acknowledgment audit">
+                    <div class="po-ack-header">
+                        <div class="po-ack-title-wrap">
+                            <span class="po-ack-icon"><i class="fas fa-shield-alt"></i></span>
+                            <div>
+                                <h3 class="po-ack-title">GM acknowledgment complete</h3>
+                                <p class="po-ack-subtitle">The official Client PO passed internal review and is eligible for PRF preparation.</p>
+                            </div>
+                        </div>
+                        <span class="po-ack-chip"><i class="fas fa-check"></i> Acknowledged</span>
+                    </div>
+                    <div class="po-ack-body">
+                        <div class="po-ack-audit">
+                            <div class="po-ack-audit-item">
+                                <span>Signatory</span>
+                                <strong><?php echo htmlspecialchars($official_po_acknowledgement['actor_name']); ?></strong>
+                            </div>
+                            <div class="po-ack-audit-item">
+                                <span>Role</span>
+                                <strong><?php echo htmlspecialchars($official_po_acknowledgement['signatory_role']); ?></strong>
+                            </div>
+                            <div class="po-ack-audit-item">
+                                <span>Method</span>
+                                <strong><?php echo htmlspecialchars($official_po_acknowledgement['acknowledgement_method']); ?></strong>
+                            </div>
+                            <div class="po-ack-audit-item">
+                                <span>Signed at</span>
+                                <strong><?php echo date('M d, Y h:i A', strtotime($official_po_acknowledgement['acted_at'])); ?></strong>
+                            </div>
+                            <?php if (!empty($official_po_acknowledgement['remarks'])): ?>
+                                <div class="po-ack-audit-item po-ack-remarks">
+                                    <span>Remarks</span>
+                                    <strong><?php echo nl2br(htmlspecialchars($official_po_acknowledgement['remarks'])); ?></strong>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </section>
+            <?php elseif (
+                $latest_returned_official_record &&
+                $official_po_acknowledgement &&
+                $official_po_acknowledgement['decision'] === 'Returned'
+            ): ?>
+                <section class="po-ack-panel is-returned no-print" aria-label="Returned Client PO review">
+                    <div class="po-ack-header">
+                        <div class="po-ack-title-wrap">
+                            <span class="po-ack-icon"><i class="fas fa-undo-alt"></i></span>
+                            <div>
+                                <h3 class="po-ack-title">Client PO returned to Sales</h3>
+                                <p class="po-ack-subtitle">Sales may record a corrected official Client PO after resolving the review remarks.</p>
+                            </div>
+                        </div>
+                        <span class="po-ack-chip"><i class="fas fa-times"></i> Returned</span>
+                    </div>
+                    <div class="po-ack-body">
+                        <div class="po-ack-audit">
+                            <div class="po-ack-audit-item">
+                                <span>Reviewed by</span>
+                                <strong><?php echo htmlspecialchars($official_po_acknowledgement['actor_name']); ?></strong>
+                            </div>
+                            <div class="po-ack-audit-item">
+                                <span>Client PO</span>
+                                <strong><?php echo htmlspecialchars($latest_returned_official_record['actual_client_po_number']); ?></strong>
+                            </div>
+                            <div class="po-ack-audit-item">
+                                <span>Reviewed at</span>
+                                <strong><?php echo date('M d, Y h:i A', strtotime($official_po_acknowledgement['acted_at'])); ?></strong>
+                            </div>
+                            <div class="po-ack-audit-item po-ack-remarks">
+                                <span>Return reason</span>
+                                <strong><?php echo nl2br(htmlspecialchars($official_po_acknowledgement['remarks'])); ?></strong>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            <?php elseif (
+                $official_approval_record &&
+                $status === 'PO Received' &&
+                !$phase6b2_ready
+            ): ?>
+                <section class="po-ack-panel is-unavailable no-print" aria-label="Phase 6B2 installation notice">
+                    <div class="po-ack-body">
+                        <div class="po-ack-note mt-0">
+                            <i class="fas fa-triangle-exclamation"></i>
+                            <span>Phase 6B2 must be installed before this structured official Client PO can be used for a new PRF.</span>
+                        </div>
+                    </div>
+                </section>
+            <?php endif; ?>
+
             <?php if (!empty($approval_records)): ?>
                 <div class="card shadow-sm border-0 mt-4 mb-4 client-approval-timeline no-print">
                     <div class="card-header bg-white border-0 d-flex align-items-center justify-content-between">
@@ -407,7 +631,12 @@ if ($status === 'Pending Approval' && $latest_supporting_record !== null) {
                             <div class="client-approval-timeline-row">
                                 <div>
                                     <div class="client-approval-record-title">
-                                        <?php if ($record_is_official): ?>
+                                        <?php if (
+                                            $record_is_official &&
+                                            $record['record_status'] === 'Returned'
+                                        ): ?>
+                                            <span class="text-danger">Official Client PO · Returned</span>
+                                        <?php elseif ($record_is_official): ?>
                                             <span class="text-success">Official Client PO</span>
                                         <?php else: ?>
                                             Supporting Confirmation

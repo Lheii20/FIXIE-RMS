@@ -2,13 +2,44 @@
 session_start();
 require '../config/db_connect.php';
 require '../config/functions.php';
+require_once '../config/workflow_feedback.php';
 
-if (!isset($_SESSION['user_id'])) { die("Unauthorized access."); }
+if (!function_exists('po_handler_redirect')) {
+    function po_handler_redirect(
+        string $destination,
+        string $type,
+        string $message,
+        string $fallback = 'The requested action could not be completed. No changes were saved.'
+    ): void {
+        $public_message = $type === 'error'
+            ? drms_public_feedback_message($message, $fallback)
+            : drms_feedback_clean_text($message);
+        drms_redirect_with_feedback($destination, $type, $public_message);
+    }
+}
+
+if (!isset($_SESSION['user_id'])) {
+    po_handler_redirect(
+        '../index.php',
+        'error',
+        'Your session has ended. Please sign in again.'
+    );
+}
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     
-    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
-        die("Security Error: Invalid Token");
+    $session_token = (string) ($_SESSION['csrf_token'] ?? '');
+    $posted_token = (string) ($_POST['csrf_token'] ?? '');
+    if (
+        $session_token === '' ||
+        $posted_token === '' ||
+        !hash_equals($session_token, $posted_token)
+    ) {
+        po_handler_redirect(
+            '../po_list.php',
+            'error',
+            'Security token validation failed. Refresh the page and try again.'
+        );
     }
 
     $action = $_POST['action'] ?? 'upload';
@@ -134,7 +165,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                    AND supplier.record_status = 'Active'
                  WHERE pr.pr_id = ?
                    AND pr.status = 'Approved'
-                   AND pr.workflow_version = 2
                    AND pr.current_approval_stage = 'Official Approved'
                    AND pr.final_approved_by IS NOT NULL
                    AND pr.final_approved_at IS NOT NULL
@@ -152,7 +182,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $source_pr = $pr_stmt->get_result()->fetch_assoc();
             if (!$source_pr) {
                 throw new DomainException(
-                    'Only a Version 2 PRF with an active official Client PO and completed final approval can be converted.'
+                    'Only an officially approved PRF with an active official Client PO can be converted.'
                 );
             }
 
@@ -598,7 +628,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                  SET status = 'Converted_to_PO'
                  WHERE pr_id = ?
                    AND status = 'Approved'
-                   AND workflow_version = 2
                    AND current_approval_stage = 'Official Approved'"
             );
             $pr_update_stmt->bind_param('i', $pr_id);
@@ -793,14 +822,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 unlink($created_po_document_path);
             }
 
-            error_log(
-                'Phase 3B PO creation failed for PR ' . $pr_id . ': ' .
-                $e->getMessage()
+            drms_log_workflow_failure(
+                'PO creation from PRF ' . $pr_id,
+                $e
             );
 
             $public_error = $e instanceof DomainException
                 ? $e->getMessage()
-                : 'The Purchase Order could not be created. Verify that Phase 3A is installed, then try again.';
+                : 'The Purchase Order could not be created. No records were changed. Please try again.';
+
+            $public_error = drms_public_feedback_message(
+                $public_error,
+                'The Purchase Order could not be created. No records were changed. Please try again.'
+            );
 
             header(
                 "Location: ../create_po.php?pr_id=" . $pr_id .
@@ -828,12 +862,54 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             header("Location: ../view_po.php?id=$po_id&success=" . rawurlencode("Task smoothly re-assigned to the next available user."));
         } catch (Exception $e) {
             $conn->rollback();
-            header("Location: ../view_po.php?id=$po_id&error=" . rawurlencode($e->getMessage()));
+            drms_log_workflow_failure(
+                'PO task reassignment for PO ' . $po_id,
+                $e
+            );
+            po_handler_redirect(
+                '../view_po.php?id=' . $po_id,
+                'error',
+                $e->getMessage()
+            );
         }
         exit();
     }
 
-    $workflow_actions = ['approve_gm', 'approve_finance', 'approve_president', 'mark_funded', 'mark_delivered', 'reject', 'add_payment'];
+    // Client payments use the dedicated evidence-validated handler and never
+    // rewrite the operational PO status.
+    if ($action === 'add_payment') {
+        $po_id = (int) ($_POST['po_id'] ?? 0);
+        $destination = $po_id > 0
+            ? '../record_collection_payment.php?po_id=' . $po_id
+            : '../collection_monitoring.php';
+        $separator = strpos($destination, '?') === false ? '?' : '&';
+        header(
+            'Location: ' . $destination . $separator . 'error=' .
+            rawurlencode(
+                'Use the verified Collection Payment form. Direct payment entry through this endpoint is disabled.'
+            )
+        );
+        exit();
+    }
+
+    // Final delivery must capture the logistics plan, receiving person,
+    // complete quantity, actual handover time, and acknowledgement proof.
+    if ($action === 'mark_delivered') {
+        $po_id = (int) ($_POST['po_id'] ?? 0);
+        $destination = $po_id > 0
+            ? '../complete_delivery.php?po_id=' . $po_id
+            : '../po_list.php';
+        $separator = strpos($destination, '?') === false ? '?' : '&';
+        header(
+            'Location: ' . $destination . $separator . 'error=' .
+            rawurlencode(
+                'Use the Complete Client Delivery form. Direct delivery completion is disabled.'
+            )
+        );
+        exit();
+    }
+
+    $workflow_actions = ['approve_gm', 'approve_finance', 'approve_president', 'mark_funded', 'reject'];
 
     if (in_array($action, $workflow_actions, true)) {
         $po_id = intval($_POST['po_id'] ?? 0);
@@ -842,124 +918,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             exit();
         }
 
-        // Payment is handled separately because it has financial validation and evidence requirements.
-        if ($action === 'add_payment') {
-            if ($_SESSION['role'] !== 'Finance') {
-                header("Location: ../view_po.php?id=$po_id&error=Only Finance can record payments.");
-                exit();
-            }
-
-            $amount_paid = round((float) ($_POST['amount_paid'] ?? 0), 2);
-            $payment_method = trim($_POST['payment_method'] ?? '');
-            $reference_number = trim($_POST['reference_number'] ?? '');
-            $payment_date_input = trim($_POST['payment_date'] ?? '');
-            $allowed_methods = ['Cash', 'Bank Transfer', 'GCash', 'Cheque', 'Other'];
-            $payment_date = DateTime::createFromFormat('Y-m-d\\TH:i', $payment_date_input);
-
-            if ($amount_paid <= 0 || !in_array($payment_method, $allowed_methods, true) || $reference_number === '' || strlen($reference_number) > 100 || !$payment_date || $payment_date->format('Y-m-d\\TH:i') !== $payment_date_input || $payment_date > new DateTime()) {
-                header("Location: ../view_po.php?id=$po_id&error=Enter a valid amount, payment method, reference number, and non-future payment date.");
-                exit();
-            }
-
-            if (!isset($_FILES['payment_proof']) || $_FILES['payment_proof']['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES['payment_proof']['tmp_name'])) {
-                header("Location: ../view_po.php?id=$po_id&error=Payment proof is required.");
-                exit();
-            }
-
-            $proof = $_FILES['payment_proof'];
-            $proof_ext = strtolower(pathinfo($proof['name'], PATHINFO_EXTENSION));
-            $allowed_proofs = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png'];
-            $proof_mime = (new finfo(FILEINFO_MIME_TYPE))->file($proof['tmp_name']);
-            if ($proof['size'] < 1 || $proof['size'] > 10 * 1024 * 1024 || !isset($allowed_proofs[$proof_ext]) || $proof_mime !== $allowed_proofs[$proof_ext]) {
-                header("Location: ../view_po.php?id=$po_id&error=Payment proof must be a valid PDF, JPG, or PNG file up to 10 MB.");
-                exit();
-            }
-
-            $payment_dir = __DIR__ . '/../uploads/payments/';
-            $proof_file_path = null;
-
-            try {
-                if (!is_dir($payment_dir) && !mkdir($payment_dir, 0755, true) && !is_dir($payment_dir)) {
-                    throw new Exception('Unable to create the payment-proof folder.');
-                }
-
-                $conn->begin_transaction();
-                $po_stmt = $conn->prepare("SELECT po_number, amount, status FROM purchase_orders WHERE po_id = ? FOR UPDATE");
-                $po_stmt->bind_param("i", $po_id);
-                $po_stmt->execute();
-                $po = $po_stmt->get_result()->fetch_assoc();
-
-                if (!$po || !in_array($po['status'], ['Delivered', 'Partially-Collected'], true)) {
-                    throw new Exception('Payments can only be recorded after delivery.');
-                }
-                enforce_po_task_ownership($conn, $po_id, $user_id, $_SESSION['role']);
-
-                $paid_stmt = $conn->prepare("SELECT COALESCE(SUM(amount_paid), 0) AS total_paid FROM payments WHERE po_id = ?");
-                $paid_stmt->bind_param("i", $po_id);
-                $paid_stmt->execute();
-                $total_paid = (float) $paid_stmt->get_result()->fetch_assoc()['total_paid'];
-                $balance = round((float) $po['amount'] - $total_paid, 2);
-
-                if ($balance <= 0.01 || $amount_paid > $balance + 0.01) {
-                    throw new Exception('The payment amount cannot exceed the remaining balance.');
-                }
-
-                $proof_file_path = time() . '_payment_' . bin2hex(random_bytes(8)) . '.' . $proof_ext;
-                if (!move_uploaded_file($proof['tmp_name'], $payment_dir . $proof_file_path)) {
-                    throw new Exception('The payment proof could not be saved.');
-                }
-
-                $payment_datetime = $payment_date->format('Y-m-d H:i:s');
-                $notes = $amount_paid >= $balance - 0.01 ? 'Full Payment' : 'Partial Payment';
-                $payment_stmt = $conn->prepare("INSERT INTO payments (po_id, amount_paid, payment_date, notes, recorded_by, payment_method, reference_number, proof_file_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-                $payment_stmt->bind_param("idssisss", $po_id, $amount_paid, $payment_datetime, $notes, $user_id, $payment_method, $reference_number, $proof_file_path);
-                $payment_stmt->execute();
-
-                $new_balance = round($balance - $amount_paid, 2);
-                $new_status = $new_balance <= 0.01 ? 'Collected' : 'Partially-Collected';
-                $po_update = $conn->prepare("UPDATE purchase_orders SET status = ?, current_location = 'Finance Dept. (Collection)' WHERE po_id = ? AND status = ?");
-                $po_update->bind_param("sis", $new_status, $po_id, $po['status']);
-                $po_update->execute();
-                if ($po_update->affected_rows !== 1) {
-                    throw new Exception('The PO status changed before the payment could be saved.');
-                }
-                if ($new_status === 'Collected') {
-                    complete_po_task_assignment($conn, $po_id, $user_id, 'Collection completed');
-                }
-
-                log_audit_action($conn, $user_id, 'ADD_PAYMENT', "Recorded $notes of P$amount_paid for PO {$po['po_number']}", ['status' => $po['status']], ['status' => $new_status, 'reference_number' => $reference_number]);
-                $conn->commit();
-                header("Location: ../view_po.php?id=$po_id&success=Payment Successfully Recorded");
-            } catch (Exception $e) {
-                $conn->rollback();
-                if ($proof_file_path && is_file($payment_dir . $proof_file_path)) {
-                    unlink($payment_dir . $proof_file_path);
-                }
-                header("Location: ../view_po.php?id=$po_id&error=" . rawurlencode($e->getMessage()));
-            }
-            exit();
-        }
-
-        // Version 2 POs require a verified supplier fund-release record and proof.
-        // Legacy POs continue through the original mark_funded behavior below.
+        // Supplier funding always requires the verified release record and proof.
         if ($action === 'mark_funded') {
-            $funding_version_stmt = $conn->prepare(
-                "SELECT source_pr_workflow_version
-                 FROM purchase_orders
-                 WHERE po_id = ?
-                 LIMIT 1"
-            );
-            $funding_version_stmt->bind_param('i', $po_id);
-            $funding_version_stmt->execute();
-            $funding_version_row =
-                $funding_version_stmt->get_result()->fetch_assoc();
-
-            $is_structured_funding =
-                $funding_version_row &&
-                (int) $funding_version_row['source_pr_workflow_version'] === 2;
-
-            if ($is_structured_funding) {
-                if ($_SESSION['role'] !== 'Finance') {
+            if ($_SESSION['role'] !== 'Finance') {
                     header(
                         "Location: ../view_po.php?id=" . $po_id .
                         "&error=" .
@@ -1126,11 +1087,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
                     $conn->begin_transaction();
 
-                    $structured_po_stmt = $conn->prepare(
+                    $funding_po_stmt = $conn->prepare(
                         "SELECT
                             po.po_number,
                             po.status,
-                            po.source_pr_workflow_version,
                             po.requested_fund_amount,
                             po.supplier_detail_id,
                             supplier.supplier_name,
@@ -1145,16 +1105,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                          LIMIT 1
                          FOR UPDATE"
                     );
-                    $structured_po_stmt->bind_param('i', $po_id);
-                    $structured_po_stmt->execute();
-                    $structured_po =
-                        $structured_po_stmt->get_result()->fetch_assoc();
+                    $funding_po_stmt->bind_param('i', $po_id);
+                    $funding_po_stmt->execute();
+                    $funding_po =
+                        $funding_po_stmt->get_result()->fetch_assoc();
 
                     if (
-                        !$structured_po ||
-                        (int) $structured_po['source_pr_workflow_version'] !==
-                            2 ||
-                        $structured_po['status'] !== 'President-Approved'
+                        !$funding_po ||
+                        $funding_po['status'] !== 'President-Approved'
                     ) {
                         throw new DomainException(
                             'This PO is no longer ready for supplier funding.'
@@ -1191,9 +1149,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
                     if (
                         !is_numeric(
-                            $structured_po['requested_fund_amount']
+                            $funding_po['requested_fund_amount']
                         ) ||
-                        (float) $structured_po['requested_fund_amount'] <= 0
+                        (float) $funding_po['requested_fund_amount'] <= 0
                     ) {
                         throw new DomainException(
                             'The PO does not contain a valid approved fund amount.'
@@ -1201,7 +1159,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     }
 
                     $approved_requested_fund_amount = round(
-                        (float) $structured_po['requested_fund_amount'],
+                        (float) $funding_po['requested_fund_amount'],
                         2
                     );
                     $released_amount = round(
@@ -1222,7 +1180,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
                     if (
                         $release_method !==
-                        $structured_po['payment_method']
+                        $funding_po['payment_method']
                     ) {
                         throw new DomainException(
                             'The release method must match the Finance-approved supplier payment method.'
@@ -1291,7 +1249,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     }
 
                     $supplier_detail_id =
-                        (int) $structured_po['supplier_detail_id'];
+                        (int) $funding_po['supplier_detail_id'];
                     $released_at =
                         $released_datetime->format('Y-m-d H:i:s');
                     $funding_original_name = substr(
@@ -1403,7 +1361,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     create_role_notification(
                         $conn,
                         $funding_notify_target,
-                        'PO ' . $structured_po['po_number'] .
+                        'PO ' . $funding_po['po_number'] .
                             ' is funded with verified payment proof. Confirm supplier readiness and prepare its delivery request.'
                     );
 
@@ -1429,7 +1387,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
                     if (!$next_funding_role) {
                         throw new DomainException(
-                            'The Procurement delivery-request workflow rule is unavailable. Verify that Phase 4A is installed.'
+                            'The Procurement delivery-request workflow rule is currently unavailable. Please ask an administrator to review the workflow configuration.'
                         );
                     }
 
@@ -1450,13 +1408,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         $user_id,
                         'RELEASE_SUPPLIER_FUNDING',
                         'Released supplier funding for PO ' .
-                            $structured_po['po_number'] . '.',
+                            $funding_po['po_number'] . '.',
                         ['status' => 'President-Approved'],
                         [
                             'status' => 'Funded',
                             'fund_release_id' => $fund_release_id,
                             'supplier_name' =>
-                                $structured_po['supplier_name'],
+                                $funding_po['supplier_name'],
                             'released_amount' => $released_amount,
                             'release_method' => $release_method,
                             'reference_number' => $reference_number,
@@ -1487,15 +1445,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         unlink($stored_funding_absolute_path);
                     }
 
-                    error_log(
-                        'Phase 3E funding release failed for PO ' .
-                        $po_id . ': ' . $e->getMessage()
+                    drms_log_workflow_failure(
+                        'Supplier funding release for PO ' . $po_id,
+                        $e
                     );
 
                     $funding_public_error =
                         $e instanceof DomainException
                             ? $e->getMessage()
                             : 'The supplier funding record could not be completed. Please try again.';
+
+                    $funding_public_error = drms_public_feedback_message(
+                        $funding_public_error,
+                        'The supplier funding record could not be completed. No workflow changes were saved. Please try again.'
+                    );
 
                     header(
                         "Location: ../release_funding.php?po_id=" .
@@ -1504,25 +1467,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     );
                 }
                 exit();
-            }
-        }
-
-        $delivery_proof = null;
-        $delivery_proof_ext = null;
-        $delivery_stored_path = null;
-        if ($action === 'mark_delivered') {
-            if (!isset($_FILES['delivery_proof']) || $_FILES['delivery_proof']['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($_FILES['delivery_proof']['tmp_name'])) {
-                header("Location: ../view_po.php?id=$po_id&error=Proof of delivery is required before marking this PO as delivered.");
-                exit();
-            }
-            $delivery_proof = $_FILES['delivery_proof'];
-            $delivery_proof_ext = strtolower(pathinfo($delivery_proof['name'], PATHINFO_EXTENSION));
-            $allowed_delivery_proofs = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png'];
-            $delivery_mime = (new finfo(FILEINFO_MIME_TYPE))->file($delivery_proof['tmp_name']);
-            if ($delivery_proof['size'] < 1 || $delivery_proof['size'] > 10 * 1024 * 1024 || !isset($allowed_delivery_proofs[$delivery_proof_ext]) || $delivery_mime !== $allowed_delivery_proofs[$delivery_proof_ext]) {
-                header("Location: ../view_po.php?id=$po_id&error=Delivery proof must be a valid PDF, JPG, or PNG file up to 10 MB.");
-                exit();
-            }
         }
 
         // Every approval/rejection must match a rule for both the current status and the logged-in role.
@@ -1545,31 +1489,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
             enforce_po_task_ownership($conn, $po_id, $user_id, $_SESSION['role']);
 
-            if ($action === 'mark_delivered') {
-                $upload_dir = __DIR__ . '/../uploads/';
-                if (!is_dir($upload_dir) && !mkdir($upload_dir, 0755, true) && !is_dir($upload_dir)) {
-                    throw new Exception('Unable to create the delivery-proof folder.');
-                }
-                $delivery_file_name = time() . '_delivery_' . bin2hex(random_bytes(8)) . '.' . $delivery_proof_ext;
-                $delivery_stored_path = $upload_dir . $delivery_file_name;
-                if (!move_uploaded_file($delivery_proof['tmp_name'], $delivery_stored_path)) {
-                    throw new Exception('The proof of delivery could not be saved.');
-                }
-
-                $delivery_hash = hash_file('sha256', $delivery_stored_path);
-                $doc_type = 'Proof of Delivery';
-                $db_delivery_path = 'uploads/' . $delivery_file_name;
-                $delivery_doc_stmt = $conn->prepare("INSERT INTO documents (po_id, doc_type, file_name, file_path, file_hash, uploaded_by, status) VALUES (?, ?, ?, ?, ?, ?, 'Active')");
-                $delivery_doc_stmt->bind_param("issssi", $po_id, $doc_type, $delivery_file_name, $db_delivery_path, $delivery_hash, $user_id);
-                $delivery_doc_stmt->execute();
-            }
-
             $location_map = [
                 'approve_gm' => 'Finance Dept.',
                 'approve_finance' => 'Office of the President',
                 'approve_president' => 'Finance Dept.',
                 'mark_funded' => 'Supply Chain Dept.',
-                'mark_delivered' => 'Finance Dept. (Collection)',
                 'reject' => 'Voided'
             ];
             $new_status = $rule['next_status'];
@@ -1583,9 +1507,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             if ($action === 'reject') {
                 $update = $conn->prepare("UPDATE purchase_orders SET status = ?, current_location = ?, remarks = ?, is_viewed = 0 WHERE po_id = ? AND status = ?");
                 $update->bind_param("sssis", $new_status, $new_location, $remarks, $po_id, $po['status']);
-            } elseif ($action === 'mark_delivered') {
-                $update = $conn->prepare("UPDATE purchase_orders SET status = ?, current_location = ?, actual_delivery_date = NOW(), expected_collection_date = DATE_ADD(NOW(), INTERVAL 30 DAY), is_viewed = 0 WHERE po_id = ? AND status = ?");
-                $update->bind_param("ssis", $new_status, $new_location, $po_id, $po['status']);
             } else {
                 $update = $conn->prepare("UPDATE purchase_orders SET status = ?, current_location = ?, is_viewed = 0 WHERE po_id = ? AND status = ?");
                 $update->bind_param("ssis", $new_status, $new_location, $po_id, $po['status']);
@@ -1621,17 +1542,28 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             header("Location: ../view_po.php?id=$po_id&success=PO Updated Successfully");
         } catch (Exception $e) {
             $conn->rollback();
-            if ($delivery_stored_path && is_file($delivery_stored_path)) {
-                unlink($delivery_stored_path);
-            }
-            header("Location: ../view_po.php?id=$po_id&error=" . rawurlencode($e->getMessage()));
+            drms_log_workflow_failure(
+                'PO workflow action for PO ' . $po_id,
+                $e
+            );
+            po_handler_redirect(
+                '../view_po.php?id=' . $po_id,
+                'error',
+                $e->getMessage()
+            );
         }
         exit();
     }
 
     if ($action == 'archive') {
         $allowed = ['GM', 'President', 'Procurement'];
-        if (!in_array($_SESSION['role'], $allowed)) die("Access Denied");
+        if (!in_array($_SESSION['role'], $allowed, true)) {
+            po_handler_redirect(
+                '../po_list.php',
+                'error',
+                'Your account is not allowed to archive this document.'
+            );
+        }
 
         $doc_id = intval($_POST['doc_id']);
         $redirectUrl = getRedirectUrl($conn, $doc_id);
@@ -1651,14 +1583,25 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 throw new Exception("Execute failed");
             }
         } catch (Exception $e) {
-            header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "error=DatabaseError");
+            drms_log_workflow_failure('Document archive', $e);
+            po_handler_redirect(
+                $redirectUrl,
+                'error',
+                'The document could not be archived. Please try again.'
+            );
         }
         exit();
     }
 
     if ($action == 'restore') {
         $allowed = ['GM', 'President', 'Procurement'];
-        if (!in_array($_SESSION['role'], $allowed)) die("Access Denied");
+        if (!in_array($_SESSION['role'], $allowed, true)) {
+            po_handler_redirect(
+                '../po_list.php',
+                'error',
+                'Your account is not allowed to restore this document.'
+            );
+        }
 
         $doc_id = intval($_POST['doc_id']);
         $redirectUrl = getRedirectUrl($conn, $doc_id);
@@ -1678,14 +1621,25 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 throw new Exception("Execute failed");
             }
         } catch (Exception $e) {
-            header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "error=DatabaseError");
+            drms_log_workflow_failure('Document restore', $e);
+            po_handler_redirect(
+                $redirectUrl,
+                'error',
+                'The document could not be restored. Please try again.'
+            );
         }
         exit();
     }
 
     if ($action == 'delete') {
         $allowed = ['GM', 'President', 'Procurement'];
-        if (!in_array($_SESSION['role'], $allowed)) die("Access Denied");
+        if (!in_array($_SESSION['role'], $allowed, true)) {
+            po_handler_redirect(
+                '../po_list.php',
+                'error',
+                'Your account is not allowed to delete this document.'
+            );
+        }
 
         $doc_id = intval($_POST['doc_id']);
         $redirectUrl = getRedirectUrl($conn, $doc_id);
@@ -1725,14 +1679,27 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     if ($action == 'upload' || isset($_FILES['document'])) {
         $po_id = isset($_POST['po_id']) && !empty($_POST['po_id']) ? intval($_POST['po_id']) : null;
         $doc_type = $_POST['doc_type'] ?? 'General'; 
-        $file = $_FILES['document'];
-
         $redirectUrl = getRedirectUrl($conn, null, $po_id);
+
+        if (
+            !isset($_FILES['document']) ||
+            ($_FILES['document']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK
+        ) {
+            po_handler_redirect(
+                $redirectUrl,
+                'error',
+                'Select a valid file and try the upload again.'
+            );
+        }
+        $file = $_FILES['document'];
 
         $max_file_size = 10 * 1024 * 1024;
         if ($file['size'] > $max_file_size) {
-            header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "error=FileSizeExceeded");
-            exit();
+            po_handler_redirect(
+                $redirectUrl,
+                'error',
+                'The selected file is too large. Choose a file no larger than 10 MB.'
+            );
         }
 
         $allowedMimeTypes = [
@@ -1746,16 +1713,22 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         ];
 
         $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-        if (!in_array($ext, $allowedMimeTypes)) {
-            header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "error=InvalidFileExtension");
-            exit();
+        if (!in_array($ext, $allowedMimeTypes, true)) {
+            po_handler_redirect(
+                $redirectUrl,
+                'error',
+                'The selected file type is not allowed. Choose a PDF, image, Word, or Excel file.'
+            );
         }
 
         $finfo = new finfo(FILEINFO_MIME_TYPE);
         $fileMimeType = $finfo->file($file['tmp_name']);
         if (!array_key_exists($fileMimeType, $allowedMimeTypes)) {
-            header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "error=InvalidFileTypeSecurity");
-            exit();
+            po_handler_redirect(
+                $redirectUrl,
+                'error',
+                'The selected file could not be verified. Choose a valid document or image file.'
+            );
         }
 
         $fileHash = hash_file('sha256', $file['tmp_name']);
@@ -1764,8 +1737,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $checkStmt->execute();
         
         if ($checkStmt->get_result()->num_rows > 0) {
-            header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "error=DuplicateFileDetected");
-            exit();
+            po_handler_redirect(
+                $redirectUrl,
+                'error',
+                'This file has already been uploaded. Review the existing attachment or choose another file.'
+            );
         }
 
         $uploadDir = "../uploads/"; 
@@ -1788,15 +1764,31 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             
             if($stmt->execute()) {
                 log_audit_action($conn, $user_id, 'UPLOAD', "Uploaded file: $newFileName");
-                header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "success=UploadSuccess");
+                po_handler_redirect(
+                    $redirectUrl,
+                    'success',
+                    'File uploaded successfully.'
+                );
             } else {
-                 header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "error=DatabaseError");
+                if (is_file($targetPath)) {
+                    unlink($targetPath);
+                }
+                po_handler_redirect(
+                    $redirectUrl,
+                    'error',
+                    'The file could not be saved. No attachment was added. Please try again.'
+                );
             }
         } else {
-            header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "error=UploadFailed");
+            po_handler_redirect(
+                $redirectUrl,
+                'error',
+                'The file could not be uploaded. Check the file and try again.'
+            );
         }
     }
 }
 ?>
+
 
 

@@ -3,6 +3,7 @@ session_start();
 
 require '../config/db_connect.php';
 require '../config/functions.php';
+require_once '../config/workflow_feedback.php';
 
 date_default_timezone_set('Asia/Manila');
 
@@ -22,12 +23,13 @@ function phase5d_payment_redirect(
         $destination = '../collection_monitoring.php';
     }
 
-    $separator = strpos($destination, '?') === false ? '?' : '&';
-    header(
-        'Location: ' . $destination . $separator . $type . '=' .
-        rawurlencode($message)
-    );
-    exit();
+    $public_message = $type === 'error'
+        ? drms_public_feedback_message(
+            $message,
+            'The client payment could not be saved. No collection balance was changed.'
+        )
+        : drms_feedback_clean_text($message);
+    drms_redirect_with_feedback($destination, $type, $public_message);
 }
 
 function phase5d_payment_datetime(string $value): ?DateTime
@@ -227,7 +229,7 @@ $payment_directory = __DIR__ . '/../uploads/payments/';
 $proof_file_path = null;
 
 try {
-    // Run the legacy collaboration-table guard before opening the payment
+    // Run the collaboration-table guard before opening the payment
     // transaction so its optional setup cannot cause an implicit DDL commit.
     ensure_collaboration_tables_exist($conn);
 
@@ -249,6 +251,7 @@ try {
             po.client_name,
             po.amount,
             po.status,
+            po.collection_status,
             po.current_location,
             po.date_created,
             COALESCE(
@@ -259,9 +262,8 @@ try {
                     FROM po_history history
                     WHERE history.po_id = po.po_id
                       AND history.status_to = 'Delivered'
-                ),
-                po.date_created
-            ) AS collection_started_at
+                )
+            ) AS delivery_completed_at
          FROM purchase_orders po
          LEFT JOIN po_delivery_receipts receipt
             ON receipt.delivery_receipt_id = (
@@ -279,25 +281,40 @@ try {
     $po = $po_stmt->get_result()->fetch_assoc();
     $po_stmt->close();
 
-    if (
-        !$po ||
-        !in_array(
-            $po['status'],
-            ['Delivered', 'Partially-Collected'],
-            true
-        )
-    ) {
+    $payment_eligible_statuses = [
+        'President-Approved',
+        'Funded',
+        'Delivery Requested',
+        'For Pick-up/Delivery',
+        'Delivered',
+    ];
+    if (!$po || !in_array($po['status'], $payment_eligible_statuses, true)) {
         throw new DomainException(
-            'Payments can only be recorded for an open delivered receivable.'
+            'Client payment can be recorded only after the PO reaches final approval.'
         );
     }
 
+    $po_created_at = new DateTime($po['date_created']);
+    $delivery_completed_at = !empty($po['delivery_completed_at'])
+        ? new DateTime($po['delivery_completed_at'])
+        : null;
+    $delivery_is_complete = $po['status'] === 'Delivered';
+
+    if ($delivery_is_complete && $delivery_completed_at === null) {
+        throw new DomainException(
+            'The delivery completion timestamp is missing. Complete or correct the client delivery record first.'
+        );
+    }
+
+    // A pre-delivery down payment is a Finance evidence entry running beside
+    // the operational PO task, so it must not claim or complete that task.
+    // Once delivery is complete, the existing assigned-Finance control remains.
     $assignment = get_active_po_task_assignment($conn, $po_id, true);
-    if (
+    if ($delivery_is_complete && (
         !$assignment ||
         $assignment['assigned_role'] !== 'Finance' ||
         (int) $assignment['assigned_to'] !== $user_id
-    ) {
+    )) {
         throw new DomainException(
             'This receivable must be assigned to you before recording payment.'
         );
@@ -316,6 +333,12 @@ try {
     );
     $paid_stmt->close();
 
+    if ($po['collection_status'] === 'Paid') {
+        throw new DomainException(
+            'This PO is already marked as fully paid.'
+        );
+    }
+
     $balance_before = max(
         round((float) $po['amount'] - $total_paid, 2),
         0
@@ -332,10 +355,19 @@ try {
         );
     }
 
+    $payment_is_before_delivery = !$delivery_is_complete || (
+        $delivery_completed_at !== null &&
+        $payment_date <= $delivery_completed_at
+    );
+
     if ($classification === 'Auto') {
-        $classification = abs($amount_paid - $balance_before) < 0.005
-            ? 'Full Payment'
-            : 'Partial Payment';
+        if ($payment_is_before_delivery) {
+            $classification = 'Advance / Down Payment';
+        } else {
+            $classification = abs($amount_paid - $balance_before) < 0.005
+                ? 'Full Payment'
+                : 'Partial Payment';
+        }
     }
 
     if (
@@ -355,10 +387,6 @@ try {
         );
     }
 
-    $po_created_at = new DateTime($po['date_created']);
-    $collection_started_at = new DateTime(
-        $po['collection_started_at']
-    );
     if ($payment_date < $po_created_at) {
         throw new DomainException(
             'Payment date cannot be earlier than the recorded PO.'
@@ -366,7 +394,7 @@ try {
     }
     if (
         $classification !== 'Advance / Down Payment' &&
-        $payment_date < $collection_started_at
+        $payment_is_before_delivery
     ) {
         throw new DomainException(
             'Use Advance / Down Payment for a client payment received before delivery.'
@@ -374,7 +402,7 @@ try {
     }
     if (
         $classification === 'Advance / Down Payment' &&
-        $payment_date > $collection_started_at
+        !$payment_is_before_delivery
     ) {
         throw new DomainException(
             'A payment received after delivery must be recorded as partial or full payment.'
@@ -419,17 +447,10 @@ try {
         round($balance_before - $amount_paid, 2),
         0
     );
-    $new_status = $balance_after <= 0
-        ? 'Collected'
-        : 'Partially-Collected';
-
-    if ($new_status === 'Collected') {
-        $payment_label = $classification === 'Advance / Down Payment'
-            ? 'Full Payment - Advance / Down Payment'
-            : 'Full Payment';
-    } else {
-        $payment_label = $classification;
-    }
+    $new_collection_status = $balance_after <= 0.01
+        ? 'Paid'
+        : 'Partially Paid';
+    $payment_label = $classification;
     $payment_notes = $payment_label;
     if ($payment_remarks !== '') {
         $payment_notes .= ' | ' . $payment_remarks;
@@ -442,18 +463,20 @@ try {
             amount_paid,
             payment_date,
             notes,
+            payment_classification,
             recorded_by,
             payment_method,
             reference_number,
             proof_file_path
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
     $insert_stmt->bind_param(
-        'idssisss',
+        'idsssisss',
         $po_id,
         $amount_paid,
         $payment_datetime,
         $payment_notes,
+        $classification,
         $user_id,
         $payment_method,
         $reference_number,
@@ -469,53 +492,47 @@ try {
         );
     }
 
-    if ($new_status !== $po['status']) {
-        $po_update = $conn->prepare(
-            "UPDATE purchase_orders
-             SET
-                status = ?,
-                current_location = 'Finance Dept. (Collection)'
-             WHERE po_id = ?
-               AND status = ?"
-        );
-        $po_update->bind_param(
-            'sis',
-            $new_status,
-            $po_id,
-            $po['status']
-        );
-        $po_update->execute();
-        if ($po_update->affected_rows !== 1) {
-            throw new RuntimeException(
-                'The PO status changed before payment could be saved.'
-            );
-        }
-        $po_update->close();
+    // Only the financial collection position changes. The operational PO status,
+    // location, and currently assigned delivery/procurement task stay untouched.
+    $po_update = $conn->prepare(
+        "UPDATE purchase_orders
+         SET collection_status = ?,
+             collection_status_updated_at = NOW()
+         WHERE po_id = ?"
+    );
+    $po_update->bind_param('si', $new_collection_status, $po_id);
+    $po_update->execute();
+    $po_update->close();
 
-        $history_remarks = $payment_label . ' recorded. Balance: ₱' .
-            number_format($balance_after, 2) . '.';
-        $history_stmt = $conn->prepare(
-            "INSERT INTO po_history (
-                po_id,
-                status_from,
-                status_to,
-                remarks,
-                changed_by
-             ) VALUES (?, ?, ?, ?, ?)"
-        );
-        $history_stmt->bind_param(
-            'isssi',
-            $po_id,
-            $po['status'],
-            $new_status,
-            $history_remarks,
-            $user_id
-        );
-        $history_stmt->execute();
-        $history_stmt->close();
-    }
+    $history_remarks = $payment_label . ' recorded. Balance: ₱' .
+        number_format($balance_after, 2) . '.';
+    $collection_history_stmt = $conn->prepare(
+        "INSERT INTO po_collection_status_history (
+            po_id,
+            payment_id,
+            collection_status_from,
+            collection_status_to,
+            balance_before,
+            balance_after,
+            remarks,
+            changed_by
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+    $collection_history_stmt->bind_param(
+        'iissddsi',
+        $po_id,
+        $payment_id,
+        $po['collection_status'],
+        $new_collection_status,
+        $balance_before,
+        $balance_after,
+        $history_remarks,
+        $user_id
+    );
+    $collection_history_stmt->execute();
+    $collection_history_stmt->close();
 
-    if ($new_status === 'Collected') {
+    if ($delivery_is_complete && $new_collection_status === 'Paid') {
         complete_po_task_assignment(
             $conn,
             $po_id,
@@ -544,6 +561,7 @@ try {
     }
 
     if (
+        $delivery_is_complete &&
         $notification_key_column &&
         $notification_key_column->num_rows > 0
     ) {
@@ -562,14 +580,17 @@ try {
         $resolve_stmt->execute();
         $resolve_stmt->close();
 
-        $legacy_resolve_stmt = $conn->prepare(
+        $notification_resolve_stmt = $conn->prepare(
             "UPDATE notifications
              SET is_read = 1
              WHERE notification_key LIKE ?"
         );
-        $legacy_resolve_stmt->bind_param('s', $resolved_key_pattern);
-        $legacy_resolve_stmt->execute();
-        $legacy_resolve_stmt->close();
+        $notification_resolve_stmt->bind_param(
+            's',
+            $resolved_key_pattern
+        );
+        $notification_resolve_stmt->execute();
+        $notification_resolve_stmt->close();
     }
 
     log_audit_action(
@@ -580,13 +601,16 @@ try {
             ' of ₱' . number_format($amount_paid, 2) .
             ' for PO ' . $po['po_number'] . '.',
         [
-            'status' => $po['status'],
+            'operational_status' => $po['status'],
+            'collection_status' => $po['collection_status'],
             'balance' => $balance_before,
         ],
         [
             'payment_id' => $payment_id,
-            'status' => $new_status,
+            'operational_status' => $po['status'],
+            'collection_status' => $new_collection_status,
             'balance' => $balance_after,
+            'payment_classification' => $classification,
             'payment_method' => $payment_method,
             'reference_number' => $reference_number,
         ]
@@ -598,8 +622,8 @@ try {
         $po_id,
         $return_to,
         'success',
-        $new_status === 'Collected'
-            ? 'Full client payment was verified. The PO is now Collected.'
+        $new_collection_status === 'Paid'
+            ? 'Full client payment was verified. Collection status is now Paid; the PO workflow stage was not changed.'
             : 'Client payment was verified. The remaining balance is ₱' .
                 number_format($balance_after, 2) . '.'
     );
@@ -613,14 +637,17 @@ try {
         unlink($payment_directory . $proof_file_path);
     }
 
-    error_log(
-        'Phase 5D collection payment failed for PO ' . $po_id . ': ' .
-        $error->getMessage()
+    drms_log_workflow_failure(
+        'Client payment recording for PO ' . $po_id,
+        $error
     );
 
-    $public_error = $error instanceof DomainException
-        ? $error->getMessage()
-        : 'The client payment could not be saved. No collection balance was changed.';
+    if ($error instanceof DomainException) {
+        $public_error = $error->getMessage();
+    } else {
+        $public_error =
+            'The client payment could not be saved. No collection balance was changed.';
+    }
 
     phase5d_payment_redirect(
         $po_id,
@@ -629,3 +656,4 @@ try {
         $public_error
     );
 }
+

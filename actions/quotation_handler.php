@@ -3,6 +3,8 @@ session_start();
 
 require '../config/db_connect.php';
 require '../config/functions.php';
+require_once '../config/client_po_acknowledgement.php';
+require_once '../config/workflow_feedback.php';
 
 if (
     !isset($_SESSION['user_id']) ||
@@ -20,6 +22,8 @@ if (
     exit();
 }
 
+$action = trim((string) $_POST['action']);
+
 if (
     !isset($_POST['csrf_token']) ||
     !hash_equals(
@@ -27,10 +31,24 @@ if (
         (string) $_POST['csrf_token']
     )
 ) {
-    die("Security Error: Invalid CSRF Token");
-}
+    $feedback_location = '../quotations_list.php';
 
-$action = trim((string) $_POST['action']);
+    if ($action === 'create_detailed_quotation') {
+        $feedback_location = '../create_quotation.php';
+    } elseif (
+        $action === 'receive_po' &&
+        (int) ($_POST['quotation_id'] ?? 0) > 0
+    ) {
+        $feedback_location = '../view_quotation.php?id=' .
+            (int) $_POST['quotation_id'];
+    }
+
+    drms_redirect_with_feedback(
+        $feedback_location,
+        'error',
+        'Your session security token expired. Refresh the page and try again.'
+    );
+}
 
 /*
 |--------------------------------------------------------------------------
@@ -130,7 +148,7 @@ if ($action === 'create_detailed_quotation') {
 | - Requires Client PO date
 | - Requires final approval date
 | - Requires signed proof
-| - Changes quotation status to "PO Received"
+| - Routes the quotation to the General Manager for acknowledgement
 |
 */
 
@@ -440,6 +458,15 @@ if ($action === 'receive_po') {
         }
 
         if (
+            $is_official_client_po &&
+            !phase6b2_is_installed($conn)
+        ) {
+            throw new RuntimeException(
+                "Install the Phase 6B2 database migration before recording an official Client PO."
+            );
+        }
+
+        if (
             !is_dir($upload_directory) &&
             !mkdir(
                 $upload_directory,
@@ -649,8 +676,8 @@ if ($action === 'receive_po') {
         }
 
         /*
-         * Only an official signed Client PO may change the
-         * quotation to "PO Received".
+         * An official signed Client PO must still be acknowledged by
+         * the General Manager before it becomes eligible for PRF creation.
          */
         if ($is_official_client_po) {
             $quotation_update_statement =
@@ -660,7 +687,7 @@ if ($action === 'receive_po') {
                         client_po_number = ?,
                         approval_mode = ?,
                         po_file_path = ?,
-                        status = 'PO Received'
+                        status = 'For GM Acknowledgement'
                      WHERE quotation_id = ?
                        AND status IN (
                             'Pending Approval',
@@ -686,6 +713,16 @@ if ($action === 'receive_po') {
                     "The quotation status changed before the official Client PO could be saved."
                 );
             }
+        }
+
+        if ($is_official_client_po) {
+            phase6b2_create_notification(
+                $conn,
+                'GM',
+                "Official Client PO {$actual_client_po_number} for Quotation {$quotation['quotation_number']} is ready for your review and sign-off.",
+                'view_quotation.php?id=' . $quotation_id,
+                'client-po:gm-review:' . $approval_record_id
+            );
         }
 
         $audit_action = $is_official_client_po
@@ -730,7 +767,7 @@ if ($action === 'receive_po') {
 
         if ($is_official_client_po) {
             $success_message =
-                "Official Client PO recorded successfully. Internal Reference: {$internal_reference}";
+                "Official Client PO recorded and sent to the General Manager for acknowledgement. Internal Reference: {$internal_reference}";
         } else {
             $success_message =
                 "Supporting client confirmation recorded. The quotation will remain pending until the official signed Client PO is received. Internal Reference: {$internal_reference}";
@@ -757,16 +794,30 @@ if ($action === 'receive_po') {
             unlink($stored_file_path);
         }
 
-        error_log(
-            "Client approval recording error: " .
-            $exception->getMessage()
+        drms_log_workflow_failure(
+            'Client approval recording',
+            $exception
         );
 
-        header(
-            "Location: ../quotations_list.php?error=" .
-            rawurlencode(
-                $exception->getMessage()
-            )
+        $exception_message = $exception->getMessage();
+        $safe_client_approval_errors = [
+            'The selected quotation was not found.',
+            'This quotation is no longer waiting for client approval.',
+            'This Client PO number is already assigned to another quotation for the same client.',
+            'The quotation status changed before the official Client PO could be saved.',
+        ];
+        $public_error = in_array(
+            $exception_message,
+            $safe_client_approval_errors,
+            true
+        )
+            ? $exception_message
+            : 'The client approval could not be saved. No changes were completed. Please try again.';
+
+        drms_redirect_with_feedback(
+            '../quotations_list.php',
+            'error',
+            $public_error
         );
     }
 

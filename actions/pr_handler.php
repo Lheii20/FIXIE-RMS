@@ -2,6 +2,8 @@
 session_start();
 require '../config/db_connect.php';
 require '../config/functions.php';
+require_once '../config/client_po_acknowledgement.php';
+require_once '../config/workflow_feedback.php';
 
 if (!isset($_SESSION['user_id'])) {
     header('Location: ../index.php');
@@ -10,10 +12,12 @@ if (!isset($_SESSION['user_id'])) {
 
 function phase2_prf_redirect_error(int $quotation_id, string $message): void
 {
-    $location = '../create_pr.php?quotation_id=' . $quotation_id .
-        '&error=' . rawurlencode($message);
-    header('Location: ' . $location);
-    exit();
+    $location = '../create_pr.php?quotation_id=' . $quotation_id;
+    $public_message = drms_public_feedback_message(
+        $message,
+        'The PRF could not be saved. No records were changed. Please try again.'
+    );
+    drms_redirect_with_feedback($location, 'error', $public_message);
 }
 
 function phase2_prf_money($value, string $label): float
@@ -146,11 +150,17 @@ function phase2_prf_upload_supplier_quote(?array $file): ?array
 function phase2_prf_redirect_to_view(int $pr_id, string $type, string $message): void
 {
     $safe_type = $type === 'success' ? 'success' : 'error';
-    header(
-        'Location: ../view_pr.php?id=' . $pr_id .
-        '&' . $safe_type . '=' . rawurlencode($message)
+    $public_message = $safe_type === 'error'
+        ? drms_public_feedback_message(
+            $message,
+            'The PRF action could not be completed. No workflow changes were saved.'
+        )
+        : drms_feedback_clean_text($message);
+    drms_redirect_with_feedback(
+        '../view_pr.php?id=' . $pr_id,
+        $safe_type,
+        $public_message
     );
-    exit();
 }
 
 function phase2_prf_notify_role(mysqli $conn, string $target_role, string $message): int
@@ -187,8 +197,18 @@ function phase2_prf_notify_role(mysqli $conn, string $target_role, string $messa
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['csrf_token'] ?? '')) {
-        die('Security Error: Invalid CSRF Token');
+    $session_token = (string) ($_SESSION['csrf_token'] ?? '');
+    $posted_token = (string) ($_POST['csrf_token'] ?? '');
+    if (
+        $session_token === '' ||
+        $posted_token === '' ||
+        !hash_equals($session_token, $posted_token)
+    ) {
+        drms_redirect_with_feedback(
+            '../pr_list.php',
+            'error',
+            'Security token validation failed. Refresh the page and try again.'
+        );
     }
 
     $action = (string) $_POST['action'];
@@ -197,11 +217,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
      * Phase 2D sequential approval engine.
      * Each decision is locked to the current database stage and its required role.
      */
-    if (in_array($action, ['approve_pr_v2', 'reject_pr_v2'], true)) {
+    if (in_array($action, ['approve_pr_stage', 'reject_pr_stage'], true)) {
         $pr_id = (int) ($_POST['pr_id'] ?? 0);
         $actor_id = (int) $_SESSION['user_id'];
         $actor_role = (string) ($_SESSION['role'] ?? '');
-        $is_approval = $action === 'approve_pr_v2';
+        $is_approval = $action === 'approve_pr_stage';
         $transaction_started = false;
 
         if ($pr_id < 1) {
@@ -227,7 +247,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     pr_id,
                     pr_number,
                     status,
-                    workflow_version,
                     current_approval_stage,
                     created_by
                  FROM purchase_requests
@@ -241,12 +260,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
             if (!$pr) {
                 throw new RuntimeException('The Purchase Request no longer exists.');
-            }
-
-            if ((int) $pr['workflow_version'] !== 2) {
-                throw new RuntimeException(
-                    'This action is only available for sequential PRF records.'
-                );
             }
 
             if ($pr['status'] !== 'Pending') {
@@ -376,7 +389,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 log_audit_action(
                     $conn,
                     $actor_id,
-                    'REJECT_PR_V2',
+                    'REJECT_PR_STAGE',
                     "Rejected PRF $pr_number during $approval_stage",
                     [
                         'status' => 'Pending',
@@ -462,7 +475,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 log_audit_action(
                     $conn,
                     $actor_id,
-                    'APPROVE_PR_V2_STAGE',
+                    'APPROVE_PR_STAGE',
                     "Approved $approval_stage for PRF $pr_number",
                     [
                         'status' => 'Pending',
@@ -519,7 +532,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             log_audit_action(
                 $conn,
                 $actor_id,
-                'FINAL_APPROVE_PR_V2',
+                'FINAL_APPROVE_PR',
                 "Officially approved PRF $pr_number during $approval_stage",
                 [
                     'status' => 'Pending',
@@ -549,19 +562,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $conn->rollback();
             }
 
-            $safe_error_message = $exception instanceof mysqli_sql_exception
-                ? 'The PRF decision could not be saved because of a database error.'
-                : $exception->getMessage();
+            drms_log_workflow_failure(
+                'PRF approval decision for PRF ' . $pr_id,
+                $exception
+            );
+            $safe_error_message = $exception->getMessage();
 
             phase2_prf_redirect_to_view($pr_id, 'error', $safe_error_message);
         }
     }
 
     /*
-     * Phase 2 sequential PRF creation route.
-     * The current create_pr route below remains untouched for backward compatibility.
+     * Official PRF creation route.
      */
-    if ($action === 'create_pr_v2') {
+    if ($action === 'create_pr') {
         if ($_SESSION['role'] !== 'Sales Staff') {
             header('Location: ../quotations_list.php?error=' . rawurlencode(
                 'Only Sales Staff can create a Purchase Request.'
@@ -736,6 +750,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 empty($official_po['proof_file_path'])) {
                 throw new RuntimeException(
                     'A complete official signed Client PO record is required before creating this PRF.'
+                );
+            }
+
+            if (!phase6b2_is_installed($conn)) {
+                throw new RuntimeException(
+                    'The official Client PO acknowledgement records are unavailable. Please ask an administrator to review the workflow configuration.'
+                );
+            }
+
+            $official_approval_record_id = (int) $official_po['approval_record_id'];
+            $acknowledgement_stmt = $conn->prepare(
+                "SELECT acknowledgement_id, decision
+                 FROM client_po_internal_acknowledgements
+                 WHERE approval_record_id = ?
+                   AND quotation_id = ?
+                   AND record_status = 'Active'
+                 LIMIT 1
+                 FOR UPDATE"
+            );
+            $acknowledgement_stmt->bind_param(
+                'ii',
+                $official_approval_record_id,
+                $quotation_id
+            );
+            if (!$acknowledgement_stmt->execute()) {
+                throw new RuntimeException(
+                    'The General Manager acknowledgment could not be checked.'
+                );
+            }
+            $gm_acknowledgement = $acknowledgement_stmt
+                ->get_result()
+                ->fetch_assoc();
+
+            if (
+                !$gm_acknowledgement ||
+                $gm_acknowledgement['decision'] !== 'Acknowledged'
+            ) {
+                throw new RuntimeException(
+                    'General Manager acknowledgment is required before creating this PRF.'
                 );
             }
 
@@ -1053,8 +1106,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             log_audit_action(
                 $conn,
                 $created_by,
-                'CREATE_PR_V2',
-                "Created sequential PRF $pr_number from quotation {$quote['quotation_number']}",
+                'CREATE_PR',
+                "Created official PRF $pr_number from quotation {$quote['quotation_number']}",
                 null,
                 [
                     'pr_id' => $pr_id,
@@ -1092,236 +1145,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 @unlink($uploaded_supplier_quote['absolute_path']);
             }
 
-            $safe_error_message = $exception instanceof mysqli_sql_exception
-                ? 'The PRF could not be saved because of a database error.'
-                : $exception->getMessage();
+            drms_log_workflow_failure(
+                'Official PRF creation from quotation ' . $quotation_id,
+                $exception
+            );
+            $safe_error_message = $exception->getMessage();
 
             phase2_prf_redirect_error($quotation_id, $safe_error_message);
         }
     }
 
-    /* Existing legacy PR creation flow retained without behavioral changes. */
-    if ($action == 'create_pr') {
-        if ($_SESSION['role'] !== 'Sales Staff') {
-            header("Location: ../quotations_list.php?error=Only Sales Staff can create a Purchase Request.");
-            exit();
-        }
-
-        $pr_number = trim($_POST['pr_number']);
-        $client_name = trim($_POST['client_name']);
-        $amount = floatval($_POST['amount']);
-        $created_by = $_SESSION['user_id'];
-        $items = $_POST['items'] ?? [];
-        $quotation_id = isset($_POST['quotation_id']) ? intval($_POST['quotation_id']) : 0;
-
-        if ($quotation_id === 0) {
-             header("Location: ../create_pr.php?error=You must select an existing Quotation with a Client PO.");
-             exit();
-        }
-
-        // Empty Items Validation
-        if (empty($items)) {
-            header("Location: ../create_pr.php?error=ItemsListCannotBeEmpty");
-            exit();
-        }
-
-        // Price Zero Validation
-        foreach ($items as $item) {
-            if (floatval($item['price']) <= 0) {
-                header("Location: ../create_pr.php?error=Item price cannot be zero or less.");
-                exit();
-            }
-        }
-
-        // Server-Side Calculation Validation
-        $calculated_total = 0;
-        foreach ($items as $item) {
-            $qty = (int)($item['qty'] ?? 1);
-            $price = (float)($item['price'] ?? 0);
-            $calculated_total += ($qty * $price);
-        }
-
-        if (abs($amount - $calculated_total) > 0.01) {
-            header("Location: ../create_pr.php?error=AmountCalculationMismatch");
-            exit();
-        }
-
-        $conn->begin_transaction();
-        try {
-            // The PR must originate from one client-approved quotation only.
-            $quote_stmt = $conn->prepare("SELECT quotation_number, client_name, amount, status FROM quotations WHERE quotation_id = ? FOR UPDATE");
-            $quote_stmt->bind_param("i", $quotation_id);
-            $quote_stmt->execute();
-            $quote = $quote_stmt->get_result()->fetch_assoc();
-
-            if (!$quote || $quote['status'] !== 'PO Received') {
-                throw new Exception('The selected quotation is not client-approved or was already converted.');
-            }
-
-            $existing_pr_stmt = $conn->prepare("SELECT pr_id FROM purchase_requests WHERE quotation_id = ? LIMIT 1 FOR UPDATE");
-            $existing_pr_stmt->bind_param("i", $quotation_id);
-            $existing_pr_stmt->execute();
-            if ($existing_pr_stmt->get_result()->num_rows > 0) {
-                throw new Exception('A Purchase Request already exists for this quotation.');
-            }
-
-            // Client name and quoted total are taken from the approved quotation, not the browser form.
-            $client_name = $quote['client_name'];
-            if (abs((float) $quote['amount'] - $amount) > 0.01) {
-                throw new Exception('The PR amount no longer matches the approved quotation.');
-            }
-
-            // Copy line items directly from the database source to prevent hidden form values from being altered.
-            $source_items_stmt = $conn->prepare("SELECT category, brand, item_name, specifications, quantity, unit_price, total_price FROM quotation_items WHERE quotation_id = ?");
-            $source_items_stmt->bind_param("i", $quotation_id);
-            $source_items_stmt->execute();
-            $source_items_result = $source_items_stmt->get_result();
-            $source_items = [];
-            $source_total = 0;
-            while ($source_item = $source_items_result->fetch_assoc()) {
-                $source_items[] = $source_item;
-                $source_total += (float) $source_item['total_price'];
-            }
-            if (empty($source_items) || abs($source_total - (float) $quote['amount']) > 0.01) {
-                throw new Exception('The source quotation items do not match its approved total.');
-            }
-
-            $stmt = $conn->prepare("INSERT INTO purchase_requests (pr_number, quotation_id, client_name, amount, status, created_by) VALUES (?, ?, ?, ?, 'Pending', ?)");
-            $stmt->bind_param("sisdi", $pr_number, $quotation_id, $client_name, $amount, $created_by);
-            $stmt->execute();
-            $pr_id = $conn->insert_id;
-
-            $item_stmt = $conn->prepare("INSERT INTO pr_items (pr_id, category, brand, item_name, specifications, quantity, unit_price, total_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-            
-            foreach ($source_items as $item) {
-                $cat = trim($item['category'] ?? '');
-                $brand = trim($item['brand'] ?? 'Generic/Other');
-                $name = trim($item['item_name'] ?? '');
-                $specs = trim($item['specifications'] ?? '');
-                $qty = (int)($item['quantity'] ?? 1);
-                $price = (float)($item['unit_price'] ?? 0);
-                $total = (float)($item['total_price'] ?? 0);
-                
-                $item_stmt->bind_param("issssidd", $pr_id, $cat, $brand, $name, $specs, $qty, $price, $total);
-                $item_stmt->execute();
-            }
-
-            // Convert only the locked client-approved quotation.
-            $quote_update = $conn->prepare("UPDATE quotations SET status = 'Converted to PR' WHERE quotation_id = ? AND status = 'PO Received'");
-            $quote_update->bind_param("i", $quotation_id);
-            $quote_update->execute();
-            if ($quote_update->affected_rows !== 1) {
-                throw new Exception('The quotation status changed before the PR could be saved.');
-            }
-
-            create_role_notification($conn, 'GM', "New Purchase Request Needs Approval: $pr_number");
-            create_role_notification($conn, 'President', "New Purchase Request Needs Approval: $pr_number");
-
-            log_audit_action($conn, $created_by, 'CREATE_PR', "Created PR $pr_number from quotation {$quote['quotation_number']}", null, [
-                'pr_number' => $pr_number,
-                'quotation_id' => $quotation_id,
-                'quotation_number' => $quote['quotation_number'],
-                'amount' => $amount
-            ]);
-
-            $conn->commit();
-            header("Location: ../pr_list.php?success=Purchase Request Created Successfully");
-             
-        } catch (Exception $e) {
-            $conn->rollback();
-            header("Location: ../create_pr.php?quotation_id=$quotation_id&error=" . rawurlencode($e->getMessage()));
-        }
-        exit();
-    }
-
-    if ($action == 'approve_pr') {
-        if (!in_array($_SESSION['role'], ['GM', 'President'])) {
-            die("Unauthorized Action: Only GM or President can approve PRs.");
-        }
-        
-        $pr_id = intval($_POST['pr_id']);
-        
-        // Status Validation Before Approving
-        $status_check = $conn->query("SELECT status, pr_number, workflow_version FROM purchase_requests WHERE pr_id = $pr_id")->fetch_assoc();
-        if (!$status_check || (int) $status_check['workflow_version'] === 2) {
-            header("Location: ../view_pr.php?id=$pr_id&error=" . rawurlencode('Use the sequential approval action for this PRF.'));
-            exit();
-        }
-        if ($status_check['status'] !== 'Pending') {
-            header("Location: ../view_pr.php?id=$pr_id&error=PR is already processed.");
-            exit();
-        }
-        
-        $conn->query("UPDATE purchase_requests SET status = 'Approved' WHERE pr_id = $pr_id");
-        $pr_number = $status_check['pr_number'];
-
-        log_audit_action($conn, $_SESSION['user_id'], 'APPROVE_PR', "Approved PR $pr_number", ['status' => 'Pending'], ['status' => 'Approved']);
-
-        create_role_notification($conn, 'Procurement', "PR $pr_number is Approved. Ready for PO Conversion.");
-        create_role_notification($conn, 'Sales Staff', "Your PR $pr_number has been Approved by Management.");
-
-        header("Location: ../view_pr.php?id=$pr_id&success=PR Approved Successfully");
-        exit();
-    }
-
-    if ($action == 'reject_pr') {
-        if (!in_array($_SESSION['role'], ['GM', 'President'])) {
-            die("Unauthorized Action: Only GM or President can reject PRs.");
-        }
-        
-        $pr_id = intval($_POST['pr_id']);
-        $remarks = isset($_POST['remarks']) ? trim($_POST['remarks']) : '';
-        
-        // Status Validation Before Rejecting
-        $status_check = $conn->query("SELECT status, pr_number, workflow_version FROM purchase_requests WHERE pr_id = $pr_id")->fetch_assoc();
-        if (!$status_check || (int) $status_check['workflow_version'] === 2) {
-            header("Location: ../view_pr.php?id=$pr_id&error=" . rawurlencode('Use the sequential approval action for this PRF.'));
-            exit();
-        }
-        if ($status_check['status'] !== 'Pending') {
-            header("Location: ../view_pr.php?id=$pr_id&error=PR is already processed.");
-            exit();
-        }
-
-        // =================================================================================
-        // AUTO-PATCH: Siguraduhing may "remarks" column ang table
-        // =================================================================================
-        $check_col = $conn->query("SHOW COLUMNS FROM purchase_requests LIKE 'remarks'");
-        if ($check_col && $check_col->num_rows == 0) {
-            $conn->query("ALTER TABLE purchase_requests ADD COLUMN remarks TEXT NULL");
-        }
-        
-        // Update request securely including the remarks
-        $stmt_upd = $conn->prepare("UPDATE purchase_requests SET status = 'Rejected', remarks = ? WHERE pr_id = ?");
-        $stmt_upd->bind_param("si", $remarks, $pr_id);
-        $stmt_upd->execute();
-        
-        $pr_number = $status_check['pr_number'];
-
-        // Record history securely
-        $check_hist = $conn->query("SHOW TABLES LIKE 'pr_history'");
-        if ($check_hist && $check_hist->num_rows > 0) {
-            $check_hist_col = $conn->query("SHOW COLUMNS FROM pr_history LIKE 'remarks'");
-            if ($check_hist_col && $check_hist_col->num_rows == 0) {
-                $conn->query("ALTER TABLE pr_history ADD COLUMN remarks TEXT NULL");
-            }
-
-            $user_id = $_SESSION['user_id'];
-            $hist_stmt = $conn->prepare("INSERT INTO pr_history (pr_id, changed_by, status_from, status_to, remarks) VALUES (?, ?, 'Pending', 'Rejected', ?)");
-            if ($hist_stmt) {
-                $hist_stmt->bind_param("iis", $pr_id, $user_id, $remarks);
-                $hist_stmt->execute();
-            }
-        }
-
-        // Escape para iwas error sa single quotes sa chat string
-        $safe_remarks = $conn->real_escape_string($remarks);
-        create_role_notification($conn, 'Sales Staff', "Your PR $pr_number was Rejected by Management. Reason: $safe_remarks");
-        log_audit_action($conn, $_SESSION['user_id'], 'REJECT_PR', "Rejected PR $pr_number. Reason: $remarks", ['status' => 'Pending'], ['status' => 'Rejected', 'remarks' => $remarks]);
-
-        header("Location: ../view_pr.php?id=$pr_id&success=PR Rejected");
-        exit();
-    }
 }
 
 header("Location: ../dashboard.php");

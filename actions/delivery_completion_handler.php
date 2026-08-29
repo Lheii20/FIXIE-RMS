@@ -3,8 +3,11 @@ session_start();
 
 require '../config/db_connect.php';
 require '../config/functions.php';
+require_once '../config/workflow_feedback.php';
 
 date_default_timezone_set('Asia/Manila');
+
+const PHASE6B4_COLLECTION_TERM_DAYS = 15;
 
 function phase4d_redirect(
     int $po_id,
@@ -14,11 +17,13 @@ function phase4d_redirect(
     $destination = $po_id > 0
         ? '../complete_delivery.php?po_id=' . $po_id
         : '../po_list.php?filter=my_tasks';
-    header(
-        'Location: ' . $destination . '&' . $type . '=' .
-        rawurlencode($message)
-    );
-    exit();
+    $public_message = $type === 'error'
+        ? drms_public_feedback_message(
+            $message,
+            'The client delivery could not be completed. No workflow changes were saved.'
+        )
+        : drms_feedback_clean_text($message);
+    drms_redirect_with_feedback($destination, $type, $public_message);
 }
 
 function phase4d_parse_datetime(string $value): ?DateTime
@@ -322,7 +327,15 @@ try {
             po.client_name,
             po.amount,
             po.status,
-            po.source_pr_workflow_version,
+            po.collection_status,
+            COALESCE(
+                (
+                    SELECT SUM(payment.amount_paid)
+                    FROM payments payment
+                    WHERE payment.po_id = po.po_id
+                ),
+                0
+            ) AS total_client_paid,
             delivery_request.delivery_request_id,
             delivery_request.request_number,
             delivery_request.request_status,
@@ -362,7 +375,6 @@ try {
 
     if (
         !$delivery ||
-        (int) $delivery['source_pr_workflow_version'] !== 2 ||
         $delivery['status'] !== 'For Pick-up/Delivery' ||
         $delivery['request_status'] !== 'Scheduled' ||
         $delivery['logistics_status'] !== 'Scheduled'
@@ -471,7 +483,10 @@ try {
     );
     $actual_handover_sql =
         $actual_handover_at->format('Y-m-d H:i:s');
-    $collection_term_days = 15;
+    // The client term is 15 calendar days beginning on the verified actual
+    // handover date. It is calculated only on the server and is never accepted
+    // from a browser-submitted due-date field.
+    $collection_term_days = PHASE6B4_COLLECTION_TERM_DAYS;
     $collection_due_date = (clone $actual_handover_at)
         ->modify('+' . $collection_term_days . ' days')
         ->format('Y-m-d');
@@ -626,9 +641,22 @@ try {
     }
 
     $new_status = $rule['next_status'];
-    $new_location = trim((string) $rule['next_location']) !== ''
-        ? $rule['next_location']
-        : 'Finance Dept. (Collection)';
+    $remaining_collection_balance = max(
+        round(
+            (float) $delivery['amount'] -
+            (float) $delivery['total_client_paid'],
+            2
+        ),
+        0
+    );
+    $collection_is_paid =
+        $delivery['collection_status'] === 'Paid' ||
+        $remaining_collection_balance <= 0.01;
+    $new_location = $collection_is_paid
+        ? 'Client / Completed'
+        : (trim((string) $rule['next_location']) !== ''
+            ? $rule['next_location']
+            : 'Finance Dept. (Collection)');
     $po_stmt = $conn->prepare(
         "UPDATE purchase_orders
          SET status = ?,
@@ -656,7 +684,8 @@ try {
 
     $history_remarks = 'Client delivery completed. Receipt: ' .
         $document_record_number . '. Accepted by ' . $recipient_name .
-        '. Collection due ' . $collection_due_date . ' (15 days).';
+        '. Collection due ' . $collection_due_date . ' (' .
+        $collection_term_days . ' calendar days).';
     $history_stmt = $conn->prepare(
         "INSERT INTO po_history (
             po_id,
@@ -682,11 +711,14 @@ try {
         $user_id,
         'Client delivery and acknowledgement completed'
     );
-    $assigned_finance_user = phase4d_auto_assign_finance(
-        $conn,
-        $po_id,
-        $user_id
-    );
+    $assigned_finance_user = null;
+    if (!$collection_is_paid) {
+        $assigned_finance_user = phase4d_auto_assign_finance(
+            $conn,
+            $po_id,
+            $user_id
+        );
+    }
 
     $notify_target = trim((string) $rule['notify_target']) !== ''
         ? $rule['notify_target']
@@ -694,9 +726,14 @@ try {
     create_role_notification(
         $conn,
         $notify_target,
-        'PO ' . $delivery['po_number'] .
-            ' was received by the client. Collection is due on ' .
-            date('M d, Y', strtotime($collection_due_date)) . '.'
+        $collection_is_paid
+            ? 'PO ' . $delivery['po_number'] .
+                ' was received by the client and is already fully paid from verified advance collection.'
+            : 'PO ' . $delivery['po_number'] .
+                ' was received by the client. Remaining collection of ₱' .
+                number_format($remaining_collection_balance, 2) .
+                ' is due on ' .
+                date('M d, Y', strtotime($collection_due_date)) . '.'
     );
 
     log_audit_action(
@@ -715,7 +752,11 @@ try {
             'document_id' => $document_id,
             'recipient_name' => $recipient_name,
             'actual_handover_at' => $actual_handover_sql,
+            'collection_term_days' => $collection_term_days,
             'collection_due_date' => $collection_due_date,
+            'collection_status' => $delivery['collection_status'],
+            'remaining_collection_balance' =>
+                $remaining_collection_balance,
             'assigned_finance_user' => $assigned_finance_user,
         ]
     );
@@ -723,10 +764,10 @@ try {
     $conn->commit();
     header(
         'Location: ../view_po.php?id=' . $po_id . '&success=' .
-        rawurlencode(
-            'Client delivery recorded. Finance collection is due on ' .
-            date('M d, Y', strtotime($collection_due_date)) . '.'
-        )
+        rawurlencode($collection_is_paid
+            ? 'Client delivery recorded. The PO was already fully paid through verified advance collection.'
+            : 'Client delivery recorded. Finance collection is due on ' .
+                date('M d, Y', strtotime($collection_due_date)) . '.')
     );
     exit();
 } catch (Throwable $error) {
@@ -736,19 +777,13 @@ try {
         unlink($stored_absolute_path);
     }
 
-    error_log(
-        'Phase 4D delivery completion failed for PO ' . $po_id . ': ' .
-        $error->getMessage()
+    drms_log_workflow_failure(
+        'Client delivery completion for PO ' . $po_id,
+        $error
     );
 
     if ($error instanceof DomainException) {
         $public_error = $error->getMessage();
-    } elseif (
-        $error instanceof mysqli_sql_exception &&
-        in_array((int) $error->getCode(), [1054, 1146], true)
-    ) {
-        $public_error =
-            'Verify that the Phase 4D database migration is installed.';
     } elseif ($error instanceof RuntimeException) {
         $public_error =
             'The delivery evidence could not be stored. No workflow changes were saved. Check the upload folder and try again.';
@@ -758,3 +793,4 @@ try {
     }
     phase4d_redirect($po_id, 'error', $public_error);
 }
+

@@ -153,6 +153,15 @@ function phase5c_sync_collection_reminders(
         );
     }
 
+    $collection_status_check = $conn->query(
+        "SHOW COLUMNS FROM purchase_orders LIKE 'collection_status'"
+    );
+    if (!$collection_status_check || $collection_status_check->num_rows === 0) {
+        throw new RuntimeException(
+            'Phase 6B3A collection-status migration is not installed.'
+        );
+    }
+
     $finance_stmt = $conn->prepare(
         "SELECT user_id
          FROM users
@@ -178,6 +187,7 @@ function phase5c_sync_collection_reminders(
             po.po_number,
             po.client_name,
             po.amount,
+            po.collection_status,
             po.expected_collection_date,
             COALESCE(payment_summary.total_paid, 0) AS total_paid,
             receipt.collection_due_date AS receipt_due_date,
@@ -214,7 +224,8 @@ function phase5c_sync_collection_reminders(
             )
            AND assignment.assigned_to = ?
            AND assignment.assigned_role = 'Finance'
-           AND po.status IN ('Delivered', 'Partially-Collected')
+           AND po.status = 'Delivered'
+           AND po.collection_status IN ('Unpaid', 'Partially Paid')
          ORDER BY po.po_id"
     );
     $reminder_stmt->bind_param('i', $user_id);
@@ -386,7 +397,8 @@ function phase5c_sync_collection_reminders(
             GROUP BY po_id
          ) payment_summary
             ON payment_summary.po_id = po.po_id
-         WHERE po.status IN ('Delivered', 'Partially-Collected')
+         WHERE po.status = 'Delivered'
+           AND po.collection_status IN ('Unpaid', 'Partially Paid')
            AND po.amount - COALESCE(payment_summary.total_paid, 0) > 0.01
            AND NOT EXISTS (
                 SELECT 1

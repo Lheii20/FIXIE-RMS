@@ -34,6 +34,8 @@ $is_admin = has_permission($conn, $_SESSION['user_id'], 'can_manage_users');
 $is_top_mgmt = has_permission($conn, $_SESSION['user_id'], 'can_view_all_folders');
 $can_manage = has_permission($conn, $_SESSION['user_id'], 'can_manage_folders'); 
 $can_view_disposition = has_permission($conn, $_SESSION['user_id'], 'can_view_disposition'); 
+$can_manage_disposition = has_permission($conn, $_SESSION['user_id'], 'can_manage_disposition');
+$can_approve_disposition = has_permission($conn, $_SESSION['user_id'], 'can_approve_disposition');
 
 $can_view_po = in_array($role, ['Admin', 'GM', 'President', 'Finance', 'Procurement', 'Supply Chain']);
 
@@ -323,7 +325,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $act_months = intval($_POST['active_months']);
         $arch_years = intval($_POST['archive_years']);
         $arch_months = intval($_POST['archive_months']);
-        $action_after = 'Review for permanent deletion';
+        $action_after = trim($_POST['action_after_retention'] ?? 'Destroy');
+        $allowed_retention_actions = ['Destroy', 'Permanent Archive'];
+
+        if (!in_array($action_after, $allowed_retention_actions, true)) {
+            header("Location: documents.php?error=" . urlencode("Select a valid action after retention."));
+            exit();
+        }
+
+        if ($act_years < 0 || $arch_years < 0 || $act_months < 0 || $act_months > 11 || $arch_months < 0 || $arch_months > 11) {
+            header("Location: documents.php?error=" . urlencode("Retention years must be zero or greater, and months must be from 0 to 11."));
+            exit();
+        }
         
         if (($act_years + $arch_years + $act_months + $arch_months) < 1) {
             header("Location: documents.php?error=" . urlencode("Total retention period must be at least 1 month."));
@@ -333,7 +346,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $stmt_edit = $conn->prepare("UPDATE retention_policies SET policy_name=?, active_years=?, active_months=?, archive_years=?, archive_months=?, action_after_retention=? WHERE policy_id=?");
         $stmt_edit->bind_param("siiiisi", $policy_name, $act_years, $act_months, $arch_years, $arch_months, $action_after, $policy_id);
         if ($stmt_edit->execute()) {
-            if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'UPDATE_POLICY', "Updated Policy ID: $policy_id to $years Years ($action_after).");
+            if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'UPDATE_POLICY', "Updated Policy ID: $policy_id; active {$act_years}Y {$act_months}M, archive {$arch_years}Y {$arch_months}M, action: $action_after.");
             header("Location: documents.php?success=" . urlencode("Retention Policy updated successfully."));
             exit();
         } else {
@@ -353,14 +366,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $act_months = intval($_POST['active_months'] ?? 0);
         $arch_years = intval($_POST['archive_years'] ?? 0);
         $arch_months = intval($_POST['archive_months'] ?? 0);
-        $action_after = 'Review for permanent deletion';
+        $action_after = trim($_POST['action_after_retention'] ?? 'Destroy');
+        $allowed_retention_actions = ['Destroy', 'Permanent Archive'];
 
         if ($policy_name === '') {
             header("Location: documents.php?error=" . urlencode("Policy name is required."));
             exit();
         }
-        if ($act_years < 0 || $act_months < 0 || $arch_years < 0 || $arch_months < 0) {
-            header("Location: documents.php?error=" . urlencode("Retention values must be zero or greater."));
+        if (!in_array($action_after, $allowed_retention_actions, true)) {
+            header("Location: documents.php?error=" . urlencode("Select a valid action after retention."));
+            exit();
+        }
+        if ($act_years < 0 || $arch_years < 0 || $act_months < 0 || $act_months > 11 || $arch_months < 0 || $arch_months > 11) {
+            header("Location: documents.php?error=" . urlencode("Retention years must be zero or greater, and months must be from 0 to 11."));
+            exit();
+        }
+        if (($act_years + $arch_years + $act_months + $arch_months) < 1) {
+            header("Location: documents.php?error=" . urlencode("Total retention period must be at least 1 month."));
             exit();
         }
 
@@ -368,7 +390,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $stmt_create_policy->bind_param("siiiis", $policy_name, $act_years, $act_months, $arch_years, $arch_months, $action_after);
 
         if ($stmt_create_policy->execute()) {
-            if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'CREATE_POLICY', "Created Policy: $policy_name ($years Yrs, $months Mos).");
+            if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'CREATE_POLICY', "Created Policy: $policy_name; active {$act_years}Y {$act_months}M, archive {$arch_years}Y {$arch_months}M, action: $action_after.");
             header("Location: documents.php?success=" . urlencode("Retention Policy created successfully."));
             exit();
         } else {
@@ -909,7 +931,8 @@ if (!has_permission($conn, $_SESSION['user_id'], 'can_upload_documents') || $rol
 // ==========================================
 $disposition_docs = null;
 if ($view_disposition) {
-    $disp_where = ["(d.disposition_status = 'Ready for Disposition' OR DATE_ADD(DATE_ADD(d.uploaded_at, INTERVAL (COALESCE(p.active_years, 0) + COALESCE(p.archive_years, 0)) YEAR), INTERVAL (COALESCE(p.active_months, 0) + COALESCE(p.archive_months, 0)) MONTH) <= NOW())"];
+    $retention_base_sql = "COALESCE(d.declared_at, d.uploaded_at)";
+    $disp_where = ["d.record_phase = 'Official'", "p.policy_id IS NOT NULL", "(d.disposition_status = 'Ready for Disposition' OR DATE_ADD(DATE_ADD($retention_base_sql, INTERVAL (COALESCE(p.active_years, 0) + COALESCE(p.archive_years, 0)) YEAR), INTERVAL (COALESCE(p.active_months, 0) + COALESCE(p.archive_months, 0)) MONTH) <= NOW())"];
     $disp_where[] = "d.is_legal_hold = 0";
     
     $disp_params = [];
@@ -941,15 +964,36 @@ if ($view_disposition) {
     $disp_where_clause = implode(" AND ", $disp_where);
     
     $disp_query_sql = "
-        SELECT d.*, p.policy_name, p.action_after_retention, u.full_name, 
-               DATE_ADD(DATE_ADD(d.uploaded_at, INTERVAL (COALESCE(p.active_years, 0) + COALESCE(p.archive_years, 0)) YEAR), INTERVAL (COALESCE(p.active_months, 0) + COALESCE(p.archive_months, 0)) MONTH) AS retention_date,
+        SELECT d.*, p.policy_name, p.action_after_retention, u.full_name,
+               DATE_ADD(DATE_ADD($retention_base_sql, INTERVAL (COALESCE(p.active_years, 0) + COALESCE(p.archive_years, 0)) YEAR), INTERVAL (COALESCE(p.active_months, 0) + COALESCE(p.archive_months, 0)) MONTH) AS retention_date,
                locker.full_name AS locked_by_name,
+               req.request_id AS disposition_request_id,
+               req.requested_action AS disposition_requested_action,
+               req.reason AS disposition_reason,
+               req.retention_authority AS disposition_authority,
+               req.requested_by AS disposition_requested_by,
+               req.requested_at AS disposition_requested_at,
+               req.status AS disposition_request_status,
+               req.reviewed_by AS disposition_reviewed_by,
+               req.reviewed_at AS disposition_reviewed_at,
+               req.review_notes AS disposition_review_notes,
+               requester.full_name AS disposition_requester_name,
+               reviewer.full_name AS disposition_reviewer_name,
                CONCAT_WS(' > ', b.name, r.name, c.name, dr.name, dc.sub_category) as full_physical_path
         FROM documents d
         LEFT JOIN document_categories dc ON d.category = dc.sub_category
-        LEFT JOIN retention_policies p ON dc.policy_id = p.policy_id
+        LEFT JOIN retention_policies p ON p.policy_id = COALESCE(d.policy_id, dc.policy_id)
         LEFT JOIN users u ON d.uploaded_by = u.user_id
         LEFT JOIN users locker ON d.locked_by = locker.user_id
+        LEFT JOIN disposition_requests req ON req.request_id = (
+            SELECT latest_req.request_id
+            FROM disposition_requests latest_req
+            WHERE latest_req.doc_id = d.doc_id
+            ORDER BY latest_req.request_id DESC
+            LIMIT 1
+        )
+        LEFT JOIN users requester ON requester.user_id = req.requested_by
+        LEFT JOIN users reviewer ON reviewer.user_id = req.reviewed_by
         LEFT JOIN virt_drawers dr ON dc.drawer_id = dr.id
         LEFT JOIN virt_cabinets c ON dr.cabinet_id = c.id
         LEFT JOIN virt_rooms r ON c.room_id = r.id
@@ -1335,6 +1379,13 @@ if(isset($_GET['success'])) {
                                 $document_file_url = $doc['doc_type'] === 'Proof of Delivery'
                                     ? 'download.php?type=document&record_id=' . (int) $doc['doc_id']
                                     : $doc['file_path'];
+
+                                $request_id = (int) ($doc['disposition_request_id'] ?? 0);
+                                $request_status = $doc['disposition_request_status'] ?? '';
+                                $requester_id = (int) ($doc['disposition_requested_by'] ?? 0);
+                                $is_requester = $requester_id === (int) $_SESSION['user_id'];
+                                $can_submit_request = $can_manage_disposition && !in_array($request_status, ['Pending', 'Approved'], true);
+                                $can_review_request = $can_approve_disposition && $request_status === 'Pending' && !$is_requester;
                             ?>
                             <tr id="target-doc-<?php echo $doc['doc_id']; ?>" class="<?php echo $has_file_access ? 'cursor-pointer file-row-title' : ''; ?>" <?php if($has_file_access): ?>onclick="openDocumentViewer('<?php echo htmlspecialchars(addslashes($document_file_url), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['file_name']), ENT_QUOTES); ?>', <?php echo $is_img ? 'true' : 'false'; ?>)"<?php endif; ?>>
                                 <td class="ps-4 py-3">
@@ -1384,15 +1435,49 @@ if(isset($_GET['success'])) {
                                                     <i class="fas fa-balance-scale me-1"></i> Managed by Policy
                                                 </span>
                                             <?php else: ?>
-        <form action="actions/document_handler.php" method="POST" class="m-0">
-    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-    <input type="hidden" name="action" value="delete">
-    <input type="hidden" name="doc_id" value="<?php echo $doc['doc_id']; ?>">
-    <button type="button" class="btn btn-sm btn-danger fw-bold shadow-sm px-3 py-1" onclick="confirmDispositionDelete(this)">
-        <i class="fas fa-trash-alt me-1"></i> Permanently Delete
-    </button>
-</form>
-    <?php endif; ?>
+                                                <?php if ($request_status === 'Pending'): ?>
+                                                    <div class="d-flex flex-column align-items-end gap-1">
+                                                        <span class="badge bg-warning bg-opacity-10 text-dark border border-warning px-3 py-2">
+                                                            <i class="fas fa-hourglass-half me-1"></i> Pending review
+                                                        </span>
+                                                        <span class="text-muted fs-xs">Request #<?php echo $request_id; ?> · <?php echo htmlspecialchars($doc['disposition_requester_name'] ?? 'Requester'); ?></span>
+                                                        <div class="d-flex gap-1 mt-1">
+                                                            <?php if ($can_review_request): ?>
+                                                                <button type="button" class="btn btn-sm btn-success fw-semibold px-2 py-1" onclick="openDispositionReviewModal(this, 'approve_disposition')" data-request-id="<?php echo $request_id; ?>" data-file-name="<?php echo htmlspecialchars($doc['file_name'], ENT_QUOTES); ?>" data-request-reason="<?php echo htmlspecialchars($doc['disposition_reason'] ?? '', ENT_QUOTES); ?>">
+                                                                    <i class="fas fa-check me-1"></i> Approve
+                                                                </button>
+                                                                <button type="button" class="btn btn-sm btn-outline-danger fw-semibold px-2 py-1" onclick="openDispositionReviewModal(this, 'reject_disposition')" data-request-id="<?php echo $request_id; ?>" data-file-name="<?php echo htmlspecialchars($doc['file_name'], ENT_QUOTES); ?>" data-request-reason="<?php echo htmlspecialchars($doc['disposition_reason'] ?? '', ENT_QUOTES); ?>">
+                                                                    <i class="fas fa-times me-1"></i> Reject
+                                                                </button>
+                                                            <?php elseif ($is_requester): ?>
+                                                                <form action="actions/disposition_handler.php" method="POST" class="m-0">
+                                                                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                                                                    <input type="hidden" name="action" value="cancel_disposition">
+                                                                    <input type="hidden" name="request_id" value="<?php echo $request_id; ?>">
+                                                                    <button type="button" class="btn btn-sm btn-outline-secondary fw-semibold px-2 py-1" onclick="confirmCancelDisposition(this)">
+                                                                        <i class="fas fa-ban me-1"></i> Cancel
+                                                                    </button>
+                                                                </form>
+                                                            <?php endif; ?>
+                                                        </div>
+                                                    </div>
+                                                <?php elseif ($request_status === 'Approved'): ?>
+                                                    <div class="d-flex flex-column align-items-end gap-1">
+                                                        <span class="badge bg-success bg-opacity-10 text-success border border-success px-3 py-2">
+                                                            <i class="fas fa-check-circle me-1"></i> Approved
+                                                        </span>
+                                                        <span class="text-muted fs-xs">Execution pending · Request #<?php echo $request_id; ?></span>
+                                                    </div>
+                                                <?php elseif ($can_submit_request): ?>
+                                                    <button type="button" class="btn btn-sm btn-warning text-dark fw-semibold px-3 py-1" onclick="openDispositionRequestModal(this)" data-doc-id="<?php echo (int) $doc['doc_id']; ?>" data-file-name="<?php echo htmlspecialchars($doc['file_name'], ENT_QUOTES); ?>" data-policy-action="<?php echo htmlspecialchars($doc['action_after_retention'] ?? 'Destroy', ENT_QUOTES); ?>">
+                                                        <i class="fas fa-paper-plane me-1"></i> Request review
+                                                    </button>
+                                                <?php else: ?>
+                                                    <span class="badge bg-light text-secondary border px-3 py-2" title="A disposition manager must submit the request.">
+                                                        <i class="fas fa-user-shield me-1"></i> Awaiting request
+                                                    </span>
+                                                <?php endif; ?>
+                                            <?php endif; ?>
 <?php else: ?>
                                             <span class="badge bg-danger bg-opacity-10 text-danger border border-danger px-3 py-2">
                                                 <i class="fas fa-ban me-1"></i> Restricted
@@ -1933,6 +2018,13 @@ if(isset($_GET['success'])) {
                         <input type="text" class="form-control bg-light fs-sm text-dark fw-bold" id="declareDocName" readonly>
                     </div>
 
+                    <div class="form-check border rounded-3 bg-light px-3 py-3 mb-4">
+                        <input class="form-check-input ms-0 me-2" type="checkbox" name="official_signature_confirmed" value="1" id="declareSignatureConfirmed" required>
+                        <label class="form-check-label fs-sm text-dark" for="declareSignatureConfirmed">
+                            I confirm that this copy contains the required signature(s) and is ready to become an Official Record.
+                        </label>
+                    </div>
+
                     <div class="d-flex justify-content-end gap-2">
                         <button type="button" class="btn btn-light sleek-btn-sm border" data-bs-dismiss="modal">Cancel</button>
                         <button type="submit" class="btn btn-success sleek-btn-sm px-4 fw-bold">Confirm & Move</button>
@@ -1959,6 +2051,7 @@ if(isset($_GET['success'])) {
                 <form action="actions/document_handler.php" method="POST" enctype="multipart/form-data">
                     <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                     <input type="hidden" name="action" value="upload">
+                    <input type="hidden" name="record_intake" value="official">
                     <input type="file" name="document" id="uploadDocumentInput" class="d-none" required>
                     
                     <div class="mb-4 position-relative">
@@ -2066,6 +2159,13 @@ if(isset($_GET['success'])) {
                         </div>
                     </div>
 
+                    <div class="form-check border rounded-3 bg-white px-3 py-3 mb-4 shadow-sm">
+                        <input class="form-check-input ms-0 me-2" type="checkbox" name="official_signature_confirmed" value="1" id="uploadSignatureConfirmed" required>
+                        <label class="form-check-label fs-sm text-dark" for="uploadSignatureConfirmed">
+                            I confirm that the uploaded copy contains the required signature(s) and may be filed as an Official Record.
+                        </label>
+                    </div>
+
                     <!-- DAGDAG: Nilagyan ng id="uploadSubmitBtn" -->
                     <button type="submit" id="uploadSubmitBtn" class="btn btn-primary w-100 fw-bold shadow-sm rounded-pill py-2 modal-btn-hover transition-all">
                         <i class="fas fa-check-circle me-2"></i> Upload and Index File
@@ -2141,6 +2241,99 @@ if(isset($_GET['success'])) {
 
 <?php endif; ?> <!-- End If Non-Admin For Restricted Modals -->
 
+<?php if ($view_disposition && $can_manage_disposition): ?>
+<!-- DISPOSITION REQUEST MODAL -->
+<div class="modal fade sleek-modal" id="dispositionRequestModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow rounded-4">
+            <div class="modal-header border-bottom px-4 py-3">
+                <div>
+                    <h5 class="modal-title fw-bold text-dark fs-6 mb-1"><i class="fas fa-file-signature text-warning me-2"></i>Request Disposition Review</h5>
+                    <p class="text-muted fs-xs mb-0">The file will not be deleted when this request is submitted.</p>
+                </div>
+                <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal"></button>
+            </div>
+            <form action="actions/disposition_handler.php" method="POST">
+                <div class="modal-body px-4 py-3">
+                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                    <input type="hidden" name="action" value="request_disposition">
+                    <input type="hidden" name="doc_id" id="dispositionRequestDocId">
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-8">
+                            <label class="form-label fs-xs fw-bold text-uppercase text-muted">Official record</label>
+                            <div class="form-control bg-light fs-sm fw-semibold text-dark text-truncate" id="dispositionRequestFileName"></div>
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label fs-xs fw-bold text-uppercase text-muted">Policy action</label>
+                            <div class="form-control bg-light fs-sm fw-semibold text-dark text-center" id="dispositionRequestPolicyAction"></div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label for="dispositionRequestReason" class="form-label fs-xs fw-bold text-uppercase text-muted">Reason for request</label>
+                        <textarea name="reason" id="dispositionRequestReason" class="form-control shadow-none fs-sm" rows="4" minlength="10" maxlength="1000" placeholder="Explain why the record is ready for the policy-directed disposition action." required></textarea>
+                        <div class="form-text fs-xs">Required: 10–1000 characters. The independent reviewer will see this explanation.</div>
+                    </div>
+                </div>
+                <div class="modal-footer border-top px-4 py-3">
+                    <button type="button" class="btn btn-light btn-sm border px-3" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-warning btn-sm text-dark fw-bold px-4">
+                        <i class="fas fa-paper-plane me-1"></i> Submit Request
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
+<?php if ($view_disposition && $can_approve_disposition): ?>
+<!-- DISPOSITION REVIEW MODAL -->
+<div class="modal fade sleek-modal" id="dispositionReviewModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow rounded-4">
+            <div class="modal-header border-bottom px-4 py-3">
+                <div>
+                    <h5 class="modal-title fw-bold text-dark fs-6 mb-1" id="dispositionReviewTitle"><i class="fas fa-user-check text-success me-2"></i>Review Disposition Request</h5>
+                    <p class="text-muted fs-xs mb-0">Your decision is recorded separately from the requester.</p>
+                </div>
+                <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal"></button>
+            </div>
+            <form action="actions/disposition_handler.php" method="POST" id="dispositionReviewForm">
+                <div class="modal-body px-4 py-3">
+                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                    <input type="hidden" name="action" id="dispositionReviewAction">
+                    <input type="hidden" name="request_id" id="dispositionReviewRequestId">
+
+                    <div class="mb-3">
+                        <label class="form-label fs-xs fw-bold text-uppercase text-muted">Official record</label>
+                        <div class="form-control bg-light fs-sm fw-semibold text-dark text-truncate" id="dispositionReviewFileName"></div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fs-xs fw-bold text-uppercase text-muted">Requester's reason</label>
+                        <div class="border rounded-3 bg-light px-3 py-2 fs-sm text-dark" id="dispositionReviewReason"></div>
+                    </div>
+
+                    <div>
+                        <label for="dispositionReviewNotes" class="form-label fs-xs fw-bold text-uppercase text-muted" id="dispositionReviewNotesLabel">Review notes</label>
+                        <textarea name="review_notes" id="dispositionReviewNotes" class="form-control shadow-none fs-sm" rows="3" maxlength="1000" placeholder="Optional approval notes."></textarea>
+                        <div class="form-text fs-xs" id="dispositionReviewHelp">Notes are optional when approving.</div>
+                    </div>
+                </div>
+                <div class="modal-footer border-top px-4 py-3">
+                    <button type="button" class="btn btn-light btn-sm border px-3" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success btn-sm fw-bold px-4" id="dispositionReviewSubmit">
+                        <i class="fas fa-check me-1"></i> Approve Request
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
 <!-- EDIT RETENTION POLICIES MODAL -->
 <?php if (has_permission($conn, $_SESSION['user_id'], 'can_edit_policies')): ?>
 <div class="modal fade sleek-modal" id="editPoliciesModal" tabindex="-1" aria-hidden="true">
@@ -2188,6 +2381,13 @@ if(isset($_GET['success'])) {
                                     <div class="col-md-3 col-6">
                                         <label class="form-label fw-semibold small text-secondary text-uppercase">Archive (Mos)</label>
                                         <input type="number" name="archive_months" class="form-control bg-white fw-bold text-danger shadow-none border-0" min="0" max="11" value="0" required>
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label fw-semibold small text-secondary text-uppercase">Action after retention</label>
+                                        <select name="action_after_retention" class="form-select bg-white fw-medium shadow-none border-0" required>
+                                            <option value="Destroy">Destroy after approved review</option>
+                                            <option value="Permanent Archive">Keep in permanent archive</option>
+                                        </select>
                                     </div>
                                     <div class="col-12 text-end mt-4">
                                         <button type="button" class="btn btn-light fw-medium border px-3 me-2" data-bs-toggle="collapse" data-bs-target="#collapseCreatePolicy">Cancel</button>
@@ -2250,6 +2450,13 @@ if(isset($_GET['success'])) {
                                         <div class="col-md-3 col-6">
                                             <label class="form-label fw-semibold small text-secondary text-uppercase">Archive (Mos)</label>
                                             <input type="number" name="archive_months" class="form-control bg-light fw-bold text-danger" value="<?php echo (int)$pol['archive_months']; ?>" min="0" max="11" required>
+                                        </div>
+                                        <div class="col-12">
+                                            <label class="form-label fw-semibold small text-secondary text-uppercase">Action after retention</label>
+                                            <select name="action_after_retention" class="form-select bg-light fw-medium" required>
+                                                <option value="Destroy" <?php echo ($pol['action_after_retention'] ?? '') === 'Destroy' ? 'selected' : ''; ?>>Destroy after approved review</option>
+                                                <option value="Permanent Archive" <?php echo ($pol['action_after_retention'] ?? '') === 'Permanent Archive' ? 'selected' : ''; ?>>Keep in permanent archive</option>
+                                            </select>
                                         </div>
                                         
                                         <div class="col-12 mt-3 d-flex justify-content-between align-items-center">
@@ -3569,6 +3776,77 @@ if(isset($_GET['success'])) {
         });
     }
 
+
+    function openDispositionRequestModal(buttonElement) {
+        const modalElement = document.getElementById('dispositionRequestModal');
+        if (!modalElement) return;
+
+        document.getElementById('dispositionRequestDocId').value = buttonElement.dataset.docId || '';
+        document.getElementById('dispositionRequestFileName').textContent = buttonElement.dataset.fileName || 'Official Record';
+        document.getElementById('dispositionRequestPolicyAction').textContent = buttonElement.dataset.policyAction || 'Review';
+        document.getElementById('dispositionRequestReason').value = '';
+
+        new bootstrap.Modal(modalElement).show();
+    }
+
+    function openDispositionReviewModal(buttonElement, decisionAction) {
+        const modalElement = document.getElementById('dispositionReviewModal');
+        if (!modalElement) return;
+
+        const isReject = decisionAction === 'reject_disposition';
+        const notes = document.getElementById('dispositionReviewNotes');
+        const submit = document.getElementById('dispositionReviewSubmit');
+
+        document.getElementById('dispositionReviewAction').value = decisionAction;
+        document.getElementById('dispositionReviewRequestId').value = buttonElement.dataset.requestId || '';
+        document.getElementById('dispositionReviewFileName').textContent = buttonElement.dataset.fileName || 'Official Record';
+        document.getElementById('dispositionReviewReason').textContent = buttonElement.dataset.requestReason || 'No reason provided.';
+
+        notes.value = '';
+        notes.required = isReject;
+        notes.minLength = isReject ? 10 : 0;
+        notes.placeholder = isReject ? 'Explain why the request is being rejected.' : 'Optional approval notes.';
+
+        document.getElementById('dispositionReviewHelp').textContent = isReject
+            ? 'Required: at least 10 characters for a rejection.'
+            : 'Notes are optional when approving.';
+        document.getElementById('dispositionReviewTitle').innerHTML = isReject
+            ? '<i class="fas fa-times-circle text-danger me-2"></i>Reject Disposition Request'
+            : '<i class="fas fa-user-check text-success me-2"></i>Approve Disposition Request';
+
+        submit.className = isReject
+            ? 'btn btn-danger btn-sm fw-bold px-4'
+            : 'btn btn-success btn-sm fw-bold px-4';
+        submit.innerHTML = isReject
+            ? '<i class="fas fa-times me-1"></i> Reject Request'
+            : '<i class="fas fa-check me-1"></i> Approve Request';
+
+        new bootstrap.Modal(modalElement).show();
+    }
+
+    function confirmCancelDisposition(buttonElement) {
+        const form = buttonElement.closest('form');
+        if (!form) return;
+
+        Swal.fire({
+            title: '<span class="fs-5 fw-bold text-dark">Cancel Request?</span>',
+            html: '<p class="text-muted fs-sm mb-0">The pending request will be cancelled without changing or deleting the record.</p>',
+            icon: 'question',
+            width: 380,
+            showCancelButton: true,
+            confirmButtonText: 'Cancel Request',
+            cancelButtonText: 'Keep Pending',
+            customClass: {
+                popup: 'rounded-4 shadow-lg border-0',
+                confirmButton: 'btn btn-outline-danger btn-sm fw-bold px-4 rounded-pill',
+                cancelButton: 'btn btn-light btn-sm fw-medium px-4 rounded-pill border'
+            },
+            buttonsStyling: false,
+            focusCancel: true
+        }).then((result) => {
+            if (result.isConfirmed) form.submit();
+        });
+    }
 
     function confirmDispositionDelete(buttonElement) {
         const form = $(buttonElement).closest('form');

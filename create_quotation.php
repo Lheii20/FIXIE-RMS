@@ -40,8 +40,9 @@ if ($brands_query) {
     <link href="assets/css/style.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
-<body class="page-create-quotation">
+<body class="page-create-quotation workflow-ui">
     <?php include 'sidebar.php'; ?>
     <div class="main-content fade-in">
         <div class="container-fluid max-w-1300">

@@ -168,7 +168,7 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
                     <i class="fas fa-layer-group"></i> Operations <i class="fas fa-chevron-down ms-1 fs-xs"></i>
                 </a>
                 <div class="saas-dropdown shadow-sm">
-                    <?php if($role == 'Sales Staff'): ?>
+                    <?php if(in_array($role, ['Sales Staff', 'GM'], true)): ?>
                         <a href="quotations_list.php"><i class="fas fa-file-invoice-dollar"></i> Quotations Tracker</a>
                     <?php endif; ?>
                     
@@ -284,7 +284,7 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
     <?php if(in_array($role, $ops_roles)): ?>
     <div class="mobile-side-nav__section">
         <span class="mobile-side-nav__label">Operations</span>
-        <?php if($role == 'Sales Staff'): ?><a href="quotations_list.php" class="mobile-side-nav__link <?php echo (in_array($current_page, ['quotations_list.php', 'create_quotation.php', 'view_quotation.php'])) ? 'active' : ''; ?>"><i class="fas fa-file-invoice-dollar"></i>Quotations</a><?php endif; ?>
+        <?php if(in_array($role, ['Sales Staff', 'GM'], true)): ?><a href="quotations_list.php" class="mobile-side-nav__link <?php echo (in_array($current_page, ['quotations_list.php', 'create_quotation.php', 'view_quotation.php'])) ? 'active' : ''; ?>"><i class="fas fa-file-invoice-dollar"></i>Quotations</a><?php endif; ?>
         <?php if(in_array($role, ['Sales Staff', 'Procurement', 'GM', 'President', 'Finance'])): ?><a href="pr_list.php" class="mobile-side-nav__link <?php echo (in_array($current_page, ['pr_list.php', 'create_pr.php', 'view_pr.php'])) ? 'active' : ''; ?>"><i class="fas fa-clipboard-list"></i>Purchase Requests</a><?php endif; ?>
         <?php if(in_array($role, ['Procurement', 'GM', 'President', 'Finance', 'Supply Chain'])): ?><a href="po_list.php" class="mobile-side-nav__link <?php echo (in_array($current_page, ['po_list.php', 'create_po.php', 'view_po.php'])) ? 'active' : ''; ?>"><i class="fas fa-file-invoice"></i>Purchase Orders</a><?php endif; ?>
         <?php if(in_array($role, ['Finance', 'GM', 'President'])): ?><a href="collection_monitoring.php" class="mobile-side-nav__link <?php echo (in_array($current_page, ['collection_monitoring.php', 'collection_aging.php', 'collection_ledger.php', 'collection_followup.php', 'collection_statement.php', 'record_collection_payment.php'])) ? 'active' : ''; ?>"><i class="fas fa-hand-holding-usd"></i>Collections</a><?php endif; ?>
@@ -364,16 +364,19 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
                             <div><div class="cp-item-title">Create Quotation</div><small class="cp-item-desc">Generate a new quote</small></div>
                         </a>
                     </li>
-                    <li data-keywords="quotations list quotes tracker">
-                        <a href="quotations_list.php">
-                            <div class="cp-item-icon cp-icon-info"><i class="fas fa-list"></i></div> 
-                            <div><div class="cp-item-title">Quotations Directory</div><small class="cp-item-desc">View all quotes</small></div>
-                        </a>
-                    </li>
                     <li data-keywords="purchase request create new pr">
                         <a href="create_pr.php">
                             <div class="cp-item-icon cp-icon-success"><i class="fas fa-plus"></i></div> 
                             <div><div class="cp-item-title">Create PR</div><small class="cp-item-desc">Request for purchase</small></div>
+                        </a>
+                    </li>
+                <?php endif; ?>
+
+                <?php if(in_array($role, ['Sales Staff', 'GM'], true)): ?>
+                    <li data-keywords="quotations client po approval acknowledgement quotes list tracker">
+                        <a href="quotations_list.php">
+                            <div class="cp-item-icon cp-icon-info"><i class="fas fa-list"></i></div>
+                            <div><div class="cp-item-title">Quotations Directory</div><small class="cp-item-desc">View client quotations and PO reviews</small></div>
                         </a>
                     </li>
                 <?php endif; ?>

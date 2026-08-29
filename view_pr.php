@@ -66,66 +66,67 @@ while ($item = $items_result->fetch_assoc()) {
     $items[] = $item;
 }
 
-$is_sequential = (int) ($pr['workflow_version'] ?? 1) === 2;
 $supplier = null;
 $approval_records = [];
 $current_approval = null;
 
-if ($is_sequential) {
-    $supplier_stmt = $conn->prepare(
-        "SELECT *
-         FROM pr_supplier_details
-         WHERE pr_id = ?
-           AND record_status = 'Active'
-         LIMIT 1"
-    );
-    $supplier_stmt->bind_param('i', $pr_id);
-    $supplier_stmt->execute();
-    $supplier = $supplier_stmt->get_result()->fetch_assoc();
+$supplier_stmt = $conn->prepare(
+    "SELECT *
+     FROM pr_supplier_details
+     WHERE pr_id = ?
+       AND record_status = 'Active'
+     LIMIT 1"
+);
+$supplier_stmt->bind_param('i', $pr_id);
+$supplier_stmt->execute();
+$supplier = $supplier_stmt->get_result()->fetch_assoc();
 
-    $approval_stmt = $conn->prepare(
-        "SELECT
-            approval.*,
-            actor.full_name AS acted_by_name
-         FROM pr_approval_records approval
-         LEFT JOIN users actor
-           ON actor.user_id = approval.acted_by
-         WHERE approval.pr_id = ?
-           AND approval.approval_cycle = (
-               SELECT MAX(cycle_record.approval_cycle)
-               FROM pr_approval_records cycle_record
-               WHERE cycle_record.pr_id = ?
-           )
-         ORDER BY approval.stage_sequence"
-    );
-    $approval_stmt->bind_param('ii', $pr_id, $pr_id);
-    $approval_stmt->execute();
-    $approval_result = $approval_stmt->get_result();
+$approval_stmt = $conn->prepare(
+    "SELECT
+        approval.*,
+        actor.full_name AS acted_by_name
+     FROM pr_approval_records approval
+     LEFT JOIN users actor
+       ON actor.user_id = approval.acted_by
+     WHERE approval.pr_id = ?
+       AND approval.approval_cycle = (
+           SELECT MAX(cycle_record.approval_cycle)
+           FROM pr_approval_records cycle_record
+           WHERE cycle_record.pr_id = ?
+       )
+     ORDER BY approval.stage_sequence"
+);
+$approval_stmt->bind_param('ii', $pr_id, $pr_id);
+$approval_stmt->execute();
+$approval_result = $approval_stmt->get_result();
 
-    while ($approval = $approval_result->fetch_assoc()) {
-        $approval_records[] = $approval;
-        if (
-            $approval['decision'] === 'Pending' &&
-            $approval['approval_stage'] === $pr['current_approval_stage']
-        ) {
-            $current_approval = $approval;
-        }
+while ($approval = $approval_result->fetch_assoc()) {
+    $approval_records[] = $approval;
+    if (
+        $approval['decision'] === 'Pending' &&
+        $approval['approval_stage'] === $pr['current_approval_stage']
+    ) {
+        $current_approval = $approval;
     }
 }
 
+// An official route is proven by its recorded approval stages, not a version flag.
+$is_sequential = !empty($approval_records);
+
 $role = (string) $_SESSION['role'];
-$can_decide_sequential = $is_sequential &&
+$can_decide = $is_sequential &&
     $pr['status'] === 'Pending' &&
     $current_approval &&
     $role === $current_approval['required_role'];
-$can_decide_legacy = !$is_sequential &&
-    $pr['status'] === 'Pending' &&
-    in_array($role, ['GM', 'President'], true);
-$can_decide = $can_decide_sequential || $can_decide_legacy;
-$can_convert = $role === 'Procurement' && $pr['status'] === 'Approved';
+$can_convert = $is_sequential &&
+    $role === 'Procurement' &&
+    $pr['status'] === 'Approved' &&
+    $pr['current_approval_stage'] === 'Official Approved' &&
+    !empty($pr['final_approved_by']) &&
+    !empty($pr['final_approved_at']);
 
-$approval_action = $is_sequential ? 'approve_pr_v2' : 'approve_pr';
-$rejection_action = $is_sequential ? 'reject_pr_v2' : 'reject_pr';
+$approval_action = 'approve_pr_stage';
+$rejection_action = 'reject_pr_stage';
 $decision_stage = $is_sequential && $current_approval
     ? $current_approval['approval_stage']
     : 'Management Approval';
@@ -196,8 +197,9 @@ function prf_review_money($value): string
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <link href="assets/css/prf-review.css?v=<?php echo filemtime(__DIR__ . '/assets/css/prf-review.css'); ?>" rel="stylesheet">
+    <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
-<body class="page-view-pr prf-review-page">
+<body class="page-view-pr prf-review-page workflow-ui">
     <?php include 'sidebar.php'; ?>
 
     <main class="main-content fade-in">
@@ -214,11 +216,7 @@ function prf_review_money($value): string
                 </div>
 
                 <div class="prf-review-header-actions">
-                    <?php if ($is_sequential): ?>
-                        <span class="prf-review-version"><i class="fas fa-route"></i> Sequential PRF</span>
-                    <?php else: ?>
-                        <span class="prf-review-version is-legacy"><i class="fas fa-history"></i> Legacy PR</span>
-                    <?php endif; ?>
+                    <span class="prf-review-version"><i class="fas fa-route"></i> PRF workflow</span>
                     <span class="prf-review-status <?php echo $status_class; ?>">
                         <i class="fas <?php echo $status_icon; ?>"></i>
                         <?php echo htmlspecialchars($status_label); ?>
@@ -259,7 +257,7 @@ function prf_review_money($value): string
                 </div>
                 <div class="prf-review-source-item">
                     <span>Official Client PO</span>
-                    <strong><?php echo htmlspecialchars($pr['actual_client_po_number'] ?: 'Legacy reference'); ?></strong>
+                    <strong><?php echo htmlspecialchars($pr['actual_client_po_number'] ?: 'Not recorded'); ?></strong>
                 </div>
                 <div class="prf-review-source-item">
                     <span>Submitted by</span>
@@ -529,12 +527,10 @@ function prf_review_money($value): string
                             </div>
 
                             <p class="prf-review-decision-footnote">
-                                <?php if ($is_sequential && $decision_stage !== 'Owner Approval'): ?>
+                                <?php if ($decision_stage !== 'Owner Approval'): ?>
                                     Approval forwards this PRF to the next reviewer.
-                                <?php elseif ($is_sequential): ?>
-                                    This is the final approval that makes the PRF official.
                                 <?php else: ?>
-                                    This legacy record follows the existing approval behavior.
+                                    This is the final approval that makes the PRF official.
                                 <?php endif; ?>
                             </p>
                         </form>
@@ -566,7 +562,7 @@ function prf_review_money($value): string
                         <section class="prf-review-side-card is-ready">
                             <div class="prf-review-side-icon"><i class="fas fa-check"></i></div>
                             <span>Approval complete</span>
-                            <h3><?php echo $is_sequential ? 'Officially approved' : 'Approved'; ?></h3>
+                            <h3><?php echo $is_sequential ? 'Officially approved' : 'Approval record incomplete'; ?></h3>
                             <p>
                                 <?php if (!empty($pr['final_approver_name'])): ?>
                                     Final approval by <?php echo htmlspecialchars($pr['final_approver_name']); ?> on

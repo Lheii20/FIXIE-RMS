@@ -7,11 +7,12 @@
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
     <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link href="assets/css/dashboard.css?v=<?php echo filemtime(__DIR__ . '/assets/css/dashboard.css'); ?>" rel="stylesheet">
+    <link href="assets/css/client-po-acknowledgement.css?v=<?php echo filemtime(__DIR__ . '/assets/css/client-po-acknowledgement.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-<body>
+<body class="dashboard-page">
     <?php include 'sidebar.php'; ?>
     <div class="main-content fade-in">
         
@@ -23,7 +24,7 @@
             
             <div class="dashboard-filter-wrap d-flex align-items-center">
                 <div class="dropdown position-relative">
-                    <button class="btn-filter-trigger dropdown-toggle justify-content-between" type="button" id="filterDropdown" data-bs-toggle="dropdown" data-bs-display="static" data-bs-auto-close="outside" aria-expanded="false">
+                    <button class="btn-filter-trigger dropdown-toggle justify-content-between" type="button" id="filterDropdown" data-bs-toggle="dropdown" data-bs-display="static" data-bs-auto-close="outside" aria-expanded="false" aria-label="Select dashboard date range">
                         <span><i class="far fa-calendar-alt text-secondary me-2"></i> <span id="displayFilterText"><?php echo $active_filter_text; ?></span></span>
                     </button>
                     <div class="dropdown-menu dropdown-menu-end filter-dropdown-menu p-0" aria-labelledby="filterDropdown">
@@ -41,7 +42,7 @@
                             <div class="flex-grow-1 p-3 bg-white">
                                 <div class="quick-filter-title mb-2">Custom Range</div>
                                 <div class="custom-cal-header d-flex justify-content-between align-items-center mb-2">
-                                    <button type="button" id="calPrev" class="custom-cal-nav"><i class="fas fa-chevron-left"></i></button>
+                                    <button type="button" id="calPrev" class="custom-cal-nav" aria-label="Previous month" title="Previous month"><i class="fas fa-chevron-left" aria-hidden="true"></i></button>
                                     <div class="d-flex gap-2">
                                         <select id="calMonth" class="custom-cal-select">
                                             <option value="0">January</option> <option value="1">February</option> <option value="2">March</option>
@@ -51,7 +52,7 @@
                                         </select>
                                         <select id="calYear" class="custom-cal-select"></select>
                                     </div>
-                                    <button type="button" id="calNext" class="custom-cal-nav"><i class="fas fa-chevron-right"></i></button>
+                                    <button type="button" id="calNext" class="custom-cal-nav" aria-label="Next month" title="Next month"><i class="fas fa-chevron-right" aria-hidden="true"></i></button>
                                 </div>
                                 <div class="calendar-wrapper"><input type="text" id="inlineCalendarContainer" class="d-none"></div>
                                 <div class="d-flex flex-wrap justify-content-between align-items-center mt-3 pt-2 border-top gap-2">
@@ -74,7 +75,7 @@
         <!-- ADMIN DASHBOARD SECTION -->
         <!-- ============================================== -->
         <?php if ($_SESSION['role'] === 'Admin'): ?>
-            <div class="row g-3 mb-3">
+            <div class="row g-3 mb-3 dashboard-kpi-grid">
                 <div class="col-xl-3 col-md-6"><a href="admin_users.php" class="text-decoration-none"><div class="kpi-corp-card accent-blue"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Active Users</p><h3 class="kpi-corp-value mt-1"><?php echo $admin_stats['total_users']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-users"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-primary box-12" style="font-size: 5px;"></i> System credentials</div></div></a></div>
                 <div class="col-xl-3 col-md-6"><a href="documents.php" class="text-decoration-none"><div class="kpi-corp-card accent-purple"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Managed Files</p><h3 class="kpi-corp-value mt-1"><?php echo $admin_stats['total_files']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10" style="color: #8b5cf6;"><i class="fas fa-folder-open"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle box-12" style="color: #8b5cf6; font-size: 5px;"></i> Uploaded records</div></div></a></div>
                 <div class="col-xl-3 col-md-6"><a href="admin_requests.php" class="text-decoration-none"><div class="kpi-corp-card accent-rose"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Pending Requests</p><h3 class="kpi-corp-value mt-1"><?php echo $admin_stats['pending_requests']; ?></h3></div><div class="kpi-corp-icon bg-danger bg-opacity-10 text-danger"><i class="fas fa-shield-alt"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-danger box-12" style="font-size: 5px;"></i> Needs your approval</div></div></a></div>
@@ -202,22 +203,47 @@
         <!-- EXECUTIVE DASHBOARD SECTION -->
         <!-- ============================================== -->
         <?php elseif (in_array($_SESSION['role'], ['GM', 'President'])): ?>
-            <div class="row g-3 mb-3">
+            <?php if ($_SESSION['role'] === 'GM'): ?>
+                <a href="quotations_list.php?filter=For%20GM%20Acknowledgement" class="po-ack-dashboard-queue">
+                    <span class="po-ack-dashboard-copy">
+                        <span class="po-ack-dashboard-icon"><i class="fas fa-file-signature"></i></span>
+                        <span>
+                            <strong>Official Client PO review queue</strong>
+                            <small>Client POs waiting for your authenticated acknowledgment before PRF preparation</small>
+                        </span>
+                    </span>
+                    <span class="po-ack-dashboard-count">
+                        <span><?php echo (int) $exec_stats['pending_client_po_ack']; ?></span>
+                        Review queue <i class="fas fa-arrow-right"></i>
+                    </span>
+                </a>
+            <?php endif; ?>
+
+            <div class="row g-3 mb-3 dashboard-kpi-grid">
                 <div class="col-xl-3 col-md-6"><a href="documents.php" class="text-decoration-none"><div class="kpi-corp-card accent-blue"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Active Records</p><h3 class="kpi-corp-value mt-1"><?php echo $exec_stats['active_docs']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-folder-open"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-primary box-12" style="font-size: 5px;"></i> Current working files</div></div></a></div>
                 <div class="col-xl-3 col-md-6"><a href="documents.php?view_filter=All" class="text-decoration-none"><div class="kpi-corp-card accent-slate"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Archived Docs</p><h3 class="kpi-corp-value mt-1"><?php echo $exec_stats['archived_docs']; ?></h3></div><div class="kpi-corp-icon bg-secondary bg-opacity-10 text-secondary"><i class="fas fa-archive"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-secondary box-12" style="font-size: 5px;"></i> Safely stored records</div></div></a></div>
                 <div class="col-xl-3 col-md-6"><a href="pr_list.php?queue=mine" class="text-decoration-none"><div class="kpi-corp-card accent-amber"><div class="kpi-corp-header"><div><p class="kpi-corp-title">My PRF Queue</p><h3 class="kpi-corp-value mt-1"><?php echo $exec_stats['pending_pr']; ?></h3></div><div class="kpi-corp-icon bg-warning bg-opacity-10 text-warning"><i class="fas fa-file-signature"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-warning box-12" style="font-size: 5px;"></i> Assigned to your stage</div></div></a></div>
-                <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=Pending" class="text-decoration-none"><div class="kpi-corp-card accent-rose"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Pending POs</p><h3 class="kpi-corp-value mt-1"><?php echo $exec_stats['pending_po']; ?></h3></div><div class="kpi-corp-icon bg-danger bg-opacity-10 text-danger"><i class="fas fa-stamp"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-danger box-12" style="font-size: 5px;"></i> Action required</div></div></a></div>
+                <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=<?php echo $_SESSION['role'] === 'GM' ? 'Pending' : 'Finance-Approved'; ?>" class="text-decoration-none"><div class="kpi-corp-card accent-rose"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Pending POs</p><h3 class="kpi-corp-value mt-1"><?php echo $exec_stats['pending_po']; ?></h3></div><div class="kpi-corp-icon bg-danger bg-opacity-10 text-danger"><i class="fas fa-stamp"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-danger box-12" style="font-size: 5px;"></i> Action required</div></div></a></div>
             </div>
 
             <?php 
                 $insights = []; 
-                $total_pending = $exec_stats['pending_pr'] + $exec_stats['pending_po'];
+                $pending_client_po_ack = $_SESSION['role'] === 'GM'
+                    ? (int) $exec_stats['pending_client_po_ack']
+                    : 0;
+                $total_pending = $exec_stats['pending_pr'] +
+                    $exec_stats['pending_po'] +
+                    $pending_client_po_ack;
                 
                 $insights[] = [
                     'status' => ($total_pending > 0) ? 'danger' : 'success', 
                     'icon' => ($total_pending > 0) ? 'fa-signature' : 'fa-check-circle', 
                     'title' => ($total_pending > 0) ? 'Action Required: Pending Approvals' : 'Approval Queue Clear', 
-                    'desc' => ($total_pending > 0) ? "You have <strong>{$exec_stats['pending_pr']}</strong> PR(s) and <strong>{$exec_stats['pending_po']}</strong> PO(s) awaiting your executive sign-off." : "Your approval queue is currently empty. Excellent turnaround!"
+                    'desc' => ($total_pending > 0)
+                        ? ($_SESSION['role'] === 'GM'
+                            ? "You have <strong>{$pending_client_po_ack}</strong> Client PO(s), <strong>{$exec_stats['pending_pr']}</strong> PR(s), and <strong>{$exec_stats['pending_po']}</strong> supplier PO(s) awaiting your sign-off."
+                            : "You have <strong>{$exec_stats['pending_pr']}</strong> PR(s) and <strong>{$exec_stats['pending_po']}</strong> PO(s) awaiting your executive sign-off.")
+                        : "Your approval queue is currently empty. Excellent turnaround!"
                 ];
 
                 $uncoll_amt = $gm_charts['uncollected']['total_uncollected'] ?? 0; 
@@ -320,7 +346,7 @@
                 $disp_count = $gm_charts['lifecycle']['ready_disp'] ?? 0;
                 $insights[] = [
                     'status' => ($disp_count > 0) ? 'danger' : 'success', 
-                    'icon' => ($disp_count > 0) ? 'fa-archive' : 'fa-shield-check', 
+                    'icon' => ($disp_count > 0) ? 'fa-archive' : 'fa-shield-alt', 
                     'title' => ($disp_count > 0) ? 'Retention Compliance Alert' : 'Fully Compliant Records', 
                     'desc' => ($disp_count > 0) ? "<strong>{$disp_count}</strong> historical records have reached maturity and are ready for disposition. Immediate action is advised." : "All active and archived records are well within their legal retention limits."
                 ];
@@ -404,7 +430,7 @@
         <!-- FINANCE DASHBOARD SECTION -->
         <!-- ============================================== -->
         <?php elseif ($_SESSION['role'] === 'Finance'): ?>
-            <div class="row g-3 mb-3">
+            <div class="row g-3 mb-3 dashboard-kpi-grid">
                 <div class="col-xl-3 col-md-6"><a href="pr_list.php?queue=mine" class="text-decoration-none"><div class="kpi-corp-card accent-rose"><div class="kpi-corp-header"><div><p class="kpi-corp-title">PRFs to Review</p><h3 class="kpi-corp-value mt-1"><?php echo $finance_stats['pending_prf']; ?></h3></div><div class="kpi-corp-icon bg-danger bg-opacity-10 text-danger"><i class="fas fa-calculator"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-danger box-12" style="font-size: 5px;"></i> COGS and fund validation</div></div></a></div>
                 <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=GM-Approved" class="text-decoration-none"><div class="kpi-corp-card accent-emerald"><div class="kpi-corp-header"><div><p class="kpi-corp-title">POs to Validate</p><h3 class="kpi-corp-value mt-1"><?php echo $finance_stats['pending_po']; ?></h3></div><div class="kpi-corp-icon bg-success bg-opacity-10 text-success"><i class="fas fa-file-signature"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-success box-12" style="font-size: 5px;"></i> Purchase order validation</div></div></a></div>
                 <div class="col-xl-3 col-md-6"><a href="collection_monitoring.php" class="text-decoration-none"><div class="kpi-corp-card accent-amber"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Outstanding Balance</p><h3 class="kpi-corp-value mt-1 text-md">₱ <?php echo number_format($finance_stats['uncollected_amount'], 2); ?></h3></div><div class="kpi-corp-icon bg-warning bg-opacity-10 text-warning"><i class="fas fa-cash-register"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-warning box-12" style="font-size: 5px;"></i> <?php echo number_format($finance_stats['open_collection_count']); ?> open receivable<?php echo $finance_stats['open_collection_count'] === 1 ? '' : 's'; ?></div></div></a></div>
@@ -541,11 +567,11 @@
         <!-- PROCUREMENT DASHBOARD SECTION -->
         <!-- ============================================== -->
         <?php elseif ($_SESSION['role'] === 'Procurement'): ?>
-            <div class="row g-3 mb-3">
+            <div class="row g-3 mb-3 dashboard-kpi-grid">
                 <div class="col-xl-3 col-md-6"><a href="pr_list.php?queue=mine" class="text-decoration-none"><div class="kpi-corp-card accent-blue"><div class="kpi-corp-header"><div><p class="kpi-corp-title">PRFs Ready for PO</p><h3 class="kpi-corp-value mt-1"><?php echo $proc_stats['ready_prf']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-clipboard-check"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-primary box-12" style="font-size: 5px;"></i> Officially approved handoff</div></div></a></div>
                 <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=In_Progress" class="text-decoration-none"><div class="kpi-corp-card accent-amber"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Pending Approvals</p><h3 class="kpi-corp-value mt-1"><?php echo $proc_stats['pending']; ?></h3></div><div class="kpi-corp-icon bg-warning bg-opacity-10 text-warning"><i class="fas fa-hourglass-half"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-warning box-12" style="font-size: 5px;"></i> Waiting for sign-off</div></div></a></div>
                 <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=Funded" class="text-decoration-none"><div class="kpi-corp-card accent-emerald"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Funded Orders</p><h3 class="kpi-corp-value mt-1"><?php echo $proc_stats['funded']; ?></h3></div><div class="kpi-corp-icon bg-success bg-opacity-10 text-success"><i class="fas fa-money-bill-wave"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-success box-12" style="font-size: 5px;"></i> Ready for purchasing</div></div></a></div>
-                <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=Completed" class="text-decoration-none"><div class="kpi-corp-card accent-purple"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Delivered / Collected</p><h3 class="kpi-corp-value mt-1"><?php echo $proc_stats['delivered']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10" style="color: #8b5cf6;"><i class="fas fa-truck-loading"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle box-12" style="color: #8b5cf6; font-size: 5px;"></i> Successfully completed</div></div></a></div>
+                <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=Completed" class="text-decoration-none"><div class="kpi-corp-card accent-purple"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Delivered Orders</p><h3 class="kpi-corp-value mt-1"><?php echo $proc_stats['delivered']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10" style="color: #8b5cf6;"><i class="fas fa-truck-loading"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle box-12" style="color: #8b5cf6; font-size: 5px;"></i> Client handoff completed</div></div></a></div>
             </div>
             
             <?php 
@@ -636,10 +662,10 @@
         <!-- SUPPLY CHAIN DASHBOARD SECTION -->
         <!-- ============================================== -->
         <?php elseif ($_SESSION['role'] === 'Supply Chain'): ?>
-            <div class="row g-3 mb-3">
-                <div class="col-xl-3 col-md-6"><a href="po_list.php" class="text-decoration-none"><div class="kpi-corp-card accent-amber"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Ready for Delivery</p><h3 class="kpi-corp-value mt-1"><?php echo $sc_stats['ready_for_delivery']; ?></h3></div><div class="kpi-corp-icon bg-warning bg-opacity-10 text-warning"><i class="fas fa-truck-loading"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-warning box-12" style="font-size: 5px;"></i> Funded orders in queue</div></div></a></div>
-                <div class="col-xl-3 col-md-6"><a href="po_list.php" class="text-decoration-none"><div class="kpi-corp-card accent-blue"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Delivered Orders</p><h3 class="kpi-corp-value mt-1"><?php echo $sc_stats['delivered']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-truck"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-primary box-12" style="font-size: 5px;"></i> Delivery handoffs completed</div></div></a></div>
-                <div class="col-xl-3 col-md-6"><a href="po_list.php" class="text-decoration-none"><div class="kpi-corp-card accent-rose"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Awaiting Collection</p><h3 class="kpi-corp-value mt-1"><?php echo $sc_stats['awaiting_collection']; ?></h3></div><div class="kpi-corp-icon bg-danger bg-opacity-10 text-danger"><i class="fas fa-hand-holding-usd"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-danger box-12" style="font-size: 5px;"></i> Handed over to Finance</div></div></a></div>
+            <div class="row g-3 mb-3 dashboard-kpi-grid">
+                <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=Delivery_Queue" class="text-decoration-none"><div class="kpi-corp-card accent-amber"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Delivery Queue</p><h3 class="kpi-corp-value mt-1"><?php echo $sc_stats['ready_for_delivery']; ?></h3></div><div class="kpi-corp-icon bg-warning bg-opacity-10 text-warning"><i class="fas fa-truck-loading"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-warning box-12" style="font-size: 5px;"></i> Requests awaiting logistics completion</div></div></a></div>
+                <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=Completed" class="text-decoration-none"><div class="kpi-corp-card accent-blue"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Delivered Orders</p><h3 class="kpi-corp-value mt-1"><?php echo $sc_stats['delivered']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-truck"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-primary box-12" style="font-size: 5px;"></i> Delivery handoffs completed</div></div></a></div>
+                <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=Awaiting_Collection" class="text-decoration-none"><div class="kpi-corp-card accent-rose"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Awaiting Collection</p><h3 class="kpi-corp-value mt-1"><?php echo $sc_stats['awaiting_collection']; ?></h3></div><div class="kpi-corp-icon bg-danger bg-opacity-10 text-danger"><i class="fas fa-hand-holding-usd"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-danger box-12" style="font-size: 5px;"></i> Delivered with an open balance</div></div></a></div>
                 <div class="col-xl-3 col-md-6"><a href="po_list.php" class="text-decoration-none"><div class="kpi-corp-card accent-emerald"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Delivery Proofs Filed</p><h3 class="kpi-corp-value mt-1"><?php echo $sc_stats['delivery_proofs']; ?></h3></div><div class="kpi-corp-icon bg-success bg-opacity-10 text-success"><i class="fas fa-clipboard-check"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-success box-12" style="font-size: 5px;"></i> Proof-of-delivery records</div></div></a></div>
             </div>
 
@@ -651,7 +677,7 @@
                     'status' => $ready > 0 ? 'warning' : 'success', 
                     'icon' => $ready > 0 ? 'fa-truck-loading' : 'fa-check-circle', 
                     'title' => $ready > 0 ? 'Delivery Action Required' : 'Delivery Queue Clear', 
-                    'desc' => $ready > 0 ? "There are <strong>{$ready}</strong> funded order(s) ready for delivery. Review the assigned client and complete the delivery proof after handoff." : 'There are no funded orders waiting for Supply Chain action.'
+                    'desc' => $ready > 0 ? "There are <strong>{$ready}</strong> approved delivery request(s) awaiting logistics review, scheduling, or client handoff." : 'There are no approved delivery requests waiting for Supply Chain action.'
                 ];
                 
                 $handoff = $sc_stats['awaiting_collection'];
@@ -675,7 +701,7 @@
                     'status' => 'primary', 
                     'icon' => 'fa-flag-checkered', 
                     'title' => 'Completed Fulfilment Cycle', 
-                    'desc' => "<strong>{$completed}</strong> order(s) in the selected period have reached the Collected stage."
+                    'desc' => "<strong>{$completed}</strong> delivered order(s) in the selected period are fully paid."
                 ];
             ?>
             <div class="row g-3 mb-3 align-items-stretch">
@@ -715,7 +741,7 @@
         <!-- SALES STAFF DASHBOARD SECTION -->
         <!-- ============================================== -->
         <?php elseif ($_SESSION['role'] === 'Sales Staff'): ?>
-            <div class="row g-3 mb-3">
+            <div class="row g-3 mb-3 dashboard-kpi-grid">
                 <div class="col-xl-3 col-md-6"><a href="pr_list.php" class="text-decoration-none"><div class="kpi-corp-card accent-blue"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Total PR Generated</p><h3 class="kpi-corp-value mt-1"><?php echo $sales_stats['total']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-file-invoice"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-primary box-12" style="font-size: 5px;"></i> All requests created</div></div></a></div>
                 <div class="col-xl-3 col-md-6"><a href="pr_list.php?filter=Pending" class="text-decoration-none"><div class="kpi-corp-card accent-amber"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Pending PRs</p><h3 class="kpi-corp-value mt-1"><?php echo $sales_stats['pending']; ?></h3></div><div class="kpi-corp-icon bg-warning bg-opacity-10 text-warning"><i class="fas fa-clock"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-warning box-12" style="font-size: 5px;"></i> Waiting for management</div></div></a></div>
                 <div class="col-xl-3 col-md-6"><a href="quotations_list.php?filter=Pending PO" class="text-decoration-none"><div class="kpi-corp-card accent-rose"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Pending Quotes</p><h3 class="kpi-corp-value mt-1"><?php echo $sales_stats['pending_quotations']; ?></h3></div><div class="kpi-corp-icon bg-danger bg-opacity-10 text-danger"><i class="fas fa-file-contract"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-danger box-12" style="font-size: 5px;"></i> Waiting for Client PO</div></div></a></div>
@@ -734,11 +760,16 @@
                 ];
                 
                 $pend_q = $sales_stats['pending_quotations'];
+                $gm_po_wait = $sales_stats['awaiting_gm_client_po'] ?? 0;
                 $sales_insights[] = [
-                    'status' => ($pend_q > 0) ? 'warning' : 'success', 
+                    'status' => ($pend_q > 0 || $gm_po_wait > 0) ? 'warning' : 'success', 
                     'icon' => 'fa-envelope-open-text', 
-                    'title' => 'Quotation Follow-ups', 
-                    'desc' => ($pend_q > 0) ? "You have <strong>{$pend_q}</strong> pending quotation(s). Please follow up with your clients to secure their Purchase Orders." : "All generated quotations have received client POs."
+                    'title' => ($pend_q > 0) ? 'Quotation Follow-ups' : 'Client PO Status', 
+                    'desc' => ($pend_q > 0)
+                        ? "You have <strong>{$pend_q}</strong> pending quotation(s). Please follow up with your clients to secure their Purchase Orders."
+                        : (($gm_po_wait > 0)
+                            ? "<strong>{$gm_po_wait}</strong> official Client PO(s) are waiting for General Manager acknowledgment."
+                            : "All received Client POs have completed General Manager acknowledgment.")
                 ];
                 
                 $pend_pr = $sales_stats['pending'];

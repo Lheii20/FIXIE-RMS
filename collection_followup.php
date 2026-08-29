@@ -1,6 +1,7 @@
 <?php
 require 'config/db_connect.php';
 require 'config/functions.php';
+require_once 'config/workflow_feedback.php';
 
 date_default_timezone_set('Asia/Manila');
 
@@ -33,8 +34,10 @@ $record = null;
 $active_assignment = null;
 $latest_followup = null;
 $eligibility_error = '';
-$request_error = trim((string) ($_GET['error'] ?? ''));
-$request_error = substr($request_error, 0, 250);
+$request_error = drms_public_feedback_message(
+    $_GET['error'] ?? '',
+    'The collection follow-up could not be recorded. No collection data was changed.'
+);
 
 if ($po_id > 0) {
     try {
@@ -45,11 +48,19 @@ if ($po_id > 0) {
                 po.client_name,
                 po.amount,
                 po.status,
+                po.collection_status,
                 po.current_location,
-                po.actual_delivery_date,
                 po.expected_collection_date,
-                po.source_pr_workflow_version,
-                receipt.actual_handover_at,
+                COALESCE(
+                    NULLIF(receipt.actual_handover_at, ''),
+                    CONCAT(NULLIF(po.actual_delivery_date, ''), ' 00:00:00'),
+                    (
+                        SELECT MIN(history.timestamp)
+                        FROM po_history history
+                        WHERE history.po_id = po.po_id
+                          AND history.status_to = 'Delivered'
+                    )
+                ) AS collection_started_at,
                 receipt.collection_due_date AS receipt_due_date,
                 receipt.recipient_name,
                 COALESCE(payment_summary.total_paid, 0) AS total_paid,
@@ -111,19 +122,21 @@ if ($po_id > 0) {
                 0
             );
 
-            if (!in_array(
-                $record['status'],
-                ['Delivered', 'Partially-Collected'],
-                true
-            )) {
+            if (
+                $record['status'] !== 'Delivered' ||
+                $record['collection_status'] === 'Paid'
+            ) {
                 $eligibility_error =
                     'This PO is no longer open for collection follow-up.';
+            } elseif (empty($record['collection_started_at'])) {
+                $eligibility_error =
+                    'The delivery completion timestamp is missing. Complete or correct the client delivery record first.';
             } elseif ($balance <= 0.01) {
                 $eligibility_error =
                     'This PO no longer has an outstanding balance.';
             } elseif (!$active_assignment) {
                 $eligibility_error =
-                    'This receivable has no active Finance assignment. Open the PO and claim the task first.';
+                    'No active Finance user is assigned to this receivable. Return to Collection Monitoring and refresh the task list.';
             } elseif ($active_assignment['assigned_role'] !== 'Finance') {
                 $eligibility_error =
                     'This task is currently assigned to ' .
@@ -135,14 +148,11 @@ if ($po_id > 0) {
                     $active_assignment['assignee_name'] . '.';
             }
         }
-    } catch (mysqli_sql_exception $error) {
-        error_log(
-            'Phase 5B collection follow-up page failed: ' .
-            $error->getMessage()
-        );
+    } catch (Throwable $error) {
+        drms_log_workflow_failure('Collection follow-up page load', $error);
         $record = null;
         $eligibility_error =
-            'The Phase 5B collection follow-up database migration is not installed.';
+            'The collection follow-up details could not be loaded. Return to Collection Monitoring and try again.';
     }
 }
 
@@ -160,7 +170,7 @@ $collection_due_date = $record
     : null;
 $today = new DateTimeImmutable('today');
 $due_label = 'Missing due date';
-$due_detail = 'Review the legacy delivery record';
+$due_detail = 'Review the client delivery record';
 $due_key = 'missing';
 
 if ($collection_due_date && strtotime($collection_due_date) !== false) {
@@ -213,8 +223,9 @@ $can_record = $record && $eligibility_error === '';
     <link href="assets/css/prf-form.css?v=<?php echo filemtime(__DIR__ . '/assets/css/prf-form.css'); ?>" rel="stylesheet">
     <link href="assets/css/collection-followup.css?v=<?php echo filemtime(__DIR__ . '/assets/css/collection-followup.css'); ?>" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
-<body class="prf-page followup-page">
+<body class="prf-page followup-page workflow-ui">
     <?php include 'sidebar.php'; ?>
 
     <main class="main-content fade-in">
@@ -259,7 +270,7 @@ $can_record = $record && $eligibility_error === '';
             <?php if (!$record): ?>
                 <?php if ($eligibility_error !== ''): ?>
                     <section class="prf-alert prf-alert-danger" role="alert">
-                        <i class="fas fa-database"></i>
+                        <i class="fas fa-triangle-exclamation"></i>
                         <div>
                             <strong>Collection follow-up is unavailable</strong>
                             <span><?php echo htmlspecialchars($eligibility_error); ?></span>

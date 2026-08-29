@@ -2,6 +2,8 @@
 require 'config/db_connect.php'; 
 require 'config/functions.php';
 require_once 'config/workflow_access.php';
+require_once 'config/po_record_timeline.php';
+require_once 'config/workflow_feedback.php';
 
 date_default_timezone_set('Asia/Manila');
 
@@ -13,8 +15,27 @@ drms_require_workflow_roles([
     'Supply Chain',
 ]);
 
-$po_id = $_GET['id'] ?? 0;
-if(!is_numeric($po_id)) die("Invalid PO ID");
+$po_id = filter_var(
+    $_GET['id'] ?? null,
+    FILTER_VALIDATE_INT,
+    ['options' => ['min_range' => 1]]
+);
+if ($po_id === false || $po_id === null) {
+    drms_redirect_with_feedback(
+        'po_list.php',
+        'error',
+        'Select a valid purchase order to continue.'
+    );
+}
+$po_id = (int) $po_id;
+$request_success = drms_public_feedback_message(
+    $_GET['success'] ?? '',
+    'The purchase-order action was completed successfully.'
+);
+$request_error = drms_public_feedback_message(
+    $_GET['error'] ?? '',
+    'The requested purchase-order action could not be completed. No changes were saved.'
+);
 
 $current_role = $_SESSION['role'];
 $current_user_id = (int)$_SESSION['user_id'];
@@ -35,7 +56,13 @@ $stmt->bind_param("i", $po_id);
 $stmt->execute();
 $po_query = $stmt->get_result();
 
-if($po_query->num_rows == 0) die("PO Not Found.");
+if ($po_query->num_rows === 0) {
+    drms_redirect_with_feedback(
+        'po_list.php',
+        'error',
+        'The selected purchase order was not found or is no longer available.'
+    );
+}
 $po = $po_query->fetch_assoc();
 
 $source_quotation = null;
@@ -78,7 +105,16 @@ $approve_action = '';
 $approve_label = '';
 $can_reject = false;
 
-$stmt_rules = $conn->prepare("SELECT * FROM workflow_rules WHERE required_role = ? AND current_status = ?");
+$stmt_rules = $conn->prepare(
+    "SELECT *
+     FROM workflow_rules
+     WHERE required_role = ?
+       AND current_status = ?
+       AND NOT (
+            action_key = 'mark_delivered'
+            AND current_status <> 'For Pick-up/Delivery'
+       )"
+);
 $stmt_rules->bind_param("ss", $role, $status);
 $stmt_rules->execute();
 $res_rules = $stmt_rules->get_result();
@@ -157,8 +193,7 @@ $balance = $po['amount'] - $total_paid;
 $fund_release = null;
 $delivery_request = null;
 $delivery_receipt = null;
-if ((int) ($po['source_pr_workflow_version'] ?? 1) === 2) {
-    $fund_release_stmt = $conn->prepare(
+$fund_release_stmt = $conn->prepare(
         "SELECT
             funding.*,
             finance_user.full_name AS released_by_name,
@@ -174,12 +209,12 @@ if ((int) ($po['source_pr_workflow_version'] ?? 1) === 2) {
          ORDER BY funding.release_cycle DESC
          LIMIT 1"
     );
-    $fund_release_stmt->bind_param('i', $po_id);
-    $fund_release_stmt->execute();
-    $fund_release =
-        $fund_release_stmt->get_result()->fetch_assoc();
+$fund_release_stmt->bind_param('i', $po_id);
+$fund_release_stmt->execute();
+$fund_release =
+    $fund_release_stmt->get_result()->fetch_assoc();
 
-    $delivery_request_stmt = $conn->prepare(
+$delivery_request_stmt = $conn->prepare(
         "SELECT
             delivery_request.*,
             plan.logistics_status,
@@ -207,12 +242,12 @@ if ((int) ($po['source_pr_workflow_version'] ?? 1) === 2) {
          ORDER BY delivery_request.request_cycle DESC
          LIMIT 1"
     );
-    $delivery_request_stmt->bind_param('i', $po_id);
-    $delivery_request_stmt->execute();
-    $delivery_request =
-        $delivery_request_stmt->get_result()->fetch_assoc();
+$delivery_request_stmt->bind_param('i', $po_id);
+$delivery_request_stmt->execute();
+$delivery_request =
+    $delivery_request_stmt->get_result()->fetch_assoc();
 
-    $delivery_receipt_stmt = $conn->prepare(
+$delivery_receipt_stmt = $conn->prepare(
         "SELECT
             receipt.*,
             recorder.full_name AS recorded_by_name,
@@ -230,17 +265,24 @@ if ((int) ($po['source_pr_workflow_version'] ?? 1) === 2) {
          ORDER BY receipt.receipt_cycle DESC
          LIMIT 1"
     );
-    $delivery_receipt_stmt->bind_param('i', $po_id);
-    $delivery_receipt_stmt->execute();
-    $delivery_receipt =
-        $delivery_receipt_stmt->get_result()->fetch_assoc();
+$delivery_receipt_stmt->bind_param('i', $po_id);
+$delivery_receipt_stmt->execute();
+$delivery_receipt =
+    $delivery_receipt_stmt->get_result()->fetch_assoc();
+
+$timeline_empty_message = 'No recorded events are available yet.';
+try {
+    $record_timeline = get_po_record_timeline($conn, (int) $po_id);
+} catch (Throwable $error) {
+    drms_log_workflow_failure('View PO timeline load', $error);
+    $record_timeline = [];
+    $timeline_empty_message =
+        'Some timeline events could not be loaded. Refresh the page or try again later.';
 }
 
 $delivery_planning_ui_pending =
-    (int) ($po['source_pr_workflow_version'] ?? 1) === 2 &&
     $po['status'] === 'Delivery Requested';
 $delivery_completion_ui_pending =
-    (int) ($po['source_pr_workflow_version'] ?? 1) === 2 &&
     $po['status'] === 'For Pick-up/Delivery';
 
 $can_delete_files = in_array($role, ['GM', 'President', 'Procurement']);
@@ -258,10 +300,12 @@ $can_upload_files = ($role == 'Procurement');
     <link href="assets/css/funding-release.css?v=<?php echo filemtime(__DIR__ . '/assets/css/funding-release.css'); ?>" rel="stylesheet">
     <link href="assets/css/delivery-request.css?v=<?php echo filemtime(__DIR__ . '/assets/css/delivery-request.css'); ?>" rel="stylesheet">
     <link href="assets/css/delivery-completion.css?v=<?php echo filemtime(__DIR__ . '/assets/css/delivery-completion.css'); ?>" rel="stylesheet">
+    <link href="assets/css/po-record-timeline.css?v=<?php echo filemtime(__DIR__ . '/assets/css/po-record-timeline.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
-<body class="page-view-po">
+<body class="page-view-po workflow-ui">
     <?php include 'sidebar.php'; ?>
     <div class="main-content fade-in">
         
@@ -275,33 +319,29 @@ $can_upload_files = ($role == 'Procurement');
                 <?php if ($is_approver && $can_execute_task): ?>
                     <div class="view-po-decision-actions d-inline-flex align-items-center gap-2 m-0 p-0">
                         <?php
-                        $structured_funding_action =
-                            $approve_action === 'mark_funded' &&
-                            (int) ($po['source_pr_workflow_version'] ?? 1) === 2;
-                        $structured_delivery_request_action =
-                            $approve_action === 'create_delivery_request' &&
-                            (int) ($po['source_pr_workflow_version'] ?? 1) === 2;
-                        $structured_logistics_review_action =
+                        $funding_action =
+                            $approve_action === 'mark_funded';
+                        $delivery_request_action =
+                            $approve_action === 'create_delivery_request';
+                        $logistics_review_action =
                             $delivery_planning_ui_pending &&
                             $role === 'Supply Chain';
-                        $structured_delivery_completion_action =
+                        $delivery_completion_action =
                             $delivery_completion_ui_pending &&
                             $role === 'Supply Chain';
-                        if ($structured_delivery_completion_action) {
+                        if ($delivery_completion_action) {
                             $primary_action_onclick =
                                 "window.location.href='complete_delivery.php?po_id=" .
                                 (int) $po['po_id'] . "'";
-                        } elseif ($structured_logistics_review_action) {
+                        } elseif ($logistics_review_action) {
                             $primary_action_onclick =
                                 "window.location.href='review_delivery_request.php?po_id=" .
                                 (int) $po['po_id'] . "'";
-                        } elseif ($approve_action === 'mark_delivered') {
-                            $primary_action_onclick = 'openDeliveryProofModal()';
-                        } elseif ($structured_funding_action) {
+                        } elseif ($funding_action) {
                             $primary_action_onclick =
                                 "window.location.href='release_funding.php?po_id=" .
                                 (int) $po['po_id'] . "'";
-                        } elseif ($structured_delivery_request_action) {
+                        } elseif ($delivery_request_action) {
                             $primary_action_onclick =
                                 "window.location.href='create_delivery_request.php?po_id=" .
                                 (int) $po['po_id'] . "'";
@@ -325,8 +365,8 @@ $can_upload_files = ($role == 'Procurement');
                             class="btn btn-sm btn-success px-4 shadow-sm fw-bold rounded-8"
                             onclick="<?php echo $primary_action_onclick; ?>"
                         >
-                            <i class="fas <?php echo $structured_funding_action ? 'fa-coins' : ($structured_delivery_request_action ? 'fa-clipboard-check' : ($structured_logistics_review_action ? 'fa-route' : ($structured_delivery_completion_action ? 'fa-box-check' : 'fa-check-circle'))); ?> me-1"></i>
-                            <?php echo htmlspecialchars($structured_delivery_completion_action ? 'Complete Client Delivery' : ($structured_logistics_review_action ? 'Review & Schedule' : $approve_label)); ?>
+                            <i class="fas <?php echo $funding_action ? 'fa-coins' : ($delivery_request_action ? 'fa-clipboard-check' : ($logistics_review_action ? 'fa-route' : ($delivery_completion_action ? 'fa-box-open' : 'fa-check-circle'))); ?> me-1"></i>
+                            <?php echo htmlspecialchars($delivery_completion_action ? 'Complete Client Delivery' : ($logistics_review_action ? 'Review & Schedule' : $approve_label)); ?>
                         </button>
 
                         <?php if ($can_reject): ?>
@@ -379,15 +419,17 @@ $can_upload_files = ($role == 'Procurement');
 
         <?php if ($fund_release): ?>
             <section class="funding-proof-summary no-print" aria-label="Supplier funding evidence">
-                <div class="funding-proof-icon">
-                    <i class="fas fa-shield-check"></i>
-                </div>
-                <div class="funding-proof-title">
-                    <strong>Supplier funding verified</strong>
-                    <span>
-                        Release cycle <?php echo (int) $fund_release['release_cycle']; ?>
-                        · Finance evidence recorded
-                    </span>
+                <div class="funding-proof-lead">
+                    <div class="funding-proof-icon">
+                        <i class="fas fa-shield-alt"></i>
+                    </div>
+                    <div class="funding-proof-title">
+                        <strong>Supplier funding verified</strong>
+                        <span>
+                            Release cycle <?php echo (int) $fund_release['release_cycle']; ?>
+                            · Finance evidence recorded
+                        </span>
+                    </div>
                 </div>
                 <div class="funding-proof-item">
                     <span>Released amount</span>
@@ -479,7 +521,7 @@ $can_upload_files = ($role == 'Procurement');
         <?php if ($delivery_receipt): ?>
             <section class="delivery-receipt-summary no-print" aria-label="Verified client delivery receipt">
                 <div class="delivery-receipt-summary-icon">
-                    <i class="fas fa-box-check"></i>
+                    <i class="fas fa-box-open"></i>
                 </div>
                 <div class="delivery-receipt-summary-title">
                     <strong>Client delivery verified</strong>
@@ -622,15 +664,32 @@ $can_upload_files = ($role == 'Procurement');
                 </div>
 
                 <?php 
-                $payment_visible_statuses = ['Delivered', 'Partially Paid', 'Partially-Collected', 'Collected'];
+                $pre_delivery_payment_statuses = [
+                    'President-Approved',
+                    'Funded',
+                    'Delivery Requested',
+                    'For Pick-up/Delivery',
+                ];
+                $pre_delivery_payment_window = in_array(
+                    $po['status'],
+                    $pre_delivery_payment_statuses,
+                    true
+                );
+                $payment_visible_statuses = array_merge(
+                    $pre_delivery_payment_statuses,
+                    ['Delivered']
+                );
                 
-                if(in_array($po['status'], $payment_visible_statuses) || stripos($po['current_location'], 'Delivered') !== false || stripos($po['current_location'], 'Collection') !== false): 
+                if(in_array($po['status'], $payment_visible_statuses, true)):
                 ?>
                 <div class="card border-0 shadow-sm mb-4 payment-card rounded-16 overflow-hidden">
                     <div class="card-header bg-white fw-bold py-3 d-flex justify-content-between align-items-center border-bottom border-light">
                         <span class="fs-6 text-dark"><i class="fas fa-hand-holding-usd me-2 text-success"></i> Payment History</span>
                         <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
-                            <?php if(in_array($_SESSION['role'], ['Finance', 'GM', 'President'], true)): ?>
+                            <span class="badge bg-light text-dark border px-3 py-2 rounded-8">
+                                Collection: <?php echo htmlspecialchars((string) ($po['collection_status'] ?? 'Unpaid')); ?>
+                            </span>
+                            <?php if(!$pre_delivery_payment_window && in_array($_SESSION['role'], ['Finance', 'GM', 'President'], true)): ?>
                                 <a href="collection_statement.php?po_id=<?php echo (int) $po_id; ?>" class="btn btn-sm btn-outline-primary fw-bold rounded-8 px-3" target="_blank" rel="noopener">
                                     <i class="fas fa-file-invoice-dollar me-1"></i> Statement
                                 </a>
@@ -662,7 +721,9 @@ $can_upload_files = ($role == 'Procurement');
                                             <div class="text-muted small"><?php echo date('h:i A', strtotime($pay['payment_date'])); ?></div>
                                         </td>
                                         <td class="py-3 align-middle">
-                                            <?php if(stripos($pay['notes'], 'Full') !== false): ?>
+                                            <?php if(($pay['payment_classification'] ?? '') === 'Advance / Down Payment'): ?>
+                                                <span class="badge bg-primary bg-opacity-10 text-primary border border-primary me-1 px-2 py-1">Advance / Down Payment</span>
+                                            <?php elseif(($pay['payment_classification'] ?? '') === 'Full Payment' || stripos((string) $pay['notes'], 'Full') !== false): ?>
                                                 <span class="badge bg-success bg-opacity-10 text-success border border-success me-1 px-2 py-1">Full Payment</span>
                                             <?php else: ?>
                                                 <span class="badge bg-warning bg-opacity-10 text-dark border border-warning me-1 px-2 py-1">Partial Payment</span>
@@ -684,77 +745,22 @@ $can_upload_files = ($role == 'Procurement');
                         </table>
                     </div>
                     
-                    <?php if($balance > 0.01 && $_SESSION['role'] == 'Finance' && $can_execute_task): ?>
-                    <div class="card-footer bg-light p-4 border-top">
-                        <h6 class="fw-bold mb-3 text-primary"><i class="fas fa-plus-circle me-2"></i> Record New Payment</h6>
-                        <form action="actions/collection_payment_handler.php" method="POST" enctype="multipart/form-data" id="paymentForm" class="po-payment-form">
-                            <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                            <input type="hidden" name="action" value="add_payment">
-                            <input type="hidden" name="return_to" value="view_po">
-                            <input type="hidden" name="payment_confirmation" value="1">
-                            <input type="hidden" name="po_id" value="<?php echo $po_id; ?>">
-                            
-                            <div class="row g-3 align-items-end">
-                                <div class="col-md-2">
-                                    <label class="small fw-bold text-muted mb-1">Payment Type</label>
-                                    <div class="btn-group w-100 shadow-sm" role="group">
-                                        <input type="radio" class="btn-check" name="pay_type" id="pay_full" autocomplete="off" onclick="togglePaymentInput('full')">
-                                        <label class="btn btn-outline-success btn-sm fw-bold" for="pay_full">Full</label>
-                                        
-                                        <input type="radio" class="btn-check" name="pay_type" id="pay_partial" autocomplete="off" checked onclick="togglePaymentInput('partial')">
-                                        <label class="btn btn-outline-warning btn-sm fw-bold text-dark" for="pay_partial">Partial</label>
-                                    </div>
-                                </div>
-                                
-                                <div class="col-md-3">
-                                    <label class="small fw-bold text-muted mb-1">Date Received</label>
-                                    <input type="datetime-local" name="payment_date" class="form-control form-control-sm fw-medium shadow-sm rounded-custom" required value="<?php echo date('Y-m-d\TH:i'); ?>">
-                                </div>
-                                
-                                <div class="col-md-2">
-                                    <label class="small fw-bold text-muted mb-1">Method</label>
-                                    <select name="payment_method" class="form-select form-select-sm shadow-sm" required>
-                                        <option value="" selected disabled>Select</option>
-                                        <option value="Cash">Cash</option>
-                                        <option value="Bank Transfer">Bank Transfer</option>
-                                        <option value="GCash">GCash</option>
-                                        <option value="Cheque">Cheque</option>
-                                        <option value="Other">Other</option>
-                                    </select>
-                                </div>
-
-                                <div class="col-md-2">
-                                    <label class="small fw-bold text-muted mb-1">Amount</label>
-                                    <div class="input-group input-group-sm shadow-sm rounded-custom overflow-hidden">
-                                        <span class="input-group-text bg-white text-success fw-bold border-end-0">₱</span>
-                                        <input type="number" step="0.01" name="amount_paid" id="amount_input" class="form-control fw-bold text-success border-start-0 ps-0" max="<?php echo $balance; ?>" required>
-                                        
-                                        <input type="hidden" id="balance_val" value="<?php echo $balance; ?>">
-                                        <input type="hidden" name="payment_notes" id="notes_input" value="Partial Payment">
-                                    </div>
-                                </div>
-
-                                <div class="col-md-3">
-                                    <label class="small fw-bold text-muted mb-1">Reference No.</label>
-                                    <input type="text" name="reference_number" class="form-control form-control-sm shadow-sm" maxlength="100" placeholder="OR / Txn no." required>
-                                </div>
-
-                                <div class="col-md-10">
-                                    <label class="small fw-bold text-muted mb-1">Payment Proof <span class="text-danger">*</span></label>
-                                    <input type="file" name="payment_proof" class="form-control form-control-sm shadow-sm" accept=".pdf,.png,.jpg,.jpeg" required>
-                                    <small class="text-muted">Upload the receipt, deposit slip, or transaction screenshot (PDF/JPG/PNG, max. 10 MB).</small>
-                                </div>
-
-                                <div class="col-md-2">
-                                    <button type="submit" class="btn btn-success btn-sm fw-bold w-100 shadow-sm btn-save-pay" onclick="return confirm('Save this payment?');">
-                                        <i class="fas fa-save me-1"></i> Save
-                                    </button>
-                                </div>
-                            </div>
-                        </form>
+                    <?php if($balance > 0.01 && $_SESSION['role'] == 'Finance' && $pre_delivery_payment_window): ?>
+                    <div class="card-footer bg-light p-3 border-top d-flex align-items-center justify-content-between gap-3 flex-wrap">
+                        <div class="small text-muted"><i class="fas fa-shield-alt me-1"></i> A verified down payment updates only Collection Status; the current PO workflow task remains unchanged.</div>
+                        <a href="record_collection_payment.php?po_id=<?php echo (int) $po_id; ?>" class="btn btn-primary btn-sm fw-bold px-3 rounded-8">
+                            <i class="fas fa-hand-holding-dollar me-1"></i> Record Down Payment
+                        </a>
+                    </div>
+                    <?php elseif($balance > 0.01 && $_SESSION['role'] == 'Finance' && $po['status'] === 'Delivered' && $is_task_assignee): ?>
+                    <div class="card-footer bg-light p-3 border-top d-flex align-items-center justify-content-between gap-3 flex-wrap">
+                        <div class="small text-muted"><i class="fas fa-shield-alt me-1"></i> Record the verified client payment through the official Collection Payment form.</div>
+                        <a href="record_collection_payment.php?po_id=<?php echo (int) $po_id; ?>" class="btn btn-success btn-sm fw-bold px-3 rounded-8">
+                            <i class="fas fa-hand-holding-dollar me-1"></i> Record Client Payment
+                        </a>
                     </div>
                     <?php elseif($balance > 0.01 && $_SESSION['role'] == 'Finance'): ?>
-                    <div class="card-footer bg-light p-3 border-top small text-muted"><i class="fas fa-lock me-1"></i> <?php echo $task_locked_for_another_user ? 'Payment entry is reserved for the assigned Finance user.' : 'Claim this task before recording payment.'; ?></div>
+                    <div class="card-footer bg-light p-3 border-top small text-muted"><i class="fas fa-lock me-1"></i> <?php echo $task_locked_for_another_user ? 'Payment entry is reserved for the assigned Finance user.' : 'No active Finance assignment is available for this collection task.'; ?></div>
                     <?php endif; ?>
                 </div>
                 <?php endif; ?>
@@ -784,9 +790,24 @@ $can_upload_files = ($role == 'Procurement');
                                     <li class="mb-2 p-2 bg-light rounded border d-flex align-items-center justify-content-between po-attachment-row">
                                         <div class="d-flex align-items-center gap-2 overflow-hidden">
                                             <?php if($isImage): ?>
-                                                <img src="<?php echo $secureLink; ?>" class="file-thumbnail bg-white" onclick="viewFile('<?php echo $secureLink; ?>', 'image')">
+                                                <img
+                                                    src="<?php echo $secureLink; ?>"
+                                                    class="file-thumbnail bg-white"
+                                                    alt="Preview <?php echo htmlspecialchars($doc['file_name']); ?>"
+                                                    role="button"
+                                                    tabindex="0"
+                                                    onclick="viewFile('<?php echo $secureLink; ?>', 'image')"
+                                                    onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); viewFile('<?php echo $secureLink; ?>', 'image'); }"
+                                                >
                                             <?php elseif($isPdf): ?>
-                                                <div class="file-icon text-danger bg-white shadow-sm" onclick="viewFile('<?php echo $secureLink; ?>', 'pdf')"><i class="fas fa-file-pdf"></i></div>
+                                                <div
+                                                    class="file-icon text-danger bg-white shadow-sm"
+                                                    role="button"
+                                                    tabindex="0"
+                                                    aria-label="Preview <?php echo htmlspecialchars($doc['file_name']); ?>"
+                                                    onclick="viewFile('<?php echo $secureLink; ?>', 'pdf')"
+                                                    onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); viewFile('<?php echo $secureLink; ?>', 'pdf'); }"
+                                                ><i class="fas fa-file-pdf"></i></div>
                                             <?php else: ?>
                                                 <div class="file-icon text-primary bg-white shadow-sm"><i class="fas fa-file-alt"></i></div>
                                             <?php endif; ?>
@@ -801,26 +822,31 @@ $can_upload_files = ($role == 'Procurement');
                                         </div>
                                         
                                         <div class="d-flex gap-2 po-attachment-actions">
-                                            <a href="<?php echo $secureLink; ?>" class="btn btn-sm btn-white border" title="Download"><i class="fas fa-download text-primary"></i></a>
+                                            <a href="<?php echo $secureLink; ?>" class="btn btn-sm btn-white border" title="Download" aria-label="Download <?php echo htmlspecialchars($doc['file_name']); ?>"><i class="fas fa-download text-primary"></i></a>
                                             <?php if($can_delete_files): ?>
-                                            <form action="actions/upload_handler.php" method="POST" onsubmit="return confirm('Permanently delete this file?');">
+                                            <form action="actions/po_handler.php" method="POST" onsubmit="return confirm('Permanently delete this file?');">
                                                 <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                                                 <input type="hidden" name="action" value="delete">
                                                 <input type="hidden" name="doc_id" value="<?php echo $doc['doc_id']; ?>">
-                                                <button type="submit" class="btn btn-sm btn-white border text-danger"><i class="fas fa-trash"></i></button>
+                                                <button type="submit" class="btn btn-sm btn-white border text-danger" title="Delete attachment" aria-label="Delete <?php echo htmlspecialchars($doc['file_name']); ?>"><i class="fas fa-trash"></i></button>
                                             </form>
                                             <?php endif; ?>
                                         </div>
                                     </li>
                                 <?php endwhile; 
                             else: ?>
-                                <li class="text-muted small text-center py-4 border rounded border-dashed bg-light"><i class="fas fa-inbox fs-4 mb-2 opacity-50 d-block"></i> No documents attached yet.</li>
+                                <li class="po-attachments-empty border border-dashed">
+                                    <span class="po-attachments-empty-icon" aria-hidden="true">
+                                        <i class="fas fa-inbox"></i>
+                                    </span>
+                                    <span class="po-attachments-empty-text">No documents attached yet.</span>
+                                </li>
                             <?php endif; ?>
                         </ul>
                         
                         <?php if($can_upload_files): ?>
                         <hr>
-                        <form action="actions/upload_handler.php" method="POST" enctype="multipart/form-data">
+                        <form action="actions/po_handler.php" method="POST" enctype="multipart/form-data">
                             <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                             <input type="hidden" name="po_id" value="<?php echo $po_id; ?>">
                             <input type="hidden" name="doc_type" value="Generic">
@@ -840,37 +866,45 @@ $can_upload_files = ($role == 'Procurement');
                     </div>
                 </div>
 
-                <div class="card border-0 shadow-sm rounded-16 po-activity-card">
-                    <div class="card-header bg-white fw-bold py-3 border-bottom border-light">
-                        <i class="fas fa-history me-2 text-muted"></i> Activity Log
+                <div class="card border-0 shadow-sm rounded-16 po-timeline-card">
+                    <div class="card-header bg-white py-3 border-bottom border-light d-flex align-items-center justify-content-between gap-2">
+                        <span class="po-timeline-heading">
+                            <i class="fas fa-timeline me-2 text-primary"></i>
+                            Record Timeline
+                        </span>
+                        <span class="po-timeline-count"><?php echo count($record_timeline); ?> events</span>
                     </div>
-                    <div class="list-group list-group-flush scrollable-350">
-                        <?php
-                        $hist_sql = "SELECT h.*, u.full_name FROM po_history h JOIN users u ON h.changed_by = u.user_id WHERE po_id = ? ORDER BY timestamp DESC";
-                        $stmt = $conn->prepare($hist_sql);
-                        $stmt->bind_param("i", $po_id);
-                        $stmt->execute();
-                        $hist = $stmt->get_result();
-                        
-                        while($row = $hist->fetch_assoc()): ?>
-                            <div class="list-group-item border-0 border-bottom px-4 py-3 po-activity-item">
-                                <div class="d-flex justify-content-between mb-1">
-                                    <span class="fw-bold small text-dark"><?php echo htmlspecialchars($row['full_name']); ?></span>
-                                    <small class="text-muted fs-xs"><i class="far fa-clock me-1"></i><?php echo date('M d, H:i', strtotime($row['timestamp'])); ?></small>
-                                </div>
-                                <div class="small mt-1 d-flex align-items-center">
-                                    <span class="badge bg-secondary px-2 fs-065rem"><?php echo htmlspecialchars($row['status_from']); ?></span>
-                                    <i class="fas fa-angle-right mx-2 text-muted"></i>
-                                    <span class="badge <?php echo (strpos($row['status_to'], 'Rejected') !== false) ? 'bg-danger' : 'bg-success'; ?> px-2 fs-065rem"><?php echo htmlspecialchars($row['status_to']); ?></span>
-                                </div>
-                                
-                                <?php if (!empty($row['remarks'])): ?>
-                                    <div class="mt-2 text-dark fst-italic remarks-box">
-                                        "<?php echo nl2br(htmlspecialchars($row['remarks'])); ?>"
-                                    </div>
-                                <?php endif; ?>
+                    <div class="po-record-timeline" aria-label="Complete purchase order record timeline">
+                        <?php if (empty($record_timeline)): ?>
+                            <div class="po-timeline-empty">
+                                <i class="fas fa-clock-rotate-left"></i>
+                                <span><?php echo htmlspecialchars($timeline_empty_message); ?></span>
                             </div>
-                        <?php endwhile; ?>
+                        <?php else: ?>
+                            <?php foreach ($record_timeline as $timeline_event): ?>
+                                <article class="po-timeline-event timeline-tone-<?php echo htmlspecialchars($timeline_event['tone']); ?>">
+                                    <div class="po-timeline-marker" aria-hidden="true">
+                                        <i class="fas <?php echo htmlspecialchars($timeline_event['icon']); ?>"></i>
+                                    </div>
+                                    <div class="po-timeline-content">
+                                        <div class="po-timeline-meta">
+                                            <span class="po-timeline-category"><?php echo htmlspecialchars($timeline_event['category']); ?></span>
+                                            <time datetime="<?php echo htmlspecialchars(date('c', strtotime($timeline_event['occurred_at']))); ?>">
+                                                <?php echo date('M d, Y · h:i A', strtotime($timeline_event['occurred_at'])); ?>
+                                            </time>
+                                        </div>
+                                        <div class="po-timeline-title"><?php echo htmlspecialchars($timeline_event['title']); ?></div>
+                                        <?php if ($timeline_event['detail'] !== ''): ?>
+                                            <div class="po-timeline-detail"><?php echo htmlspecialchars($timeline_event['detail']); ?></div>
+                                        <?php endif; ?>
+                                        <div class="po-timeline-actor">
+                                            <i class="far fa-user"></i>
+                                            <?php echo htmlspecialchars($timeline_event['actor']); ?>
+                                        </div>
+                                    </div>
+                                </article>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
@@ -878,7 +912,7 @@ $can_upload_files = ($role == 'Procurement');
 
         <div class="print-only-po">
             
-            <?php if(!in_array($po['status'], ['Approved', 'Funded', 'Delivered', 'Collected', 'Partially-Collected'])): ?>
+            <?php if(!in_array($po['status'], ['President-Approved', 'Funded', 'Delivery Requested', 'For Pick-up/Delivery', 'Delivered'], true)): ?>
                 <div class="draft-banner">DRAFT COPY ONLY - NOT VALID FOR PURCHASING</div>
             <?php endif; ?>
 
@@ -996,35 +1030,6 @@ $can_upload_files = ($role == 'Procurement');
         </div>
     </div>
 
-    <!-- Required proof of delivery modal (Supply Chain) -->
-    <div class="modal fade view-form-modal" id="deliveryProofModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content border-0 rounded-16-hidden">
-                <form action="actions/po_handler.php" method="POST" enctype="multipart/form-data">
-                    <div class="modal-header border-bottom-0 pb-0">
-                        <div>
-                            <h5 class="modal-title fw-bold text-dark">Confirm Delivery</h5>
-                            <p class="text-muted small mb-0">Attach proof before forwarding this PO to Finance for collection.</p>
-                        </div>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                    </div>
-                    <div class="modal-body pt-4">
-                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                        <input type="hidden" name="action" value="mark_delivered">
-                        <input type="hidden" name="po_id" value="<?php echo (int)$po_id; ?>">
-                        <label class="form-label fw-bold small text-uppercase text-muted">Proof of Delivery <span class="text-danger">*</span></label>
-                        <input type="file" class="form-control" name="delivery_proof" accept=".pdf,.png,.jpg,.jpeg" required>
-                        <div class="form-text">Upload a signed delivery receipt, acknowledgement, or delivery screenshot (PDF/JPG/PNG, max. 10 MB).</div>
-                    </div>
-                    <div class="modal-footer border-top-0 pt-0">
-                        <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-success fw-bold">Submit Proof &amp; Mark Delivered</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-
     <!-- Hidden Form for SweetAlert Submission -->
     <form id="dynamicActionForm" action="actions/po_handler.php" method="POST" class="d-none">
         <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
@@ -1051,18 +1056,18 @@ $can_upload_files = ($role == 'Procurement');
             }
         });
 
-        <?php if(isset($_GET['success'])): ?>
+        <?php if($request_success !== ''): ?>
             Toast.fire({
                 icon: 'success',
-                title: '<?php echo addslashes(htmlspecialchars($_GET['success'])); ?>'
+                title: <?php echo json_encode($request_success, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>
             });
             window.history.replaceState(null, null, window.location.pathname + "?id=<?php echo $po_id; ?>");
         <?php endif; ?>
 
-        <?php if(isset($_GET['error'])): ?>
+        <?php if($request_error !== ''): ?>
             Toast.fire({
                 icon: 'error',
-                title: '<?php echo addslashes(htmlspecialchars($_GET['error'])); ?>'
+                title: <?php echo json_encode($request_error, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>
             });
             window.history.replaceState(null, null, window.location.pathname + "?id=<?php echo $po_id; ?>");
         <?php endif; ?>
@@ -1091,35 +1096,18 @@ $can_upload_files = ($role == 'Procurement');
         function viewFile(path, type) {
             const modalBody = document.getElementById('previewBody');
             const myModal = new bootstrap.Modal(document.getElementById('previewModal'));
-            modalBody.innerHTML = '<div class="spinner-border text-primary" role="status"></div>';
+            modalBody.innerHTML = '<div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading preview...</span></div>';
             
             if (type === 'image') {
-                modalBody.innerHTML = `<img src="${path}" class="img-fluid max-h-80vh">`;
+                modalBody.innerHTML = `<img src="${path}" class="img-fluid max-h-80vh" alt="Document preview">`;
             } else if (type === 'pdf') {
-                modalBody.innerHTML = `<iframe src="${path}" width="100%" height="600px" class="border-none"></iframe>`;
+                modalBody.innerHTML = `<iframe src="${path}" width="100%" height="600px" class="border-none" title="PDF document preview"></iframe>`;
             } else {
                 modalBody.innerHTML = `<div class="p-5"><i class="fas fa-file-download fa-3x text-muted mb-3"></i><p>This file type cannot be previewed.</p><a href="${path}" download class="btn btn-primary fw-bold">Download File</a></div>`;
             }
             myModal.show();
         }
         
-        function togglePaymentInput(type) {
-            const amountInput = document.getElementById('amount_input');
-            const balanceVal = document.getElementById('balance_val').value;
-            const notesInput = document.getElementById('notes_input');
-            
-            if (type === 'full') {
-                amountInput.value = balanceVal; 
-                amountInput.readOnly = true;
-                notesInput.value = "Full Payment";
-            } else {
-                amountInput.value = ""; 
-                amountInput.readOnly = false;
-                amountInput.focus();
-                notesInput.value = "Partial Payment";
-            }
-        }
-
         function logAndPrint(documentName) {
             fetch('api/log_print.php', {
                 method: 'POST',
@@ -1129,11 +1117,6 @@ $can_upload_files = ($role == 'Procurement');
             .then(response => response.json())
             .then(data => { window.print(); })
             .catch(error => { console.error('Error logging print:', error); window.print(); });
-        }
-
-        function openDeliveryProofModal() {
-            const modal = new bootstrap.Modal(document.getElementById('deliveryProofModal'));
-            modal.show();
         }
 
         function confirmApprovePO(e, actionKey, id, poNumber, btnLabel) {
@@ -1201,3 +1184,4 @@ $can_upload_files = ($role == 'Procurement');
     </script>
 </body>
 </html>
+

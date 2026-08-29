@@ -84,7 +84,6 @@ if ($pr_id > 0) {
             ON final_approver.user_id = request.final_approved_by
          WHERE request.pr_id = ?
            AND request.status = 'Approved'
-           AND request.workflow_version = 2
            AND request.current_approval_stage = 'Official Approved'
            AND request.final_approved_by IS NOT NULL
            AND request.final_approved_at IS NOT NULL
@@ -211,8 +210,9 @@ $gross_profit_is_negative = $pr && (float) $pr['gross_profit_amount'] < 0;
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/prf-form.css?v=<?php echo filemtime(__DIR__ . '/assets/css/prf-form.css'); ?>" rel="stylesheet">
     <link href="assets/css/po-conversion.css?v=<?php echo filemtime(__DIR__ . '/assets/css/po-conversion.css'); ?>" rel="stylesheet">
+    <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
-<body class="page-create-po prf-page po-conversion-page">
+<body class="page-create-po prf-page po-conversion-page workflow-ui">
     <?php include 'sidebar.php'; ?>
 
     <main class="main-content fade-in">
@@ -259,7 +259,7 @@ $gross_profit_is_negative = $pr && (float) $pr['gross_profit_amount'] < 0;
                     <div class="prf-empty-icon"><i class="fas fa-file-circle-check"></i></div>
                     <h3>No eligible approved PRF selected</h3>
                     <p>
-                        Select a Version 2 PRF that completed GM, Finance, and Owner approval
+                        Select an official PRF that completed GM, Finance, and Owner approval
                         and has not yet been converted to a PO.
                     </p>
                     <a href="pr_list.php?queue=mine" class="btn btn-primary">
@@ -617,3 +617,4 @@ $gross_profit_is_negative = $pr && (float) $pr['gross_profit_amount'] < 0;
     <script src="assets/js/po-conversion.js?v=<?php echo filemtime(__DIR__ . '/assets/js/po-conversion.js'); ?>"></script>
 </body>
 </html>
+

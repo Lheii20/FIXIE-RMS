@@ -17,6 +17,11 @@
     const collectionDue = document.querySelector('[data-collection-due]');
     const validationMessage = document.getElementById('deliveryCompletionValidationMessage');
     const submitButton = document.querySelector('[data-delivery-completion-submit]');
+    const configuredCollectionTerm = Number(form.dataset.collectionTermDays);
+    const collectionTermDays = Number.isInteger(configuredCollectionTerm) &&
+        configuredCollectionTerm > 0
+        ? configuredCollectionTerm
+        : 15;
     const maximumProofSize = 10 * 1024 * 1024;
     const validProofExtensions = ['pdf', 'jpg', 'jpeg', 'png'];
 
@@ -55,7 +60,7 @@
         }
 
         const dueDate = new Date(handover);
-        dueDate.setDate(dueDate.getDate() + 15);
+        dueDate.setDate(dueDate.getDate() + collectionTermDays);
 
         return dueDate.toLocaleDateString('en-US', {
             month: 'short',

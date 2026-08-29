@@ -1,6 +1,7 @@
 <?php
 require 'config/db_connect.php';
 require 'config/functions.php';
+require_once 'config/workflow_feedback.php';
 
 date_default_timezone_set('Asia/Manila');
 
@@ -33,7 +34,12 @@ $record = null;
 $active_assignment = null;
 $recent_payments = [];
 $eligibility_error = '';
-$request_error = substr(trim((string) ($_GET['error'] ?? '')), 0, 250);
+$delivery_is_complete = false;
+$pre_delivery_payment_window = false;
+$request_error = drms_public_feedback_message(
+    $_GET['error'] ?? '',
+    'The client payment could not be recorded. No collection balance was changed.'
+);
 
 if ($po_id > 0) {
     try {
@@ -44,12 +50,20 @@ if ($po_id > 0) {
                 po.client_name,
                 po.amount,
                 po.status,
+                po.collection_status,
                 po.current_location,
                 po.date_created,
-                po.actual_delivery_date,
                 po.expected_collection_date,
-                po.source_pr_workflow_version,
-                receipt.actual_handover_at,
+                COALESCE(
+                    NULLIF(receipt.actual_handover_at, ''),
+                    CONCAT(NULLIF(po.actual_delivery_date, ''), ' 00:00:00'),
+                    (
+                        SELECT MIN(history.timestamp)
+                        FROM po_history history
+                        WHERE history.po_id = po.po_id
+                          AND history.status_to = 'Delivered'
+                    )
+                ) AS delivery_completed_at,
                 receipt.collection_due_date AS receipt_due_date,
                 receipt.recipient_name,
                 COALESCE(payment_summary.total_paid, 0) AS total_paid,
@@ -91,6 +105,7 @@ if ($po_id > 0) {
                     payment.payment_date,
                     payment.payment_method,
                     payment.reference_number,
+                    payment.payment_classification,
                     recorder.full_name AS recorded_by_name
                  FROM payments payment
                  LEFT JOIN users recorder
@@ -109,22 +124,39 @@ if ($po_id > 0) {
                 0
             );
 
-            if (!in_array($record['status'], ['Delivered', 'Partially-Collected'], true)) {
-                $eligibility_error = 'This PO is not an open delivered receivable.';
-            } elseif ($balance_check <= 0) {
+            $delivery_is_complete = $record['status'] === 'Delivered';
+            $pre_delivery_payment_window =
+                !$delivery_is_complete &&
+                in_array(
+                    $record['status'],
+                    [
+                        'President-Approved',
+                        'Funded',
+                        'Delivery Requested',
+                        'For Pick-up/Delivery',
+                    ],
+                    true
+                );
+
+            if (!$delivery_is_complete && !$pre_delivery_payment_window) {
+                $eligibility_error = 'Client payment can be recorded only after the PO reaches final approval.';
+            } elseif ($delivery_is_complete && empty($record['delivery_completed_at'])) {
+                $eligibility_error = 'The delivery completion timestamp is missing. Complete or correct the client delivery record first.';
+            } elseif ($record['collection_status'] === 'Paid' || $balance_check <= 0) {
                 $eligibility_error = 'This PO no longer has an outstanding balance.';
-            } elseif (!$active_assignment) {
-                $eligibility_error = 'This receivable has no active Finance assignment. Open the PO and claim the task first.';
-            } elseif ($active_assignment['assigned_role'] !== 'Finance') {
+            } elseif ($delivery_is_complete && !$active_assignment) {
+                $eligibility_error = 'No active Finance user is assigned to this receivable. Return to Collection Monitoring and refresh the task list.';
+            } elseif ($delivery_is_complete && $active_assignment['assigned_role'] !== 'Finance') {
                 $eligibility_error = 'This task is currently assigned to ' . $active_assignment['assigned_role'] . '.';
-            } elseif ((int) $active_assignment['assigned_to'] !== $current_user_id) {
+            } elseif ($delivery_is_complete && (int) $active_assignment['assigned_to'] !== $current_user_id) {
                 $eligibility_error = 'This collection task is assigned to ' . $active_assignment['assignee_name'] . '.';
             }
         }
-    } catch (mysqli_sql_exception $error) {
-        error_log('Phase 5D collection payment page failed: ' . $error->getMessage());
+    } catch (Throwable $error) {
+        drms_log_workflow_failure('Collection payment page load', $error);
         $record = null;
-        $eligibility_error = 'The collection payment records could not be loaded.';
+        $eligibility_error =
+            'The collection payment details could not be loaded. Return to Collection Monitoring and try again.';
     }
 }
 
@@ -135,18 +167,18 @@ $collection_due_date = $record
     ? ($record['receipt_due_date'] ?: $record['expected_collection_date'])
     : null;
 $collection_started_at = $record
-    ? ($record['actual_handover_at'] ?: (
-        $record['actual_delivery_date']
-            ? $record['actual_delivery_date'] . ' 00:00:00'
-            : $record['date_created']
-    ))
+    ? ($record['delivery_completed_at'] ?: null)
     : null;
 
 $today = new DateTimeImmutable('today');
 $due_key = 'missing';
 $due_label = 'Missing due date';
 $due_detail = 'Review the delivery record';
-if ($collection_due_date && strtotime($collection_due_date) !== false) {
+if ($pre_delivery_payment_window) {
+    $due_key = 'track';
+    $due_label = 'Not yet due';
+    $due_detail = '15-day term starts after client delivery';
+} elseif ($collection_due_date && strtotime($collection_due_date) !== false) {
     $due_date = new DateTimeImmutable($collection_due_date);
     $days_until_due = (int) $today->diff($due_date)->format('%r%a');
 
@@ -175,7 +207,7 @@ $po_created_input = $record && $record['date_created']
     : $current_datetime;
 $delivery_input = $collection_started_at && strtotime($collection_started_at) !== false
     ? date('Y-m-d\TH:i', strtotime($collection_started_at))
-    : $current_datetime;
+    : '';
 $can_record = $record && $eligibility_error === '';
 ?>
 <!DOCTYPE html>
@@ -190,25 +222,26 @@ $can_record = $record && $eligibility_error === '';
     <link href="assets/css/prf-form.css?v=<?php echo filemtime(__DIR__ . '/assets/css/prf-form.css'); ?>" rel="stylesheet">
     <link href="assets/css/collection-payment.css?v=<?php echo filemtime(__DIR__ . '/assets/css/collection-payment.css'); ?>" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
-<body class="prf-page payment-page">
+<body class="prf-page payment-page workflow-ui">
     <?php include 'sidebar.php'; ?>
 
     <main class="main-content fade-in">
         <div class="container-fluid prf-shell payment-shell">
             <header class="prf-page-header">
-                <a href="collection_monitoring.php" class="prf-back-button" aria-label="Back to Collection Monitoring">
+                <a href="<?php echo $pre_delivery_payment_window && $record ? 'view_po.php?id=' . (int) $record['po_id'] : 'collection_monitoring.php'; ?>" class="prf-back-button" aria-label="Back">
                     <i class="fas fa-arrow-left"></i>
                 </a>
                 <div class="prf-page-heading">
                     <div class="prf-eyebrow">Finance client collection</div>
-                    <h2>Record verified client payment</h2>
-                    <p>Confirm the amount, reference, and proof before changing the PO collection balance.</p>
+                    <h2><?php echo $pre_delivery_payment_window ? 'Record verified down payment' : 'Record verified client payment'; ?></h2>
+                    <p>Confirm the amount, reference, and proof. This updates only the collection position and never changes the operational PO stage.</p>
                 </div>
                 <?php if ($can_record): ?>
                     <span class="prf-workflow-chip payment-chip">
-                        <i class="fas fa-shield-check"></i>
-                        Assigned to Finance
+                        <i class="fas fa-shield-alt"></i>
+                        <?php echo $pre_delivery_payment_window ? 'Pre-delivery Finance entry' : 'Assigned to Finance'; ?>
                     </span>
                 <?php endif; ?>
             </header>
@@ -225,7 +258,7 @@ $can_record = $record && $eligibility_error === '';
             <?php if (!$record): ?>
                 <?php if ($eligibility_error !== ''): ?>
                     <section class="prf-alert prf-alert-danger" role="alert">
-                        <i class="fas fa-database"></i>
+                        <i class="fas fa-triangle-exclamation"></i>
                         <div><strong>Payment form is unavailable</strong><span><?php echo htmlspecialchars($eligibility_error); ?></span></div>
                     </section>
                 <?php endif; ?>
@@ -255,8 +288,8 @@ $can_record = $record && $eligibility_error === '';
                             <strong><?php echo htmlspecialchars(phase5d_page_date($collection_due_date, 'Missing due date')); ?></strong>
                         </div>
                         <div class="prf-source-item">
-                            <span>Finance owner</span>
-                            <strong><?php echo htmlspecialchars((string) ($active_assignment['assignee_name'] ?? 'Unassigned')); ?></strong>
+                            <span><?php echo $pre_delivery_payment_window ? 'Operational task owner' : 'Finance owner'; ?></span>
+                            <strong><?php echo htmlspecialchars((string) ($active_assignment['assignee_name'] ?? ($pre_delivery_payment_window ? 'No active owner' : 'Unassigned'))); ?></strong>
                         </div>
                         <div class="prf-source-action">
                             <a href="view_po.php?id=<?php echo (int) $record['po_id']; ?>" class="prf-document-link">
@@ -269,20 +302,37 @@ $can_record = $record && $eligibility_error === '';
                 <section class="prf-route-card payment-route" aria-label="Collection workflow">
                     <span class="prf-route-label">Collection route</span>
                     <div class="prf-route-steps">
-                        <div class="prf-route-step payment-complete-step">
-                            <span><i class="fas fa-check"></i></span>
-                            <div><small>Completed</small><strong>Client delivery</strong></div>
-                        </div>
-                        <i class="fas fa-chevron-right prf-route-arrow" aria-hidden="true"></i>
-                        <div class="prf-route-step is-current">
-                            <span>2</span>
-                            <div><small>Current</small><strong>Payment verification</strong></div>
-                        </div>
-                        <i class="fas fa-chevron-right prf-route-arrow" aria-hidden="true"></i>
-                        <div class="prf-route-step">
-                            <span>3</span>
-                            <div><small>Next</small><strong>Collected</strong></div>
-                        </div>
+                        <?php if ($pre_delivery_payment_window): ?>
+                            <div class="prf-route-step payment-complete-step">
+                                <span><i class="fas fa-check"></i></span>
+                                <div><small>Completed</small><strong>Official PO</strong></div>
+                            </div>
+                            <i class="fas fa-chevron-right prf-route-arrow" aria-hidden="true"></i>
+                            <div class="prf-route-step is-current">
+                                <span>2</span>
+                                <div><small>Current</small><strong>Down payment</strong></div>
+                            </div>
+                            <i class="fas fa-chevron-right prf-route-arrow" aria-hidden="true"></i>
+                            <div class="prf-route-step">
+                                <span>3</span>
+                                <div><small>Next</small><strong>Delivery &amp; balance</strong></div>
+                            </div>
+                        <?php else: ?>
+                            <div class="prf-route-step payment-complete-step">
+                                <span><i class="fas fa-check"></i></span>
+                                <div><small>Completed</small><strong>Client delivery</strong></div>
+                            </div>
+                            <i class="fas fa-chevron-right prf-route-arrow" aria-hidden="true"></i>
+                            <div class="prf-route-step is-current">
+                                <span>2</span>
+                                <div><small>Current</small><strong>Payment verification</strong></div>
+                            </div>
+                            <i class="fas fa-chevron-right prf-route-arrow" aria-hidden="true"></i>
+                            <div class="prf-route-step">
+                                <span>3</span>
+                                <div><small>Next</small><strong>Paid</strong></div>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 </section>
 
@@ -343,17 +393,17 @@ $can_record = $record && $eligibility_error === '';
                                     <legend>Payment classification <span>*</span></legend>
                                     <div class="payment-type-grid">
                                         <label class="payment-type-option">
-                                            <input type="radio" name="payment_classification" value="Full Payment">
+                                            <input type="radio" name="payment_classification" value="Full Payment" <?php echo $pre_delivery_payment_window ? 'disabled' : ''; ?>>
                                             <span class="payment-type-icon"><i class="fas fa-circle-check"></i></span>
                                             <span><strong>Full payment</strong><small>Exact remaining balance</small></span>
                                         </label>
-                                        <label class="payment-type-option payment-type-option-active">
-                                            <input type="radio" name="payment_classification" value="Partial Payment" checked>
+                                        <label class="payment-type-option <?php echo $pre_delivery_payment_window ? '' : 'payment-type-option-active'; ?>">
+                                            <input type="radio" name="payment_classification" value="Partial Payment" <?php echo $pre_delivery_payment_window ? 'disabled' : 'checked'; ?>>
                                             <span class="payment-type-icon"><i class="fas fa-chart-pie"></i></span>
                                             <span><strong>Partial payment</strong><small>Balance remains open</small></span>
                                         </label>
-                                        <label class="payment-type-option">
-                                            <input type="radio" name="payment_classification" value="Advance / Down Payment">
+                                        <label class="payment-type-option <?php echo $pre_delivery_payment_window ? 'payment-type-option-active' : ''; ?>">
+                                            <input type="radio" name="payment_classification" value="Advance / Down Payment" <?php echo $pre_delivery_payment_window ? 'checked' : ''; ?>>
                                             <span class="payment-type-icon"><i class="fas fa-hand-holding-dollar"></i></span>
                                             <span><strong>Advance / down</strong><small>Received before delivery</small></span>
                                         </label>
@@ -441,7 +491,7 @@ $can_record = $record && $eligibility_error === '';
                         <section class="prf-card payment-confirm-card">
                             <div class="payment-boundary-note">
                                 <i class="fas fa-circle-exclamation"></i>
-                                <p><strong>Final balance control</strong><span>Submitting creates an auditable payment record. A zero balance automatically marks the PO as Collected.</span></p>
+                                <p><strong>Separate collection control</strong><span>Submitting creates an auditable payment record. A zero balance changes Collection Status to Paid without changing the PO workflow stage.</span></p>
                             </div>
                             <label class="payment-confirmation">
                                 <input type="checkbox" name="payment_confirmation" value="1" id="paymentConfirmation" <?php echo $can_record ? '' : 'disabled'; ?>>
@@ -450,7 +500,7 @@ $can_record = $record && $eligibility_error === '';
                             <button type="submit" class="btn payment-submit-button" id="paymentSubmitButton" <?php echo $can_record ? '' : 'disabled'; ?>>
                                 <span>Record verified payment</span><i class="fas fa-arrow-right"></i>
                             </button>
-                            <a href="collection_monitoring.php?filter=mine" class="payment-cancel-link">Cancel and return to monitoring</a>
+                            <a href="<?php echo $pre_delivery_payment_window ? 'view_po.php?id=' . (int) $record['po_id'] : 'collection_monitoring.php?filter=mine'; ?>" class="payment-cancel-link">Cancel and return</a>
                         </section>
                     </aside>
                 </form>

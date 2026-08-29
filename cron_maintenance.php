@@ -20,31 +20,41 @@ try {
 
     // =========================================================================
     // 1. ACTIVE TO ARCHIVED RULE
-    // Upload Date + Active Years & Months <= NOW
+    // Official declaration date + Active Years & Months <= NOW
     // =========================================================================
     $conn->query("
         UPDATE documents d
-        JOIN document_categories dc ON d.category = dc.sub_category
-        JOIN retention_policies p ON dc.policy_id = p.policy_id
+        LEFT JOIN document_categories dc ON d.category = dc.sub_category
+        JOIN retention_policies p ON p.policy_id = COALESCE(d.policy_id, dc.policy_id)
         SET d.status = 'Archived'
-        WHERE d.status = 'Active' AND d.is_legal_hold = 0
-        AND DATE_ADD(DATE_ADD(d.uploaded_at, INTERVAL COALESCE(p.active_years, 0) YEAR), INTERVAL COALESCE(p.active_months, 0) MONTH) <= NOW()
+        WHERE d.record_phase = 'Official'
+        AND d.status = 'Active'
+        AND d.is_legal_hold = 0
+        AND DATE_ADD(DATE_ADD(COALESCE(d.declared_at, d.uploaded_at), INTERVAL COALESCE(p.active_years, 0) YEAR), INTERVAL COALESCE(p.active_months, 0) MONTH) <= NOW()
     ");
     
     echo "[" . date('Y-m-d H:i:s') . "] Auto-Archive Rule: " . $conn->affected_rows . " documents transitioned to Archive Phase.\n";
 
     // =========================================================================
-    // 2. REVIEW FOR PERMANENT DELETION RULE (Ready for Disposition)
-    // Upload Date + Active Y&M + Archive Y&M <= NOW
+    // 2. RETENTION REVIEW RULE (Ready for Disposition)
+    // Official declaration date + Active Y&M + Archive Y&M <= NOW.
+    // This only flags the record. It never destroys or permanently archives it.
     // =========================================================================
     $conn->query("
         UPDATE documents d
-        JOIN document_categories dc ON d.category = dc.sub_category
-        JOIN retention_policies p ON dc.policy_id = p.policy_id
-        SET d.disposition_status = 'Ready for Disposition'
-        WHERE d.status = 'Archived' AND d.disposition_status = 'Pending' AND d.is_legal_hold = 0
-        AND p.action_after_retention = 'Review for permanent deletion'
-        AND DATE_ADD(DATE_ADD(d.uploaded_at, INTERVAL (COALESCE(p.active_years, 0) + COALESCE(p.archive_years, 0)) YEAR), INTERVAL (COALESCE(p.active_months, 0) + COALESCE(p.archive_months, 0)) MONTH) <= NOW()
+        LEFT JOIN document_categories dc ON d.category = dc.sub_category
+        JOIN retention_policies p ON p.policy_id = COALESCE(d.policy_id, dc.policy_id)
+        SET d.disposition_status = 'Ready for Disposition',
+            d.dss_recommendation = CASE
+                WHEN p.action_after_retention = 'Permanent Archive'
+                    THEN 'Retention complete: submit for permanent archive approval.'
+                ELSE 'Retention complete: submit for destruction approval.'
+            END
+        WHERE d.record_phase = 'Official'
+        AND d.status = 'Archived'
+        AND d.disposition_status = 'Pending'
+        AND d.is_legal_hold = 0
+        AND DATE_ADD(DATE_ADD(COALESCE(d.declared_at, d.uploaded_at), INTERVAL (COALESCE(p.active_years, 0) + COALESCE(p.archive_years, 0)) YEAR), INTERVAL (COALESCE(p.active_months, 0) + COALESCE(p.archive_months, 0)) MONTH) <= NOW()
     ");
     
     echo "[" . date('Y-m-d H:i:s') . "] Ready for Disposition Rule: " . $conn->affected_rows . " documents flagged for manual review.\n";
@@ -53,11 +63,15 @@ try {
     // 3. PRE-DISPOSITION ALERTS (30-day & 15-day Warnings)
     // =========================================================================
     $alert_query = $conn->query("
-        SELECT d.doc_id, d.file_name, p.active_years, p.active_months, p.archive_years, p.archive_months, d.uploaded_at
+        SELECT d.doc_id, d.file_name, p.active_years, p.active_months,
+               p.archive_years, p.archive_months,
+               COALESCE(d.declared_at, d.uploaded_at) AS retention_base_at
         FROM documents d
-        JOIN document_categories dc ON d.category = dc.sub_category
-        JOIN retention_policies p ON dc.policy_id = p.policy_id
-        WHERE d.disposition_status = 'Pending' AND d.is_legal_hold = 0
+        LEFT JOIN document_categories dc ON d.category = dc.sub_category
+        JOIN retention_policies p ON p.policy_id = COALESCE(d.policy_id, dc.policy_id)
+        WHERE d.record_phase = 'Official'
+        AND d.disposition_status = 'Pending'
+        AND d.is_legal_hold = 0
     ");
 
     if ($alert_query && $has_notif_table) {
@@ -66,7 +80,7 @@ try {
         $stmt_alert = $conn->prepare("INSERT INTO notifications (user_id, message, created_at) VALUES (?, ?, NOW())");
         
         while($doc = $alert_query->fetch_assoc()) {
-            $base_date = $doc['uploaded_at'];
+            $base_date = $doc['retention_base_at'];
             $total_years = (int)$doc['active_years'] + (int)$doc['archive_years'];
             $total_months = (int)$doc['active_months'] + (int)$doc['archive_months'];
             

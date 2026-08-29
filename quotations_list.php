@@ -3,10 +3,16 @@ require 'config/db_connect.php';
 require 'config/functions.php';
 require_once 'config/workflow_access.php';
 
-drms_require_workflow_roles(['Sales Staff']);
+drms_require_workflow_roles(['Sales Staff', 'GM']);
 
 $search = trim((string) ($_GET['search'] ?? ''));
-$valid_filters = ['all', 'Pending Approval', 'PO Received', 'Converted to PR'];
+$valid_filters = [
+    'all',
+    'Pending Approval',
+    'For GM Acknowledgement',
+    'PO Received',
+    'Converted to PR',
+];
 $filter = $_GET['filter'] ?? 'all';
 
 if ($filter === 'Pending PO') {
@@ -97,11 +103,13 @@ $result = $stmt->get_result();
     <link href="assets/css/compact-mobile-lists.css" rel="stylesheet">
     <link href="assets/css/mobile-drive-lists.css?v=<?php echo filemtime(__DIR__ . '/assets/css/mobile-drive-lists.css'); ?>" rel="stylesheet">
     <link href="assets/css/client-approval.css?v=<?php echo filemtime(__DIR__ . '/assets/css/client-approval.css'); ?>" rel="stylesheet">
+    <link href="assets/css/client-po-acknowledgement.css?v=<?php echo filemtime(__DIR__ . '/assets/css/client-po-acknowledgement.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
-<body class="page-quotation-list">
+<body class="page-quotation-list workflow-ui">
     <?php include 'sidebar.php'; ?>
 
     <div class="main-content fade-in">
@@ -110,7 +118,11 @@ $result = $stmt->get_result();
                 <div class="list-title-copy">
                     <h3 class="fw-bold mb-0 text-slate-900 tracking-tight">Client Quotations</h3>
                     <span class="list-title-subtitle text-muted fs-sm d-none d-md-block mt-1">
-                        Track quotations, supporting confirmations, and official Client POs
+                        <?php if ($_SESSION['role'] === 'GM'): ?>
+                            Review official Client POs routed for your acknowledgment
+                        <?php else: ?>
+                            Track quotations, supporting confirmations, and official Client POs
+                        <?php endif; ?>
                     </span>
                 </div>
 
@@ -162,6 +174,7 @@ $result = $stmt->get_result();
                 <select name="filter" class="sleek-select" onchange="this.form.submit()">
                     <option value="all" <?php echo $filter === 'all' ? 'selected' : ''; ?>>All Records</option>
                     <option value="Pending Approval" <?php echo $filter === 'Pending Approval' ? 'selected' : ''; ?>>Waiting for Official PO</option>
+                    <option value="For GM Acknowledgement" <?php echo $filter === 'For GM Acknowledgement' ? 'selected' : ''; ?>>For GM Acknowledgement</option>
                     <option value="PO Received" <?php echo $filter === 'PO Received' ? 'selected' : ''; ?>>Official Client PO Received</option>
                     <option value="Converted to PR" <?php echo $filter === 'Converted to PR' ? 'selected' : ''; ?>>Converted to PR</option>
                 </select>
@@ -234,6 +247,10 @@ $result = $stmt->get_result();
                                         $badge = 'bg-soft-primary';
                                         $icon = 'fa-comments';
                                         $status_label = 'Confirmation Recorded';
+                                    } elseif ($status === 'For GM Acknowledgement') {
+                                        $badge = 'bg-soft-warning';
+                                        $icon = 'fa-user-check';
+                                        $status_label = 'For GM Acknowledgement';
                                     } elseif ($status === 'PO Received') {
                                         $badge = 'bg-soft-success';
                                         $icon = 'fa-check-double';
@@ -330,6 +347,18 @@ $result = $stmt->get_result();
                                                     <?php endif; ?>
                                                 <?php endif; ?>
 
+                                                <?php if (
+                                                    $_SESSION['role'] === 'GM' &&
+                                                    $status === 'For GM Acknowledgement'
+                                                ): ?>
+                                                    <a
+                                                        href="view_quotation.php?id=<?php echo $quotation_id; ?>"
+                                                        class="btn-quick-act btn-quick-outline po-ack-list-action text-decoration-none"
+                                                    >
+                                                        <i class="fas fa-file-signature me-1"></i> Review PO
+                                                    </a>
+                                                <?php endif; ?>
+
                                                 <a
                                                     href="view_quotation.php?id=<?php echo $quotation_id; ?>"
                                                     class="btn-view-icon"
@@ -350,19 +379,23 @@ $result = $stmt->get_result();
         </div>
     </div>
 
-    <?php
-    $client_approval_modal_id = 'clientApprovalModal';
-    $client_approval_quotation_id = '';
-    $client_approval_quotation_number = '';
-    require __DIR__ . '/includes/client_approval_modal.php';
-    ?>
+    <?php if ($_SESSION['role'] === 'Sales Staff'): ?>
+        <?php
+        $client_approval_modal_id = 'clientApprovalModal';
+        $client_approval_quotation_id = '';
+        $client_approval_quotation_number = '';
+        require __DIR__ . '/includes/client_approval_modal.php';
+        ?>
+    <?php endif; ?>
 
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    <script src="assets/js/client-approval-form.js?v=<?php echo filemtime(__DIR__ . '/assets/js/client-approval-form.js'); ?>"></script>
+    <?php if ($_SESSION['role'] === 'Sales Staff'): ?>
+        <script src="assets/js/client-approval-form.js?v=<?php echo filemtime(__DIR__ . '/assets/js/client-approval-form.js'); ?>"></script>
+    <?php endif; ?>
 
     <script>
         $(document).ready(function () {

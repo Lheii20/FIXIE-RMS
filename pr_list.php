@@ -24,22 +24,18 @@
   if ($queue === 'mine') {
       if ($_SESSION['role'] === 'GM') {
           $sql .= " AND status = 'Pending'
-                    AND (
-                        workflow_version = 1
-                        OR (workflow_version = 2 AND current_approval_stage = 'GM Review')
-                    )";
+                    AND current_approval_stage = 'GM Review'";
       } elseif ($_SESSION['role'] === 'Finance') {
-          $sql .= " AND workflow_version = 2
-                    AND status = 'Pending'
+          $sql .= " AND status = 'Pending'
                     AND current_approval_stage = 'Finance Review'";
       } elseif ($_SESSION['role'] === 'President') {
           $sql .= " AND status = 'Pending'
-                    AND (
-                        workflow_version = 1
-                        OR (workflow_version = 2 AND current_approval_stage = 'Owner Approval')
-                    )";
+                    AND current_approval_stage = 'Owner Approval'";
       } elseif ($_SESSION['role'] === 'Procurement') {
-          $sql .= " AND status = 'Approved'";
+          $sql .= " AND status = 'Approved'
+                    AND current_approval_stage = 'Official Approved'
+                    AND final_approved_by IS NOT NULL
+                    AND final_approved_at IS NOT NULL";
       }
   }
 
@@ -78,9 +74,9 @@
       <link href="assets/css/compact-mobile-lists.css" rel="stylesheet">
       <link href="assets/css/mobile-drive-lists.css?v=<?php echo filemtime(__DIR__ . '/assets/css/mobile-drive-lists.css'); ?>" rel="stylesheet">
       <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
-      <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+      <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
   </head>
-  <body class="page-pr-list">
+  <body class="page-pr-list workflow-ui">
       <?php include 'sidebar.php'; ?>
       <div class="main-content fade-in">
         
@@ -176,8 +172,18 @@
                                   <?php while($row = $result->fetch_assoc()): 
                                       // PR Badge logic
                                       $s = $row['status'];
-                                      $is_sequential_pr = (int) ($row['workflow_version'] ?? 1) === 2;
-                                      $display_status = $is_sequential_pr && $s === 'Pending'
+                                      $official_stages = [
+                                          'GM Review',
+                                          'Finance Review',
+                                          'Owner Approval',
+                                          'Official Approved',
+                                      ];
+                                      $is_official_pr = in_array(
+                                          (string) ($row['current_approval_stage'] ?? ''),
+                                          $official_stages,
+                                          true
+                                      );
+                                      $display_status = $is_official_pr && $s === 'Pending'
                                           ? ($row['current_approval_stage'] ?? 'Pending Review')
                                           : str_replace('_', ' ', $s);
                                       $stage_role_map = [
@@ -185,7 +191,7 @@
                                           'Finance Review' => 'Finance',
                                           'Owner Approval' => 'President',
                                       ];
-                                      $is_current_reviewer = $is_sequential_pr &&
+                                      $is_current_reviewer = $is_official_pr &&
                                           $s === 'Pending' &&
                                           isset($stage_role_map[$row['current_approval_stage']]) &&
                                           $_SESSION['role'] === $stage_role_map[$row['current_approval_stage']];
@@ -227,14 +233,6 @@
                                       </td>
                                       <td class="text-end pe-4" data-label="Actions">
                                           <div class="action-flex">
-                                              <?php 
-                                              // Legacy records retain their existing quick actions.
-                                              // Sequential PRFs must be opened so the assigned reviewer sees all financial details.
-                                              if (!$is_sequential_pr && in_array($_SESSION['role'], ['GM', 'President'], true) && $row['status'] === 'Pending'): ?>
-                                                  <button type="button" class="btn-quick-act btn-quick-approve" onclick="confirmApprovePR(event, '<?php echo $row['pr_id']; ?>', '<?php echo htmlspecialchars($row['pr_number']); ?>')"><i class="fas fa-check me-1"></i> Approve</button>
-                                                  <button type="button" class="btn-quick-act btn-quick-reject ms-1" onclick="confirmRejectPR(event, '<?php echo $row['pr_id']; ?>', '<?php echo htmlspecialchars($row['pr_number']); ?>')"><i class="fas fa-times"></i></button>
-                                              <?php endif; ?>
-                                            
                                               <a
                                                   href="view_pr.php?id=<?php echo $row['pr_id']; ?>"
                                                   class="btn-view-icon"
@@ -255,19 +253,10 @@
           </div>
       </div>
 
-      <!-- Hidden Form for SweetAlert Submission to ensure NO NATIVE FORMS interefere -->
-      <form id="dynamicActionForm" action="actions/pr_handler.php" method="POST" class="d-none">
-          <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-          <input type="hidden" name="action" id="dynamicAction">
-          <input type="hidden" name="pr_id" id="dynamicPrId">
-          <input type="hidden" name="remarks" id="dynamicRemarks">
-      </form>
-
       <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
       <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
       <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
       <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
-      <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     
       <script>
           $(document).ready(function() {
@@ -293,70 +282,6 @@
               });
           });
 
-          // Safe Approval Function
-          function confirmApprovePR(e, id, prNumber) {
-              e.preventDefault();
-              e.stopPropagation();
-
-              Swal.fire({
-                  title: 'Approve Request?',
-                  html: "<span class='text-muted fs-09rem'>Are you sure you want to approve <b>" + prNumber + "</b>?</span>",
-                  icon: 'success',
-                  showCancelButton: true,
-                  confirmButtonText: '<i class="fas fa-check me-1"></i> Yes, Approve',
-                  cancelButtonText: 'Cancel',
-                  buttonsStyling: false,
-                  customClass: { 
-                      popup: 'sleek-popup', 
-                      confirmButton: 'btn btn-success px-4 py-2 shadow-sm fw-bold', 
-                      cancelButton: 'btn btn-light px-4 py-2 border fw-bold ms-2' 
-                  }
-              }).then((result) => {
-                  if (result.isConfirmed) {
-                      $('#dynamicAction').val('approve_pr');
-                      $('#dynamicPrId').val(id);
-                      $('#dynamicRemarks').val('');
-                      $('#dynamicActionForm').submit();
-                  }
-              });
-          }
-
-          // Strict Rejection Function
-          function confirmRejectPR(e, id, prNumber) {
-              e.preventDefault();
-              e.stopPropagation();
-
-              Swal.fire({
-                  title: 'Reject Request',
-                  html: "<span class='text-muted fs-09rem'>Please state the reason for rejecting <b>" + prNumber + "</b>:</span>",
-                  icon: 'warning',
-                  input: 'textarea',
-                  inputPlaceholder: 'Enter your reason here (Required)...',
-                  showCancelButton: true,
-                  confirmButtonText: '<i class="fas fa-times me-1"></i> Submit Rejection',
-                  cancelButtonText: 'Cancel',
-                  buttonsStyling: false,
-                  customClass: { 
-                      popup: 'sleek-popup', 
-                      confirmButton: 'btn btn-danger px-4 py-2 shadow-sm fw-bold', 
-                      cancelButton: 'btn btn-light px-4 py-2 border fw-bold ms-2' 
-                  },
-                  preConfirm: (reason) => {
-                      if (!reason || reason.trim() === '') {
-                          Swal.showValidationMessage('Rejection reason cannot be empty!');
-                          return false;
-                      }
-                      return reason.trim();
-                  }
-              }).then((result) => {
-                  if (result.isConfirmed) {
-                      $('#dynamicAction').val('reject_pr'); 
-                      $('#dynamicPrId').val(id);
-                      $('#dynamicRemarks').val(result.value);
-                      $('#dynamicActionForm').submit();
-                  }
-              });
-          }
       </script>
   </body>
   </html>

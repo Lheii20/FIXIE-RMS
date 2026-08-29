@@ -1,6 +1,7 @@
 <?php
 require 'config/db_connect.php';
 require 'config/functions.php';
+require_once 'config/workflow_feedback.php';
 
 date_default_timezone_set('Asia/Manila');
 
@@ -26,6 +27,10 @@ $po = null;
 $active_assignment = null;
 $existing_request = null;
 $eligibility_error = '';
+$request_error = drms_public_feedback_message(
+    $_GET['error'] ?? '',
+    'The delivery request could not be completed. No changes were saved.'
+);
 $item_summary = ['line_count' => 0, 'total_quantity' => 0];
 
 if ($po_id > 0) {
@@ -58,7 +63,6 @@ if ($po_id > 0) {
              LEFT JOIN users finance_user
                 ON finance_user.user_id = funding.released_by
              WHERE po.po_id = ?
-               AND po.source_pr_workflow_version = 2
              ORDER BY funding.release_cycle DESC
              LIMIT 1"
         );
@@ -116,12 +120,12 @@ if ($po_id > 0) {
                     $existing_request['request_status'] . '.';
             } elseif (!$active_assignment) {
                 $eligibility_error =
-                    'This PO does not have an active Procurement assignment. Run the Phase 4B handoff migration first.';
+                    'No active Procurement user is assigned to this delivery request. Return to Purchase Orders and refresh the task list.';
             } elseif ($active_assignment['assigned_role'] !== 'Procurement') {
                 $eligibility_error =
-                    'This task is still assigned to ' .
+                    'This task is currently assigned to ' .
                     $active_assignment['assigned_role'] .
-                    '. Run the Phase 4B handoff migration first.';
+                    '. Only the assigned Procurement user can prepare the delivery request.';
             } elseif ((int) $active_assignment['assigned_to'] !==
                 $current_user_id) {
                 $eligibility_error =
@@ -129,14 +133,11 @@ if ($po_id > 0) {
                     $active_assignment['assignee_name'] . '.';
             }
         }
-    } catch (mysqli_sql_exception $error) {
-        error_log(
-            'Phase 4B delivery request page failed: ' .
-            $error->getMessage()
-        );
+    } catch (Throwable $error) {
+        drms_log_workflow_failure('Delivery request page load', $error);
         $po = null;
         $eligibility_error =
-            'Phase 4A is not completely installed. Run its database migration before opening this form.';
+            'The delivery request details could not be loaded. Return to Purchase Orders and try again.';
     }
 }
 
@@ -187,8 +188,9 @@ $funding_proof_url = $po && !empty($po['funding_proof_path'])
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/prf-form.css?v=<?php echo filemtime(__DIR__ . '/assets/css/prf-form.css'); ?>" rel="stylesheet">
     <link href="assets/css/delivery-request.css?v=<?php echo filemtime(__DIR__ . '/assets/css/delivery-request.css'); ?>" rel="stylesheet">
+    <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
-<body class="prf-page delivery-request-page">
+<body class="prf-page delivery-request-page workflow-ui">
     <?php include 'sidebar.php'; ?>
 
     <main class="main-content fade-in">
@@ -216,10 +218,10 @@ $funding_proof_url = $po && !empty($po['funding_proof_path'])
                 <?php endif; ?>
             </header>
 
-            <?php if (isset($_GET['error']) && trim((string) $_GET['error']) !== ''): ?>
+            <?php if ($request_error !== ''): ?>
                 <div class="prf-alert prf-alert-danger" role="alert">
                     <i class="fas fa-exclamation-circle"></i>
-                    <span><?php echo htmlspecialchars((string) $_GET['error']); ?></span>
+                    <span><?php echo htmlspecialchars($request_error); ?></span>
                 </div>
             <?php endif; ?>
 
@@ -231,10 +233,19 @@ $funding_proof_url = $po && !empty($po['funding_proof_path'])
             ></div>
 
             <?php if (!$po): ?>
+                <?php if ($eligibility_error !== ''): ?>
+                    <section class="prf-alert prf-alert-danger" role="alert">
+                        <i class="fas fa-triangle-exclamation"></i>
+                        <div>
+                            <strong>Delivery-request details are unavailable</strong>
+                            <span><?php echo htmlspecialchars($eligibility_error); ?></span>
+                        </div>
+                    </section>
+                <?php endif; ?>
                 <section class="prf-empty-state">
                     <div class="prf-empty-icon"><i class="fas fa-truck-loading"></i></div>
                     <h3>No eligible funded PO selected</h3>
-                    <p>Select a Version 2 funded PO assigned to Procurement.</p>
+                    <p>Select a funded PO assigned to your Procurement account.</p>
                     <a href="po_list.php?filter=my_tasks" class="btn btn-primary">
                         View my Procurement tasks
                     </a>

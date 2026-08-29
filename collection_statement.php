@@ -39,20 +39,20 @@ function phase5g_datetime(?string $value, string $fallback = 'Not recorded'): st
     return date('M d, Y · g:i A', strtotime($value));
 }
 
-function phase5g_payment_label(?string $notes): string
+function phase5g_payment_label(?string $classification): string
 {
-    $notes = trim((string) $notes);
-    if (stripos($notes, 'Advance / Down Payment') !== false) {
+    $classification = trim((string) $classification);
+    if ($classification === 'Advance / Down Payment') {
         return 'Advance / down payment';
     }
-    if (stripos($notes, 'Full Payment') === 0) {
+    if ($classification === 'Full Payment') {
         return 'Full payment';
     }
-    if (stripos($notes, 'Partial Payment') === 0) {
+    if ($classification === 'Partial Payment') {
         return 'Partial payment';
     }
 
-    return 'Legacy payment';
+    return 'Unclassified payment';
 }
 
 $po_id = isset($_GET['po_id']) ? (int) $_GET['po_id'] : 0;
@@ -83,6 +83,7 @@ if ($po_id > 0) {
                 po.quotation_number,
                 po.amount,
                 po.status,
+                po.collection_status,
                 po.date_created,
                 po.actual_delivery_date,
                 po.expected_collection_date,
@@ -127,11 +128,7 @@ if ($po_id > 0) {
         $record = $record_stmt->get_result()->fetch_assoc();
         $record_stmt->close();
 
-        if ($record && !in_array(
-            $record['status'],
-            ['Delivered', 'Partially-Collected', 'Collected'],
-            true
-        )) {
+        if ($record && $record['status'] !== 'Delivered') {
             $page_error = 'A collection statement is available only after client delivery.';
             $record = null;
         }
@@ -143,6 +140,7 @@ if ($po_id > 0) {
                     payment.amount_paid,
                     payment.payment_date,
                     payment.notes,
+                    payment.payment_classification,
                     payment.payment_method,
                     payment.reference_number,
                     recorder.full_name AS recorded_by_name
@@ -158,19 +156,16 @@ if ($po_id > 0) {
             $payment_stmt->close();
         }
     } catch (mysqli_sql_exception $error) {
-        error_log('Phase 5G collection statement failed: ' . $error->getMessage());
+        error_log('Phase 6B3B collection statement failed: ' . $error->getMessage());
         $record = null;
-        $page_error = 'The collection statement could not be prepared from the current records.';
+        $page_error = 'The collection statement could not be prepared. Install Phase 6B3A first, then try again.';
     }
 }
 
 $statement_date = new DateTimeImmutable('today');
 $po_amount = $record ? round((float) $record['amount'], 2) : 0;
 $ledger_paid = $record ? round((float) $record['ledger_paid'], 2) : 0;
-$effective_collected = $record && $record['status'] === 'Collected'
-    ? $po_amount
-    : min($ledger_paid, $po_amount);
-$legacy_settlement = max(round($effective_collected - $ledger_paid, 2), 0);
+$effective_collected = min(max($ledger_paid, 0), $po_amount);
 $balance = max(round($po_amount - $effective_collected, 2), 0);
 $due_date_value = $record
     ? ($record['collection_due_date'] ?: $record['expected_collection_date'])
@@ -224,8 +219,9 @@ $statement_number = $record
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/collection-statement.css?v=<?php echo filemtime(__DIR__ . '/assets/css/collection-statement.css'); ?>" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
-<body class="statement-page">
+<body class="statement-page workflow-ui">
     <div class="statement-toolbar" role="toolbar" aria-label="Statement actions">
         <div>
             <a href="<?php echo $record ? 'view_po.php?id=' . (int) $record['po_id'] : 'collection_monitoring.php'; ?>"><i class="fas fa-arrow-left"></i>Back</a>
@@ -311,15 +307,15 @@ $statement_number = $record
                         <thead><tr><th>Date received</th><th>Classification</th><th>Method</th><th>Reference</th><th>Recorded by</th><th>Amount</th></tr></thead>
                         <tbody>
                             <?php if (empty($payments)): ?>
-                                <tr><td colspan="6" class="statement-table-empty"><?php echo $record['status'] === 'Collected' ? 'Legacy settled PO — no itemized payment entries are available in the payment ledger.' : 'No client payment has been recorded as of the statement date.'; ?></td></tr>
+                                <tr><td colspan="6" class="statement-table-empty">No client payment has been recorded as of the statement date.</td></tr>
                             <?php else: ?>
                                 <?php foreach ($payments as $payment): ?>
                                     <tr>
                                         <td><?php echo htmlspecialchars(phase5g_datetime($payment['payment_date'])); ?></td>
-                                        <td><?php echo htmlspecialchars(phase5g_payment_label($payment['notes'])); ?></td>
-                                        <td><?php echo htmlspecialchars($payment['payment_method'] ?: 'Legacy / unspecified'); ?></td>
+                                        <td><?php echo htmlspecialchars(phase5g_payment_label($payment['payment_classification'])); ?></td>
+                                        <td><?php echo htmlspecialchars($payment['payment_method'] ?: 'Not recorded'); ?></td>
                                         <td><?php echo htmlspecialchars($payment['reference_number'] ?: 'Not recorded'); ?></td>
-                                        <td><?php echo htmlspecialchars($payment['recorded_by_name'] ?: 'Legacy record'); ?></td>
+                                        <td><?php echo htmlspecialchars($payment['recorded_by_name'] ?: 'System record'); ?></td>
                                         <td><?php echo phase5g_money((float) $payment['amount_paid']); ?></td>
                                     </tr>
                                 <?php endforeach; ?>
@@ -338,7 +334,6 @@ $statement_number = $record
                 <div class="statement-totals">
                     <div><span>Original PO amount</span><strong><?php echo phase5g_money($po_amount); ?></strong></div>
                     <div><span>Recorded ledger payments</span><strong>− <?php echo phase5g_money($ledger_paid); ?></strong></div>
-                    <?php if ($legacy_settlement > 0): ?><div><span>Legacy settled value</span><strong>− <?php echo phase5g_money($legacy_settlement); ?></strong></div><?php endif; ?>
                     <div class="statement-total-due"><span>Outstanding balance</span><strong><?php echo phase5g_money($balance); ?></strong></div>
                 </div>
             </section>

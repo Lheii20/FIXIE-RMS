@@ -285,11 +285,19 @@ function get_unread_notification_count($conn, $user_id, $role) {
 // PURCHASE ORDER TASK OWNERSHIP
 // ===============================================
 function get_po_eligible_roles($conn, $status) {
-    if (in_array($status, ['Delivered', 'Partially-Collected'], true)) {
+    if ($status === 'Delivered') {
         return ['Finance'];
     }
     $roles = [];
-    $stmt = $conn->prepare("SELECT DISTINCT required_role FROM workflow_rules WHERE current_status = ?");
+    $stmt = $conn->prepare(
+        "SELECT DISTINCT required_role
+         FROM workflow_rules
+         WHERE current_status = ?
+           AND NOT (
+                action_key = 'mark_delivered'
+                AND current_status <> 'For Pick-up/Delivery'
+           )"
+    );
     if ($stmt) {
         $stmt->bind_param("s", $status);
         $stmt->execute();
@@ -390,14 +398,32 @@ function get_dashboard_stats($conn, $role) {
         $stats['value'] = $conn->query("SELECT COUNT(*) FROM purchase_orders")->fetch_row()[0];
     } elseif ($role == 'Finance') {
         $stats['label'] = 'Projected Collection';
-        $res = $conn->query("SELECT SUM(amount) FROM purchase_orders WHERE expected_collection_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 30 DAY)");
+        $res = $conn->query(
+            "SELECT COALESCE(SUM(
+                GREATEST(
+                    po.amount - COALESCE(payment_summary.total_paid, 0),
+                    0
+                )
+             ), 0)
+             FROM purchase_orders po
+             LEFT JOIN (
+                SELECT po_id, SUM(amount_paid) AS total_paid
+                FROM payments
+                GROUP BY po_id
+             ) payment_summary
+                ON payment_summary.po_id = po.po_id
+             WHERE po.status = 'Delivered'
+               AND po.collection_status IN ('Unpaid', 'Partially Paid')
+               AND po.expected_collection_date BETWEEN
+                   CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)"
+        );
         $stats['value'] = "₱ " . number_format($res->fetch_row()[0] ?? 0, 2);
     } else {
         $stats['label'] = 'Active POs';
-        $stats['value'] = $conn->query("SELECT COUNT(*) FROM purchase_orders WHERE status != 'Collected'")->fetch_row()[0];
+        $stats['value'] = $conn->query("SELECT COUNT(*) FROM purchase_orders WHERE status NOT IN ('Delivered', 'Rejected', 'Invalid')")->fetch_row()[0];
     }
-    $stats['pending'] = $conn->query("SELECT COUNT(*) FROM purchase_orders WHERE status NOT IN ('Collected', 'Rejected', 'Invalid')")->fetch_row()[0];
-    $stats['completed'] = $conn->query("SELECT COUNT(*) FROM purchase_orders WHERE status = 'Collected'")->fetch_row()[0];
+    $stats['pending'] = $conn->query("SELECT COUNT(*) FROM purchase_orders WHERE status NOT IN ('Delivered', 'Rejected', 'Invalid')")->fetch_row()[0];
+    $stats['completed'] = $conn->query("SELECT COUNT(*) FROM purchase_orders WHERE status = 'Delivered'")->fetch_row()[0];
     return $stats;
 }
 
@@ -465,6 +491,13 @@ function get_workflow_actions($conn, $current_status, $user_role) {
 }
 
 function process_workflow_action($conn, $po_id, $action_key, $user_id, $user_role, $remarks) {
+    // Final client delivery requires the verified receipt workflow. Keeping
+    // this guard here prevents callers from bypassing its delivery evidence
+    // and contractual collection-date controls.
+    if ($action_key === 'mark_delivered') {
+        return 'Use the Complete Client Delivery form. Direct delivery completion is disabled.';
+    }
+
     $stmt_po = $conn->prepare("SELECT status, po_number FROM purchase_orders WHERE po_id = ?");
     $stmt_po->bind_param("i", $po_id);
     $stmt_po->execute();
@@ -488,12 +521,6 @@ function process_workflow_action($conn, $po_id, $action_key, $user_id, $user_rol
     $upd = $conn->prepare("UPDATE purchase_orders SET status = ?, current_location = ? WHERE po_id = ?");
     $upd->bind_param("ssi", $new_status, $location, $po_id);
     $upd->execute();
-
-    if ($action_key == 'mark_delivered') {
-        $upd_del = $conn->prepare("UPDATE purchase_orders SET actual_delivery_date=NOW(), expected_collection_date=DATE_ADD(NOW(), INTERVAL 30 DAY) WHERE po_id=?");
-        $upd_del->bind_param("i", $po_id);
-        $upd_del->execute();
-    }
 
     $hist = $conn->prepare("INSERT INTO po_history (po_id, status_from, status_to, changed_by, remarks) VALUES (?, ?, ?, ?, ?)");
     $hist->bind_param("issis", $po_id, $current_status, $new_status, $user_id, $remarks);

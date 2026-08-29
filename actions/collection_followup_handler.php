@@ -3,6 +3,7 @@ session_start();
 
 require '../config/db_connect.php';
 require '../config/functions.php';
+require_once '../config/workflow_feedback.php';
 
 date_default_timezone_set('Asia/Manila');
 
@@ -14,12 +15,13 @@ function phase5b_redirect(
     $destination = $po_id > 0
         ? '../collection_followup.php?po_id=' . $po_id
         : '../collection_monitoring.php';
-    $separator = strpos($destination, '?') === false ? '?' : '&';
-    header(
-        'Location: ' . $destination . $separator . $type . '=' .
-        rawurlencode($message)
-    );
-    exit();
+    $public_message = $type === 'error'
+        ? drms_public_feedback_message(
+            $message,
+            'The collection follow-up could not be saved. No collection data was changed.'
+        )
+        : drms_feedback_clean_text($message);
+    drms_redirect_with_feedback($destination, $type, $public_message);
 }
 
 function phase5b_parse_datetime(string $value): ?DateTime
@@ -270,18 +272,16 @@ try {
             po.client_name,
             po.amount,
             po.status,
-            po.actual_delivery_date,
-            po.date_created,
+            po.collection_status,
             COALESCE(
-                receipt.actual_handover_at,
-                CONCAT(po.actual_delivery_date, ' 00:00:00'),
+                NULLIF(receipt.actual_handover_at, ''),
+                CONCAT(NULLIF(po.actual_delivery_date, ''), ' 00:00:00'),
                 (
                     SELECT MIN(history.timestamp)
                     FROM po_history history
                     WHERE history.po_id = po.po_id
                       AND history.status_to = 'Delivered'
-                ),
-                po.date_created
+                )
             ) AS collection_started_at
          FROM purchase_orders po
          LEFT JOIN po_delivery_receipts receipt
@@ -301,14 +301,17 @@ try {
 
     if (
         !$po ||
-        !in_array(
-            $po['status'],
-            ['Delivered', 'Partially-Collected'],
-            true
-        )
+        $po['status'] !== 'Delivered' ||
+        $po['collection_status'] === 'Paid'
     ) {
         throw new DomainException(
             'This PO is no longer open for collection follow-up.'
+        );
+    }
+
+    if (empty($po['collection_started_at'])) {
+        throw new DomainException(
+            'The delivery completion timestamp is missing. Complete or correct the client delivery record first.'
         );
     }
 
@@ -472,6 +475,7 @@ try {
             'promised_payment_date' => $promised_payment_sql,
             'next_followup_date' => $next_followup_sql,
             'outstanding_balance' => $balance,
+            'collection_status' => $po['collection_status'],
         ]
     );
 
@@ -488,19 +492,13 @@ try {
 } catch (Throwable $error) {
     $conn->rollback();
 
-    error_log(
-        'Phase 5B collection follow-up failed for PO ' . $po_id . ': ' .
-        $error->getMessage()
+    drms_log_workflow_failure(
+        'Collection follow-up for PO ' . $po_id,
+        $error
     );
 
     if ($error instanceof DomainException) {
         $public_error = $error->getMessage();
-    } elseif (
-        $error instanceof mysqli_sql_exception &&
-        in_array((int) $error->getCode(), [1054, 1146], true)
-    ) {
-        $public_error =
-            'Verify that the Phase 5B database migration is installed.';
     } else {
         $public_error =
             'The collection follow-up could not be saved. No collection data was changed.';
@@ -508,3 +506,4 @@ try {
 
     phase5b_redirect($po_id, 'error', $public_error);
 }
+

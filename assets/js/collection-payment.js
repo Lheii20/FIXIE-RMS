@@ -94,23 +94,27 @@
         dateInput.max = currentTime;
         if (classification === 'Advance / Down Payment') {
             dateInput.min = poCreated;
-            if (delivered && delivered < currentTime) {
+            if (delivered && delivered < dateInput.max) {
                 dateInput.max = delivered;
             }
             if (!dateInput.value || dateInput.value > dateInput.max || dateInput.value < dateInput.min) {
-                dateInput.value = dateInput.max || delivered || currentTime;
+                dateInput.value = dateInput.max || currentTime;
             }
             if (dateHelp) {
-                dateHelp.textContent = 'Advance/down payment must be dated from PO creation up to client delivery.';
+                dateHelp.textContent = delivered
+                    ? 'Advance/down payment must be dated from PO creation up to client delivery.'
+                    : 'This PO is not yet delivered. Record only the verified pre-delivery payment date.';
             }
         } else {
-            dateInput.min = delivered;
+            dateInput.min = delivered || poCreated;
             dateInput.max = currentTime;
-            if (!dateInput.value || dateInput.value < delivered || dateInput.value > currentTime) {
+            if (!dateInput.value || dateInput.value < dateInput.min || dateInput.value > currentTime) {
                 dateInput.value = currentTime;
             }
             if (dateHelp) {
-                dateHelp.textContent = 'Partial or full payment must be received on or after client delivery.';
+                dateHelp.textContent = delivered
+                    ? 'Partial or full payment must be received on or after client delivery.'
+                    : 'Client delivery must be completed before using partial or full payment.';
             }
         }
     }
@@ -153,13 +157,13 @@
 
         statusPreview.classList.remove('is-partial', 'is-collected');
         if (amount <= 0) {
-            statusPreview.innerHTML = '<i class="fas fa-circle-info"></i><span>Enter a payment amount to preview the PO status.</span>';
+            statusPreview.innerHTML = '<i class="fas fa-circle-info"></i><span>Enter a payment amount to preview the collection status.</span>';
         } else if (amount >= balance) {
             statusPreview.classList.add('is-collected');
-            statusPreview.innerHTML = '<i class="fas fa-circle-check"></i><span>Balance becomes zero. The PO will move to <strong>Collected</strong>.</span>';
+            statusPreview.innerHTML = '<i class="fas fa-circle-check"></i><span>Balance becomes zero. Collection Status changes to <strong>Paid</strong>; the PO stage stays unchanged.</span>';
         } else {
             statusPreview.classList.add('is-partial');
-            statusPreview.innerHTML = '<i class="fas fa-chart-pie"></i><span>The PO remains <strong>Partially-Collected</strong> with ' + money(after) + ' outstanding.</span>';
+            statusPreview.innerHTML = '<i class="fas fa-chart-pie"></i><span>Collection Status becomes <strong>Partially Paid</strong> with ' + money(after) + ' outstanding.</span>';
         }
     }
 
@@ -224,12 +228,12 @@
             return;
         }
         if (classification === 'Advance / Down Payment') {
-            if (dateInput.value < poCreated || dateInput.value > delivered) {
+            if (dateInput.value < poCreated || (delivered && dateInput.value > delivered)) {
                 event.preventDefault();
                 showError('Advance/down payment must be dated between PO creation and client delivery.', dateInput);
                 return;
             }
-        } else if (dateInput.value < delivered) {
+        } else if (!delivered || dateInput.value < delivered) {
             event.preventDefault();
             showError('Use Advance / Down Payment for a payment received before delivery.', dateInput);
             return;

@@ -1,6 +1,7 @@
 <?php
 require 'config/db_connect.php';
 require 'config/functions.php';
+require_once 'config/workflow_feedback.php';
 
 date_default_timezone_set('Asia/Manila');
 
@@ -26,6 +27,10 @@ $record = null;
 $active_assignment = null;
 $existing_receipt = null;
 $eligibility_error = '';
+$request_error = drms_public_feedback_message(
+    $_GET['error'] ?? '',
+    'The delivery-completion action could not be completed. No changes were saved.'
+);
 
 if ($po_id > 0) {
     try {
@@ -37,7 +42,6 @@ if ($po_id > 0) {
                 po.amount,
                 po.status AS po_status,
                 po.current_location,
-                po.source_pr_workflow_version,
                 delivery_request.delivery_request_id,
                 delivery_request.request_number,
                 delivery_request.request_type,
@@ -77,7 +81,6 @@ if ($po_id > 0) {
              ) item_total
                 ON item_total.po_id = po.po_id
              WHERE po.po_id = ?
-               AND po.source_pr_workflow_version = 2
              ORDER BY delivery_request.request_cycle DESC
              LIMIT 1"
         );
@@ -127,20 +130,20 @@ if ($po_id > 0) {
                     $active_assignment['assignee_name'] . '.';
             }
         }
-    } catch (mysqli_sql_exception $error) {
-        error_log(
-            'Phase 4D delivery completion page failed: ' .
-            $error->getMessage()
-        );
+    } catch (Throwable $error) {
+        drms_log_workflow_failure('Delivery completion page load', $error);
         $record = null;
         $eligibility_error =
-            'The Phase 4D delivery receipt database migration is not installed.';
+            'The delivery details could not be loaded. Return to Purchase Orders and try again.';
     }
 }
 
 $can_complete = $record && $eligibility_error === '';
 $current_datetime = date('Y-m-d\TH:i');
-$initial_due_date = date('M d, Y', strtotime('+15 days'));
+$collection_term_days = 15;
+$initial_due_date = (new DateTimeImmutable('now'))
+    ->modify('+' . $collection_term_days . ' days')
+    ->format('M d, Y');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -153,8 +156,9 @@ $initial_due_date = date('M d, Y', strtotime('+15 days'));
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/prf-form.css?v=<?php echo filemtime(__DIR__ . '/assets/css/prf-form.css'); ?>" rel="stylesheet">
     <link href="assets/css/delivery-completion.css?v=<?php echo filemtime(__DIR__ . '/assets/css/delivery-completion.css'); ?>" rel="stylesheet">
+    <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
-<body class="prf-page delivery-completion-page">
+<body class="prf-page delivery-completion-page workflow-ui">
     <?php include 'sidebar.php'; ?>
 
     <main class="main-content fade-in">
@@ -171,21 +175,21 @@ $initial_due_date = date('M d, Y', strtotime('+15 days'));
                 <div class="prf-page-heading">
                     <div class="prf-eyebrow">Supply Chain client handover</div>
                     <h2>Complete client delivery</h2>
-                    <p>Record the receiving person and attach acknowledgement evidence before starting the 15-day Finance collection period.</p>
+                    <p>Record the receiving person and attach acknowledgement evidence before starting the 15-calendar-day Finance collection period.</p>
                 </div>
 
                 <?php if ($can_complete): ?>
                     <span class="prf-workflow-chip delivery-completion-chip">
-                        <i class="fas fa-box-check"></i>
+                        <i class="fas fa-box-open"></i>
                         Delivery assigned
                     </span>
                 <?php endif; ?>
             </header>
 
-            <?php if (isset($_GET['error']) && trim((string) $_GET['error']) !== ''): ?>
+            <?php if ($request_error !== ''): ?>
                 <div class="prf-alert prf-alert-danger" role="alert">
                     <i class="fas fa-exclamation-circle"></i>
-                    <span><?php echo htmlspecialchars((string) $_GET['error']); ?></span>
+                    <span><?php echo htmlspecialchars($request_error); ?></span>
                 </div>
             <?php endif; ?>
 
@@ -199,7 +203,7 @@ $initial_due_date = date('M d, Y', strtotime('+15 days'));
             <?php if (!$record): ?>
                 <?php if ($eligibility_error !== ''): ?>
                     <section class="prf-alert prf-alert-danger" role="alert">
-                        <i class="fas fa-database"></i>
+                        <i class="fas fa-triangle-exclamation"></i>
                         <div>
                             <strong>Delivery completion is unavailable</strong>
                             <span><?php echo htmlspecialchars($eligibility_error); ?></span>
@@ -207,9 +211,9 @@ $initial_due_date = date('M d, Y', strtotime('+15 days'));
                     </section>
                 <?php endif; ?>
                 <section class="prf-empty-state">
-                    <div class="prf-empty-icon"><i class="fas fa-box-check"></i></div>
+                    <div class="prf-empty-icon"><i class="fas fa-box-open"></i></div>
                     <h3>No scheduled delivery selected</h3>
-                    <p>Select a Version 2 scheduled PO assigned to Supply Chain.</p>
+                    <p>Select a scheduled PO assigned to your Supply Chain account.</p>
                     <a href="po_list.php?filter=my_tasks" class="btn btn-primary">
                         View my delivery tasks
                     </a>
@@ -286,6 +290,7 @@ $initial_due_date = date('M d, Y', strtotime('+15 days'));
                         method="POST"
                         enctype="multipart/form-data"
                         id="deliveryCompletionForm"
+                        data-collection-term-days="<?php echo $collection_term_days; ?>"
                         novalidate
                     >
                         <input type="hidden" name="action" value="complete_client_delivery">
@@ -520,7 +525,7 @@ $initial_due_date = date('M d, Y', strtotime('+15 days'));
                                 </div>
                                 <div class="prf-summary-row prf-summary-request">
                                     <span>Collection term</span>
-                                    <strong>15 days</strong>
+                                    <strong><?php echo $collection_term_days; ?> calendar days</strong>
                                 </div>
 
                                 <div class="delivery-due-panel">

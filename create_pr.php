@@ -1,6 +1,7 @@
 <?php
 require 'config/db_connect.php';
 require 'config/functions.php';
+require_once 'config/client_po_acknowledgement.php';
 
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Sales Staff') {
     header('Location: dashboard.php');
@@ -11,6 +12,7 @@ $quotation_id = isset($_GET['quotation_id']) ? (int) $_GET['quotation_id'] : 0;
 $quotation = null;
 $quotation_items = [];
 $official_client_po = null;
+$official_po_acknowledgement = null;
 
 if ($quotation_id > 0) {
     $quotation_stmt = $conn->prepare(
@@ -58,15 +60,26 @@ if ($quotation_id > 0) {
         $official_po_stmt->bind_param('i', $quotation_id);
         $official_po_stmt->execute();
         $official_client_po = $official_po_stmt->get_result()->fetch_assoc();
+
+        if ($official_client_po && phase6b2_is_installed($conn)) {
+            $official_po_acknowledgement = phase6b2_get_active_acknowledgement(
+                $conn,
+                (int) $official_client_po['approval_record_id']
+            );
+        }
     }
 }
 
-$is_structured_prf = $quotation &&
+$has_complete_official_po = $quotation &&
     $official_client_po &&
     !empty($official_client_po['actual_client_po_number']) &&
     !empty($official_client_po['client_po_date']) &&
     !empty($official_client_po['final_approval_date']) &&
     !empty($official_client_po['proof_file_path']);
+$has_gm_acknowledgement = $official_po_acknowledgement &&
+    $official_po_acknowledgement['decision'] === 'Acknowledged';
+$is_structured_prf = $has_complete_official_po &&
+    $has_gm_acknowledgement;
 
 $year = date('Y');
 $pr_prefix = 'PR-' . $year . '-';
@@ -88,7 +101,7 @@ $category_map = [
     '06' => '6 - Printers',
 ];
 
-$official_po_file_url = $is_structured_prf
+$official_po_file_url = $has_complete_official_po
     ? 'download.php?type=client_approval&record_id=' .
         (int) $official_client_po['approval_record_id']
     : '';
@@ -102,8 +115,9 @@ $official_po_file_url = $is_structured_prf
     <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/prf-form.css?v=<?php echo filemtime(__DIR__ . '/assets/css/prf-form.css'); ?>" rel="stylesheet">
+    <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
-<body class="page-create-pr prf-page">
+<body class="page-create-pr prf-page workflow-ui">
     <?php include 'sidebar.php'; ?>
 
     <main class="main-content fade-in">
@@ -152,6 +166,16 @@ $official_po_file_url = $is_structured_prf
                     <p>Select a quotation with a received Client PO that has not yet been converted.</p>
                     <a href="quotations_list.php" class="btn btn-primary">
                         Return to quotation tracker
+                    </a>
+                </section>
+
+            <?php elseif ($has_complete_official_po && !$has_gm_acknowledgement): ?>
+                <section class="prf-empty-state">
+                    <div class="prf-empty-icon"><i class="fas fa-user-check"></i></div>
+                    <h3>GM acknowledgment required</h3>
+                    <p>The official Client PO must be reviewed and digitally signed by the General Manager before this PRF can be prepared.</p>
+                    <a href="view_quotation.php?id=<?php echo $quotation_id; ?>" class="btn btn-primary">
+                        Return to quotation review
                     </a>
                 </section>
 
@@ -219,7 +243,7 @@ $official_po_file_url = $is_structured_prf
                     id="prfV2Form"
                     novalidate
                 >
-                    <input type="hidden" name="action" value="create_pr_v2">
+                    <input type="hidden" name="action" value="create_pr">
                     <input
                         type="hidden"
                         name="csrf_token"
@@ -511,91 +535,17 @@ $official_po_file_url = $is_structured_prf
                 </form>
 
             <?php else: ?>
-                <section class="prf-alert prf-alert-warning" role="status">
-                    <i class="fas fa-history"></i>
-                    <div>
-                        <strong>Legacy Client PO record</strong>
-                        <span>
-                            This quotation was created before structured Client PO records.
-                            It will continue through the existing legacy PR workflow.
-                        </span>
-                    </div>
+                <section class="prf-empty-state">
+                    <div class="prf-empty-icon"><i class="fas fa-file-circle-exclamation"></i></div>
+                    <h3>Official Client PO confirmation required</h3>
+                    <p>
+                        Complete the official Client PO details and General Manager acknowledgement
+                        before preparing the Purchase Request Form.
+                    </p>
+                    <a href="view_quotation.php?id=<?php echo $quotation_id; ?>" class="btn btn-primary">
+                        Return to quotation review
+                    </a>
                 </section>
-
-                <form action="actions/pr_handler.php" method="POST" id="legacyPrForm">
-                    <input type="hidden" name="action" value="create_pr">
-                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'] ?? ''); ?>">
-                    <input type="hidden" name="quotation_id" id="prQuotationId" value="<?php echo $quotation_id; ?>">
-                    <input type="hidden" name="amount" id="prAmount" value="<?php echo htmlspecialchars((string) $quotation['amount']); ?>">
-                    <input type="hidden" name="pr_number" id="prNumber" value="<?php echo htmlspecialchars($display_pr_number); ?>">
-                    <input type="hidden" name="client_name" id="prClientName" value="<?php echo htmlspecialchars($quotation['client_name']); ?>">
-
-                    <section class="prf-card">
-                        <div class="prf-card-header">
-                            <div>
-                                <span class="prf-section-kicker">Legacy request</span>
-                                <h3><?php echo htmlspecialchars($display_pr_number); ?></h3>
-                            </div>
-                            <span class="prf-workflow-chip is-legacy">Legacy workflow</span>
-                        </div>
-
-                        <div class="prf-legacy-meta">
-                            <div><span>Client</span><strong><?php echo htmlspecialchars($quotation['client_name']); ?></strong></div>
-                            <div><span>Quotation</span><strong><?php echo htmlspecialchars($quotation['quotation_number']); ?></strong></div>
-                            <div><span>Client PO reference</span><strong id="prClientPo"><?php echo htmlspecialchars((string) $quotation['client_po_number']); ?></strong></div>
-                            <div><span>Selling amount</span><strong>₱<?php echo number_format((float) $quotation['amount'], 2); ?></strong></div>
-                        </div>
-
-                        <div class="table-responsive">
-                            <table class="table mb-0" id="prItemsTable">
-                                <thead>
-                                    <tr>
-                                        <th>Item</th>
-                                        <th>Category & brand</th>
-                                        <th class="text-center">Qty</th>
-                                        <th class="text-end">Unit price</th>
-                                        <th class="text-end">Total</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach ($quotation_items as $index => $item): ?>
-                                        <tr>
-                                            <td data-label="Item">
-                                                <input type="hidden" name="items[<?php echo $index; ?>][name]" value="<?php echo htmlspecialchars($item['item_name']); ?>">
-                                                <input type="hidden" name="items[<?php echo $index; ?>][specs]" value="<?php echo htmlspecialchars((string) $item['specifications']); ?>">
-                                                <strong><?php echo htmlspecialchars($item['item_name']); ?></strong>
-                                                <small><?php echo nl2br(htmlspecialchars((string) $item['specifications'])); ?></small>
-                                            </td>
-                                            <td data-label="Category & brand">
-                                                <input type="hidden" name="items[<?php echo $index; ?>][category]" value="<?php echo htmlspecialchars((string) $item['category']); ?>">
-                                                <input type="hidden" name="items[<?php echo $index; ?>][brand]" value="<?php echo htmlspecialchars((string) $item['brand']); ?>">
-                                                <?php echo htmlspecialchars((string) $item['category']); ?> · <?php echo htmlspecialchars((string) $item['brand']); ?>
-                                            </td>
-                                            <td data-label="Qty" class="text-center">
-                                                <input type="hidden" name="items[<?php echo $index; ?>][qty]" value="<?php echo (int) $item['quantity']; ?>">
-                                                <?php echo (int) $item['quantity']; ?>
-                                            </td>
-                                            <td data-label="Unit price" class="text-end">
-                                                <input type="hidden" name="items[<?php echo $index; ?>][price]" value="<?php echo htmlspecialchars((string) $item['unit_price']); ?>">
-                                                ₱<?php echo number_format((float) $item['unit_price'], 2); ?>
-                                            </td>
-                                            <td data-label="Total" class="text-end">
-                                                <input type="hidden" name="items[<?php echo $index; ?>][total]" value="<?php echo htmlspecialchars((string) $item['total_price']); ?>">
-                                                <strong>₱<?php echo number_format((float) $item['total_price'], 2); ?></strong>
-                                            </td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <div class="prf-legacy-actions">
-                            <button type="submit" class="prf-submit-button">
-                                Submit legacy PR <i class="fas fa-arrow-right"></i>
-                            </button>
-                        </div>
-                    </section>
-                </form>
             <?php endif; ?>
         </div>
     </main>

@@ -64,25 +64,29 @@ function phase5e_bind(
     $statement->bind_param($types, ...$references);
 }
 
-function phase5e_classification(?string $notes): array
+function phase5e_classification(
+    ?string $classification,
+    ?string $notes
+): array
 {
+    $classification = trim((string) $classification);
     $notes = trim((string) $notes);
     $remark = '';
     if (strpos($notes, '|') !== false) {
         [$notes, $remark] = array_map('trim', explode('|', $notes, 2));
     }
 
-    if (stripos($notes, 'Advance / Down Payment') !== false) {
+    if ($classification === 'Advance / Down Payment') {
         return ['advance', 'Advance / down payment', $remark];
     }
-    if (stripos($notes, 'Full Payment') === 0) {
+    if ($classification === 'Full Payment') {
         return ['full', 'Full payment', $remark];
     }
-    if (stripos($notes, 'Partial Payment') === 0) {
+    if ($classification === 'Partial Payment') {
         return ['partial', 'Partial payment', $remark];
     }
 
-    return ['legacy', 'Legacy payment', $remark];
+    return ['unclassified', 'Unclassified payment', $remark];
 }
 
 function phase5e_page_url(int $page, array $filters): string
@@ -113,9 +117,8 @@ $allowed_methods = [
     'GCash',
     'Cheque',
     'Other',
-    'Legacy / Unspecified',
 ];
-$allowed_classifications = ['all', 'full', 'partial', 'advance', 'legacy'];
+$allowed_classifications = ['all', 'full', 'partial', 'advance'];
 $allowed_scopes = ['all', 'open', 'settled'];
 
 if (!in_array($method, $allowed_methods, true)) {
@@ -167,36 +170,24 @@ if ($search !== '') {
     $types .= 'ssss';
 }
 
-if ($method === 'Legacy / Unspecified') {
-    $conditions[] = "(payment.payment_method IS NULL OR TRIM(payment.payment_method) = '')";
-} elseif ($method !== 'all') {
+if ($method !== 'all') {
     $conditions[] = 'payment.payment_method = ?';
     $parameters[] = $method;
     $types .= 's';
 }
 
 if ($classification === 'advance') {
-    $conditions[] = "payment.notes LIKE '%Advance / Down Payment%'";
+    $conditions[] = "payment.payment_classification = 'Advance / Down Payment'";
 } elseif ($classification === 'full') {
-    $conditions[] = "payment.notes LIKE 'Full Payment%' AND payment.notes NOT LIKE '%Advance / Down Payment%'";
+    $conditions[] = "payment.payment_classification = 'Full Payment'";
 } elseif ($classification === 'partial') {
-    $conditions[] = "payment.notes LIKE 'Partial Payment%'";
-} elseif ($classification === 'legacy') {
-    $conditions[] = "(
-        payment.notes IS NULL OR
-        TRIM(payment.notes) = '' OR
-        (
-            payment.notes NOT LIKE 'Full Payment%' AND
-            payment.notes NOT LIKE 'Partial Payment%' AND
-            payment.notes NOT LIKE '%Advance / Down Payment%'
-        )
-    )";
+    $conditions[] = "payment.payment_classification = 'Partial Payment'";
 }
 
 if ($scope === 'open') {
-    $conditions[] = "po.status IN ('Delivered', 'Partially-Collected')";
+    $conditions[] = "po.collection_status IN ('Unpaid', 'Partially Paid')";
 } elseif ($scope === 'settled') {
-    $conditions[] = "po.status = 'Collected'";
+    $conditions[] = "po.collection_status = 'Paid'";
 }
 
 if ($date_from !== '') {
@@ -272,6 +263,7 @@ try {
             payment.amount_paid,
             payment.payment_date,
             payment.notes,
+            payment.payment_classification,
             payment.created_at,
             payment.payment_method,
             payment.reference_number,
@@ -281,6 +273,7 @@ try {
             po.client_name,
             po.amount AS po_amount,
             po.status AS po_status,
+            po.collection_status AS po_collection_status,
             COALESCE(po_payment.total_paid, 0) AS po_total_paid,
             COALESCE(po_payment.payment_count, 0) AS po_payment_count
         {$base_join}
@@ -306,7 +299,10 @@ try {
 
     while ($row = $row_result->fetch_assoc()) {
         [$classification_key, $classification_label, $remark] =
-            phase5e_classification($row['notes']);
+            phase5e_classification(
+                $row['payment_classification'],
+                $row['notes']
+            );
         $row['classification_key'] = $classification_key;
         $row['classification_label'] = $classification_label;
         $row['payment_remark'] = $remark;
@@ -325,8 +321,8 @@ try {
     }
     $row_stmt->close();
 } catch (mysqli_sql_exception $error) {
-    error_log('Phase 5E collection ledger failed: ' . $error->getMessage());
-    $page_error = 'The collection ledger could not be loaded. Verify that the payment records are available and refresh the page.';
+    error_log('Phase 6B3B collection ledger failed: ' . $error->getMessage());
+    $page_error = 'The collection ledger could not be loaded. Install Phase 6B3A first, then refresh this page.';
     $payment_rows = [];
 }
 
@@ -345,25 +341,24 @@ $last_row_number = min($page * $per_page, $total_rows);
     <link href="assets/css/collection-ledger.css?v=<?php echo filemtime(__DIR__ . '/assets/css/collection-ledger.css'); ?>" rel="stylesheet">
     <link href="assets/css/collection-navigation.css?v=<?php echo filemtime(__DIR__ . '/assets/css/collection-navigation.css'); ?>" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
-<body class="ledger-page">
+<body class="ledger-page workflow-ui">
     <?php include 'sidebar.php'; ?>
 
     <main class="main-content fade-in">
         <div class="ledger-shell">
-            <header class="ledger-header">
-                <div>
-                    <div class="ledger-eyebrow">Collections · Payments</div>
-                    <h2>Payments &amp; proof ledger</h2>
-                    <p>Review every recorded client payment, verification reference, proof, and responsible Finance user.</p>
-                </div>
-                <div class="ledger-header-actions">
-                    <span><i class="fas fa-user-shield"></i><?php echo htmlspecialchars($current_role); ?> view</span>
-                    <span><i class="fas fa-calendar-day"></i><?php echo date('M d, Y'); ?></span>
-                </div>
-            </header>
+            <div class="collection-workspace-header">
+                <header class="ledger-header">
+                    <div>
+                        <div class="ledger-eyebrow">Collections · Payments</div>
+                        <h2>Payments &amp; proof ledger</h2>
+                        <p>Review every recorded client payment, verification reference, proof, and responsible Finance user.</p>
+                    </div>
+                </header>
 
-            <?php $collection_section = 'payments'; include 'includes/collection_navigation.php'; ?>
+                <?php $collection_section = 'payments'; include 'includes/collection_navigation.php'; ?>
+            </div>
 
             <?php if ($page_error !== ''): ?>
                 <section class="ledger-alert" role="alert">
@@ -412,7 +407,6 @@ $last_row_number = min($page * $per_page, $total_rows);
                             <option value="full" <?php echo $classification === 'full' ? 'selected' : ''; ?>>Full payment</option>
                             <option value="partial" <?php echo $classification === 'partial' ? 'selected' : ''; ?>>Partial payment</option>
                             <option value="advance" <?php echo $classification === 'advance' ? 'selected' : ''; ?>>Advance / down payment</option>
-                            <option value="legacy" <?php echo $classification === 'legacy' ? 'selected' : ''; ?>>Legacy payment</option>
                         </select>
                     </label>
                     <label>
@@ -420,7 +414,7 @@ $last_row_number = min($page * $per_page, $total_rows);
                         <select name="scope">
                             <option value="all" <?php echo $scope === 'all' ? 'selected' : ''; ?>>All positions</option>
                             <option value="open" <?php echo $scope === 'open' ? 'selected' : ''; ?>>Open balance</option>
-                            <option value="settled" <?php echo $scope === 'settled' ? 'selected' : ''; ?>>Collected</option>
+                            <option value="settled" <?php echo $scope === 'settled' ? 'selected' : ''; ?>>Paid</option>
                         </select>
                     </label>
                     <label>
@@ -473,14 +467,14 @@ $last_row_number = min($page * $per_page, $total_rows);
                                             <?php if ($row['payment_remark'] !== ''): ?><small class="ledger-remark" title="<?php echo htmlspecialchars($row['payment_remark']); ?>"><?php echo htmlspecialchars($row['payment_remark']); ?></small><?php endif; ?>
                                         </td>
                                         <td data-label="Method / reference">
-                                            <div class="ledger-reference"><strong><?php echo htmlspecialchars($row['payment_method'] ?: 'Legacy / unspecified'); ?></strong><span><?php echo htmlspecialchars($row['reference_number'] ?: 'No reference recorded'); ?></span></div>
+                                            <div class="ledger-reference"><strong><?php echo htmlspecialchars($row['payment_method'] ?: 'Not recorded'); ?></strong><span><?php echo htmlspecialchars($row['reference_number'] ?: 'No reference recorded'); ?></span></div>
                                         </td>
                                         <td data-label="Amount"><strong class="ledger-amount"><?php echo phase5e_money((float) $row['amount_paid']); ?></strong></td>
                                         <td data-label="PO position">
-                                            <span class="ledger-status ledger-status-<?php echo htmlspecialchars(strtolower(str_replace([' ', '/'], '-', $row['po_status']))); ?>"><?php echo htmlspecialchars($row['po_status']); ?></span>
+                                            <span class="ledger-status ledger-status-<?php echo htmlspecialchars(strtolower(str_replace([' ', '/'], '-', $row['po_collection_status']))); ?>"><?php echo htmlspecialchars($row['po_collection_status']); ?></span>
                                             <small class="ledger-balance"><?php echo $row['po_balance'] > 0 ? phase5e_money($row['po_balance']) . ' remaining' : 'Fully collected'; ?></small>
                                         </td>
-                                        <td data-label="Recorded by"><div class="ledger-recorder"><span><i class="fas fa-user-check"></i></span><div><strong><?php echo htmlspecialchars($row['recorded_by_name'] ?: 'Legacy record'); ?></strong><small>Payment #<?php echo (int) $row['payment_id']; ?></small></div></div></td>
+                                        <td data-label="Recorded by"><div class="ledger-recorder"><span><i class="fas fa-user-check"></i></span><div><strong><?php echo htmlspecialchars($row['recorded_by_name'] ?: 'System record'); ?></strong><small>Payment #<?php echo (int) $row['payment_id']; ?></small></div></div></td>
                                         <td data-label="Evidence">
                                             <div class="ledger-evidence-actions">
                                                 <?php if ($row['proof_exists']): ?>

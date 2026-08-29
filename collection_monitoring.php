@@ -89,10 +89,11 @@ try {
                 po.client_name,
                 po.amount,
                 po.status,
+                po.collection_status,
+                po.collection_status_updated_at,
                 po.current_location,
                 po.actual_delivery_date,
                 po.expected_collection_date,
-                po.source_pr_workflow_version,
                 receipt.actual_handover_at,
                 receipt.collection_due_date AS receipt_due_date,
                 receipt.recipient_name,
@@ -142,7 +143,8 @@ try {
                     WHERE followup_candidate.po_id = po.po_id
                       AND followup_candidate.record_status = 'Active'
                 )
-            WHERE po.status IN ('Delivered', 'Partially-Collected')";
+            WHERE po.status = 'Delivered'
+              AND po.collection_status IN ('Unpaid', 'Partially Paid')";
 
     if ($search !== '') {
         $sql .= " AND (
@@ -308,7 +310,7 @@ try {
         if (in_array($risk_key, ['due_today', 'due_soon'], true)) {
             $filter_counts['due_soon']++;
         }
-        if ($row['status'] === 'Partially-Collected') {
+        if ($row['collection_status'] === 'Partially Paid') {
             $filter_counts['partial']++;
         }
         if ($needs_followup) {
@@ -331,7 +333,7 @@ try {
                 ['due_today', 'due_soon'],
                 true
             ),
-            'partial' => $row['status'] === 'Partially-Collected',
+            'partial' => $row['collection_status'] === 'Partially Paid',
             'followup_due' => $row['needs_followup'],
             'missing_due' => $row['risk_key'] === 'missing_due',
             'unassigned' => $row['is_unassigned'],
@@ -362,9 +364,9 @@ try {
         }
     );
 } catch (mysqli_sql_exception $error) {
-    error_log('Phase 5B collection monitoring failed: ' . $error->getMessage());
+    error_log('Phase 6B3B collection monitoring failed: ' . $error->getMessage());
     $page_error =
-        'Collection data could not be loaded. Verify that Phase 5B is installed and refresh the page.';
+        'Collection data could not be loaded. Install Phase 6B3A first, then refresh this page.';
 }
 
 $filter_labels = [
@@ -390,25 +392,24 @@ $filter_labels = [
     <link href="assets/css/collection-monitoring.css?v=<?php echo filemtime(__DIR__ . '/assets/css/collection-monitoring.css'); ?>" rel="stylesheet">
     <link href="assets/css/collection-navigation.css?v=<?php echo filemtime(__DIR__ . '/assets/css/collection-navigation.css'); ?>" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
-<body class="collection-page">
+<body class="collection-page workflow-ui">
     <?php include 'sidebar.php'; ?>
 
     <main class="main-content fade-in">
         <div class="collection-shell">
-            <header class="collection-header">
-                <div>
-                    <div class="collection-eyebrow">Finance receivables workspace</div>
-                    <h2>Collections overview</h2>
-                    <p>Monitor delivered PO balances, due dates, ownership, and client follow-up from one workspace.</p>
-                </div>
-                <div class="collection-header-meta">
-                    <span><i class="fas fa-calendar-day"></i><?php echo date('M d, Y'); ?></span>
-                    <span><i class="fas fa-user-shield"></i><?php echo htmlspecialchars($current_role); ?> view</span>
-                </div>
-            </header>
+            <div class="collection-workspace-header">
+                <header class="collection-header">
+                    <div>
+                        <div class="collection-eyebrow">Finance receivables workspace</div>
+                        <h2>Collections overview</h2>
+                        <p>Monitor delivered PO balances, due dates, ownership, and client follow-up from one workspace.</p>
+                    </div>
+                </header>
 
-            <?php $collection_section = 'overview'; include 'includes/collection_navigation.php'; ?>
+                <?php $collection_section = 'overview'; include 'includes/collection_navigation.php'; ?>
+            </div>
 
             <?php if ($page_error !== ''): ?>
                 <section class="collection-alert" role="alert">
@@ -457,7 +458,7 @@ $filter_labels = [
                     <div>
                         <span>Missing due date</span>
                         <strong><?php echo number_format($summary['missing_due_count']); ?></strong>
-                        <small>Legacy records needing review</small>
+                        <small>Delivery records needing Finance review</small>
                     </div>
                 </article>
             </section>
@@ -548,7 +549,7 @@ $filter_labels = [
                                                     <strong><?php echo htmlspecialchars($row['po_number']); ?></strong>
                                                     <span><?php echo htmlspecialchars($row['client_name']); ?></span>
                                                     <small>
-                                                        <?php echo htmlspecialchars(str_replace('-', ' ', $row['status'])); ?>
+                                                        <?php echo htmlspecialchars($row['collection_status']); ?>
                                                         <?php if ($row['is_mine']): ?> · My task<?php endif; ?>
                                                     </small>
                                                 </div>

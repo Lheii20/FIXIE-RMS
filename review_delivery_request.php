@@ -1,6 +1,7 @@
 <?php
 require 'config/db_connect.php';
 require 'config/functions.php';
+require_once 'config/workflow_feedback.php';
 
 date_default_timezone_set('Asia/Manila');
 
@@ -34,6 +35,10 @@ $current_user_id = (int) $_SESSION['user_id'];
 $record = null;
 $active_assignment = null;
 $eligibility_error = '';
+$request_error = drms_public_feedback_message(
+    $_GET['error'] ?? '',
+    'The logistics review action could not be completed. No changes were saved.'
+);
 
 if ($po_id > 0) {
     try {
@@ -44,7 +49,6 @@ if ($po_id > 0) {
                 po.client_name,
                 po.status AS po_status,
                 po.current_location,
-                po.source_pr_workflow_version,
                 pr.pr_number,
                 delivery_request.*,
                 plan.delivery_plan_id,
@@ -70,7 +74,6 @@ if ($po_id > 0) {
                     delivery_request.fund_release_id
                AND funding.record_status = 'Active'
              WHERE po.po_id = ?
-               AND po.source_pr_workflow_version = 2
              ORDER BY delivery_request.request_cycle DESC
              LIMIT 1"
         );
@@ -109,14 +112,11 @@ if ($po_id > 0) {
                     $active_assignment['assignee_name'] . '.';
             }
         }
-    } catch (mysqli_sql_exception $error) {
-        error_log(
-            'Phase 4C logistics review page failed: ' .
-            $error->getMessage()
-        );
+    } catch (Throwable $error) {
+        drms_log_workflow_failure('Logistics review page load', $error);
         $record = null;
         $eligibility_error =
-            'The delivery logistics foundation is unavailable. Verify Phase 4A and Phase 4B.';
+            'The logistics review details could not be loaded. Return to Purchase Orders and try again.';
     }
 }
 
@@ -149,8 +149,9 @@ if ($record && $record['request_type'] === 'Delivery Only') {
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/prf-form.css?v=<?php echo filemtime(__DIR__ . '/assets/css/prf-form.css'); ?>" rel="stylesheet">
     <link href="assets/css/logistics-review.css?v=<?php echo filemtime(__DIR__ . '/assets/css/logistics-review.css'); ?>" rel="stylesheet">
+    <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
-<body class="prf-page logistics-review-page">
+<body class="prf-page logistics-review-page workflow-ui">
     <?php include 'sidebar.php'; ?>
 
     <main class="main-content fade-in">
@@ -178,10 +179,10 @@ if ($record && $record['request_type'] === 'Delivery Only') {
                 <?php endif; ?>
             </header>
 
-            <?php if (isset($_GET['error']) && trim((string) $_GET['error']) !== ''): ?>
+            <?php if ($request_error !== ''): ?>
                 <div class="prf-alert prf-alert-danger" role="alert">
                     <i class="fas fa-exclamation-circle"></i>
-                    <span><?php echo htmlspecialchars((string) $_GET['error']); ?></span>
+                    <span><?php echo htmlspecialchars($request_error); ?></span>
                 </div>
             <?php endif; ?>
 
@@ -193,6 +194,15 @@ if ($record && $record['request_type'] === 'Delivery Only') {
             ></div>
 
             <?php if (!$record): ?>
+                <?php if ($eligibility_error !== ''): ?>
+                    <section class="prf-alert prf-alert-danger" role="alert">
+                        <i class="fas fa-triangle-exclamation"></i>
+                        <div>
+                            <strong>Logistics review is unavailable</strong>
+                            <span><?php echo htmlspecialchars($eligibility_error); ?></span>
+                        </div>
+                    </section>
+                <?php endif; ?>
                 <section class="prf-empty-state">
                     <div class="prf-empty-icon"><i class="fas fa-route"></i></div>
                     <h3>No delivery request selected</h3>

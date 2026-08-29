@@ -416,17 +416,25 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $po_id = isset($_POST['po_id']) ? intval($_POST['po_id']) : null;
         
         $redirectUrl = getRedirectUrl($conn, null, $po_id, $source);
-        
-        // Tukuyin ang routing at phase base sa pinanggalingan ng upload
-        $referer = $_SERVER['HTTP_REFERER'] ?? '';
-        
-        if (strpos($referer, 'general_docs.php') !== false) {
-            $record_phase = 'Working';
-            $redirectUrl = "../general_docs.php?type=" . urlencode($doc_category);
-        } else {
-            $record_phase = 'Official';
+
+        // The destination must be explicit. HTTP_REFERER is optional and can be
+        // forged, so it must never decide whether a record is already official.
+        $record_intake = trim($_POST['record_intake'] ?? 'working');
+        $signature_confirmed = ($_POST['official_signature_confirmed'] ?? '') === '1';
+        $is_official_intake = $record_intake === 'official' && $signature_confirmed;
+        $record_phase = $is_official_intake ? 'Official' : 'Working';
+        $declared_at = $is_official_intake ? date('Y-m-d H:i:s') : null;
+        $declared_by = $is_official_intake ? $user_id : null;
+
+        if ($record_intake === 'official' && !$signature_confirmed) {
             $redirectUrl = "../documents.php?type=" . urlencode($doc_category);
+            header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "error=" . urlencode("Confirm that the uploaded copy contains the required signature before filing it as an Official Record."));
+            exit();
         }
+
+        $redirectUrl = $is_official_intake
+            ? "../documents.php?type=" . urlencode($doc_category)
+            : "../general_docs.php?type=" . urlencode($doc_category);
 
         if ((empty($doc_category) && empty($doc_type)) || !$file || $file['error'] !== UPLOAD_ERR_OK) {
             header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "error=InvalidInput");
@@ -493,9 +501,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             // Gamitin ang in-input na document_name kung meron, kung wala, original filename
             $final_name_to_save = !empty($document_name) ? $document_name . '.' . $ext : $sanitized_file_name;
 
-            // Inserting sanitized filename, doc_type, and record_phase to DB
-            $stmt = $conn->prepare("INSERT INTO documents (po_id, file_name, file_path, category, doc_type, status, record_phase, uploaded_by, file_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->bind_param("issssssis", $po_id, $final_name_to_save, $db_path, $doc_category, $doc_type, $status, $record_phase, $user_id, $fileHash);
+            $policy_id = null;
+            if ($doc_category !== '') {
+                $policy_stmt = $conn->prepare("SELECT policy_id FROM document_categories WHERE sub_category = ? AND policy_id IS NOT NULL ORDER BY id ASC LIMIT 1");
+                $policy_stmt->bind_param("s", $doc_category);
+                $policy_stmt->execute();
+                $policy_row = $policy_stmt->get_result()->fetch_assoc();
+                $policy_id = $policy_row ? (int) $policy_row['policy_id'] : null;
+                $policy_stmt->close();
+            }
+
+            // Official intake records the declaration actor/date and snapshots
+            // the retention policy assigned to the selected folder.
+            $stmt = $conn->prepare("INSERT INTO documents (po_id, file_name, file_path, category, doc_type, status, record_phase, uploaded_by, file_hash, policy_id, declared_at, declared_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->bind_param("issssssisisi", $po_id, $final_name_to_save, $db_path, $doc_category, $doc_type, $status, $record_phase, $user_id, $fileHash, $policy_id, $declared_at, $declared_by);
             
             if ($stmt->execute()) {
                 $new_doc_id = $stmt->insert_id;
@@ -512,10 +531,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     $stmt_phys->execute();
                 }
 
+                $record_label = $is_official_intake ? 'signed Official Record' : 'Working Document';
+                $audit_description = "Indexed and uploaded $record_label: " . $sanitized_file_name . " [$doc_category]";
                 if (function_exists('log_document_action')) {
-                    log_document_action($conn, $user_id, 'UPLOAD_RECORD', $new_doc_id, "Indexed and uploaded Official Record: " . $sanitized_file_name . " [$doc_category]", $redirectUrl);
+                    log_document_action($conn, $user_id, 'UPLOAD_RECORD', $new_doc_id, $audit_description, $redirectUrl);
                 } else {
-                    log_audit_action($conn, $user_id, 'UPLOAD_RECORD', "Indexed and uploaded Official Record: " . $sanitized_file_name . " [$doc_category]");
+                    log_audit_action($conn, $user_id, 'UPLOAD_RECORD', $audit_description);
                 }
                 header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "success=Uploaded");
             } else {
@@ -539,28 +560,55 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $doc_id = intval($_POST['doc_id']);
         $redirectUrl = $_POST['return_url'] ?? '../general_docs.php';
 
+        $record_lock_name = null;
+        $record_lock_acquired = false;
+
         try {
             $conn->begin_transaction();
 
             // 1. Fetch the original working document
-            $stmt = $conn->prepare("SELECT * FROM documents WHERE doc_id = ?");
+            $stmt = $conn->prepare("SELECT * FROM documents WHERE doc_id = ? FOR UPDATE");
             $stmt->bind_param("i", $doc_id);
             $stmt->execute();
             $orig = $stmt->get_result()->fetch_assoc();
 
             if (!$orig) throw new Exception("Document not found.");
-            if ($orig['record_phase'] === 'Converted') throw new Exception("This is already a converted record.");
+            if (!in_array($orig['record_phase'], ['Working', 'For Review'], true)) {
+                throw new Exception("Only a Working or For Review document can be declared as an Official Record.");
+            }
+
+            if (($_POST['official_signature_confirmed'] ?? '') !== '1') {
+                throw new Exception("Confirm that the document contains the required signature before declaring it official.");
+            }
             
             // Validate Enterprise Physical Synchronization
             if (isset($orig['physical_version']) && $orig['current_version'] != $orig['physical_version']) {
                 throw new Exception("Cannot declare this document as an Official Record. The stored physical copy (v" . number_format($orig['physical_version'], 1) . ") is not synchronized with the latest digital version (v" . number_format($orig['current_version'], 1) . "). Please physically replace and verify it first.");
             }
 
-            // 2. Generate Official Record Number (e.g., REC-2026-0001)
+            // 2. Generate the existing REC number safely. The naming-series
+            // redesign is handled in a later phase; no company prefix is added.
             $year = date('Y');
-            $rec_count_query = $conn->query("SELECT COUNT(*) as cnt FROM documents WHERE record_number LIKE 'REC-$year-%'");
-            $rec_count = $rec_count_query->fetch_assoc()['cnt'] + 1;
-            $record_number = sprintf("REC-%s-%04d", $year, $rec_count);
+            $record_lock_name = "official_record_number_$year";
+            $lock_stmt = $conn->prepare("SELECT GET_LOCK(?, 5) AS lock_acquired");
+            $lock_stmt->bind_param("s", $record_lock_name);
+            $lock_stmt->execute();
+            $lock_row = $lock_stmt->get_result()->fetch_assoc();
+            $record_lock_acquired = (int) ($lock_row['lock_acquired'] ?? 0) === 1;
+            $lock_stmt->close();
+
+            if (!$record_lock_acquired) {
+                throw new Exception("The record number service is busy. Please try again.");
+            }
+
+            $prefix = "REC-$year-";
+            $sequence_stmt = $conn->prepare("SELECT COALESCE(MAX(CAST(SUBSTRING(record_number, ?) AS UNSIGNED)), 0) + 1 AS next_number FROM documents WHERE record_number LIKE CONCAT(?, '%')");
+            $sequence_start = strlen($prefix) + 1;
+            $sequence_stmt->bind_param("is", $sequence_start, $prefix);
+            $sequence_stmt->execute();
+            $sequence_row = $sequence_stmt->get_result()->fetch_assoc();
+            $record_number = sprintf("REC-%s-%04d", $year, (int) $sequence_row['next_number']);
+            $sequence_stmt->close();
 
             // 3. Clone as Official Record (Locks it and moves it to Virtual Cabinet)
             $cat = !empty($orig['category']) ? $orig['category'] : $orig['doc_type'];
@@ -579,14 +627,23 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $file_permissions = $orig['file_permissions'];
 
             $physical_version = $orig['physical_version'] ?? $current_version;
+            $policy_id = !empty($orig['policy_id']) ? (int) $orig['policy_id'] : null;
 
-            // 15 variables matching "isssssissssssis"
-            $insert = $conn->prepare("INSERT INTO documents (po_id, file_name, file_path, category, doc_type, status, uploaded_by, uploaded_at, file_hash, current_version, physical_version, access_type, file_permissions, record_phase, declared_at, declared_by, record_number, is_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Official', NOW(), ?, ?, 1)");
-            $insert->bind_param("isssssissssssis", 
+            if ($policy_id === null && $cat !== '') {
+                $policy_stmt = $conn->prepare("SELECT policy_id FROM document_categories WHERE sub_category = ? AND policy_id IS NOT NULL ORDER BY id ASC LIMIT 1");
+                $policy_stmt->bind_param("s", $cat);
+                $policy_stmt->execute();
+                $policy_row = $policy_stmt->get_result()->fetch_assoc();
+                $policy_id = $policy_row ? (int) $policy_row['policy_id'] : null;
+                $policy_stmt->close();
+            }
+
+            $insert = $conn->prepare("INSERT INTO documents (po_id, file_name, file_path, category, doc_type, status, uploaded_by, uploaded_at, file_hash, current_version, physical_version, access_type, file_permissions, policy_id, record_phase, declared_at, declared_by, record_number, is_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Official', NOW(), ?, ?, 1)");
+            $insert->bind_param("isssssissssssiis", 
                 $po_id, $file_name, $file_path, $cat, $doc_type, 
                 $status, $uploaded_by, $uploaded_at, $file_hash, 
                 $current_version, $physical_version, $access_type, $file_permissions, 
-                $user_id, $record_number
+                $policy_id, $user_id, $record_number
             );
             $insert->execute();
             $official_doc_id = $insert->insert_id;
@@ -616,13 +673,27 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
             $conn->commit();
 
+            if ($record_lock_acquired) {
+                $release_stmt = $conn->prepare("SELECT RELEASE_LOCK(?)");
+                $release_stmt->bind_param("s", $record_lock_name);
+                $release_stmt->execute();
+                $release_stmt->close();
+                $record_lock_acquired = false;
+            }
+
             if (function_exists('log_audit_action')) {
                 log_audit_action($conn, $user_id, 'DECLARE_OFFICIAL', "Declared Doc ID $doc_id as Official Record $record_number");
             }
             header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "success=" . urlencode("Success! Working copy locked and Official Record $record_number generated."));
             
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             $conn->rollback();
+            if ($record_lock_acquired && $record_lock_name !== null) {
+                $release_stmt = $conn->prepare("SELECT RELEASE_LOCK(?)");
+                $release_stmt->bind_param("s", $record_lock_name);
+                $release_stmt->execute();
+                $release_stmt->close();
+            }
             error_log("Declare Official Error: " . $e->getMessage());
             // FIX: Ipinasa ang totoong $e->getMessage() para malaman ng user kung bakit na-block
             header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "error=" . urlencode($e->getMessage()));

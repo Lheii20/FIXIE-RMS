@@ -81,6 +81,7 @@ try {
                 po.client_name,
                 po.amount,
                 po.status,
+                po.collection_status,
                 po.date_created,
                 po.actual_delivery_date,
                 po.expected_collection_date,
@@ -132,7 +133,8 @@ try {
                     WHERE followup_candidate.po_id = po.po_id
                       AND followup_candidate.record_status = 'Active'
                 )
-            WHERE po.status IN ('Delivered', 'Partially-Collected')";
+            WHERE po.status = 'Delivered'
+              AND po.collection_status IN ('Unpaid', 'Partially Paid')";
 
     if ($search !== '') {
         $sql .= " AND (
@@ -304,8 +306,8 @@ try {
     );
     $top_clients = array_slice(array_values($top_clients), 0, 5);
 } catch (mysqli_sql_exception $error) {
-    error_log('Phase 5H collection aging failed: ' . $error->getMessage());
-    $page_error = 'Collection aging data could not be loaded. Verify the collection tables and refresh this page.';
+    error_log('Phase 6B3B collection aging failed: ' . $error->getMessage());
+    $page_error = 'Collection aging data could not be loaded. Install Phase 6B3A first, then refresh this page.';
 }
 
 $total_results = count($filtered_rows);
@@ -328,25 +330,24 @@ $showing_end = min($page_start + $per_page, $total_results);
     <link href="assets/css/collection-aging.css?v=<?php echo filemtime(__DIR__ . '/assets/css/collection-aging.css'); ?>" rel="stylesheet">
     <link href="assets/css/collection-navigation.css?v=<?php echo filemtime(__DIR__ . '/assets/css/collection-navigation.css'); ?>" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
-<body class="aging-page">
+<body class="aging-page workflow-ui">
     <?php include 'sidebar.php'; ?>
 
     <main class="main-content fade-in">
         <div class="aging-shell">
-            <header class="aging-header">
-                <div>
-                    <div class="aging-eyebrow">Collections · Receivables</div>
-                    <h2>Receivables aging &amp; priority</h2>
-                    <p>Prioritize open client balances using the verified remaining amount and collection due date.</p>
-                </div>
-                <div class="aging-header-actions">
-                    <span><i class="fas fa-calendar-day"></i><?php echo date('M d, Y'); ?></span>
-                    <span><i class="fas fa-user-shield"></i><?php echo htmlspecialchars($current_role); ?> view</span>
-                </div>
-            </header>
+            <div class="collection-workspace-header">
+                <header class="aging-header">
+                    <div>
+                        <div class="aging-eyebrow">Collections · Receivables</div>
+                        <h2>Receivables aging &amp; priority</h2>
+                        <p>Prioritize open client balances using the verified remaining amount and collection due date.</p>
+                    </div>
+                </header>
 
-            <?php $collection_section = 'receivables'; include 'includes/collection_navigation.php'; ?>
+                <?php $collection_section = 'receivables'; include 'includes/collection_navigation.php'; ?>
+            </div>
 
             <?php if ($page_error !== ''): ?>
                 <section class="aging-alert aging-alert-danger" role="alert">
@@ -455,7 +456,7 @@ $showing_end = min($page_start + $per_page, $total_results);
                                                     <div>
                                                         <strong><?php echo htmlspecialchars($row['po_number']); ?></strong>
                                                         <b><?php echo htmlspecialchars($row['client_name']); ?></b>
-                                                        <small><?php echo htmlspecialchars(str_replace('-', ' ', $row['status'])); ?><?php echo $row['is_mine'] ? ' · My task' : ''; ?></small>
+                                                        <small><?php echo htmlspecialchars($row['collection_status']); ?><?php echo $row['is_mine'] ? ' · My task' : ''; ?></small>
                                                     </div>
                                                 </div>
                                             </td>
