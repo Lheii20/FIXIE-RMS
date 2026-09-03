@@ -2,6 +2,7 @@
 require 'config/db_connect.php';
 require 'config/functions.php';
 require_once 'config/workflow_access.php';
+require_once __DIR__ . '/config/frontend_assets.php';
 
 drms_require_workflow_roles(['Sales Staff', 'GM']);
 
@@ -104,10 +105,10 @@ $result = $stmt->get_result();
     <link href="assets/css/mobile-drive-lists.css?v=<?php echo filemtime(__DIR__ . '/assets/css/mobile-drive-lists.css'); ?>" rel="stylesheet">
     <link href="assets/css/client-approval.css?v=<?php echo filemtime(__DIR__ . '/assets/css/client-approval.css'); ?>" rel="stylesheet">
     <link href="assets/css/client-po-acknowledgement.css?v=<?php echo filemtime(__DIR__ . '/assets/css/client-po-acknowledgement.css'); ?>" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <?= drms_frontend_style_tags(['datatables-bs5-css', 'sweetalert2-css']) ?>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
+    <link href="assets/css/transaction-lists.css?v=<?php echo filemtime(__DIR__ . '/assets/css/transaction-lists.css'); ?>" rel="stylesheet">
 </head>
 <body class="page-quotation-list workflow-ui">
     <?php include 'sidebar.php'; ?>
@@ -388,11 +389,7 @@ $result = $stmt->get_result();
         ?>
     <?php endif; ?>
 
-    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <?= drms_frontend_script_tags(['jquery', 'bootstrap', 'datatables', 'datatables-bs5', 'sweetalert2']) ?>
     <?php if ($_SESSION['role'] === 'Sales Staff'): ?>
         <script src="assets/js/client-approval-form.js?v=<?php echo filemtime(__DIR__ . '/assets/js/client-approval-form.js'); ?>"></script>
     <?php endif; ?>
@@ -412,24 +409,24 @@ $result = $stmt->get_result();
                             next: "<i class='fas fa-angle-right'></i>"
                         }
                     },
-                    dom: 't<"d-flex justify-content-between align-items-center border-top"ip>',
+                    dom: '<"tx-table-scroll"t><"tx-pagination-bar d-flex justify-content-between align-items-center border-top"ip>',
                     initComplete: function () {
                         setTimeout(function () {
                             $('#grid-skeleton').hide();
-                            $('#grid-content').fadeIn(300);
+                            $('#grid-content').removeClass('init-hidden').addClass('is-ready');
                         }, 200);
                     }
                 });
             } catch (error) {
                 console.error('DataTables Error:', error);
                 $('#grid-skeleton').hide();
-                $('#grid-content').fadeIn(300);
+                $('#grid-content').removeClass('init-hidden').addClass('is-ready');
             }
 
             setTimeout(function () {
                 if ($('#grid-skeleton').is(':visible')) {
                     $('#grid-skeleton').hide();
-                    $('#grid-content').fadeIn(300);
+                    $('#grid-content').removeClass('init-hidden').addClass('is-ready');
                 }
             }, 1000);
         });

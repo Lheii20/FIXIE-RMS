@@ -117,6 +117,34 @@ $official_po_acknowledgement = (
 ) : null;
 $has_gm_acknowledgement = $official_po_acknowledgement &&
     $official_po_acknowledgement['decision'] === 'Acknowledged';
+$phase9c2d_ready =
+    function_exists('drms_official_source_linkage_is_installed') &&
+    drms_official_source_linkage_is_installed($conn);
+$client_po_official_record = null;
+if (
+    $phase9c2d_ready &&
+    $has_gm_acknowledgement &&
+    $acknowledgement_source_record
+) {
+    $official_record_statement = $conn->prepare(
+        "SELECT doc_id, record_number, business_reference
+         FROM documents
+         WHERE source_module = 'Client PO Approval'
+           AND source_record_id = ?
+         LIMIT 1"
+    );
+    $official_record_source_id =
+        (int) $acknowledgement_source_record['approval_record_id'];
+    $official_record_statement->bind_param(
+        'i',
+        $official_record_source_id
+    );
+    $official_record_statement->execute();
+    $client_po_official_record = $official_record_statement
+        ->get_result()
+        ->fetch_assoc();
+    $official_record_statement->close();
+}
 $can_create_pr = $is_sales_staff &&
     $quote['status'] === 'PO Received' &&
     (
@@ -542,6 +570,12 @@ if ($status === 'Pending Approval' && $latest_supporting_record !== null) {
                                 <span>Signed at</span>
                                 <strong><?php echo date('M d, Y h:i A', strtotime($official_po_acknowledgement['acted_at'])); ?></strong>
                             </div>
+                            <?php if ($client_po_official_record): ?>
+                                <div class="po-ack-audit-item">
+                                    <span>Official Record ID</span>
+                                    <strong><i class="fas fa-barcode me-1"></i><?php echo htmlspecialchars($client_po_official_record['record_number']); ?></strong>
+                                </div>
+                            <?php endif; ?>
                             <?php if (!empty($official_po_acknowledgement['remarks'])): ?>
                                 <div class="po-ack-audit-item po-ack-remarks">
                                     <span>Remarks</span>

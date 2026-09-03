@@ -1,0 +1,153 @@
+/*
+ * Fixie DRMS canonical authenticated-page shell
+ * UI Phase 1B
+ *
+ * Loaded by sidebar.php after every page-level stylesheet. This is the single
+ * final authority for screen width and horizontal content gutters. Module
+ * styles continue to own vertical spacing, scrolling, cards, forms, and print.
+ */
+
+:root {
+    --app-shell-max-width: 1550px;
+    --app-shell-gutter: 24px;
+}
+
+@media screen {
+    /* Align the fixed navigation content with the same application boundary. */
+    html body .saas-nav-container {
+        box-sizing: border-box;
+        width: 100% !important;
+        max-width: var(--app-shell-max-width) !important;
+        padding-right: var(--app-shell-gutter) !important;
+        padding-left: var(--app-shell-gutter) !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) > .main-content,
+    html body:not([class]) > .main-content,
+    html body.workflow-ui[class] > .main-content {
+        box-sizing: border-box;
+        width: 100% !important;
+        max-width: var(--app-shell-max-width) !important;
+        margin-right: auto !important;
+        margin-left: auto !important;
+        padding-right: var(--app-shell-gutter) !important;
+        padding-left: var(--app-shell-gutter) !important;
+    }
+
+    /* Prevent legacy Bootstrap wrappers from creating a second width limit. */
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) > .main-content > :is(.container, .container-fluid) {
+        box-sizing: border-box;
+        width: 100% !important;
+        max-width: none !important;
+        margin-right: 0 !important;
+        margin-left: 0 !important;
+    }
+
+    /* Normalize workflow shells that previously retained a 1440px cap. */
+    html body.workflow-ui.page-create-pr .prf-shell,
+    html body.workflow-ui.page-view-pr .prf-review-shell,
+    html body.workflow-ui.page-create-po .prf-shell,
+    html body.workflow-ui:is(
+        .funding-release-page,
+        .delivery-request-page,
+        .logistics-review-page,
+        .delivery-completion-page
+    ) .prf-shell,
+    html body.workflow-ui:is(.followup-page, .payment-page) :is(
+        .followup-shell,
+        .payment-shell
+    ) {
+        box-sizing: border-box;
+        width: 100% !important;
+        max-width: none !important;
+        margin-right: 0 !important;
+        margin-left: 0 !important;
+    }
+
+    /* Keep the direct list header and data card on one exact boundary. */
+    html body.workflow-ui:is(
+        .page-pr-list,
+        .page-po-list,
+        .page-quotation-list
+    )[class] > .main-content > :is(.page-header, .grid-card) {
+        box-sizing: border-box;
+        width: 100% !important;
+        max-width: none !important;
+        margin-right: 0 !important;
+        margin-left: 0 !important;
+    }
+
+    /* Preserve fixed record-page scrolling while standardizing its edges. */
+    html body:is(.page-documents, .page-general-docs)[class] > .main-content > :is(
+        .header-section,
+        .folders-section,
+        .file-list-container
+    ) {
+        box-sizing: border-box;
+        width: 100% !important;
+        max-width: none !important;
+        margin-right: 0 !important;
+        margin-left: 0 !important;
+    }
+
+    /* Remove the obsolete nested 1000px notification boundary. */
+    html body.page-notifications[class] > .main-content > .notifications-shell {
+        box-sizing: border-box;
+        width: 100% !important;
+        max-width: none !important;
+        margin-right: 0 !important;
+        margin-left: 0 !important;
+        padding-right: 0 !important;
+        padding-left: 0 !important;
+    }
+
+    /* Collection pages own horizontal spacing through their inner shell. */
+    html body.workflow-ui:is(
+        .collection-page,
+        .aging-page,
+        .ledger-page
+    )[class] > .main-content {
+        padding-right: 0 !important;
+        padding-left: 0 !important;
+    }
+
+    html body.workflow-ui.collection-page[class] .collection-shell,
+    html body.workflow-ui.aging-page[class] .aging-shell,
+    html body.workflow-ui.ledger-page[class] .ledger-shell {
+        box-sizing: border-box;
+        width: 100% !important;
+        max-width: var(--app-shell-max-width) !important;
+        margin-right: auto !important;
+        margin-left: auto !important;
+        padding-right: var(--app-shell-gutter) !important;
+        padding-left: var(--app-shell-gutter) !important;
+    }
+}
+
+@media screen and (max-width: 1199.98px) {
+    :root {
+        --app-shell-gutter: 18px;
+    }
+}
+
+@media screen and (max-width: 767.98px) {
+    :root {
+        --app-shell-gutter: 14px;
+    }
+}
+
+@media screen and (max-width: 359.98px) {
+    :root {
+        --app-shell-gutter: 12px;
+    }
+}

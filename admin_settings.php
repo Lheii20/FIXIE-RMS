@@ -12,7 +12,23 @@ $res = $conn->query("SELECT * FROM system_settings");
 while($row = $res->fetch_assoc()){ $settings[$row['setting_key']] = $row['setting_value']; }
 
 $toastMsg = ''; $toastType = '';
-if(isset($_GET['success'])) { $toastType = 'success'; if($_GET['success'] == 'SettingsUpdated') $toastMsg = 'System settings updated successfully.'; else $toastMsg = htmlspecialchars($_GET['success']); } elseif(isset($_GET['error'])) { $toastType = 'error'; $toastMsg = htmlspecialchars($_GET['error']); }
+if(isset($_GET['success'])) {
+    $toastType = 'success';
+    $toastMsg = $_GET['success'] === 'SettingsUpdated'
+        ? 'System settings updated successfully.'
+        : htmlspecialchars($_GET['success']);
+} elseif(isset($_GET['error'])) {
+    $toastType = 'error';
+    if ($_GET['error'] === 'InvalidSessionTimeout') {
+        $toastMsg = 'Select one of the available session timeout options.';
+    } elseif ($_GET['error'] === 'InvalidUploadSize') {
+        $toastMsg = 'Maximum upload size must be between 1 MB and 100 MB.';
+    } elseif ($_GET['error'] === 'SecurityTokenMismatch') {
+        $toastMsg = 'Your session validation expired. Refresh the page and try again.';
+    } else {
+        $toastMsg = htmlspecialchars($_GET['error']);
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">

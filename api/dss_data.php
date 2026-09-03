@@ -2,9 +2,11 @@
 require '../config/db_connect.php';
 
 header('Content-Type: application/json');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 error_reporting(0); 
 
 if (!isset($_SESSION['user_id'])) {
+    http_response_code(401);
     echo json_encode(['error' => 'Unauthorized Access. Please login.']);
     exit();
 }
@@ -13,6 +15,34 @@ $action = $_GET['action'] ?? '';
 $period = $_GET['period'] ?? 'all'; 
 $role = $_SESSION['role'];
 $user_id = $_SESSION['user_id'];
+
+$action_roles = [
+    'revenue_forecast' => ['GM', 'President', 'Finance'],
+    'top_clients' => ['GM', 'President', 'Finance'],
+    'top_categories' => ['GM', 'President', 'Finance'],
+    'bottleneck_analysis' => ['GM', 'President', 'Procurement'],
+    'workload_distribution' => ['GM', 'President', 'Procurement'],
+    'rejection_rate' => ['GM', 'President', 'Procurement'],
+    'doc_retention_status' => ['GM', 'President', 'Procurement'],
+    'admin_user_roles' => ['Admin'],
+    'admin_audit_activity' => ['Admin'],
+    'sales_pr_status' => ['Sales Staff'],
+    'sales_performance' => ['Sales Staff'],
+    'proc_po_status' => ['Procurement', 'Supply Chain'],
+    'docs_category' => ['Technical'],
+];
+
+if (!isset($action_roles[$action])) {
+    http_response_code(400);
+    echo json_encode(['error' => 'Invalid Action parameter provided.']);
+    exit();
+}
+
+if (!in_array($role, $action_roles[$action], true)) {
+    http_response_code(403);
+    echo json_encode(['error' => 'You are not authorized to view this analytics dataset.']);
+    exit();
+}
 
 function getDateFilter($column, $period) {
     $start = $_GET['start'] ?? '';
@@ -228,6 +258,7 @@ elseif ($action === 'docs_category') {
     exit();
 }
 
+http_response_code(400);
 echo json_encode(['error' => 'Invalid Action parameter provided.']);
 exit();
 ?>

@@ -1,75 +1,16 @@
 <?php
-// ==========================================
-// GLOBAL SESSION TIMEOUT ENFORCER
-// ==========================================
-if (isset($_SESSION['user_id'])) {
-    $conn->query("CREATE TABLE IF NOT EXISTS system_settings (setting_key VARCHAR(50) PRIMARY KEY, setting_value VARCHAR(255) NOT NULL)");
-    
-    $timeout_query = $conn->query("SELECT setting_value FROM system_settings WHERE setting_key = 'session_timeout'");
-    $timeout_mins = ($timeout_query && $timeout_query->num_rows > 0) ? intval($timeout_query->fetch_assoc()['setting_value']) : 30;
-    
-    $timeout_secs = $timeout_mins * 60;
-    
-    if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity']) > $timeout_secs) {
-        session_unset();
-        session_destroy();
-        
-        echo '<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>';
-        echo '<script>
-            document.addEventListener("DOMContentLoaded", function() {
-                Swal.fire({
-                    icon: "warning",
-                    title: "Session Expired",
-                    text: "For your security, you have been automatically logged out due to inactivity.",
-                    confirmButtonColor: "#0f172a",
-                    confirmButtonText: "Return to Login",
-                    allowOutsideClick: false,
-                    allowEscapeKey: false,
-                    customClass: {
-                        popup: "sleek-swal-popup",
-                        title: "sleek-swal-title",
-                        confirmButton: "sleek-swal-btn"
-                    },
-                    backdrop: "rgba(15, 23, 42, 0.85)"
-                }).then(() => {
-                    window.location.href = "index.php";
-                });
-            });
-        </script>';
-        exit();
-    }
-    $_SESSION['last_activity'] = time(); 
+// This file is a view partial and must only run when included by an application
+// page. Direct browser requests otherwise expose internal warnings and paths.
+if (
+    PHP_SAPI !== 'cli' &&
+    isset($_SERVER['SCRIPT_FILENAME']) &&
+    realpath((string) $_SERVER['SCRIPT_FILENAME']) === __FILE__
+) {
+    http_response_code(404);
+    exit('Not found.');
 }
 
 $role = $_SESSION['role'];
-
-if ($role === 'Finance') {
-    $collection_reminder_helper =
-        __DIR__ . '/config/collection_reminders.php';
-    if (is_file($collection_reminder_helper)) {
-        require_once $collection_reminder_helper;
-
-        $collection_sync_date = date('Y-m-d');
-        if (
-            ($_SESSION['phase5c_collection_sync_date'] ?? '') !==
-            $collection_sync_date
-        ) {
-            try {
-                phase5c_sync_collection_reminders(
-                    $conn,
-                    (int) $_SESSION['user_id']
-                );
-                $_SESSION['phase5c_collection_sync_date'] =
-                    $collection_sync_date;
-            } catch (Throwable $collection_reminder_error) {
-                error_log(
-                    'Phase 5C collection reminder sync failed: ' .
-                    $collection_reminder_error->getMessage()
-                );
-            }
-        }
-    }
-}
 
 $unread_count = get_unread_notification_count($conn, (int)$_SESSION['user_id'], $role);
 
@@ -84,47 +25,39 @@ $current_page = basename($_SERVER['PHP_SELF']);
 $role = $_SESSION['role'] ?? 'User';
 $user_id = $_SESSION['user_id'] ?? 0;
 
-if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
-    $full_url = $_SERVER['REQUEST_URI'];
-    $current_time = time();
-    
-    if (!isset($_SESSION['last_url']) || $_SESSION['last_url'] !== $full_url || ($current_time - ($_SESSION['last_log_time'] ?? 0)) > 10) {
-        
-        $action_type = "";
-        $desc = "";
-
-        if ($current_page == 'view_po.php' && isset($_GET['id'])) {
-            $id = intval($_GET['id']);
-            $po_q = $conn->query("SELECT po_number FROM purchase_orders WHERE po_id = $id");
-            $po_num = ($po_q && $po_q->num_rows > 0) ? $po_q->fetch_assoc()['po_number'] : "#$id";
-            $desc = "Viewed details of Purchase Order: $po_num";
-            $action_type = "VIEW_PO";
-        } elseif ($current_page == 'view_pr.php' && isset($_GET['id'])) {
-            $id = intval($_GET['id']);
-            $pr_q = $conn->query("SELECT pr_number FROM purchase_requests WHERE pr_id = $id");
-            $pr_num = ($pr_q && $pr_q->num_rows > 0) ? $pr_q->fetch_assoc()['pr_number'] : "#$id";
-            $desc = "Viewed details of Purchase Request: $pr_num";
-            $action_type = "VIEW_PR";
-        }
-
-        if (!empty($action_type) && !empty($desc)) {
-            if (function_exists('log_audit_action')) {
-                log_audit_action($conn, $user_id, $action_type, $desc);
-            } else {
-                $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
-                $ins = $conn->prepare("INSERT INTO audit_logs (user_id, action_type, description, ip_address) VALUES (?, ?, ?, ?)");
-                if($ins) {
-                    $ins->bind_param("isss", $user_id, $action_type, $desc, $ip);
-                    $ins->execute();
-                }
-            }
-        }
-        
-        $_SESSION['last_url'] = $full_url;
-        $_SESSION['last_log_time'] = $current_time;
-    }
-}
+// Automatic record-access auditing belongs to config/audit_bootstrap.php.
+// Rendering navigation must not create a second or fallback audit event.
 ?>
+
+<link
+    href="assets/css/app-shell.css?v=<?php echo file_exists(__DIR__ . '/assets/css/app-shell.css') ? filemtime(__DIR__ . '/assets/css/app-shell.css') : '1'; ?>"
+    rel="stylesheet"
+>
+
+<link
+    href="assets/css/app-header.css?v=<?php echo file_exists(__DIR__ . '/assets/css/app-header.css') ? filemtime(__DIR__ . '/assets/css/app-header.css') : '1'; ?>"
+    rel="stylesheet"
+>
+
+<link
+    href="assets/css/app-content.css?v=<?php echo file_exists(__DIR__ . '/assets/css/app-content.css') ? filemtime(__DIR__ . '/assets/css/app-content.css') : '1'; ?>"
+    rel="stylesheet"
+>
+
+<link
+    href="assets/css/app-control.css?v=<?php echo file_exists(__DIR__ . '/assets/css/app-control.css') ? filemtime(__DIR__ . '/assets/css/app-control.css') : '1'; ?>"
+    rel="stylesheet"
+>
+
+<link
+    href="assets/css/app-search.css?v=<?php echo file_exists(__DIR__ . '/assets/css/app-search.css') ? filemtime(__DIR__ . '/assets/css/app-search.css') : '1'; ?>"
+    rel="stylesheet"
+>
+
+<link
+    href="assets/css/session-security.css?v=<?php echo file_exists(__DIR__ . '/assets/css/session-security.css') ? filemtime(__DIR__ . '/assets/css/session-security.css') : '1'; ?>"
+    rel="stylesheet"
+>
 
 <nav class="saas-navbar shadow-sm d-print-none">
     <div class="saas-nav-container">
@@ -249,7 +182,10 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
                         <small class="text-muted fs-08rem text-uppercase"><?php echo htmlspecialchars($_SESSION['role'] ?? 'Role'); ?></small>
                     </div>
                     <a href="settings.php"><i class="fas fa-cog"></i> Account Settings</a>
-                    <a href="actions/auth.php?logout=true&csrf_token=<?php echo $_SESSION['csrf_token'] ?? ''; ?>" class="text-danger"><i class="fas fa-sign-out-alt"></i> Logout</a>
+                    <form action="actions/auth.php" method="POST" class="saas-logout-form">
+                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) ($_SESSION['csrf_token'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
+                        <button type="submit" name="logout" value="1" class="saas-logout-button text-danger"><i class="fas fa-sign-out-alt" aria-hidden="true"></i><span>Logout</span></button>
+                    </form>
                 </div>
             </div>
         </div>
@@ -278,7 +214,7 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
     <div class="mobile-side-nav__section">
         <span class="mobile-side-nav__label">Workspace</span>
         <a href="dashboard.php" class="mobile-side-nav__link <?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>"><i class="fas fa-chart-pie"></i>Dashboard</a>
-        <a href="notifications.php" class="mobile-side-nav__link <?php echo ($current_page == 'notifications.php') ? 'active' : ''; ?>"><i class="fas fa-bell"></i>Notifications<?php if($unread_count > 0): ?> <span class="badge bg-danger ms-auto">{{$unread_count}}</span><?php endif; ?></a>
+        <a href="notifications.php" class="mobile-side-nav__link <?php echo ($current_page == 'notifications.php') ? 'active' : ''; ?>"><i class="fas fa-bell"></i>Notifications<?php if($unread_count > 0): ?> <span class="badge bg-danger ms-auto"><?php echo (int) $unread_count; ?></span><?php endif; ?></a>
     </div>
     
     <?php if(in_array($role, $ops_roles)): ?>
@@ -311,7 +247,10 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
     
     <div class="mobile-side-nav__footer">
         <a href="settings.php" class="mobile-side-nav__link"><i class="fas fa-cog"></i>Account Settings</a>
-        <a href="actions/auth.php?logout=true&csrf_token=<?php echo $_SESSION['csrf_token'] ?? ''; ?>" class="mobile-side-nav__link mobile-side-nav__link--danger"><i class="fas fa-sign-out-alt"></i>Logout</a>
+        <form action="actions/auth.php" method="POST" class="mobile-side-nav__logout-form">
+            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) ($_SESSION['csrf_token'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
+            <button type="submit" name="logout" value="1" class="mobile-side-nav__link mobile-side-nav__link--danger mobile-side-nav__logout-button"><i class="fas fa-sign-out-alt" aria-hidden="true"></i><span>Logout</span></button>
+        </form>
     </div>
 </aside>
 
@@ -335,19 +274,19 @@ if ($user_id > 0 && isset($conn) && !defined('DRMS_AUDIT_REQUEST_CAPTURED')) {
                 <li data-keywords="files documents records official retention">
                     <a href="documents.php">
                         <div class="cp-item-icon cp-icon-secondary"><i class="fas fa-archive"></i></div> 
-                        <div><div class="cp-item-title">Official Records</div><small class="cp-item-desc">Browse company documents</small></div>
+                        <div><div class="cp-item-title">Official Records</div><small class="cp-item-desc">Browse signed and finalized digital records</small></div>
                     </a>
                 </li>
                 <li data-keywords="company files general storage">
                     <a href="general_docs.php">
                         <div class="cp-item-icon cp-icon-secondary"><i class="fas fa-folder"></i></div> 
-                        <div><div class="cp-item-title">Company Files</div><small class="cp-item-desc">Access general files</small></div>
+                        <div><div class="cp-item-title">Company Files</div><small class="cp-item-desc">Manage drafts and working documents</small></div>
                     </a>
                 </li>
                 <li data-keywords="virtual cabinet physical records drawers folders boxes location">
                     <a href="virtual_cabinet.php">
                         <div class="cp-item-icon cp-icon-secondary"><i class="fas fa-boxes"></i></div> 
-                        <div><div class="cp-item-title">Virtual Cabinet</div><small class="cp-item-desc">Track physical document locations</small></div>
+                        <div><div class="cp-item-title">Virtual Cabinet</div><small class="cp-item-desc">Track physical record storage locations</small></div>
                     </a>
                 </li>
                 <li data-keywords="settings account password profile">
@@ -629,12 +568,25 @@ cpOverlay.addEventListener('click', function(e) {
     }
 });
 
-// Real-time force logout checker
+// Activity-aware session checker. Background checks do not keep an idle session alive.
+let sessionInteractionPending = false;
+const markSessionInteraction = () => { sessionInteractionPending = true; };
+
+['click', 'keydown', 'scroll', 'touchstart'].forEach((eventName) => {
+    document.addEventListener(eventName, markSessionInteraction, { passive: true });
+});
+
 setInterval(function() {
-    let apiPath = window.location.pathname.includes('/actions/') || window.location.pathname.includes('/api/') ? '../api/check_session.php' : 'api/check_session.php';
-    
+    const isNestedPath = window.location.pathname.includes('/actions/') || window.location.pathname.includes('/api/');
+    const rootPath = isNestedPath ? '../index.php' : 'index.php';
+    const apiBasePath = isNestedPath ? '../api/check_session.php' : 'api/check_session.php';
+    const activityValue = sessionInteractionPending ? '1' : '0';
+    sessionInteractionPending = false;
+    const apiPath = apiBasePath + '?activity=' + activityValue;
+
     fetch(apiPath, {
         method: 'GET',
+        cache: 'no-store',
         headers: {
             'X-Requested-With': 'XMLHttpRequest',
             'Accept': 'application/json'
@@ -643,10 +595,13 @@ setInterval(function() {
     .then(response => response.json())
     .then(data => {
         if (data.status === 'force_logout') {
-            let rootPath = window.location.pathname.includes('/actions/') || window.location.pathname.includes('/api/') ? '../index.php' : 'index.php';
             window.location.href = rootPath + '?error=ForceLoggedOutByAdmin';
+        } else if (data.status === 'session_expired') {
+            window.location.href = rootPath + '?error=SessionExpired';
+        } else if (data.status === 'unauthenticated') {
+            window.location.href = rootPath;
         }
     })
     .catch(error => {});
-}, 5000); 
+}, 30000);
 </script>

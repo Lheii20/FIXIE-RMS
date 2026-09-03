@@ -8080,3 +8080,1406 @@ body.page-admin-requests .request-decision-alert .request-alert-cancel {
         text-align: center;
     }
 }
+
+/* ========================================================================== */
+/* UI Phase 5H: login, account recovery, and password setup consistency       */
+/* ========================================================================== */
+
+@media screen {
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password,
+        body.page-setup-password
+    ) {
+        --auth-brand-deep: #0d1933;
+        --auth-brand-mid: #17346c;
+        --auth-brand-accent: #2854c5;
+        --auth-ink: #1e293b;
+        --auth-muted: #66758a;
+        --auth-line: #b8c4d3;
+        --auth-line-soft: #d9e0e9;
+        --auth-surface-soft: #f6f8fb;
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+        color: var(--auth-ink);
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .auth-wrapper {
+        background: #ffffff;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .brand-panel,
+    body.page-setup-password .brand-section {
+        background: linear-gradient(135deg, var(--auth-brand-mid) 0%, var(--auth-brand-deep) 100%) !important;
+        background-size: 100% 100% !important;
+        animation: none !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .brand-panel::before,
+    body.page-setup-password .brand-section::before {
+        background-image: radial-gradient(rgba(255, 255, 255, 0.09) 1.2px, transparent 1.2px) !important;
+        background-size: 34px 34px !important;
+        opacity: 0.48 !important;
+        animation: none !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .brand-panel::after {
+        background: radial-gradient(circle, rgba(65, 112, 211, 0.2) 0%, transparent 62%) !important;
+        opacity: 0.8;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .main-logo,
+    body.page-setup-password .brand-logo-img {
+        width: 112px !important;
+        max-width: 112px !important;
+        max-height: 112px !important;
+        height: auto !important;
+        margin-bottom: 24px !important;
+        filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.28)) !important;
+        transform: none !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .main-logo:hover,
+    body.page-setup-password .brand-logo-img:hover {
+        filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.28)) !important;
+        transform: none !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .sys-title,
+    body.page-setup-password .brand-section h1 {
+        margin: 0 0 7px !important;
+        color: #ffffff !important;
+        font-size: 28px !important;
+        font-weight: 720 !important;
+        line-height: 1.22 !important;
+        letter-spacing: -0.025em !important;
+        text-shadow: none !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .sys-company,
+    body.page-setup-password .brand-section p {
+        color: #b8c5dc !important;
+        font-size: 14px !important;
+        font-weight: 450 !important;
+        line-height: 1.45 !important;
+        letter-spacing: 0 !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .system-meta {
+        bottom: 28px !important;
+        color: #8293b1 !important;
+        font-size: 10.5px !important;
+        font-weight: 600 !important;
+        line-height: 1.55 !important;
+        letter-spacing: .075em !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .form-panel,
+    body.page-setup-password .form-section {
+        border-left: 1px solid var(--auth-line) !important;
+        background: #ffffff !important;
+        box-shadow: none !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .form-container,
+    body.page-setup-password .form-section > div {
+        box-sizing: border-box;
+        width: 100% !important;
+        max-width: 380px !important;
+        margin-right: auto !important;
+        margin-left: auto !important;
+        padding-right: 0 !important;
+        padding-left: 0 !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .auth-header {
+        margin: 0 0 24px !important;
+        text-align: left !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .auth-header h2 {
+        margin: 0 !important;
+        color: var(--auth-ink) !important;
+        font-size: 24px !important;
+        font-weight: 720 !important;
+        line-height: 1.25 !important;
+        letter-spacing: -0.025em !important;
+        text-align: left !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .auth-header p {
+        margin: 5px 0 0 !important;
+        color: var(--auth-muted) !important;
+        font-size: 13.5px !important;
+        font-weight: 400 !important;
+        line-height: 1.45 !important;
+        text-align: left !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .form-floating-custom {
+        margin-bottom: 16px !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .form-floating-custom input {
+        box-sizing: border-box;
+        width: 100%;
+        height: 52px !important;
+        min-height: 52px !important;
+        padding: 16px 14px 8px !important;
+        border: 1px solid var(--auth-line) !important;
+        border-radius: 9px !important;
+        background: #ffffff !important;
+        color: var(--auth-ink) !important;
+        font-size: 13.5px !important;
+        font-weight: 450 !important;
+        line-height: 1.25 !important;
+        box-shadow: none !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .form-floating-custom label {
+        left: 14px !important;
+        color: #6b788b !important;
+        font-size: 13px !important;
+        background: #ffffff !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .form-floating-custom input:focus {
+        border-color: var(--auth-brand-accent) !important;
+        box-shadow: 0 0 0 3px rgba(40, 84, 197, 0.12) !important;
+        outline: none !important;
+    }
+
+    body.auth-page #togglePassword {
+        display: inline-flex;
+        width: 34px;
+        height: 34px;
+        align-items: center;
+        justify-content: center;
+        right: 8px !important;
+        color: #637188 !important;
+        font-size: 12px !important;
+        line-height: 1 !important;
+    }
+
+    body.auth-page .forgot-pass {
+        display: block;
+        margin: -3px 0 13px !important;
+        color: var(--auth-brand-accent) !important;
+        font-size: 12.5px !important;
+        font-weight: 620 !important;
+        line-height: 1.3 !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .btn-corporate {
+        box-sizing: border-box;
+        display: inline-flex;
+        width: 100%;
+        min-height: 50px !important;
+        align-items: center;
+        justify-content: center;
+        gap: 8px !important;
+        margin-top: 0 !important;
+        padding: 10px 14px !important;
+        border: 1px solid #101a2d !important;
+        border-radius: 9px !important;
+        background: #111b30 !important;
+        color: #ffffff !important;
+        font-size: 13.5px !important;
+        font-weight: 650 !important;
+        line-height: 1.2 !important;
+        text-align: center;
+        text-decoration: none !important;
+        box-shadow: none !important;
+        transform: none !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .btn-corporate:hover,
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .btn-corporate:focus-visible {
+        border-color: #1e3d7d !important;
+        background: #1b356d !important;
+        color: #ffffff !important;
+        box-shadow: none !important;
+        transform: none !important;
+        outline: none !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .divider {
+        display: flex;
+        align-items: center;
+        margin: 20px 0 !important;
+        color: #7b8798 !important;
+        font-size: 10.5px !important;
+        font-weight: 680 !important;
+        line-height: 1.25 !important;
+        letter-spacing: .065em !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .divider::before,
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .divider::after {
+        border-color: var(--auth-line-soft) !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .btn-text-only {
+        box-sizing: border-box;
+        display: inline-flex;
+        width: 100%;
+        min-height: 48px !important;
+        align-items: center;
+        justify-content: center;
+        gap: 7px !important;
+        margin-top: 0 !important;
+        padding: 9px 13px !important;
+        border: 1px solid var(--auth-line) !important;
+        border-radius: 9px !important;
+        background: #ffffff !important;
+        color: #3c4a60 !important;
+        font-size: 13px !important;
+        font-weight: 600 !important;
+        line-height: 1.2 !important;
+        text-decoration: none !important;
+        box-shadow: none !important;
+        transform: none !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .btn-text-only:hover,
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .btn-text-only:focus-visible {
+        border-color: #91a4bd !important;
+        background: var(--auth-surface-soft) !important;
+        color: #26354b !important;
+        outline: none !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .alert-system {
+        box-sizing: border-box;
+        padding: 10px 11px !important;
+        margin-bottom: 16px !important;
+        gap: 9px !important;
+        border-width: 1px 1px 1px 3px !important;
+        border-radius: 8px !important;
+        font-size: 12.5px !important;
+        font-weight: 540 !important;
+        line-height: 1.4 !important;
+        box-shadow: none !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .alert-system > i {
+        display: inline-flex;
+        width: 14px;
+        min-width: 14px;
+        align-items: center;
+        justify-content: center;
+        margin-top: 2px !important;
+        line-height: 1 !important;
+    }
+
+    body.auth-page .otp-container {
+        display: grid !important;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 8px !important;
+        margin-bottom: 18px !important;
+    }
+
+    body.auth-page .otp-box {
+        box-sizing: border-box;
+        width: 100% !important;
+        min-width: 0 !important;
+        height: 50px !important;
+        padding: 0 !important;
+        border: 1px solid var(--auth-line) !important;
+        border-radius: 8px !important;
+        background: #ffffff !important;
+        color: var(--auth-ink) !important;
+        font-size: 18px !important;
+        font-weight: 700 !important;
+        text-align: center;
+        box-shadow: none !important;
+    }
+
+    body.auth-page .otp-box:focus {
+        border-color: var(--auth-brand-accent) !important;
+        box-shadow: 0 0 0 3px rgba(40, 84, 197, 0.12) !important;
+        outline: none !important;
+    }
+
+    body.auth-page :is(.timer-display, .link-resend, .fs-085rem-600) {
+        font-size: 12px !important;
+        line-height: 1.35 !important;
+    }
+
+    /* First-time password setup uses the same form rhythm as login/recovery. */
+    body.page-setup-password .form-section > div > .mb-4 {
+        margin-bottom: 20px !important;
+    }
+
+    body.page-setup-password .form-section > div > .mb-4 > div:first-child,
+    body.page-setup-password .form-section .text-center.py-4 > div:first-child {
+        display: inline-flex !important;
+        width: 46px !important;
+        min-width: 46px;
+        height: 46px !important;
+        min-height: 46px;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 11px !important;
+        border: 1px solid #e2c677;
+        border-radius: 10px !important;
+        font-size: 15px !important;
+    }
+
+    body.page-setup-password .form-section :is(h3, .h3) {
+        margin: 0 0 5px !important;
+        color: var(--auth-ink) !important;
+        font-size: 22px !important;
+        font-weight: 720 !important;
+        line-height: 1.25 !important;
+        letter-spacing: -0.02em !important;
+    }
+
+    body.page-setup-password .form-section p {
+        margin-bottom: 0 !important;
+        color: var(--auth-muted) !important;
+        font-size: 13px !important;
+        line-height: 1.45 !important;
+    }
+
+    body.page-setup-password form.mt-4 {
+        margin-top: 20px !important;
+    }
+
+    body.page-setup-password .custom-input-group {
+        margin-bottom: 14px !important;
+    }
+
+    body.page-setup-password .custom-input {
+        box-sizing: border-box;
+        width: 100%;
+        height: 52px !important;
+        min-height: 52px !important;
+        padding: 0 44px !important;
+        border: 1px solid var(--auth-line) !important;
+        border-radius: 9px !important;
+        background: #ffffff !important;
+        color: var(--auth-ink) !important;
+        font-size: 13.5px !important;
+        font-weight: 450 !important;
+        line-height: 50px !important;
+        box-shadow: none !important;
+    }
+
+    body.page-setup-password .custom-input:focus {
+        border-color: var(--auth-brand-accent) !important;
+        box-shadow: 0 0 0 3px rgba(40, 84, 197, 0.12) !important;
+        outline: none !important;
+    }
+
+    body.page-setup-password .input-icon-left {
+        display: inline-flex;
+        width: 38px;
+        height: 50px;
+        align-items: center;
+        justify-content: center;
+        left: 1px !important;
+        color: #69778b !important;
+        font-size: 12px !important;
+        line-height: 1 !important;
+    }
+
+    body.page-setup-password .btn-toggle-pass {
+        display: inline-flex;
+        width: 40px;
+        height: 50px;
+        align-items: center;
+        justify-content: center;
+        right: 1px !important;
+        padding: 0 !important;
+        color: #69778b !important;
+        font-size: 12px !important;
+        line-height: 1 !important;
+    }
+
+    body.page-setup-password .req-list {
+        box-sizing: border-box;
+        margin: 0 0 16px !important;
+        padding: 11px 12px !important;
+        border: 1px solid var(--auth-line-soft) !important;
+        border-radius: 9px !important;
+        background: var(--auth-surface-soft) !important;
+        font-size: 12px !important;
+        line-height: 1.35 !important;
+    }
+
+    body.page-setup-password .req-list li {
+        min-height: 22px;
+        margin: 0 !important;
+        gap: 7px !important;
+    }
+
+    body.page-setup-password .req-list li > i {
+        display: inline-flex;
+        width: 14px !important;
+        min-width: 14px;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px !important;
+        line-height: 1 !important;
+    }
+
+    body.page-setup-password .btn-submit,
+    body.page-setup-password .form-section a.btn-primary {
+        box-sizing: border-box;
+        display: inline-flex;
+        width: 100%;
+        min-height: 50px !important;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        padding: 10px 14px !important;
+        border: 1px solid #1f4760 !important;
+        border-radius: 9px !important;
+        background: #28546d !important;
+        color: #ffffff !important;
+        font-size: 12.5px !important;
+        font-weight: 680 !important;
+        line-height: 1.2 !important;
+        letter-spacing: .025em !important;
+        text-decoration: none !important;
+        box-shadow: none !important;
+        transform: none !important;
+    }
+
+    body.page-setup-password .btn-submit:hover:not(:disabled),
+    body.page-setup-password .btn-submit:focus-visible,
+    body.page-setup-password .form-section a.btn-primary:hover,
+    body.page-setup-password .form-section a.btn-primary:focus-visible {
+        border-color: #173a50 !important;
+        background: #1f455c !important;
+        box-shadow: none !important;
+        transform: none !important;
+        outline: none !important;
+    }
+
+    body.page-setup-password .btn-submit:disabled {
+        border-color: #a8b3c1 !important;
+        background: #c4ccd6 !important;
+        color: #5b687b !important;
+        opacity: 1 !important;
+    }
+
+    body.page-setup-password .alert {
+        padding: 10px 11px !important;
+        margin-bottom: 14px !important;
+        border-width: 1px 1px 1px 3px !important;
+        border-radius: 8px !important;
+        font-size: 12.5px !important;
+        line-height: 1.4 !important;
+        box-shadow: none !important;
+    }
+}
+
+@media screen and (min-width: 768px) {
+    html:has(body.auth-page),
+    html:has(body.page-forgot-password),
+    html:has(body.page-reset-password),
+    html:has(body.page-setup-password),
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password,
+        body.page-setup-password
+    ) {
+        width: 100%;
+        height: 100%;
+        min-height: 100%;
+        overflow: hidden !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .auth-wrapper {
+        display: flex;
+        width: 100%;
+        height: 100dvh !important;
+        min-height: 620px;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .brand-panel {
+        min-width: 0;
+        flex: 1 1 auto;
+        padding: 48px !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .form-panel,
+    body.page-setup-password .form-section {
+        box-sizing: border-box;
+        width: 600px !important;
+        max-width: 600px !important;
+        min-width: 600px;
+        flex: 0 0 600px !important;
+        padding: 48px 56px !important;
+        overflow-x: hidden;
+        overflow-y: auto;
+    }
+
+    body.page-setup-password > .container-fluid,
+    body.page-setup-password > .container-fluid > .row {
+        width: 100%;
+        height: 100dvh !important;
+        min-height: 620px;
+    }
+
+    body.page-setup-password .brand-section {
+        width: calc(100% - 600px) !important;
+        max-width: none !important;
+        min-width: 0;
+        flex: 1 1 auto !important;
+        padding: 48px !important;
+    }
+}
+
+@media screen and (min-width: 768px) and (max-width: 1099.98px) {
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .form-panel,
+    body.page-setup-password .form-section {
+        width: 480px !important;
+        max-width: 480px !important;
+        min-width: 480px;
+        flex-basis: 480px !important;
+        padding: 38px 42px !important;
+    }
+
+    body.page-setup-password .brand-section {
+        width: calc(100% - 480px) !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .main-logo,
+    body.page-setup-password .brand-logo-img {
+        width: 96px !important;
+        max-width: 96px !important;
+        max-height: 96px !important;
+        margin-bottom: 20px !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .sys-title,
+    body.page-setup-password .brand-section h1 {
+        font-size: 24px !important;
+    }
+}
+
+@media screen and (min-width: 768px) and (max-height: 719.98px) {
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .main-logo,
+    body.page-setup-password .brand-logo-img {
+        width: 86px !important;
+        max-width: 86px !important;
+        max-height: 86px !important;
+        margin-bottom: 16px !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .form-panel,
+    body.page-setup-password .form-section {
+        padding-top: 26px !important;
+        padding-bottom: 26px !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .auth-header {
+        margin-bottom: 17px !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .form-floating-custom {
+        margin-bottom: 12px !important;
+    }
+
+    body.page-setup-password .custom-input-group {
+        margin-bottom: 11px !important;
+    }
+
+    body.page-setup-password .req-list {
+        margin-bottom: 12px !important;
+        padding-top: 8px !important;
+        padding-bottom: 8px !important;
+    }
+}
+
+@media screen and (max-width: 767.98px) {
+    html:has(body.auth-page),
+    html:has(body.page-forgot-password),
+    html:has(body.page-reset-password),
+    html:has(body.page-setup-password),
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password,
+        body.page-setup-password
+    ) {
+        width: 100%;
+        min-height: 100%;
+        height: auto !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        background: #ffffff !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .auth-wrapper {
+        display: flex;
+        width: 100%;
+        min-height: 100dvh;
+        height: auto !important;
+        flex-direction: column;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .brand-panel {
+        box-sizing: border-box;
+        display: flex;
+        width: 100%;
+        min-height: 0 !important;
+        height: auto !important;
+        flex: 0 0 auto;
+        padding: 20px 20px 8px !important;
+        overflow: visible !important;
+        background: #ffffff !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .brand-panel::before,
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .brand-panel::after {
+        display: none !important;
+        content: none !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .main-logo {
+        width: 76px !important;
+        max-width: 76px !important;
+        max-height: 76px !important;
+        margin: 0 !important;
+        filter: drop-shadow(0 5px 10px rgba(25, 43, 73, 0.14)) !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) :is(.sys-title, .sys-company, .system-meta) {
+        display: none !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .form-panel {
+        box-sizing: border-box;
+        display: flex;
+        width: 100% !important;
+        max-width: none !important;
+        min-width: 0;
+        min-height: 0;
+        flex: 1 0 auto;
+        justify-content: flex-start !important;
+        padding: 12px 20px max(30px, env(safe-area-inset-bottom, 0px)) !important;
+        overflow: visible !important;
+        border: 0 !important;
+        background: #ffffff !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .form-container {
+        max-width: 380px !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .auth-header {
+        margin-bottom: 20px !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .auth-header h2 {
+        font-size: 21px !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .auth-header p {
+        font-size: 13px !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .form-floating-custom input {
+        height: 50px !important;
+        min-height: 50px !important;
+        font-size: 13.5px !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .btn-corporate,
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .btn-text-only {
+        min-height: 48px !important;
+        font-size: 13px !important;
+    }
+
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .divider {
+        margin: 18px 0 !important;
+        font-size: 10px !important;
+    }
+
+    body.auth-page .otp-container {
+        gap: 6px !important;
+    }
+
+    body.auth-page .otp-box {
+        height: 48px !important;
+        font-size: 17px !important;
+    }
+
+    body.page-setup-password > .container-fluid,
+    body.page-setup-password > .container-fluid > .row {
+        min-height: 100dvh;
+        height: auto !important;
+    }
+
+    body.page-setup-password .form-section {
+        box-sizing: border-box;
+        width: 100% !important;
+        max-width: none !important;
+        min-width: 0;
+        min-height: 100dvh;
+        padding: 24px 20px max(30px, env(safe-area-inset-bottom, 0px)) !important;
+        border: 0 !important;
+        background: #ffffff !important;
+    }
+
+    body.page-setup-password .form-section > div {
+        max-width: 380px !important;
+        padding-right: 0 !important;
+        padding-left: 0 !important;
+    }
+
+    body.page-setup-password .form-section > div > .text-center.d-md-none {
+        margin-bottom: 18px !important;
+    }
+
+    body.page-setup-password .form-section > div > .text-center.d-md-none img {
+        width: 76px !important;
+        max-width: 76px !important;
+        height: auto !important;
+        filter: drop-shadow(0 5px 10px rgba(25, 43, 73, 0.14));
+    }
+
+    body.page-setup-password .form-section :is(h3, .h3) {
+        font-size: 21px !important;
+    }
+
+    body.page-setup-password .custom-input {
+        height: 50px !important;
+        min-height: 50px !important;
+        line-height: 48px !important;
+        font-size: 13.5px !important;
+    }
+
+    body.page-setup-password :is(.input-icon-left, .btn-toggle-pass) {
+        height: 48px !important;
+    }
+
+    body.page-setup-password .btn-submit,
+    body.page-setup-password .form-section a.btn-primary {
+        min-height: 48px !important;
+        font-size: 12px !important;
+    }
+}
+
+@media screen and (max-width: 359.98px) {
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password
+    ) .form-panel,
+    body.page-setup-password .form-section {
+        padding-right: 14px !important;
+        padding-left: 14px !important;
+    }
+
+    body.auth-page .otp-container {
+        gap: 4px !important;
+    }
+
+    body.auth-page .otp-box {
+        height: 44px !important;
+        font-size: 16px !important;
+    }
+}
+
+@media screen and (prefers-reduced-motion: reduce) {
+    :is(
+        body.auth-page,
+        body.page-forgot-password,
+        body.page-reset-password,
+        body.page-setup-password
+    ) :is(
+        .brand-panel,
+        .brand-section,
+        .auth-view,
+        .form-container,
+        .btn-corporate,
+        .btn-text-only,
+        .btn-submit,
+        .main-logo,
+        .brand-logo-img
+    ) {
+        transition: none !important;
+        animation: none !important;
+    }
+}
+
+/* ========================================================================== */
+/* Phase 5I: secure OTP password recovery                                     */
+/* ========================================================================== */
+
+@media screen {
+    body.page-forgot-password .recovery-container {
+        width: min(100%, 470px) !important;
+    }
+
+    body.page-forgot-password .recovery-step[hidden],
+    body.page-forgot-password .recovery-alert[hidden] {
+        display: none !important;
+    }
+
+    body.page-forgot-password .recovery-step.active {
+        display: block !important;
+        opacity: 1 !important;
+        animation: none !important;
+    }
+
+    body.page-forgot-password .recovery-progress {
+        display: grid;
+        grid-template-columns: auto minmax(30px, 1fr) auto minmax(30px, 1fr) auto;
+        align-items: start;
+        width: 100%;
+        margin: 0 0 26px;
+    }
+
+    body.page-forgot-password .recovery-progress-item {
+        display: grid;
+        justify-items: center;
+        gap: 5px;
+        min-width: 52px;
+        color: #7b8798;
+    }
+
+    body.page-forgot-password .recovery-progress-item > span {
+        display: inline-grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        border: 1px solid #b9c4d2;
+        border-radius: 50%;
+        background: #fff;
+        color: #526176;
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1;
+    }
+
+    body.page-forgot-password .recovery-progress-item small {
+        font-size: 10px;
+        font-weight: 650;
+        line-height: 1.2;
+    }
+
+    body.page-forgot-password .recovery-progress-item.is-active,
+    body.page-forgot-password .recovery-progress-item.is-complete {
+        color: #1f4fb3;
+    }
+
+    body.page-forgot-password .recovery-progress-item.is-active > span {
+        border-color: #2457c5;
+        background: #2457c5;
+        color: #fff;
+        box-shadow: 0 0 0 4px #eaf0ff;
+    }
+
+    body.page-forgot-password .recovery-progress-item.is-complete > span {
+        border-color: #0f8069;
+        background: #e7f7f2;
+        color: #0b6b58;
+    }
+
+    body.page-forgot-password .recovery-progress-line {
+        height: 1px;
+        margin-top: 14px;
+        background: #cbd4df;
+    }
+
+    body.page-forgot-password .auth-eyebrow {
+        display: block;
+        margin: 0 0 7px;
+        color: #2457c5;
+        font-size: 10px;
+        font-weight: 750;
+        line-height: 1.2;
+        letter-spacing: .095em;
+        text-transform: uppercase;
+    }
+
+    body.page-forgot-password .recovery-alert,
+    body.page-forgot-password .recovery-server-notice {
+        align-items: flex-start !important;
+        gap: 9px !important;
+        margin: 0 0 16px !important;
+        padding: 10px 12px !important;
+        border: 1px solid #c8d3e0 !important;
+        border-radius: 9px !important;
+        font-size: 11.5px !important;
+        line-height: 1.45 !important;
+    }
+
+    body.page-forgot-password .alert-info {
+        border-color: #bdd0ef !important;
+        background: #f1f6ff !important;
+        color: #244c85 !important;
+    }
+
+    body.page-forgot-password .alert-success {
+        border-color: #a9ddcf !important;
+        background: #effaf6 !important;
+        color: #0c6655 !important;
+    }
+
+    body.page-forgot-password .alert-error {
+        border-color: #efb9bd !important;
+        background: #fff3f4 !important;
+        color: #9b2c35 !important;
+    }
+
+    body.page-forgot-password .recovery-security-note {
+        display: flex;
+        align-items: flex-start;
+        gap: 9px;
+        margin-top: 14px;
+        padding: 10px 11px;
+        border: 1px solid #d2dae5;
+        border-radius: 9px;
+        background: #f7f9fc;
+        color: #5c697b;
+        font-size: 10.5px;
+        line-height: 1.45;
+    }
+
+    body.page-forgot-password .recovery-security-note i {
+        flex: 0 0 auto;
+        margin-top: 2px;
+        color: #2457c5;
+    }
+
+    body.page-forgot-password .recovery-otp-group {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(38px, 1fr));
+        gap: 8px;
+        margin: 2px 0 17px;
+    }
+
+    body.page-forgot-password .recovery-otp-input {
+        width: 100%;
+        min-width: 0;
+        height: 48px;
+        padding: 0;
+        border: 1px solid #aebccd;
+        border-radius: 9px;
+        background: #fff;
+        color: #17233a;
+        font-family: inherit;
+        font-size: 18px;
+        font-weight: 700;
+        line-height: 48px;
+        text-align: center;
+        outline: none;
+        transition: border-color .16s ease, box-shadow .16s ease;
+    }
+
+    body.page-forgot-password .recovery-otp-input:focus {
+        border-color: #2457c5;
+        box-shadow: 0 0 0 3px rgba(36, 87, 197, .12);
+    }
+
+    body.page-forgot-password .recovery-inline-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 10px;
+    }
+
+    body.page-forgot-password .recovery-inline-actions .btn-text-only {
+        width: auto !important;
+        min-height: 34px !important;
+        margin: 0 !important;
+        padding: 5px 2px !important;
+        border: 0 !important;
+        background: transparent !important;
+        font-size: 11px !important;
+    }
+
+    body.page-forgot-password .recovery-inline-actions .btn-text-only:disabled {
+        color: #8a96a7 !important;
+        cursor: not-allowed;
+        opacity: 1;
+    }
+
+    body.page-forgot-password .recovery-password-field {
+        position: relative;
+    }
+
+    body.page-forgot-password .recovery-password-field input {
+        padding-right: 44px !important;
+    }
+
+    body.page-forgot-password .recovery-password-toggle {
+        position: absolute;
+        top: 50%;
+        right: 8px;
+        z-index: 3;
+        display: inline-grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        padding: 0;
+        border: 0;
+        border-radius: 7px;
+        background: transparent;
+        color: #657389;
+        transform: translateY(-50%);
+    }
+
+    body.page-forgot-password .recovery-password-toggle:hover,
+    body.page-forgot-password .recovery-password-toggle:focus-visible {
+        background: #edf2f8;
+        color: #1f4fb3;
+        outline: none;
+    }
+
+    body.page-forgot-password .recovery-password-rules {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 7px 12px;
+        margin: -1px 0 16px;
+        padding: 11px 12px;
+        border: 1px solid #d3dce6;
+        border-radius: 9px;
+        background: #f7f9fc;
+    }
+
+    body.page-forgot-password .recovery-password-rules span {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: #687588;
+        font-size: 10px;
+        font-weight: 550;
+        line-height: 1.3;
+    }
+
+    body.page-forgot-password .recovery-password-rules span i {
+        color: #9aa6b5;
+        font-size: 7px;
+    }
+
+    body.page-forgot-password .recovery-password-rules span.is-valid {
+        color: #0b6b58;
+    }
+
+    body.page-forgot-password .recovery-password-rules span.is-valid i {
+        color: #0f8069;
+        font-size: 11px;
+    }
+
+    body.page-forgot-password .btn-corporate {
+        gap: 8px !important;
+    }
+
+    body.page-forgot-password .btn-corporate i,
+    body.page-forgot-password .btn-text-only i {
+        display: inline-grid;
+        place-items: center;
+        flex: 0 0 auto;
+        width: 14px;
+        line-height: 1;
+    }
+
+    body.page-forgot-password .btn-corporate:disabled {
+        cursor: wait;
+        opacity: .72;
+    }
+
+    body.page-forgot-password .recovery-login-link {
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        text-decoration: none !important;
+    }
+}
+
+@media screen and (max-width: 575.98px) {
+    body.page-forgot-password .recovery-progress { margin-bottom: 21px; }
+    body.page-forgot-password .recovery-otp-group { gap: 5px; }
+    body.page-forgot-password .recovery-otp-input {
+        height: 43px;
+        border-radius: 8px;
+        font-size: 16px;
+        line-height: 43px;
+    }
+    body.page-forgot-password .recovery-password-rules { grid-template-columns: 1fr; }
+}
+
+/* ========================================================================== */
+/* Phase 5K1: compact and reliable Alternative Access OTP input               */
+/* ========================================================================== */
+
+@media screen {
+    body.auth-page .otp-single-container {
+        display: block !important;
+        margin: 0 0 18px !important;
+    }
+
+    body.auth-page .otp-code-input {
+        box-sizing: border-box;
+        display: block;
+        width: 100%;
+        height: 52px;
+        padding: 0 18px 0 26px;
+        border: 1px solid #aebccd;
+        border-radius: 9px;
+        background: #ffffff;
+        color: #17233a;
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        font-size: 19px;
+        font-weight: 700;
+        line-height: 52px;
+        letter-spacing: .55em;
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+        outline: none;
+        box-shadow: none;
+        transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
+    }
+
+    body.auth-page .otp-code-input::placeholder {
+        color: #a4afbd;
+        opacity: .72;
+    }
+
+    body.auth-page .otp-code-input:hover {
+        border-color: #8fa0b5;
+    }
+
+    body.auth-page .otp-code-input:focus {
+        border-color: var(--auth-brand-accent, #2854c5);
+        background: #fbfdff;
+        box-shadow: 0 0 0 3px rgba(40, 84, 197, .12);
+    }
+}
+
+@media screen and (max-width: 575.98px) {
+    body.auth-page .otp-code-input {
+        height: 48px;
+        padding-left: 22px;
+        font-size: 17px;
+        line-height: 48px;
+        letter-spacing: .48em;
+    }
+}

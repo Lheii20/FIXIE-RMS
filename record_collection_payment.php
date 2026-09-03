@@ -66,6 +66,10 @@ if ($po_id > 0) {
                 ) AS delivery_completed_at,
                 receipt.collection_due_date AS receipt_due_date,
                 receipt.recipient_name,
+                po_record.doc_id AS po_record_doc_id,
+                po_record.record_number AS po_record_number,
+                receipt_record.doc_id AS receipt_record_doc_id,
+                receipt_record.record_number AS receipt_record_number,
                 COALESCE(payment_summary.total_paid, 0) AS total_paid,
                 COALESCE(payment_summary.payment_count, 0) AS payment_count,
                 payment_summary.last_payment_at
@@ -77,6 +81,18 @@ if ($po_id > 0) {
                     WHERE latest_receipt.po_id = po.po_id
                       AND latest_receipt.record_status = 'Active'
                 )
+             LEFT JOIN documents po_record
+                ON po_record.source_module = 'Internal Purchase Order'
+               AND po_record.source_record_id = po.po_id
+               AND po_record.record_phase = 'Official'
+               AND po_record.status <> 'Recycled'
+               AND po_record.is_locked = 1
+             LEFT JOIN documents receipt_record
+                ON receipt_record.source_module = 'Delivery Receipt'
+               AND receipt_record.source_record_id = receipt.delivery_receipt_id
+               AND receipt_record.record_phase = 'Official'
+               AND receipt_record.status <> 'Recycled'
+               AND receipt_record.is_locked = 1
              LEFT JOIN (
                 SELECT
                     po_id,
@@ -140,8 +156,21 @@ if ($po_id > 0) {
 
             if (!$delivery_is_complete && !$pre_delivery_payment_window) {
                 $eligibility_error = 'Client payment can be recorded only after the PO reaches final approval.';
+            } elseif (
+                empty($record['po_record_doc_id']) ||
+                !preg_match('/^PO-\d{4}-\d{4}$/', (string) ($record['po_record_number'] ?? ''))
+            ) {
+                $eligibility_error = 'The Internal Purchase Order Official Record is missing. Complete the approved PO filing before recording client payment.';
             } elseif ($delivery_is_complete && empty($record['delivery_completed_at'])) {
                 $eligibility_error = 'The delivery completion timestamp is missing. Complete or correct the client delivery record first.';
+            } elseif (
+                $delivery_is_complete &&
+                (
+                    empty($record['receipt_record_doc_id']) ||
+                    !preg_match('/^POD-\d{4}-\d{4}$/', (string) ($record['receipt_record_number'] ?? ''))
+                )
+            ) {
+                $eligibility_error = 'The Proof of Delivery Official Record is missing. Complete the verified client delivery filing before recording payment.';
             } elseif ($record['collection_status'] === 'Paid' || $balance_check <= 0) {
                 $eligibility_error = 'This PO no longer has an outstanding balance.';
             } elseif ($delivery_is_complete && !$active_assignment) {
@@ -274,6 +303,14 @@ $can_record = $record && $eligibility_error === '';
                         <div class="prf-source-item prf-source-item-primary">
                             <span>Purchase Order</span>
                             <strong><?php echo htmlspecialchars($record['po_number']); ?></strong>
+                        </div>
+                        <div class="prf-source-item">
+                            <span>Official PO</span>
+                            <strong><?php echo htmlspecialchars((string) ($record['po_record_number'] ?? 'Missing')); ?></strong>
+                        </div>
+                        <div class="prf-source-item">
+                            <span><?php echo $delivery_is_complete ? 'Delivery proof' : 'Payment stage'; ?></span>
+                            <strong><?php echo htmlspecialchars($delivery_is_complete ? (string) ($record['receipt_record_number'] ?? 'Missing') : 'Advance / down payment'); ?></strong>
                         </div>
                         <div class="prf-source-item">
                             <span>Client</span>
@@ -508,7 +545,7 @@ $can_record = $record && $eligibility_error === '';
         </div>
     </main>
 
-    <script src="assets/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <?php if ($record): ?>
         <script src="assets/js/collection-payment.js?v=<?php echo filemtime(__DIR__ . '/assets/js/collection-payment.js'); ?>"></script>
     <?php endif; ?>

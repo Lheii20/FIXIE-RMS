@@ -1,0 +1,62 @@
+/* Scoped VC2 styles: no changes to existing lists, forms, typography or page width. */
+.vcm[hidden], .vcm [hidden] { display:none !important; }
+.vcm .modal-dialog { width:calc(100% - 32px); max-width:1100px; margin:16px auto; min-height:calc(100% - 32px); }
+.vcm .modal-content { height:min(740px,calc(100dvh - 32px)); max-height:calc(100dvh - 32px); overflow:hidden; border:1px solid #aabbd0; border-radius:12px; background:#fff; box-shadow:0 12px 36px #14243a1a; color:#172b45; font-size:14px; }
+.vcm .modal-header, .vcm .modal-footer { flex:none; padding:16px 20px; border-color:#c0cddd; gap:10px; }
+.vcm .modal-title { font-size:17px !important; line-height:1.4; font-weight:650; margin:0; }
+.vcm .vcm-subtitle { font-size:14px; color:#536780; margin:4px 0 0; line-height:1.5; }
+.vcm .btn { min-height:36px; font-size:14px !important; line-height:1.25 !important; font-weight:500 !important; text-transform:none !important; letter-spacing:normal !important; padding:8px 12px; border-radius:7px; display:inline-flex; align-items:center; justify-content:center; gap:6px; white-space:nowrap; box-shadow:none !important; }
+.vcm .btn-primary { background:#2563eb !important; border:1px solid #2563eb !important; color:#fff !important; }
+.vcm .btn-primary:hover { background:#1d4ed8 !important; }
+.vcm .btn-danger { background:#b42335 !important; border:1px solid #b42335 !important; color:#fff !important; }
+.vcm .btn-outline-secondary { color:#344e6e; border-color:#aabbd0; background:#fff; }
+.vcm .btn-outline-secondary:hover { background:#edf3fa; }
+.vcm .vcm-list { display:flex; flex:1; flex-direction:column; min-height:0; }
+.vcm .vcm-toolbar { display:flex; align-items:center; gap:8px; padding:16px 20px; flex:none; }
+.vcm .vcm-search { display:flex; flex:1; min-width:0; border:1px solid #aabbd0; border-radius:8px; overflow:hidden; background:#fff; }
+.vcm .vcm-search:focus-within { outline:2px solid #2563eb; outline-offset:2px; }
+.vcm .vcm-search input, .vcm .vcm-search select { font:inherit; color:inherit; height:38px; border:0; outline:none; box-shadow:none; min-width:0; }
+.vcm .vcm-search input { flex:1; padding:8px 12px; width:100%; }
+.vcm .vcm-search select { flex:0 0 165px; padding:7px 9px; border-left:1px solid #c0cddd; background:#f5f8fc; }
+.vcm .vcm-table-scroll { flex:1; min-height:0; overflow:auto; border-top:1px solid #c0cddd; }
+.vcm .vcm-table { table-layout:fixed; border-collapse:separate; border-spacing:0; width:100%; margin:0; font-size:14px; }
+.vcm .vcm-table th { position:sticky; top:0; background:#f3f6fa; z-index:1; font-size:12px; font-weight:650; letter-spacing:.025em; text-transform:uppercase; text-align:left; }
+.vcm .vcm-table th, .vcm .vcm-table td { padding:12px 16px; vertical-align:middle; border-bottom:1px solid #ccd6e3; }
+.vcm .vcm-table th:nth-child(1) { width:29%; }
+.vcm .vcm-table th:nth-child(2) { width:31%; }
+.vcm .vcm-table th:nth-child(3) { width:20%; }
+.vcm .vcm-table th:nth-child(4) { width:20%; }
+.vcm .vcm-table .vcm-actions-head { text-align:right; }
+.vcm .vcm-truncate { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.vcm .vcm-name { font-weight:600; }
+.vcm .vcm-meta { color:#536780; font-size:13px; margin-top:4px; }
+.vcm .vcm-row-actions { display:flex; gap:6px; justify-content:flex-end; }
+.vcm .vcm-row-actions .btn { padding:6px 9px; min-height:32px; }
+.vcm .vcm-delete { color:#a32434; }
+.vcm .vcm-empty { text-align:center; color:#536780; padding:40px 20px !important; }
+.vcm .vcm-pager { display:flex; justify-content:space-between; align-items:center; gap:12px; flex:none; padding:12px 20px; border-top:1px solid #c0cddd; background:#f5f8fc; font-size:13px; }
+.vcm .vcm-pager > div { display:flex; gap:10px; align-items:center; }
+.vcm .vcm-message { flex:none; padding:10px 20px; font-size:14px; background:#eef5ff; border-bottom:1px solid #c0cddd; color:#17477c; overflow-wrap:anywhere; }
+.vcm .vcm-message.is-error { color:#8c2430; background:#fff1f2; }
+.vcm .vcm-editor { flex:1; min-height:0; overflow:auto; padding:20px; }
+.vcm .vcm-form-grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+.vcm .vcm-span { grid-column:1/-1; }
+.vcm .vcm-form label { font-size:14px; font-weight:600; margin-bottom:7px; display:block; }
+.vcm .vcm-form .form-control, .vcm .vcm-form .form-select { font-size:14px; min-height:40px; border:1px solid #aabbd0; border-radius:7px; padding:9px 12px; line-height:1.4; box-shadow:none; }
+.vcm .vcm-form .form-select { padding-right:34px; }
+.vcm .vcm-form :is(input,select):focus { outline:2px solid #2563eb; outline-offset:2px; }
+.vcm .vcm-form :is(input,select):disabled, .vcm .vcm-form input:read-only { background:#f2f5f9; color:#536780; }
+.vcm .vcm-help { color:#536780; font-size:13px; line-height:1.5; margin:7px 0 0; }
+.vcm .vcm-boundary { padding-top:16px; margin-top:20px; border-top:1px solid #ccd6e3; }
+@media (max-width:700px) {
+  .vcm .modal-dialog { width:calc(100% - 16px); margin:8px auto; min-height:calc(100% - 16px); }
+  .vcm .modal-content { height:calc(100dvh - 16px); max-height:calc(100dvh - 16px); }
+  .vcm .modal-header, .vcm .modal-footer, .vcm .vcm-editor { padding:14px; }
+  .vcm .vcm-toolbar { flex-wrap:wrap; padding:12px 14px; }
+  .vcm .vcm-search { flex-basis:100%; }
+  .vcm .vcm-search select { flex-basis:140px; }
+  .vcm .vcm-table { min-width:660px; }
+  .vcm .vcm-form-grid { grid-template-columns:1fr; gap:16px; }
+  .vcm .vcm-pager { flex-wrap:wrap; padding:10px 14px; }
+  .vcm .vcm-pager > div { margin-left:auto; }
+}

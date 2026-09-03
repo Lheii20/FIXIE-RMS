@@ -4,6 +4,8 @@ session_start();
 require '../config/db_connect.php';
 require '../config/functions.php';
 require_once '../config/workflow_feedback.php';
+require_once '../config/official_delivery_request_snapshot.php';
+require_once '../config/official_logistics_plan_snapshot.php';
 
 date_default_timezone_set('Asia/Manila');
 
@@ -198,6 +200,12 @@ if (in_array(
     $user_id = (int) $_SESSION['user_id'];
     $is_approval = $action === 'approve_delivery_schedule';
     $return_reason = trim((string) ($_POST['return_reason'] ?? ''));
+    $official_delivery_request_storage_path = null;
+    $official_delivery_request_number = '';
+    $official_delivery_request_doc_id = null;
+    $official_logistics_plan_storage_path = null;
+    $official_logistics_plan_number = '';
+    $official_logistics_plan_doc_id = null;
 
     $provider_type = trim((string) ($_POST['provider_type'] ?? ''));
     $provider_name = trim((string) ($_POST['provider_name'] ?? ''));
@@ -404,6 +412,24 @@ if (in_array(
                 );
             }
 
+            if (
+                $review['request_type'] === 'Client Pick-up' &&
+                $provider_type !== 'Client Pick-up'
+            ) {
+                throw new DomainException(
+                    'A Client Pick-up request must use Client Pick-up as its provider type.'
+                );
+            }
+
+            if (
+                $review['request_type'] !== 'Client Pick-up' &&
+                $provider_type === 'Client Pick-up'
+            ) {
+                throw new DomainException(
+                    'Client Pick-up cannot be used as the provider for this delivery-request type.'
+                );
+            }
+
             if ($provider_type === 'Third-Party Logistics' &&
                 $provider_name === '') {
                 throw new DomainException(
@@ -564,6 +590,43 @@ if (in_array(
             );
         }
 
+        if ($is_approval) {
+            $official_delivery_request =
+                drms_file_approved_delivery_request_as_official_record(
+                    $conn,
+                    $delivery_request_id,
+                    $user_id
+                );
+            $official_delivery_request_number = (string)
+                $official_delivery_request['record_number'];
+            $official_delivery_request_doc_id = (int)
+                $official_delivery_request['doc_id'];
+            $official_delivery_request_storage_path =
+                $official_delivery_request['storage_absolute_path'] ?? null;
+
+            $official_logistics_plan =
+                drms_file_approved_logistics_plan_as_official_record(
+                    $conn,
+                    $delivery_plan_id,
+                    $user_id
+                );
+            $official_logistics_plan_number = (string)
+                $official_logistics_plan['record_number'];
+            $official_logistics_plan_doc_id = (int)
+                $official_logistics_plan['doc_id'];
+            $official_logistics_plan_storage_path =
+                $official_logistics_plan['storage_absolute_path'] ?? null;
+
+            $history_remarks .= ' Official Records: ' .
+                $official_delivery_request_number . ' and ' .
+                $official_logistics_plan_number . '.';
+            $success_message =
+                'Delivery request and logistics plan approved, filed as ' .
+                $official_delivery_request_number . ' and ' .
+                $official_logistics_plan_number .
+                ', and scheduled for execution.';
+        }
+
         $history_stmt = $conn->prepare(
             "INSERT INTO po_history (
                 po_id,
@@ -598,14 +661,46 @@ if (in_array(
         $notify_target = trim((string) $rule['notify_target']) !== ''
             ? $rule['notify_target']
             : $next_role;
+        $notification_message =
+            'Delivery request ' . $review['request_number'] .
+            ' for PO ' . $review['po_number'] . ' is now ' .
+            $new_status . '.';
+        if ($is_approval) {
+            $notification_message .= ' Official Records: ' .
+                $official_delivery_request_number . ' and ' .
+                $official_logistics_plan_number . '.';
+        }
         create_role_notification(
             $conn,
             $notify_target,
-            'Delivery request ' . $review['request_number'] .
-                ' for PO ' . $review['po_number'] . ' is now ' .
-                $new_status . '.'
+            $notification_message
         );
 
+        $after_state = [
+            'status' => $new_status,
+            'logistics_status' => $is_approval
+                ? 'Scheduled'
+                : 'Returned',
+            'delivery_request_id' => $delivery_request_id,
+            'delivery_plan_id' => $delivery_plan_id,
+            'assigned_user' => $assigned_user,
+            'provider_type' => $is_approval
+                ? $provider_type
+                : null,
+            'return_reason' => $is_approval
+                ? null
+                : $return_reason,
+        ];
+        if ($is_approval) {
+            $after_state['official_record_doc_id'] =
+                $official_delivery_request_doc_id;
+            $after_state['official_record_number'] =
+                $official_delivery_request_number;
+            $after_state['logistics_plan_record_doc_id'] =
+                $official_logistics_plan_doc_id;
+            $after_state['logistics_plan_record_number'] =
+                $official_logistics_plan_number;
+        }
         log_audit_action(
             $conn,
             $user_id,
@@ -615,24 +710,14 @@ if (in_array(
                 'status' => 'Delivery Requested',
                 'logistics_status' => 'Pending Review',
             ],
-            [
-                'status' => $new_status,
-                'logistics_status' => $is_approval
-                    ? 'Scheduled'
-                    : 'Returned',
-                'delivery_request_id' => $delivery_request_id,
-                'delivery_plan_id' => $delivery_plan_id,
-                'assigned_user' => $assigned_user,
-                'provider_type' => $is_approval
-                    ? $provider_type
-                    : null,
-                'return_reason' => $is_approval
-                    ? null
-                    : $return_reason,
-            ]
+            $after_state
         );
 
-        $conn->commit();
+        if (!$conn->commit()) {
+            throw new RuntimeException(
+                'The logistics decision transaction could not be completed.'
+            );
+        }
         header(
             'Location: ../view_po.php?id=' . $po_id . '&success=' .
             rawurlencode($success_message)
@@ -640,6 +725,19 @@ if (in_array(
         exit();
     } catch (Throwable $error) {
         $conn->rollback();
+
+        if (
+            $official_delivery_request_storage_path &&
+            is_file($official_delivery_request_storage_path)
+        ) {
+            @unlink($official_delivery_request_storage_path);
+        }
+        if (
+            $official_logistics_plan_storage_path &&
+            is_file($official_logistics_plan_storage_path)
+        ) {
+            @unlink($official_logistics_plan_storage_path);
+        }
         drms_log_workflow_failure(
             'Logistics review for PO ' . $po_id,
             $error
@@ -1208,4 +1306,3 @@ try {
 
     phase4b_redirect($po_id, 'error', $public_error);
 }
-

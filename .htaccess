@@ -1,0 +1,17 @@
+Options -Indexes
+
+# Keep detailed PHP warnings, stack traces, and local server paths out of the
+# browser. The application continues to write them to the PHP error log.
+<IfModule php_module>
+    php_flag display_errors Off
+    php_flag display_startup_errors Off
+    php_flag log_errors On
+</IfModule>
+
+# Baseline browser protections that do not interfere with the system's current
+# same-origin pages, previews, or downloads.
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>

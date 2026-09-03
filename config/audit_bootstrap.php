@@ -231,9 +231,11 @@ if (!function_exists('drms_audit_type_for_request')) {
 
         if ($method === 'GET') {
             if ($base === 'download.php') return 'DOWNLOAD_ATTEMPT';
+            // Record access remains meaningful even when its URL has type,
+            // search, or filter parameters used to display the record.
+            if (strpos($base, 'view_') === 0) return 'VIEW_RECORD';
             if (isset($_GET['search']) && trim((string)$_GET['search']) !== '') return 'SEARCH';
             if (isset($_GET['filter']) || isset($_GET['type']) || isset($_GET['view_archives']) || isset($_GET['tab'])) return 'FILTER';
-            if (strpos($base, 'view_') === 0) return 'VIEW_RECORD';
             return 'PAGE_VIEW';
         }
 
@@ -261,12 +263,32 @@ if (!function_exists('drms_audit_should_skip_request')) {
         if (in_array($base, ['db_connect.php', 'functions.php', 'audit_bootstrap.php'], true)) return true;
         if ($path === '' || $base === '') return true;
 
-        $audit_endpoints = ['api/log_action.php', 'api/log_print.php'];
+        $audit_endpoints = [
+            'api/log_action.php',
+            'api/log_print.php',
+            'api/audit_logs_export.php',
+            'actions/export_physical_inventory.php',
+        ];
         foreach ($audit_endpoints as $endpoint) {
             if (substr($path, -strlen($endpoint)) === $endpoint) return true;
         }
 
         return false;
+    }
+}
+
+if (!function_exists('drms_audit_should_capture_request')) {
+    function drms_audit_should_capture_request($method, $path) {
+        if (drms_audit_should_skip_request($path)) return false;
+
+        $method = strtoupper((string)$method);
+        // Keep every existing POST attempt. FORM_SUBMIT can represent a real
+        // operation without a dedicated action code; it is not safe to discard.
+        if ($method === 'POST') return true;
+        if ($method !== 'GET') return false;
+
+        $base = basename(str_replace('\\', '/', (string)$path));
+        return $base === 'download.php' || strpos($base, 'view_') === 0;
     }
 }
 
@@ -316,6 +338,9 @@ if (!function_exists('drms_capture_request_audit')) {
 
         $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
         if (!in_array($method, ['GET', 'POST'], true)) return;
+        // Suppress navigation telemetry only at the automatic capture boundary.
+        // Explicit handler calls to the central logger are never filtered here.
+        if (!drms_audit_should_capture_request($method, $path)) return;
 
         $user_id = $_SESSION['user_id'] ?? null;
         $is_public_post = $method === 'POST' && (

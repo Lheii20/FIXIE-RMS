@@ -636,12 +636,19 @@ if (!function_exists('get_po_record_timeline')) {
             "SELECT
                 receipt.*,
                 recorder.full_name AS recorded_by_name,
-                voider.full_name AS voided_by_name
+                voider.full_name AS voided_by_name,
+                receipt_record.record_number AS receipt_record_number
              FROM po_delivery_receipts receipt
              LEFT JOIN users recorder
                 ON recorder.user_id = receipt.recorded_by
              LEFT JOIN users voider
                 ON voider.user_id = receipt.voided_by
+             LEFT JOIN documents receipt_record
+                ON receipt_record.source_module = 'Delivery Receipt'
+               AND receipt_record.source_record_id =
+                    receipt.delivery_receipt_id
+               AND receipt_record.record_phase = 'Official'
+               AND receipt_record.status <> 'Recycled'
              WHERE receipt.po_id = ?
              ORDER BY receipt.receipt_cycle ASC,
                       receipt.delivery_receipt_id ASC"
@@ -658,6 +665,9 @@ if (!function_exists('get_po_record_timeline')) {
                 'category' => 'Client Delivery',
                 'title' => 'Client delivery completed',
                 'detail' => drms_po_timeline_detail([
+                    !empty($row['receipt_record_number'])
+                        ? 'Official record ' . $row['receipt_record_number']
+                        : '',
                     $row['client_receipt_reference'],
                     $row['recipient_name'],
                     (int) $row['delivered_item_quantity'] . '/' .
@@ -702,6 +712,7 @@ if (!function_exists('get_po_record_timeline')) {
             "SELECT
                 payment.*,
                 recorder.full_name AS recorded_by_name,
+                payment_record.record_number AS payment_record_number,
                 status_history.collection_status_from,
                 status_history.collection_status_to,
                 status_history.balance_before,
@@ -709,6 +720,12 @@ if (!function_exists('get_po_record_timeline')) {
              FROM payments payment
              LEFT JOIN users recorder
                 ON recorder.user_id = payment.recorded_by
+             LEFT JOIN documents payment_record
+                ON payment_record.source_module = 'Client Payment'
+               AND payment_record.source_record_id = payment.payment_id
+               AND payment_record.record_phase = 'Official'
+               AND payment_record.status <> 'Recycled'
+               AND payment_record.is_locked = 1
              LEFT JOIN po_collection_status_history status_history
                 ON status_history.collection_history_id = (
                     SELECT MAX(latest_history.collection_history_id)
@@ -730,6 +747,9 @@ if (!function_exists('get_po_record_timeline')) {
                 'category' => 'Collection',
                 'title' => $classification . ' recorded',
                 'detail' => drms_po_timeline_detail([
+                    !empty($row['payment_record_number'])
+                        ? 'Official record ' . $row['payment_record_number']
+                        : '',
                     drms_po_timeline_money($row['amount_paid']),
                     $row['payment_method'],
                     !empty($row['reference_number'])

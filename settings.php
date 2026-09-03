@@ -8,13 +8,16 @@ drms_require_login();
 $user_id = $_SESSION['user_id'];
 $role = $_SESSION['role'];
 
-$query = $conn->query("SELECT * FROM users WHERE user_id = $user_id");
-if ($query->num_rows == 0) {
+$query = $conn->prepare("SELECT * FROM users WHERE user_id = ? LIMIT 1");
+$query->bind_param('i', $user_id);
+$query->execute();
+$user_result = $query->get_result();
+if ($user_result->num_rows == 0) {
     session_destroy();
     header("Location: index.php");
     exit();
 }
-$user = $query->fetch_assoc();
+$user = $user_result->fetch_assoc();
 ?>
 
 <!DOCTYPE html>
@@ -44,6 +47,9 @@ $user = $query->fetch_assoc();
                 if($_GET['success'] == 'CodeSent') echo "A 6-digit verification code has been sent to your new email.";
                 elseif($_GET['success'] == 'EmailVerified') echo "Email successfully verified and updated!";
                 elseif($_GET['success'] == 'PasswordUpdated') echo "Your password has been successfully updated!";
+                elseif($_GET['success'] == 'ProfileUpdated') echo "Your profile information has been updated.";
+                elseif($_GET['success'] == 'AvatarUpdated') echo "Your profile photo has been updated.";
+                elseif($_GET['success'] == 'EmailChangeCancelled') echo "The pending email change has been cancelled.";
                 elseif($_GET['success'] == 'RequestSubmitted') echo "Your username change request has been sent to the Admin.";
                 else echo "Action completed successfully!";
                 ?>
@@ -60,6 +66,23 @@ $user = $query->fetch_assoc();
                 elseif($_GET['error'] == 'WrongCurrentPassword') echo "The current password you entered is incorrect.";
                 elseif($_GET['error'] == 'PasswordMismatch') echo "The new passwords do not match.";
                 elseif($_GET['error'] == 'WeakPassword' || $_GET['error'] == 'WeakPasswordAdmin') echo "Password must be at least 8 characters long, contain an uppercase letter, a lowercase letter, and a number.";
+                elseif($_GET['error'] == 'PasswordReused') echo "Your new password must be different from your current password.";
+                elseif($_GET['error'] == 'InvalidEmail') echo "Enter a valid recovery email address.";
+                elseif($_GET['error'] == 'InvalidFullName') echo "Enter a valid full name with no more than 100 characters.";
+                elseif($_GET['error'] == 'EmailCodeCooldown') echo "Please wait 60 seconds before requesting another email code.";
+                elseif($_GET['error'] == 'TooManyEmailCodeAttempts') echo "Too many incorrect codes. Save your information again to request a new code.";
+                elseif($_GET['error'] == 'VerificationEmailFailed') echo "The verification email could not be sent. Your existing email was not changed.";
+                elseif($_GET['error'] == 'AvatarTooLarge') echo "The profile photo must not exceed 5 MB.";
+                elseif($_GET['error'] == 'InvalidAvatarType') echo "Use a valid JPG, PNG, or WebP profile photo.";
+                elseif($_GET['error'] == 'AvatarUploadFailed') echo "The profile photo could not be uploaded.";
+                elseif($_GET['error'] == 'AccountUpdateFailed') echo "The account could not be updated. Please try again.";
+                elseif($_GET['error'] == 'InvalidUsername') echo "Use 3–50 lowercase letters or numbers. A period, underscore, or hyphen may separate username parts.";
+                elseif($_GET['error'] == 'UsernameAlreadyExists') echo "That username is already assigned to another account.";
+                elseif($_GET['error'] == 'UsernameUnchanged') echo "Enter a username that is different from your current username.";
+                elseif($_GET['error'] == 'PendingRequestExists') echo "You already have a pending username-change request, or that username is currently reserved by another pending request.";
+                elseif($_GET['error'] == 'InvalidReason') echo "Enter a brief reason containing 3 to 500 characters.";
+                elseif($_GET['error'] == 'RequestNotAllowed') echo "This account cannot submit that type of request.";
+                elseif($_GET['error'] == 'RequestFailed') echo "The username-change request could not be saved. Please try again.";
                 else echo htmlspecialchars($_GET['error']); 
                 ?>
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
@@ -91,7 +114,7 @@ $user = $query->fetch_assoc();
                                 <form action="actions/user_handler.php" method="POST" enctype="multipart/form-data" class="d-flex gap-2">
                                     <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                                     <input type="hidden" name="action" value="upload_avatar">
-                                    <input type="file" name="avatar" id="avatarInput" class="d-none" accept="image/*" onchange="this.form.submit()">
+                                    <input type="file" name="avatar" id="avatarInput" class="d-none" accept="image/jpeg,image/png,image/webp" onchange="this.form.submit()">
                                     <button type="button" class="btn btn-sm btn-outline-primary bg-white" onclick="document.getElementById('avatarInput').click()">
                                         <i class="fas fa-camera me-1"></i> Change Photo
                                     </button>
@@ -114,7 +137,7 @@ $user = $query->fetch_assoc();
                                 <form action="actions/user_handler.php" method="POST" class="d-flex gap-2">
                                     <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                                     <input type="hidden" name="action" value="verify_email_code">
-                                    <input type="text" name="verification_code" class="form-control form-control-sm text-center fw-bold" placeholder="000000" maxlength="6" required style="letter-spacing: 5px;">
+                                    <input type="text" name="verification_code" class="form-control form-control-sm text-center fw-bold" placeholder="000000" minlength="6" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" required style="letter-spacing: 5px;">
                                     <button type="submit" class="btn btn-sm btn-success fw-bold px-3">Verify</button>
                                 </form>
                                 <form action="actions/user_handler.php" method="POST" class="mt-2">
@@ -133,7 +156,7 @@ $user = $query->fetch_assoc();
                                 <label class="form-label small fw-bold">Full Name</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light"><i class="fas fa-user text-muted"></i></span>
-                                    <input type="text" name="full_name" class="form-control" value="<?php echo htmlspecialchars($user['full_name']); ?>" required>
+                                    <input type="text" name="full_name" class="form-control" value="<?php echo htmlspecialchars($user['full_name']); ?>" maxlength="100" autocomplete="name" required>
                                 </div>
                             </div>
 
@@ -141,12 +164,12 @@ $user = $query->fetch_assoc();
                                 <label class="form-label small fw-bold">Email Address</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light"><i class="fas fa-envelope text-muted"></i></span>
-                                    <input type="email" name="email" class="form-control" value="<?php echo htmlspecialchars($user['email'] ?? ''); ?>" placeholder="Enter email to enable recovery" required>
+                                    <input type="email" name="email" class="form-control" value="<?php echo htmlspecialchars($user['email'] ?? ''); ?>" placeholder="Enter email to enable recovery" maxlength="100" autocomplete="email" inputmode="email" spellcheck="false" required>
                                 </div>
                                 <?php if(empty($user['email'])): ?>
                                     <small class="text-danger mt-1 d-block"><i class="fas fa-exclamation-triangle"></i> Set and verify your email to enable password recovery.</small>
                                 <?php elseif(empty($user['pending_email'])): ?>
-                                    <small class="text-success mt-1 d-block"><i class="fas fa-check-circle"></i> Email Verified</small>
+                                    <small class="text-success mt-1 d-block"><i class="fas fa-check-circle"></i> Recovery email active</small>
                                 <?php endif; ?>
                             </div>
 
@@ -170,7 +193,7 @@ $user = $query->fetch_assoc();
                                 <label class="form-label small fw-bold">Current Password</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light"><i class="fas fa-key text-muted"></i></span>
-                                    <input type="password" name="current_password" id="currPass" class="form-control border-end-0" required>
+                                    <input type="password" name="current_password" id="currPass" class="form-control border-end-0" maxlength="128" autocomplete="current-password" required>
                                     <button class="btn border border-start-0 text-secondary" type="button" onclick="togglePass('currPass', 'iconCurr')">
                                         <i class="fas fa-eye" id="iconCurr"></i>
                                     </button>
@@ -181,7 +204,7 @@ $user = $query->fetch_assoc();
                                 <label class="form-label small fw-bold">New Password</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light"><i class="fas fa-shield-alt text-muted"></i></span>
-                                    <input type="password" name="new_password" id="newPass" class="form-control border-end-0" required>
+                                    <input type="password" name="new_password" id="newPass" class="form-control border-end-0" minlength="8" maxlength="128" autocomplete="new-password" required>
                                     <button class="btn border border-start-0 text-secondary" type="button" onclick="togglePass('newPass', 'iconNew')">
                                         <i class="fas fa-eye" id="iconNew"></i>
                                     </button>
@@ -192,7 +215,7 @@ $user = $query->fetch_assoc();
                                 <label class="form-label small fw-bold">Confirm New Password</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light"><i class="fas fa-check text-muted"></i></span>
-                                    <input type="password" name="confirm_password" id="confirmNewPass" class="form-control border-end-0" required>
+                                    <input type="password" name="confirm_password" id="confirmNewPass" class="form-control border-end-0" minlength="8" maxlength="128" autocomplete="new-password" required>
                                     <button class="btn border border-start-0 text-secondary" type="button" onclick="togglePass('confirmNewPass', 'iconConfirm')">
                                         <i class="fas fa-eye" id="iconConfirm"></i>
                                     </button>
@@ -209,6 +232,8 @@ $user = $query->fetch_assoc();
                                     <li id="req-change-match" class="text-danger"><i class="fas fa-times me-2"></i>Passwords match</li>
                                 </ul>
                             </div>
+
+                            <p class="small text-muted mb-3"><i class="fas fa-shield-alt me-1" aria-hidden="true"></i>Updating your password securely signs out any other active session.</p>
 
                             <button type="submit" class="btn btn-warning w-100 fw-bold text-dark" id="btn-update-password" disabled>Update Password</button>
                         </form>
@@ -232,15 +257,16 @@ $user = $query->fetch_assoc();
                                 <label class="form-label small fw-bold">Desired New Username</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light"><i class="fas fa-at text-muted"></i></span>
-                                    <input type="text" name="new_value" class="form-control" required placeholder="Enter new username">
+                                    <input type="text" name="new_value" class="form-control" required minlength="3" maxlength="50" pattern="[a-z0-9]+([._-][a-z0-9]+)*" autocomplete="username" autocapitalize="none" spellcheck="false" oninput="this.value = this.value.toLowerCase()" placeholder="e.g. juan.delacruz">
                                 </div>
+                                <small class="text-muted d-block mt-1">Use 3–50 lowercase letters or numbers. Period, underscore, and hyphen are allowed only as separators.</small>
                             </div>
 
                             <div class="mb-3">
                                 <label class="form-label small fw-bold">Reason for Change</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light"><i class="fas fa-comment-dots text-muted"></i></span>
-                                    <input type="text" name="reason" class="form-control" required placeholder="Brief reason (e.g. Spelling correction)">
+                                    <input type="text" name="reason" class="form-control" required minlength="3" maxlength="500" placeholder="Brief reason (e.g. Spelling correction)">
                                 </div>
                             </div>
 
@@ -248,7 +274,7 @@ $user = $query->fetch_assoc();
                                 <label class="form-label small fw-bold text-danger">Verify Current Password</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light"><i class="fas fa-lock text-muted"></i></span>
-                                    <input type="password" name="current_password" id="reqCurrPass" class="form-control border-end-0" required placeholder="Required for security">
+                                    <input type="password" name="current_password" id="reqCurrPass" class="form-control border-end-0" maxlength="255" autocomplete="current-password" required placeholder="Required for security">
                                     <button class="btn border border-start-0 text-secondary" type="button" onclick="togglePass('reqCurrPass', 'iconReqCurr')">
                                         <i class="fas fa-eye" id="iconReqCurr"></i>
                                     </button>

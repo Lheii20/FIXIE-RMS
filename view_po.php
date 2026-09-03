@@ -65,12 +65,211 @@ if ($po_query->num_rows === 0) {
 }
 $po = $po_query->fetch_assoc();
 
+$official_po_record_stmt = $conn->prepare(
+    "SELECT
+        doc_id,
+        record_number,
+        file_name,
+        declared_at
+     FROM documents
+     WHERE source_module = 'Internal Purchase Order'
+       AND source_record_id = ?
+       AND record_phase = 'Official'
+       AND status <> 'Recycled'
+     LIMIT 1"
+);
+$official_po_record_stmt->bind_param('i', $po_id);
+$official_po_record_stmt->execute();
+$official_po_record =
+    $official_po_record_stmt->get_result()->fetch_assoc();
+$official_po_record_stmt->close();
+$official_po_record_link = $official_po_record
+    ? 'download.php?type=document&record_id=' .
+        (int) $official_po_record['doc_id']
+    : '';
+
 $source_quotation = null;
+$source_pr_approval_by_stage = [];
 if (!empty($po['pr_id'])) {
-    $source_quote_stmt = $conn->prepare("SELECT q.quotation_id, q.quotation_number FROM purchase_requests pr INNER JOIN quotations q ON q.quotation_id = pr.quotation_id WHERE pr.pr_id = ?");
+    $source_quote_stmt = $conn->prepare(
+        "SELECT
+            pr.pr_number,
+            pr.current_approval_stage,
+            pr.final_approved_by,
+            pr.final_approved_at,
+            q.quotation_id,
+            q.quotation_number,
+            client_po.actual_client_po_number,
+            client_po.client_po_date,
+            supplier.supplier_name,
+            supplier.supplier_reference,
+            supplier.supplier_quote_date,
+            supplier.payment_method,
+            supplier.payment_terms,
+            supplier.remarks AS supplier_remarks,
+            final_approver.full_name AS pr_final_approver_name
+         FROM purchase_requests pr
+         LEFT JOIN quotations q
+            ON q.quotation_id = pr.quotation_id
+         LEFT JOIN client_approval_records client_po
+            ON client_po.approval_record_id = pr.client_approval_record_id
+           AND client_po.record_status = 'Active'
+         LEFT JOIN pr_supplier_details supplier
+            ON supplier.pr_id = pr.pr_id
+           AND supplier.record_status = 'Active'
+         LEFT JOIN users final_approver
+            ON final_approver.user_id = pr.final_approved_by
+         WHERE pr.pr_id = ?
+         LIMIT 1"
+    );
     $source_quote_stmt->bind_param("i", $po['pr_id']);
     $source_quote_stmt->execute();
     $source_quotation = $source_quote_stmt->get_result()->fetch_assoc();
+
+    $source_pr_approval_stmt = $conn->prepare(
+        "SELECT
+            approval.approval_stage,
+            approval.required_role,
+            approval.decision,
+            approval.acted_by,
+            approval.acted_at,
+            actor.full_name AS acted_by_name
+         FROM pr_approval_records approval
+         LEFT JOIN users actor
+            ON actor.user_id = approval.acted_by
+         WHERE approval.pr_id = ?
+           AND approval.approval_cycle = (
+                SELECT MAX(cycle_record.approval_cycle)
+                FROM pr_approval_records cycle_record
+                WHERE cycle_record.pr_id = ?
+           )
+         ORDER BY approval.stage_sequence"
+    );
+    $source_pr_approval_stmt->bind_param("ii", $po['pr_id'], $po['pr_id']);
+    $source_pr_approval_stmt->execute();
+    $source_pr_approval_result = $source_pr_approval_stmt->get_result();
+    while ($source_pr_approval = $source_pr_approval_result->fetch_assoc()) {
+        $source_pr_approval_by_stage[$source_pr_approval['approval_stage']] =
+            $source_pr_approval;
+    }
+}
+
+$po_approval_history_by_status = [];
+$po_approval_history_stmt = $conn->prepare(
+    "SELECT
+        history.status_from,
+        history.status_to,
+        history.changed_by,
+        history.timestamp AS acted_at,
+        actor.full_name AS acted_by_name
+     FROM po_history history
+     LEFT JOIN users actor
+        ON actor.user_id = history.changed_by
+     WHERE history.po_id = ?
+       AND history.status_to IN (
+            'GM-Approved',
+            'Finance-Approved',
+            'President-Approved'
+       )
+     ORDER BY history.history_id"
+);
+$po_approval_history_stmt->bind_param('i', $po_id);
+$po_approval_history_stmt->execute();
+$po_approval_history_result = $po_approval_history_stmt->get_result();
+while ($po_approval_history = $po_approval_history_result->fetch_assoc()) {
+    $po_approval_history_by_status[$po_approval_history['status_to']] =
+        $po_approval_history;
+}
+
+$print_po_signatory_stages = [
+    [
+        'pr_stage' => 'GM Review',
+        'po_status' => 'GM-Approved',
+        'expected_from' => 'Pending',
+        'label' => 'Reviewed by General Manager',
+    ],
+    [
+        'pr_stage' => 'Finance Review',
+        'po_status' => 'Finance-Approved',
+        'expected_from' => 'GM-Approved',
+        'label' => 'Checked by Finance',
+    ],
+    [
+        'pr_stage' => 'Owner Approval',
+        'po_status' => 'President-Approved',
+        'expected_from' => 'Finance-Approved',
+        'label' => 'Approved by Owner / President',
+    ],
+];
+
+$source_pr_is_authorized = $source_quotation &&
+    $source_quotation['current_approval_stage'] === 'Official Approved' &&
+    !empty($source_quotation['final_approved_by']) &&
+    !empty($source_quotation['final_approved_at']);
+
+foreach (['GM Review', 'Finance Review', 'Owner Approval'] as $required_pr_stage) {
+    $required_approval = $source_pr_approval_by_stage[$required_pr_stage] ?? null;
+    if (
+        !$required_approval ||
+        $required_approval['decision'] !== 'Approved' ||
+        empty($required_approval['acted_by']) ||
+        empty($required_approval['acted_at'])
+    ) {
+        $source_pr_is_authorized = false;
+        break;
+    }
+}
+
+$direct_president_approval =
+    $po_approval_history_by_status['President-Approved'] ?? null;
+$direct_po_is_authorized = $direct_president_approval &&
+    $direct_president_approval['status_from'] === 'Finance-Approved' &&
+    !empty($direct_president_approval['changed_by']) &&
+    !empty($direct_president_approval['acted_at']);
+
+$official_po_statuses = [
+    'President-Approved',
+    'Funded',
+    'Delivery Requested',
+    'For Pick-up/Delivery',
+    'Delivered',
+    'Partially-Collected',
+    'Collected',
+];
+$is_official_po = in_array($po['status'], $official_po_statuses, true) &&
+    ($source_pr_is_authorized || $direct_po_is_authorized);
+$print_po_record_status = $is_official_po
+    ? 'OFFICIAL' . ($official_po_record
+        ? ' - RMS ' . $official_po_record['record_number']
+        : '')
+    : 'DRAFT';
+$print_po_approval_basis = $source_pr_is_authorized
+    ? 'Authorization inherited from official PRF ' .
+        ($source_quotation['pr_number'] ?? '')
+    : 'Authorization recorded through the PO approval route';
+
+$po_print_category_map = [
+    '01' => 'Hardware',
+    '02' => 'CCTVs',
+    '03' => 'Peripherals',
+    '04' => 'Office Supplies',
+    '05' => 'WIFI / LAN',
+    '06' => 'Printers',
+];
+
+function po_print_date(?string $value, string $format = 'M d, Y'): string
+{
+    if (!$value) {
+        return '—';
+    }
+
+    $timestamp = strtotime($value);
+    return $timestamp ? date($format, $timestamp) : '—';
+}
+
+function po_print_money($value): string
+{
+    return '₱' . number_format((float) $value, 2);
 }
 
 // Check if PO is rejected and fetch rejection reason safely
@@ -172,6 +371,8 @@ $conn->query("CREATE TABLE IF NOT EXISTS `payments` (
   `payment_method` varchar(50) DEFAULT NULL,
   `reference_number` varchar(100) DEFAULT NULL,
   `proof_file_path` varchar(255) DEFAULT NULL,
+  `proof_original_name` varchar(255) DEFAULT NULL,
+  `proof_file_hash` char(64) DEFAULT NULL,
   PRIMARY KEY (`payment_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
@@ -179,7 +380,24 @@ $total_paid = 0;
 $payments = [];
 $balance = $po['amount'];
 
-$stmt = $conn->prepare("SELECT p.*, u.full_name AS recorded_by_name FROM payments p LEFT JOIN users u ON u.user_id = p.recorded_by WHERE p.po_id = ? ORDER BY p.payment_date DESC");
+$stmt = $conn->prepare(
+    "SELECT
+        p.*,
+        u.full_name AS recorded_by_name,
+        payment_record.doc_id AS payment_record_doc_id,
+        payment_record.record_number AS payment_record_number
+     FROM payments p
+     LEFT JOIN users u
+        ON u.user_id = p.recorded_by
+     LEFT JOIN documents payment_record
+        ON payment_record.source_module = 'Client Payment'
+       AND payment_record.source_record_id = p.payment_id
+       AND payment_record.record_phase = 'Official'
+       AND payment_record.status <> 'Recycled'
+       AND payment_record.is_locked = 1
+     WHERE p.po_id = ?
+     ORDER BY p.payment_date DESC"
+);
 $stmt->bind_param("i", $po_id);
 $stmt->execute();
 $payment_query = $stmt->get_result();
@@ -197,13 +415,20 @@ $fund_release_stmt = $conn->prepare(
         "SELECT
             funding.*,
             finance_user.full_name AS released_by_name,
-            supplier.supplier_name
+            supplier.supplier_name,
+            funding_record.doc_id AS funding_record_doc_id,
+            funding_record.record_number AS funding_record_number
          FROM po_supplier_fund_releases funding
          LEFT JOIN users finance_user
             ON finance_user.user_id = funding.released_by
          LEFT JOIN pr_supplier_details supplier
             ON supplier.supplier_detail_id =
                 funding.supplier_detail_id
+         LEFT JOIN documents funding_record
+            ON funding_record.source_module = 'Supplier Fund Release'
+            AND funding_record.source_record_id = funding.fund_release_id
+            AND funding_record.record_phase = 'Official'
+            AND funding_record.status <> 'Recycled'
          WHERE funding.po_id = ?
            AND funding.record_status = 'Active'
          ORDER BY funding.release_cycle DESC
@@ -217,6 +442,7 @@ $fund_release =
 $delivery_request_stmt = $conn->prepare(
         "SELECT
             delivery_request.*,
+            plan.delivery_plan_id,
             plan.logistics_status,
             plan.provider_type,
             plan.provider_name,
@@ -225,7 +451,11 @@ $delivery_request_stmt = $conn->prepare(
             plan.return_reason,
             preparer.full_name AS prepared_by_name,
             reviewer.full_name AS reviewed_by_name,
-            returner.full_name AS returned_by_name
+            returner.full_name AS returned_by_name,
+            request_record.doc_id AS request_record_doc_id,
+            request_record.record_number AS request_record_number,
+            plan_record.doc_id AS plan_record_doc_id,
+            plan_record.record_number AS plan_record_number
          FROM po_delivery_requests delivery_request
          LEFT JOIN po_delivery_plans plan
             ON plan.delivery_request_id =
@@ -237,6 +467,17 @@ $delivery_request_stmt = $conn->prepare(
             ON reviewer.user_id = plan.reviewed_by
          LEFT JOIN users returner
             ON returner.user_id = plan.returned_by
+         LEFT JOIN documents request_record
+            ON request_record.source_module = 'Delivery Request'
+            AND request_record.source_record_id =
+                delivery_request.delivery_request_id
+            AND request_record.record_phase = 'Official'
+            AND request_record.status <> 'Recycled'
+         LEFT JOIN documents plan_record
+            ON plan_record.source_module = 'Logistics Plan'
+            AND plan_record.source_record_id = plan.delivery_plan_id
+            AND plan_record.record_phase = 'Official'
+            AND plan_record.status <> 'Recycled'
          WHERE delivery_request.po_id = ?
            AND delivery_request.record_status = 'Active'
          ORDER BY delivery_request.request_cycle DESC
@@ -251,15 +492,17 @@ $delivery_receipt_stmt = $conn->prepare(
         "SELECT
             receipt.*,
             recorder.full_name AS recorded_by_name,
-            receipt_document.doc_id AS receipt_document_id
+            receipt_document.doc_id AS receipt_document_id,
+            receipt_document.record_number AS receipt_record_number
          FROM po_delivery_receipts receipt
          LEFT JOIN users recorder
             ON recorder.user_id = receipt.recorded_by
          LEFT JOIN documents receipt_document
-            ON receipt_document.po_id = receipt.po_id
-           AND receipt_document.file_hash = receipt.proof_file_hash
-           AND receipt_document.doc_type = 'Proof of Delivery'
-           AND receipt_document.status = 'Active'
+            ON receipt_document.source_module = 'Delivery Receipt'
+           AND receipt_document.source_record_id =
+                receipt.delivery_receipt_id
+           AND receipt_document.record_phase = 'Official'
+           AND receipt_document.status <> 'Recycled'
          WHERE receipt.po_id = ?
            AND receipt.record_status = 'Active'
          ORDER BY receipt.receipt_cycle DESC
@@ -304,6 +547,7 @@ $can_upload_files = ($role == 'Procurement');
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
+    <link href="assets/css/po-print.css?v=<?php echo (string) (@filemtime(__DIR__ . '/assets/css/po-print.css') ?: 1); ?>" rel="stylesheet">
 </head>
 <body class="page-view-po workflow-ui">
     <?php include 'sidebar.php'; ?>
@@ -379,8 +623,21 @@ $can_upload_files = ($role == 'Procurement');
                     <div class="vr bg-secondary opacity-25 mx-2 vr-divider"></div>
                 <?php endif; ?>
 
-                <button class="view-doc-print btn btn-sm btn-primary shadow-sm px-3 fw-bold rounded-8" onclick="logAndPrint('PO #<?php echo htmlspecialchars($po['po_number']); ?>')" aria-label="Print purchase order">
-                    <i class="fas fa-print me-1"></i><span>Print PO</span>
+                <?php if ($official_po_record): ?>
+                    <a
+                        href="<?php echo htmlspecialchars($official_po_record_link); ?>"
+                        target="_blank"
+                        rel="noopener"
+                        class="btn btn-sm btn-outline-danger shadow-sm px-3 fw-bold rounded-8"
+                        aria-label="Open the locked Official PO PDF"
+                    >
+                        <i class="fas fa-file-pdf me-1"></i>
+                        <span>View <?php echo htmlspecialchars($official_po_record['record_number']); ?></span>
+                    </a>
+                <?php endif; ?>
+
+                <button type="button" class="view-doc-print btn btn-sm btn-primary shadow-sm px-3 fw-bold rounded-8" onclick="logAndPrint()" aria-label="Print or save this purchase order as PDF">
+                    <i class="fas fa-print me-1"></i><span>Print / Save PDF</span>
                 </button>
                 
                 <div class="view-po-status-block border-start ps-3 ms-2 text-start lh-12">
@@ -456,13 +713,30 @@ $can_upload_files = ($role == 'Procurement');
                 </div>
                 <?php if (in_array($role, ['Procurement', 'GM', 'President', 'Finance'], true)): ?>
                     <a
-                        href="download.php?type=fund_release&amp;record_id=<?php echo (int) $fund_release['fund_release_id']; ?>"
+                        href="<?php echo !empty($fund_release['funding_record_doc_id'])
+                            ? 'download.php?type=document&amp;record_id=' .
+                                (int) $fund_release['funding_record_doc_id']
+                            : 'download.php?type=fund_release&amp;record_id=' .
+                                (int) $fund_release['fund_release_id']; ?>"
                         target="_blank"
                         rel="noopener"
                         class="funding-proof-link"
+                        aria-label="<?php echo !empty($fund_release['funding_record_number'])
+                            ? 'Open locked Official Record ' .
+                                htmlspecialchars(
+                                    $fund_release['funding_record_number'],
+                                    ENT_QUOTES
+                                )
+                            : 'Open supplier fund-release proof'; ?>"
                     >
-                        <i class="fas fa-paperclip"></i>
-                        View proof
+                        <i class="fas <?php echo !empty($fund_release['funding_record_doc_id'])
+                            ? 'fa-file-alt'
+                            : 'fa-paperclip'; ?>"></i>
+                        <?php echo !empty($fund_release['funding_record_number'])
+                            ? 'View ' . htmlspecialchars(
+                                $fund_release['funding_record_number']
+                            )
+                            : 'View proof'; ?>
                     </a>
                 <?php endif; ?>
             </section>
@@ -502,10 +776,39 @@ $can_upload_files = ($role == 'Procurement');
                     <span><?php echo $delivery_request['logistics_status'] === 'Scheduled' ? 'Reviewed by' : ($delivery_request['logistics_status'] === 'Returned' ? 'Returned by' : 'Prepared by'); ?></span>
                     <strong><?php echo htmlspecialchars((string) ($delivery_request['logistics_status'] === 'Scheduled' ? ($delivery_request['reviewed_by_name'] ?? 'Supply Chain') : ($delivery_request['logistics_status'] === 'Returned' ? ($delivery_request['returned_by_name'] ?? 'Supply Chain') : ($delivery_request['prepared_by_name'] ?? 'Procurement')))); ?></strong>
                 </div>
-                <span class="delivery-request-summary-status">
-                    <i class="fas fa-clock"></i>
-                    <?php echo htmlspecialchars((string) ($delivery_request['logistics_status'] ?? 'Pending Review')); ?>
-                </span>
+                <?php if (!empty($delivery_request['request_record_doc_id']) || !empty($delivery_request['plan_record_doc_id'])): ?>
+                    <div class="d-flex flex-column gap-1 align-items-stretch">
+                        <?php if (!empty($delivery_request['request_record_doc_id'])): ?>
+                            <a
+                                href="download.php?type=document&amp;record_id=<?php echo (int) $delivery_request['request_record_doc_id']; ?>"
+                                target="_blank"
+                                rel="noopener"
+                                class="delivery-request-summary-status text-decoration-none"
+                                aria-label="Open locked Official Record <?php echo htmlspecialchars($delivery_request['request_record_number'], ENT_QUOTES); ?>"
+                            >
+                                <i class="fas fa-file-alt"></i>
+                                <?php echo htmlspecialchars($delivery_request['request_record_number']); ?>
+                            </a>
+                        <?php endif; ?>
+                        <?php if (!empty($delivery_request['plan_record_doc_id'])): ?>
+                            <a
+                                href="download.php?type=document&amp;record_id=<?php echo (int) $delivery_request['plan_record_doc_id']; ?>"
+                                target="_blank"
+                                rel="noopener"
+                                class="delivery-request-summary-status text-decoration-none"
+                                aria-label="Open locked Official Record <?php echo htmlspecialchars($delivery_request['plan_record_number'], ENT_QUOTES); ?>"
+                            >
+                                <i class="fas fa-route"></i>
+                                <?php echo htmlspecialchars($delivery_request['plan_record_number']); ?>
+                            </a>
+                        <?php endif; ?>
+                    </div>
+                <?php else: ?>
+                    <span class="delivery-request-summary-status">
+                        <i class="fas fa-clock"></i>
+                        <?php echo htmlspecialchars((string) ($delivery_request['logistics_status'] ?? 'Pending Review')); ?>
+                    </span>
+                <?php endif; ?>
             </section>
             <?php if ($delivery_request['logistics_status'] === 'Returned' && !empty($delivery_request['return_reason'])): ?>
                 <section class="delivery-return-notice no-print" role="alert">
@@ -550,7 +853,6 @@ $can_upload_files = ($role == 'Procurement');
                     <strong><?php echo date('M d, Y', strtotime($delivery_receipt['collection_due_date'])); ?></strong>
                 </div>
                 <?php if (
-                    !empty($delivery_receipt['proof_file_path']) &&
                     !empty($delivery_receipt['receipt_document_id']) &&
                     in_array($role, ['GM', 'President', 'Finance', 'Supply Chain'], true)
                 ): ?>
@@ -559,9 +861,10 @@ $can_upload_files = ($role == 'Procurement');
                         target="_blank"
                         rel="noopener"
                         class="delivery-receipt-proof-link"
+                        aria-label="Open locked Official Record <?php echo htmlspecialchars((string) $delivery_receipt['receipt_record_number'], ENT_QUOTES); ?>"
                     >
                         <i class="fas fa-paperclip"></i>
-                        View proof
+                        <?php echo htmlspecialchars((string) $delivery_receipt['receipt_record_number']); ?>
                     </a>
                 <?php endif; ?>
             </section>
@@ -732,8 +1035,10 @@ $can_upload_files = ($role == 'Procurement');
                                         </td>
                                         <td class="py-3 align-middle">
                                             <div class="small fw-bold text-dark text-break"><?php echo htmlspecialchars($pay['reference_number'] ?? '--'); ?></div>
-                                            <?php if(!empty($pay['proof_file_path'])): ?>
-                                                <a href="download.php?type=payment_proof&amp;record_id=<?php echo (int) $pay['payment_id']; ?>" target="_blank" rel="noopener" class="small text-primary text-decoration-none"><i class="fas fa-paperclip me-1"></i>View proof</a>
+                                            <?php if(!empty($pay['payment_record_doc_id'])): ?>
+                                                <a href="download.php?type=document&amp;record_id=<?php echo (int) $pay['payment_record_doc_id']; ?>" target="_blank" rel="noopener" class="small text-primary text-decoration-none" aria-label="Open locked Official Record <?php echo htmlspecialchars((string) $pay['payment_record_number'], ENT_QUOTES); ?>"><i class="fas fa-paperclip me-1"></i><?php echo htmlspecialchars((string) $pay['payment_record_number']); ?></a>
+                                            <?php elseif(!empty($pay['proof_file_path'])): ?>
+                                                <a href="download.php?type=payment_proof&amp;record_id=<?php echo (int) $pay['payment_id']; ?>" target="_blank" rel="noopener" class="small text-primary text-decoration-none"><i class="fas fa-paperclip me-1"></i>Legacy proof</a>
                                             <?php endif; ?>
                                         </td>
                                         <td class="text-end pe-4 fw-bold text-success align-middle py-3 font-monospace fs-105rem">+ ₱ <?php echo number_format($pay['amount_paid'], 2); ?></td>
@@ -774,7 +1079,7 @@ $can_upload_files = ($role == 'Procurement');
                     <div class="card-body p-3">
                         <ul class="list-unstyled mb-3">
                             <?php
-                            $stmt = $conn->prepare("SELECT * FROM documents WHERE po_id = ?");
+                            $stmt = $conn->prepare("SELECT * FROM documents WHERE po_id = ? AND COALESCE(disposition_status, '') <> 'Destroyed'");
                             $stmt->bind_param("i", $po_id);
                             $stmt->execute();
                             $docs = $stmt->get_result();
@@ -910,110 +1215,247 @@ $can_upload_files = ($role == 'Procurement');
             </div>
         </div>
 
-        <div class="print-only-po">
-            
-            <?php if(!in_array($po['status'], ['President-Approved', 'Funded', 'Delivery Requested', 'For Pick-up/Delivery', 'Delivered'], true)): ?>
-                <div class="draft-banner">DRAFT COPY ONLY - NOT VALID FOR PURCHASING</div>
+        <section class="po-print-document" aria-label="Printable purchase order">
+            <?php if (!$is_official_po): ?>
+                <div class="po-print-draft-banner">Draft copy — not an official purchase order</div>
             <?php endif; ?>
 
-            <div class="d-flex justify-content-between align-items-start print-header-border">
+            <header class="po-print-header">
+                <div class="po-print-brand">
+                    <img src="assets/images/fixie_logo.png" alt="Fixie Computer Ventures logo">
+                    <div>
+                        <strong>Fixie Computer Ventures</strong>
+                        <span>Computer products and business solutions</span>
+                        <small>Internal procurement document</small>
+                    </div>
+                </div>
+                <div class="po-print-title">
+                    <span>Purchase Order</span>
+                    <h1><?php echo htmlspecialchars($po['po_number']); ?></h1>
+                    <strong class="po-print-record-status <?php echo $is_official_po ? 'is-official' : 'is-draft'; ?>">
+                        <?php echo $print_po_record_status; ?>
+                    </strong>
+                </div>
+            </header>
+
+            <section class="po-print-reference-grid" aria-label="Document references">
                 <div>
-                    <h1 class="print-header-brand">Fixie Computer Ventures</h1>
-                    <div class="print-header-sub">
-                        <strong>Driven by Innovation, Defined by Service.</strong><br>
-                        123 Technology Avenue, Tech Hub City, Philippines 1000<br>
-                        Phone: (02) 8123-4567 | Email: billing@fixie.com
-                    </div>
+                    <span>PO number</span>
+                    <strong><?php echo htmlspecialchars($po['po_number']); ?></strong>
+                    <?php if ($official_po_record): ?>
+                        <small>RMS: <?php echo htmlspecialchars($official_po_record['record_number']); ?></small>
+                    <?php endif; ?>
                 </div>
-                <div class="text-end">
-                    <div class="print-title-doc">PURCHASE ORDER</div>
-                    <div class="print-po-text">
-                        PO Number: <strong class="text-primary-print">#<?php echo htmlspecialchars($po['po_number']); ?></strong>
-                    </div>
+                <div>
+                    <span>Date prepared</span>
+                    <strong><?php echo po_print_date($po['date_created']); ?></strong>
                 </div>
-            </div>
+                <div>
+                    <span>Source PRF</span>
+                    <strong><?php echo htmlspecialchars($source_quotation['pr_number'] ?? 'Not recorded'); ?></strong>
+                </div>
+                <div>
+                    <span>Operational status</span>
+                    <strong><?php echo htmlspecialchars($po['status']); ?></strong>
+                </div>
+            </section>
 
-            <div class="row g-4 mb-4">
-                <div class="col-7">
-                    <div class="info-box h-100 bg-print-light">
-                        <div class="info-label">Vendor / Billed To:</div>
-                        <h4 class="fw-bold m-0 text-dark fs-14pt"><?php echo htmlspecialchars($po['client_name']); ?></h4>
-                        <?php if($po['quotation_number']): ?>
-                            <div class="mt-2 fs-95pt-muted"><strong>Quotation Ref:</strong> <?php echo htmlspecialchars($po['quotation_number']); ?></div>
+            <section class="po-print-party-grid" aria-label="Client and supplier details">
+                <article>
+                    <span class="po-print-section-label">Client order</span>
+                    <h2><?php echo htmlspecialchars($po['client_name']); ?></h2>
+                    <dl>
+                        <div><dt>Client PO</dt><dd><?php echo htmlspecialchars($source_quotation['actual_client_po_number'] ?? 'Not recorded'); ?></dd></div>
+                        <div><dt>Client PO date</dt><dd><?php echo po_print_date($source_quotation['client_po_date'] ?? null); ?></dd></div>
+                        <div><dt>Quotation</dt><dd><?php echo htmlspecialchars($source_quotation['quotation_number'] ?? ($po['quotation_number'] ?: 'Not recorded')); ?></dd></div>
+                        <div><dt>Prepared by</dt><dd><?php echo htmlspecialchars($po['creator_name'] ?: 'Not recorded'); ?></dd></div>
+                    </dl>
+                </article>
+                <article>
+                    <span class="po-print-section-label">Supplier details</span>
+                    <h2><?php echo htmlspecialchars($source_quotation['supplier_name'] ?? 'Not recorded'); ?></h2>
+                    <dl>
+                        <div><dt>Supplier reference</dt><dd><?php echo htmlspecialchars(($source_quotation['supplier_reference'] ?? '') ?: 'Not recorded'); ?></dd></div>
+                        <div><dt>Quotation date</dt><dd><?php echo po_print_date($source_quotation['supplier_quote_date'] ?? null); ?></dd></div>
+                        <div><dt>Payment method</dt><dd><?php echo htmlspecialchars($source_quotation['payment_method'] ?? 'Not recorded'); ?></dd></div>
+                        <div><dt>Payment terms</dt><dd><?php echo htmlspecialchars(($source_quotation['payment_terms'] ?? '') ?: 'Not recorded'); ?></dd></div>
+                    </dl>
+                </article>
+            </section>
+
+            <section class="po-print-section">
+                <div class="po-print-section-heading">
+                    <div>
+                        <span>Order items</span>
+                        <h2>Supplier cost worksheet</h2>
+                    </div>
+                    <small><?php echo count($items_data); ?> item line<?php echo count($items_data) === 1 ? '' : 's'; ?></small>
+                </div>
+
+                <table class="po-print-items">
+                    <thead>
+                        <tr>
+                            <th class="is-number">#</th>
+                            <th>Item description and specifications</th>
+                            <th class="is-quantity">Qty</th>
+                            <th class="is-money">Unit cost</th>
+                            <th class="is-money">Cost total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (empty($items_data)): ?>
+                            <tr><td colspan="5" class="po-print-empty">No item lines recorded.</td></tr>
+                        <?php else: ?>
+                            <?php foreach ($items_data as $index => $item): ?>
+                                <?php
+                                $print_category =
+                                    $po_print_category_map[$item['category']] ??
+                                    $item['category'];
+                                $print_unit_cost = $item['unit_cost'] !== null
+                                    ? (float) $item['unit_cost']
+                                    : (float) $item['unit_price'];
+                                $print_line_cost = $item['total_cost'] !== null
+                                    ? (float) $item['total_cost']
+                                    : ((int) $item['quantity'] * $print_unit_cost);
+                                ?>
+                                <tr>
+                                    <td class="is-number"><?php echo $index + 1; ?></td>
+                                    <td>
+                                        <strong><?php echo htmlspecialchars($item['item_name']); ?></strong>
+                                        <small>
+                                            <?php echo htmlspecialchars((string) $print_category); ?>
+                                            <?php if (!empty($item['brand'])): ?>
+                                                · <?php echo htmlspecialchars($item['brand']); ?>
+                                            <?php endif; ?>
+                                        </small>
+                                        <?php if (!empty($item['specifications'])): ?>
+                                            <p><?php echo nl2br(htmlspecialchars($item['specifications'])); ?></p>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="is-quantity"><?php echo (int) $item['quantity']; ?></td>
+                                    <td class="is-money"><?php echo po_print_money($print_unit_cost); ?></td>
+                                    <td class="is-money"><strong><?php echo po_print_money($print_line_cost); ?></strong></td>
+                                </tr>
+                            <?php endforeach; ?>
                         <?php endif; ?>
-                    </div>
-                </div>
-                <div class="col-5">
-                    <div class="info-box h-100">
-                        <table class="w-100-fs-95">
-                            <tr>
-                                <td class="info-label pb-10-w-45">Date Issued:</td>
-                                <td class="print-td-right"><?php echo date('F d, Y', strtotime($po['date_created'])); ?></td>
-                            </tr>
-                            <tr>
-                                <td class="info-label py-10px">Status:</td>
-                                <td class="print-td-right-primary"><?php echo htmlspecialchars($po['status']); ?></td>
-                            </tr>
-                            <tr>
-                                <td class="info-label pt-10px">Prepared By:</td>
-                                <td class="print-td-right-pt"><?php echo htmlspecialchars($po['creator_name']); ?></td>
-                            </tr>
-                        </table>
-                    </div>
-                </div>
-            </div>
+                    </tbody>
+                </table>
+            </section>
 
-            <table class="print-table">
-                <thead>
-                    <tr>
-                        <th class="w-5-pct-center">#</th>
-                        <th class="w-50-pct-left">ITEM DESCRIPTION & SPECIFICATIONS</th>
-                        <th class="w-10-pct-center">QTY</th>
-                        <th class="w-15-pct-right">UNIT PRICE</th>
-                        <th class="w-20-pct-right">TOTAL</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php $ctr = 1; foreach($items_data as $item): ?>
-                    <tr>
-                        <td class="print-td-ctr-muted"><?php echo $ctr++; ?></td>
-                        <td>
-                            <div class="print-item-title"><?php echo htmlspecialchars($item['item_name']); ?></div>
-                            <div class="print-item-specs"><?php echo nl2br(htmlspecialchars($item['specifications'] ?? '')); ?></div>
-                        </td>
-                        <td class="print-td-ctr-500"><?php echo $item['quantity']; ?></td>
-                        <td class="print-td-r-nowrap">₱ <?php echo number_format($item['unit_price'], 2); ?></td>
-                        <td class="print-td-r-bold-nowrap">₱ <?php echo number_format($item['total_price'] ?? ($item['quantity'] * $item['unit_price']), 2); ?></td>
-                    </tr>
+            <section class="po-print-financial-section" aria-label="Financial summary">
+                <div class="po-print-financial-copy">
+                    <span class="po-print-section-label">Financial position</span>
+                    <h2>Approved funding and profitability</h2>
+                    <p>This internal copy preserves the approved client amount, supplier cost, requested funding, and projected profit inherited from the official PRF.</p>
+                    <?php if (!empty($po['remarks'])): ?>
+                        <div class="po-print-remarks">
+                            <span>PO remarks</span>
+                            <p><?php echo nl2br(htmlspecialchars($po['remarks'])); ?></p>
+                        </div>
+                    <?php elseif (!empty($source_quotation['supplier_remarks'])): ?>
+                        <div class="po-print-remarks">
+                            <span>Supplier remarks</span>
+                            <p><?php echo nl2br(htmlspecialchars($source_quotation['supplier_remarks'])); ?></p>
+                        </div>
+                    <?php endif; ?>
+                </div>
+                <dl class="po-print-financial-list">
+                    <div><dt>Client selling amount</dt><dd><?php echo po_print_money($po['amount']); ?></dd></div>
+                    <div><dt>Cost of goods</dt><dd><?php echo po_print_money($po['cost_of_goods_amount'] ?? 0); ?></dd></div>
+                    <div><dt>Other expense</dt><dd><?php echo po_print_money($po['other_expense_amount'] ?? 0); ?></dd></div>
+                    <div class="is-requested"><dt>Approved funds</dt><dd><?php echo po_print_money($po['requested_fund_amount'] ?? 0); ?></dd></div>
+                    <div class="is-profit"><dt>Projected gross profit</dt><dd><?php echo po_print_money($po['gross_profit_amount'] ?? 0); ?></dd></div>
+                    <div><dt>Projected margin</dt><dd><?php echo number_format((float) ($po['gross_margin_percent'] ?? 0), 2); ?>%</dd></div>
+                </dl>
+            </section>
+
+            <section class="po-print-approvals" aria-label="Approval record">
+                <div class="po-print-section-heading">
+                    <div>
+                        <span>Signatories</span>
+                        <h2>Preparation and authorization record</h2>
+                    </div>
+                    <small><?php echo htmlspecialchars($print_po_approval_basis); ?></small>
+                </div>
+
+                <div class="po-print-signature-grid">
+                    <article>
+                        <div class="po-print-signature-line"></div>
+                        <strong><?php echo htmlspecialchars($po['creator_name'] ?: 'Not recorded'); ?></strong>
+                        <span>Prepared by Procurement</span>
+                        <small><?php echo po_print_date($po['date_created'], 'M d, Y · h:i A'); ?></small>
+                    </article>
+
+                    <?php foreach ($print_po_signatory_stages as $signatory_stage): ?>
+                        <?php
+                        $pr_signatory =
+                            $source_pr_approval_by_stage[$signatory_stage['pr_stage']] ??
+                            null;
+                        $po_signatory =
+                            $po_approval_history_by_status[$signatory_stage['po_status']] ??
+                            null;
+
+                        $signatory_name = '';
+                        $signatory_date = null;
+                        $signatory_decision = 'Pending';
+                        $signatory_source = '';
+
+                        if (
+                            $pr_signatory &&
+                            $pr_signatory['decision'] === 'Approved' &&
+                            !empty($pr_signatory['acted_by']) &&
+                            !empty($pr_signatory['acted_at'])
+                        ) {
+                            $signatory_name =
+                                $pr_signatory['acted_by_name'] ?: 'Recorded approver';
+                            $signatory_date = $pr_signatory['acted_at'];
+                            $signatory_decision = 'Approved';
+                            $signatory_source = 'Official PRF approval';
+                        } elseif (
+                            $po_signatory &&
+                            $po_signatory['status_from'] ===
+                                $signatory_stage['expected_from'] &&
+                            !empty($po_signatory['changed_by']) &&
+                            !empty($po_signatory['acted_at'])
+                        ) {
+                            $signatory_name =
+                                $po_signatory['acted_by_name'] ?: 'Recorded approver';
+                            $signatory_date = $po_signatory['acted_at'];
+                            $signatory_decision = 'Approved';
+                            $signatory_source = 'PO approval history';
+                        }
+                        ?>
+                        <article>
+                            <div class="po-print-signature-line"></div>
+                            <strong><?php echo htmlspecialchars($signatory_name ?: 'Pending signatory'); ?></strong>
+                            <span><?php echo htmlspecialchars($signatory_stage['label']); ?></span>
+                            <small>
+                                <?php echo htmlspecialchars($signatory_decision); ?>
+                                <?php if ($signatory_date): ?>
+                                    · <?php echo po_print_date($signatory_date, 'M d, Y · h:i A'); ?>
+                                <?php endif; ?>
+                                <?php if ($signatory_source !== ''): ?>
+                                    <br><?php echo htmlspecialchars($signatory_source); ?>
+                                <?php endif; ?>
+                            </small>
+                        </article>
                     <?php endforeach; ?>
-                </tbody>
-                <tfoot>
-                    <tr>
-                        <td colspan="4" class="print-tf-label">Grand Total</td>
-                        <td class="print-tf-total">₱ <?php echo number_format($po['amount'], 2); ?></td>
-                    </tr>
-                </tfoot>
-            </table>
+                </div>
+            </section>
 
-            <div class="signature-section row">
-                <div class="col-4 text-center">
-                    <div class="sig-line"></div>
-                    <div class="sig-name"><?php echo htmlspecialchars($po['creator_name']); ?></div>
-                    <div class="sig-title">Prepared By (Procurement)</div>
-                </div>
-                <div class="col-4 text-center">
-                    <div class="sig-line"></div>
-                    <div class="sig-name">Finance Officer</div>
-                    <div class="sig-title">Checked & Verified By</div>
-                </div>
-                <div class="col-4 text-center">
-                    <div class="sig-line"></div>
-                    <div class="sig-name">Authorized Signatory</div>
-                    <div class="sig-title">Approved By</div>
-                </div>
-            </div>
-            
-        </div>
+            <footer class="po-print-footer">
+                <span>Generated from the Fixie DRMS on <?php echo date('M d, Y · h:i A'); ?>.</span>
+                <strong>
+                    <?php echo $is_official_po
+                        ? 'Official status verified from the completed authorization record' .
+                            ($official_po_record
+                                ? ' and filed as ' .
+                                    htmlspecialchars($official_po_record['record_number']) . '.'
+                                : '.')
+                        : 'This copy remains a draft until final Owner / President authorization is verified.'; ?>
+                </strong>
+            </footer>
+        </section>
     </div>
 
     <!-- File Preview Modal -->
@@ -1108,15 +1550,36 @@ $can_upload_files = ($role == 'Procurement');
             myModal.show();
         }
         
-        function logAndPrint(documentName) {
+        function logAndPrint() {
+            const auditPayload = new URLSearchParams({
+                action: 'log_print',
+                record_type: 'purchase_order',
+                record_id: '<?php echo (int) $po_id; ?>',
+                csrf_token: <?php echo json_encode((string) ($_SESSION['csrf_token'] ?? '')); ?>
+            });
+
             fetch('api/log_print.php', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: 'action=log_print&doc_name=' + encodeURIComponent(documentName)
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                credentials: 'same-origin',
+                body: auditPayload.toString()
             })
-            .then(response => response.json())
-            .then(data => { window.print(); })
-            .catch(error => { console.error('Error logging print:', error); window.print(); });
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Print audit request failed with status ' + response.status);
+                }
+                return response.json();
+            })
+            .catch(error => {
+                console.warn('The print activity could not be recorded.', error);
+            })
+            .finally(() => {
+                window.print();
+            });
         }
 
         function confirmApprovePO(e, actionKey, id, poNumber, btnLabel) {
@@ -1184,4 +1647,3 @@ $can_upload_files = ($role == 'Procurement');
     </script>
 </body>
 </html>
-

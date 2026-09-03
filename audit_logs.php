@@ -1,36 +1,8 @@
 <?php 
 require 'config/db_connect.php'; 
 require 'config/functions.php';
-
-// -------------------------------------------------------------------------
-// SERVER-SIDE ACTION LOGGING FOR EXPORT ACTIVITY
-// -------------------------------------------------------------------------
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['log_export_activity'])) {
-    ob_clean(); // Prevent any prior HTML/warnings from breaking JSON
-    header('Content-Type: application/json');
-    
-    $recordCount = isset($_POST['record_count']) ? (int)$_POST['record_count'] : 0;
-    $exportType = isset($_POST['export_type']) ? $_POST['export_type'] : 'Unknown Scope';
-    
-    $userId = $_SESSION['user_id'];
-    $action = 'EXPORT_AUDIT_LOGS';
-    
-    // Construct an enterprise-standard activity description
-    $desc = "System Admin exported " . number_format($recordCount) . " audit records. Selected option: $exportType. Format: Excel (.xlsx).";
-    $ip = $_SERVER['REMOTE_ADDR'] ?? 'UNKNOWN';
-    
-    $stmt = $conn->prepare("INSERT INTO audit_logs (user_id, action_type, description, ip_address) VALUES (?, ?, ?, ?)");
-    if ($stmt) {
-        $stmt->bind_param("isss", $userId, $action, $desc, $ip);
-        if ($stmt->execute()) {
-            echo json_encode(['status' => 'success']);
-            exit();
-        }
-    }
-    echo json_encode(['status' => 'error']);
-    exit();
-}
-// -------------------------------------------------------------------------
+require 'config/audit_query.php';
+require_once __DIR__ . '/config/frontend_assets.php';
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: index.php");
@@ -196,7 +168,7 @@ function parseAuditRecord($userName, $actionType, $description, $newPayloadJson 
         $prId = $extract('pr_id', '/Purchase Request ID: (\d+)/i') ?? $extract('record_id');
         
         if ($prId) {
-            $object = "Purchase Request PR-" . str_pad($prId, 4, '0', STR_PAD_LEFT);
+            $object = "Purchase Request PR-" . htmlspecialchars(str_pad((string) $prId, 4, '0', STR_PAD_LEFT));
             $module = "Purchase Requests";
         } else {
             $object = "system record details";
@@ -207,7 +179,7 @@ function parseAuditRecord($userName, $actionType, $description, $newPayloadJson 
         $color = "info";
     } elseif (strpos($actionType, 'UPDATE') !== false || strpos($actionType, 'EDIT') !== false) {
         $verb = "updated";
-        $object = str_replace('_', ' ', strtolower($actionType)) . " record";
+        $object = htmlspecialchars(str_replace('_', ' ', strtolower($actionType))) . " record";
         $icon = "edit";
         $color = "warning";
         $module = "System Operations";
@@ -224,14 +196,14 @@ function parseAuditRecord($userName, $actionType, $description, $newPayloadJson 
         }
     } elseif (strpos($actionType, 'DELETE') !== false || strpos($actionType, 'REMOVE') !== false) {
         $verb = "deleted";
-        $object = str_replace('_', ' ', strtolower($actionType));
+        $object = htmlspecialchars(str_replace('_', ' ', strtolower($actionType)));
         $icon = "trash-alt";
         $color = "danger";
         $module = "System Operations";
         $details = htmlspecialchars($description);
     } else {
         $verb = "executed";
-        $object = str_replace('_', ' ', strtolower($actionType)) . " action";
+        $object = htmlspecialchars(str_replace('_', ' ', strtolower($actionType))) . " action";
         $icon = "cog";
         $color = "secondary";
         $module = "System Access";
@@ -259,49 +231,102 @@ function parseAuditRecord($userName, $actionType, $description, $newPayloadJson 
     ];
 }
 
-$excluded_sql = "'PAGE_VIEW', 'FILTER', 'SEARCH', 'FORM_SUBMIT'"; 
-$query = "
-    SELECT a.*, u.full_name, u.role 
-    FROM audit_logs a 
-    LEFT JOIN users u ON a.user_id = u.user_id 
-    WHERE a.action_type NOT IN ($excluded_sql) 
-    ORDER BY a.`timestamp` DESC 
-    LIMIT 3000";
-$logs = $conn->query($query);
+$filterState = drms_audit_normalize_filters($_GET);
+$perPage = drms_audit_page_length($_GET['per_page'] ?? 15);
+$requestedPage = filter_var(
+    $_GET['page'] ?? 1,
+    FILTER_VALIDATE_INT,
+    ['options' => ['min_range' => 1]]
+);
+$requestedPage = $requestedPage === false ? 1 : (int) $requestedPage;
 
-$totalLogs = 0;
-$criticalCount = 0;
-$authEvents = 0;
-$distinctUsers = [];
+$baseWhere = drms_audit_base_where_sql('a');
+$moduleCase = drms_audit_module_case_sql('a');
+$categoryCase = drms_audit_category_case_sql('a');
+
+$summarySql = "SELECT
+        COUNT(*) AS tracked_events,
+        COALESCE(SUM(({$categoryCase}) = 'Deletion'), 0) AS critical_actions,
+        COUNT(DISTINCT a.user_id) AS active_accounts,
+        COALESCE(SUM(({$categoryCase}) = 'Security'), 0) AS security_events
+    FROM audit_logs a
+    WHERE {$baseWhere}";
+$summaryResult = $conn->query($summarySql);
+$summary = $summaryResult ? $summaryResult->fetch_assoc() : [];
+
+$totalLogs = (int) ($summary['tracked_events'] ?? 0);
+$criticalCount = (int) ($summary['critical_actions'] ?? 0);
+$activeUsersCount = (int) ($summary['active_accounts'] ?? 0);
+$authEvents = (int) ($summary['security_events'] ?? 0);
+
+$where = drms_audit_build_where($filterState);
+$filteredCount = drms_audit_scalar(
+    $conn,
+    "SELECT COUNT(*)
+     FROM audit_logs a
+     LEFT JOIN users u ON u.user_id = a.user_id
+     WHERE {$where['sql']}",
+    $where['types'],
+    $where['params']
+);
+
+$totalPages = max(1, (int) ceil($filteredCount / $perPage));
+$currentPage = min($requestedPage, $totalPages);
+$offset = ($currentPage - 1) * $perPage;
+
+$query = "SELECT
+        a.*,
+        u.full_name,
+        u.role,
+        {$moduleCase} AS audit_module,
+        {$categoryCase} AS audit_category
+    FROM audit_logs a
+    LEFT JOIN users u ON u.user_id = a.user_id
+    WHERE {$where['sql']}
+    ORDER BY a.`timestamp` DESC, a.log_id DESC
+    LIMIT ? OFFSET ?";
+$queryTypes = $where['types'] . 'ii';
+$queryParams = $where['params'];
+$queryParams[] = $perPage;
+$queryParams[] = $offset;
+
+$statement = $conn->prepare($query);
+drms_audit_bind_params($statement, $queryTypes, $queryParams);
+$statement->execute();
+$logs = $statement->get_result();
+
 $parsedLogs = [];
-
-if ($logs) {
-    while ($row = $logs->fetch_assoc()) {
-        $totalLogs++;
-        if (!empty($row['user_id'])) {
-            $distinctUsers[$row['user_id']] = true;
-        }
-        
-        $parsed = parseAuditRecord(
-            $row['full_name'], 
-            $row['action_type'], 
-            $row['description'], 
-            $row['new_payload'] ?? null, 
-            $row['old_payload'] ?? null
-        );
-        
-        if ($parsed['category'] === 'Deletion') {
-            $criticalCount++;
-        }
-        if ($parsed['category'] === 'Security') {
-            $authEvents++;
-        }
-        
-        $row['parsed'] = $parsed;
-        $parsedLogs[] = $row;
-    }
+$categoryColors = [
+    'Security' => 'success',
+    'Creation' => 'primary',
+    'Modification' => 'warning',
+    'Approval' => 'success',
+    'Deletion' => 'danger',
+    'System Access' => 'secondary',
+];
+while ($row = $logs->fetch_assoc()) {
+    $parsed = parseAuditRecord(
+        $row['full_name'],
+        $row['action_type'],
+        $row['description'],
+        $row['new_payload'] ?? null,
+        $row['old_payload'] ?? null
+    );
+    $parsed['module'] = (string) $row['audit_module'];
+    $parsed['category'] = (string) $row['audit_category'];
+    $parsed['color'] = $categoryColors[$parsed['category']] ?? 'secondary';
+    $row['parsed'] = $parsed;
+    $parsedLogs[] = $row;
 }
-$activeUsersCount = count($distinctUsers);
+$statement->close();
+
+$firstRecord = $filteredCount > 0 ? $offset + 1 : 0;
+$lastRecord = $filteredCount > 0
+    ? min($offset + count($parsedLogs), $filteredCount)
+    : 0;
+$hasActiveFilters = $filterState['search'] !== '' ||
+    $filterState['module'] !== '' ||
+    $filterState['category'] !== '';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -312,11 +337,7 @@ $activeUsersCount = count($distinctUsers);
     <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     
-    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <?= drms_frontend_script_tags(['jquery', 'bootstrap', 'xlsx']) ?>
 </head>
 <body class="page-audit-logs">
     <?php include 'sidebar.php'; ?>
@@ -371,39 +392,42 @@ $activeUsersCount = count($distinctUsers);
 
         <div class="corp-widget p-0 overflow-hidden mb-4 d-flex flex-column bg-white audit-log-widget">
             
-            <div class="p-3 border-bottom d-flex flex-wrap gap-3 align-items-end audit-filter-bar">
+            <form method="GET" id="auditFilterForm" class="p-3 border-bottom d-flex flex-wrap gap-3 align-items-end audit-filter-bar">
+                <input type="hidden" name="page" id="auditPageField" value="<?= (int) $currentPage ?>">
+                <input type="hidden" name="per_page" id="auditPerPageField" value="<?= (int) $perPage ?>">
                 <div class="min-w-180 audit-filter-module">
                     <label class="form-label fw-semibold text-muted mb-1 fs-xs text-uppercase">Module Focus</label>
-                    <select class="form-select form-select-sm sleek-input" id="filterModule">
+                    <select class="form-select form-select-sm sleek-input" id="filterModule" name="module">
                         <option value="">All Modules</option>
-                        <option value="Authentication">Authentication</option>
-                        <option value="Document Management">Document Management</option>
-                        <option value="Purchase Orders">Purchase Orders</option>
-                        <option value="Purchase Requests">Purchase Requests</option>
-                        <option value="Quotations">Quotations Tracker</option>
-                        <option value="Finance">Finance</option>
-                        <option value="System">System Operations</option>
+                        <option value="Authentication" <?= $filterState['module'] === 'Authentication' ? 'selected' : '' ?>>Authentication</option>
+                        <option value="Document Management" <?= $filterState['module'] === 'Document Management' ? 'selected' : '' ?>>Document Management</option>
+                        <option value="Purchase Orders" <?= $filterState['module'] === 'Purchase Orders' ? 'selected' : '' ?>>Purchase Orders</option>
+                        <option value="Purchase Requests" <?= $filterState['module'] === 'Purchase Requests' ? 'selected' : '' ?>>Purchase Requests</option>
+                        <option value="Quotations" <?= $filterState['module'] === 'Quotations' ? 'selected' : '' ?>>Quotations Tracker</option>
+                        <option value="Finance" <?= $filterState['module'] === 'Finance' ? 'selected' : '' ?>>Finance</option>
+                        <option value="System Operations" <?= $filterState['module'] === 'System Operations' ? 'selected' : '' ?>>System Operations</option>
                     </select>
                 </div>
                 <div class="min-w-160 audit-filter-category">
                     <label class="form-label fw-semibold text-muted mb-1 fs-xs text-uppercase">Action Category</label>
-                    <select class="form-select form-select-sm sleek-input" id="filterCategory">
+                    <select class="form-select form-select-sm sleek-input" id="filterCategory" name="category">
                         <option value="">All Categories</option>
-                        <option value="Security">Security & Auth</option>
-                        <option value="Creation">Creation</option>
-                        <option value="Modification">Modification</option>
-                        <option value="Approval">Approval</option>
-                        <option value="Deletion">Deletion</option>
+                        <option value="Security" <?= $filterState['category'] === 'Security' ? 'selected' : '' ?>>Security & Auth</option>
+                        <option value="Creation" <?= $filterState['category'] === 'Creation' ? 'selected' : '' ?>>Creation</option>
+                        <option value="Modification" <?= $filterState['category'] === 'Modification' ? 'selected' : '' ?>>Modification</option>
+                        <option value="Approval" <?= $filterState['category'] === 'Approval' ? 'selected' : '' ?>>Approval</option>
+                        <option value="Deletion" <?= $filterState['category'] === 'Deletion' ? 'selected' : '' ?>>Deletion</option>
                     </select>
                 </div>
                 <div class="flex-grow-1 ms-auto max-w-350 audit-filter-search">
                     <label class="form-label fw-semibold text-muted mb-1 fs-xs text-uppercase">Search Records</label>
                     <div class="input-group input-group-sm sleek-input-group">
                         <span class="input-group-text bg-transparent text-muted border-end-0"><i class="fas fa-search fa-xs"></i></span>
-                        <input type="text" id="searchTable" class="form-control sleek-input border-start-0 ps-0" placeholder="Search user, action...">
+                        <input type="search" id="searchTable" name="search" value="<?= htmlspecialchars($filterState['search']) ?>" class="form-control sleek-input border-start-0 ps-0" placeholder="Search user, action..." maxlength="100" autocomplete="off">
+                        <button type="submit" class="btn btn-outline-primary px-3" aria-label="Search audit records"><i class="fas fa-arrow-right fa-xs" aria-hidden="true"></i></button>
                     </div>
                 </div>
-            </div>
+            </form>
 
             <div class="table-responsive flex-grow-1 audit-table-wrap">
                 <table id="auditTable" class="table table-corp align-middle mb-0 w-100 audit-responsive-table">
@@ -466,25 +490,40 @@ $activeUsersCount = count($distinctUsers);
                             </td>
                         </tr>
                         <?php endforeach; ?>
+                        <?php if (!$parsedLogs): ?>
+                            <tr>
+                                <td colspan="5" class="text-center p-5 text-muted">
+                                    <i class="fas fa-inbox fa-3x mb-3 opacity-50"></i>
+                                    <h5>No records found</h5>
+                                    <p class="mb-0 fs-sm">No audit records match the selected filters.</p>
+                                </td>
+                            </tr>
+                        <?php endif; ?>
                     </tbody>
                 </table>
             </div>
 
             <div class="audit-pagination-bar p-3 border-top bg-light d-flex flex-wrap align-items-center justify-content-between gap-3">
-                <div class="text-muted fw-medium fs-sm" id="customPageInfo">Showing 0-0 of 0 records</div>
+                <div class="text-muted fw-medium fs-sm" id="customPageInfo">
+                    Showing <span class="fw-bold text-main"><?= number_format($firstRecord) ?>-<?= number_format($lastRecord) ?></span>
+                    of <span class="fw-bold text-main"><?= number_format($filteredCount) ?></span>
+                    <?= $hasActiveFilters ? 'filtered ' : '' ?>activities
+                </div>
                 <div class="audit-pagination-controls d-flex align-items-center flex-wrap gap-4">
                     <div class="audit-page-length d-flex align-items-center gap-2">
                         <span class="text-muted fw-medium fs-xs">Rows per page:</span>
                         <select id="customPageLength" class="form-select form-select-sm sleek-input py-1 w-auto">
-                            <option value="15">15</option><option value="30">30</option><option value="50">50</option><option value="100">100</option>
+                            <?php foreach (drms_audit_allowed_page_lengths() as $length): ?>
+                                <option value="<?= $length ?>" <?= $perPage === $length ? 'selected' : '' ?>><?= $length ?></option>
+                            <?php endforeach; ?>
                         </select>
                     </div>
                     <div class="audit-page-jump d-flex align-items-center gap-2 text-muted fw-medium fs-xs">
-                        Page <input type="number" id="customPageInput" class="page-input-styled" min="1" value="1"> of <span id="customTotalPages">1</span>
+                        Page <input type="number" id="customPageInput" class="page-input-styled" min="1" max="<?= $totalPages ?>" value="<?= $currentPage ?>"> of <span id="customTotalPages"><?= number_format($totalPages) ?></span>
                     </div>
                     <div class="audit-page-buttons btn-group shadow-sm">
-                        <button class="btn-pagination" id="customPrevBtn" aria-label="Previous page"><i class="fas fa-chevron-left fs-xs"></i><span class="audit-pagination-label">Previous</span></button>
-                        <button class="btn-pagination" id="customNextBtn" aria-label="Next page"><span class="audit-pagination-label">Next</span><i class="fas fa-chevron-right fs-xs"></i></button>
+                        <button type="button" class="btn-pagination" id="customPrevBtn" data-page="<?= max(1, $currentPage - 1) ?>" aria-label="Previous page" <?= $currentPage <= 1 ? 'disabled' : '' ?>><i class="fas fa-chevron-left fs-xs"></i><span class="audit-pagination-label">Previous</span></button>
+                        <button type="button" class="btn-pagination" id="customNextBtn" data-page="<?= min($totalPages, $currentPage + 1) ?>" aria-label="Next page" <?= $currentPage >= $totalPages ? 'disabled' : '' ?>><span class="audit-pagination-label">Next</span><i class="fas fa-chevron-right fs-xs"></i></button>
                     </div>
                 </div>
             </div>
@@ -547,7 +586,7 @@ $activeUsersCount = count($distinctUsers);
                         <label class="list-group-item d-flex gap-3 align-items-center p-3 cursor-pointer bg-soft-primary border-start border-primary border-3" id="lblExportFiltered">
                             <input class="form-check-input flex-shrink-0" type="radio" name="exportOption" value="filtered" checked>
                             <div class="w-100">
-                                <div class="d-flex justify-content-between align-items-center"><h6 class="mb-0 fw-bold text-main">Export Filtered Results</h6><span class="badge bg-primary rounded-pill" id="exportFilteredCount">0</span></div>
+                                <div class="d-flex justify-content-between align-items-center"><h6 class="mb-0 fw-bold text-main">Export Filtered Results</h6><span class="badge bg-primary rounded-pill" id="exportFilteredCount" data-count="<?= $filteredCount ?>"><?= number_format($filteredCount) ?></span></div>
                                 <small class="text-muted fs-xs">Includes all records matching current search and dropdown filters.</small>
                             </div>
                         </label>
@@ -555,7 +594,7 @@ $activeUsersCount = count($distinctUsers);
                         <label class="list-group-item d-flex gap-3 align-items-center p-3 cursor-pointer" id="lblExportCurrent">
                             <input class="form-check-input flex-shrink-0" type="radio" name="exportOption" value="current">
                             <div class="w-100">
-                                <div class="d-flex justify-content-between align-items-center"><h6 class="mb-0 fw-semibold text-main">Export Current Page</h6><span class="badge bg-secondary rounded-pill" id="exportCurrentCount">0</span></div>
+                                <div class="d-flex justify-content-between align-items-center"><h6 class="mb-0 fw-semibold text-main">Export Current Page</h6><span class="badge bg-secondary rounded-pill" id="exportCurrentCount" data-count="<?= count($parsedLogs) ?>"><?= number_format(count($parsedLogs)) ?></span></div>
                                 <small class="text-muted fs-xs">Includes only the visible rows strictly on this specific page.</small>
                             </div>
                         </label>
@@ -563,7 +602,7 @@ $activeUsersCount = count($distinctUsers);
                         <label class="list-group-item d-flex gap-3 align-items-center p-3 cursor-pointer" id="lblExportAll">
                             <input class="form-check-input flex-shrink-0" type="radio" name="exportOption" value="all">
                             <div class="w-100">
-                                <div class="d-flex justify-content-between align-items-center"><h6 class="mb-0 fw-semibold text-danger">Export All Audit Logs</h6><span class="badge bg-danger rounded-pill" id="exportAllCount">0</span></div>
+                                <div class="d-flex justify-content-between align-items-center"><h6 class="mb-0 fw-semibold text-danger">Export All Audit Logs</h6><span class="badge bg-danger rounded-pill" id="exportAllCount" data-count="<?= $totalLogs ?>"><?= number_format($totalLogs) ?></span></div>
                                 <small class="text-muted fs-xs">Exports the complete system audit history available.</small>
                             </div>
                         </label>
@@ -584,52 +623,49 @@ $activeUsersCount = count($distinctUsers);
     
     <script>
         $(document).ready(function() {
-            var table = $('#auditTable').DataTable({
-                "order": [[ 3, "desc" ]], 
-                "dom": '<"d-none"f>rt', 
-                "pageLength": 15,
-                "language": {
-                    "emptyTable": "<div class='text-center p-5 text-muted'><i class='fas fa-inbox fa-3x mb-3 opacity-50'></i><br><h5>No records found</h5><p class='mb-0 fs-sm'>No audit records found for the selected filters.</p></div>"
+            const filterForm = document.getElementById('auditFilterForm');
+            const pageField = document.getElementById('auditPageField');
+            const perPageField = document.getElementById('auditPerPageField');
+            const totalPages = <?= (int) $totalPages ?>;
+
+            function submitFilters(pageNumber) {
+                pageField.value = Math.min(Math.max(parseInt(pageNumber, 10) || 1, 1), totalPages);
+                filterForm.submit();
+            }
+
+            $(filterForm).on('submit', function() {
+                pageField.value = 1;
+            });
+
+            $('#filterModule, #filterCategory').on('change', function() {
+                submitFilters(1);
+            });
+
+            $('#searchTable').on('search', function() {
+                if (this.value === '') {
+                    submitFilters(1);
                 }
             });
 
-            function updateCustomPagination() {
-                let info = table.page.info();
-                let startRange = info.recordsDisplay > 0 ? (info.start + 1) : 0;
-                let endRange = info.end;
-                let totalFilteredStr = Number(info.recordsDisplay).toLocaleString();
-                let filterStatus = (info.recordsDisplay !== info.recordsTotal) ? ' filtered' : '';
-                
-                $('#customPageInfo').html(`Showing <span class="fw-bold text-main">${startRange}-${endRange}</span> of <span class="fw-bold text-main">${totalFilteredStr}</span>${filterStatus} activities`);
-                
-                let totalPages = info.pages === 0 ? 1 : info.pages;
-                let currentPage = info.page + 1;
-                
-                $('#customTotalPages').text(totalPages);
-                $('#customPageInput').val(currentPage);
-                
-                $('#customPrevBtn').prop('disabled', info.page === 0);
-                $('#customNextBtn').prop('disabled', info.page === (info.pages - 1) || info.pages === 0);
-                $('#customPageInput').prop('max', totalPages);
-            }
-
-            table.on('draw', function() { updateCustomPagination(); });
-            updateCustomPagination();
-
-            $('#customPrevBtn').on('click', function() { table.page('previous').draw('page'); });
-            $('#customNextBtn').on('click', function() { table.page('next').draw('page'); });
-            
-            $('#customPageLength').on('change', function() { table.page.len(parseInt($(this).val())).draw(); });
-            $('#customPageInput').on('change', function() {
-                let requestedPage = parseInt($(this).val());
-                let info = table.page.info();
-                if (requestedPage >= 1 && requestedPage <= info.pages) { table.page(requestedPage - 1).draw('page'); } 
-                else { $(this).val(info.page + 1); }
+            $('#customPageLength').on('change', function() {
+                perPageField.value = parseInt(this.value, 10) || 15;
+                submitFilters(1);
             });
 
-            $('#searchTable').on('keyup', function() { table.search(this.value).draw(); });
-            $('#filterModule').on('change', function() { table.column(1).search(this.value).draw(); });
-            $('#filterCategory').on('change', function() { table.column(2).search(this.value).draw(); });
+            $('#customPageInput').on('change', function() {
+                const requestedPage = parseInt(this.value, 10);
+                if (requestedPage >= 1 && requestedPage <= totalPages) {
+                    submitFilters(requestedPage);
+                } else {
+                    this.value = <?= (int) $currentPage ?>;
+                }
+            });
+
+            $('#customPrevBtn, #customNextBtn').on('click', function() {
+                if (!this.disabled) {
+                    submitFilters(this.dataset.page);
+                }
+            });
 
             $('input[name="exportOption"]').on('change', function() {
                 $('.list-group-item').removeClass('bg-soft-primary').removeClass('border-start').removeClass('border-primary').removeClass('border-3');
@@ -637,9 +673,9 @@ $activeUsersCount = count($distinctUsers);
                 
                 let selectedVal = $(this).val();
                 let countNum = 0;
-                if(selectedVal === 'filtered') countNum = parseInt($('#exportFilteredCount').text());
-                else if(selectedVal === 'current') countNum = parseInt($('#exportCurrentCount').text());
-                else countNum = parseInt($('#exportAllCount').text());
+                if(selectedVal === 'filtered') countNum = Number($('#exportFilteredCount').data('count'));
+                else if(selectedVal === 'current') countNum = Number($('#exportCurrentCount').data('count'));
+                else countNum = Number($('#exportAllCount').data('count'));
 
                 if (countNum > 1500) { $('#exportWarning').removeClass('d-none'); } else { $('#exportWarning').addClass('d-none'); }
             });
@@ -647,83 +683,119 @@ $activeUsersCount = count($distinctUsers);
 
         function viewAuditDetails(btn) {
             const d = btn.dataset;
-            $('#techLogId').text(d.logId); $('#techUser').text(d.user); $('#techAction').text(d.action); $('#techIp').text(d.ip); $('#techTime').text(d.time); $('#techModule').text(d.module); $('#techDesc').text(d.desc); $('#techHumanReadable').html(d.sentence);
-            
-            let techChangesDiv = document.getElementById('techChangesSection');
-            techChangesDiv.innerHTML = ''; 
-            let match = String(d.desc).match(/changed from (.*?) to (.*)/i);
-            
+            $('#techLogId').text(d.logId); $('#techUser').text(d.user); $('#techAction').text(d.action); $('#techIp').text(d.ip); $('#techTime').text(d.time); $('#techModule').text(d.module); $('#techDesc').text(d.desc || '');
+
+            // Reuse the server-escaped timeline markup without parsing a data
+            // attribute as HTML. This preserves its existing bold/muted spans.
+            const summary = document.getElementById('techHumanReadable');
+            const timeline = btn.querySelector('.timeline-desc');
+            summary.replaceChildren();
+            if (timeline) {
+                timeline.childNodes.forEach(node => summary.appendChild(node.cloneNode(true)));
+            } else {
+                summary.textContent = d.desc || '';
+            }
+
+            const techChangesDiv = document.getElementById('techChangesSection');
+            techChangesDiv.replaceChildren();
+            const match = String(d.desc || '').match(/changed from (.*?) to (.*)/i);
+
             if (match) {
-                techChangesDiv.innerHTML = `
-                    <div class="row mb-4 gx-3">
-                        <div class="col-sm-6">
-                            <div class="border rounded p-3 bg-white h-100 shadow-sm border-light border-start border-danger border-3">
-                                <div class="fw-bold mb-1 fs-xs text-danger text-uppercase">PREVIOUS VALUE</div>
-                                <div class="fw-semibold mt-2 fs-md text-main">${match[1]}</div>
-                            </div>
-                        </div>
-                        <div class="col-sm-6 mt-2 mt-sm-0">
-                            <div class="border rounded p-3 bg-white h-100 shadow-sm border-light border-start border-success border-3">
-                                <div class="fw-bold mb-1 fs-xs text-success text-uppercase">UPDATED VALUE</div>
-                                <div class="fw-semibold mt-2 fs-md text-main">${match[2]}</div>
-                            </div>
-                        </div>
-                    </div>
-                `;
+                const row = document.createElement('div');
+                row.className = 'row mb-4 gx-3';
+                const changes = [
+                    { label: 'PREVIOUS VALUE', value: match[1], color: 'danger', column: 'col-sm-6' },
+                    { label: 'UPDATED VALUE', value: match[2], color: 'success', column: 'col-sm-6 mt-2 mt-sm-0' }
+                ];
+                changes.forEach(change => {
+                    const column = document.createElement('div');
+                    column.className = change.column;
+                    const card = document.createElement('div');
+                    card.className = 'border rounded p-3 bg-white h-100 shadow-sm border-light border-start border-' + change.color + ' border-3';
+                    const label = document.createElement('div');
+                    label.className = 'fw-bold mb-1 fs-xs text-' + change.color + ' text-uppercase';
+                    label.textContent = change.label;
+                    const value = document.createElement('div');
+                    value.className = 'fw-semibold mt-2 fs-md text-main';
+                    // Audit values are data, never markup (including old logs).
+                    value.textContent = change.value;
+                    card.appendChild(label);
+                    card.appendChild(value);
+                    column.appendChild(card);
+                    row.appendChild(column);
+                });
+                techChangesDiv.appendChild(row);
             }
             new bootstrap.Modal(document.getElementById('auditDetailsModal')).show();
         }
 
         function openExportModal() {
-            let tableAPI = $('#auditTable').DataTable();
-            $('#exportFilteredCount').text(tableAPI.rows({ search: 'applied' }).count());
-            $('#exportCurrentCount').text(tableAPI.rows({ page: 'current' }).count());
-            $('#exportAllCount').text(tableAPI.rows().count());
             $('input[name="exportOption"]:checked').trigger('change');
             new bootstrap.Modal(document.getElementById('exportModal')).show();
         }
 
         function processDataExport() {
-            let btn = $('#btnConfirmExport'); let originalContent = btn.html();
+            const btn = $('#btnConfirmExport');
+            const originalContent = btn.html();
             btn.html('<i class="fas fa-spinner fa-spin me-2"></i> Processing...').prop('disabled', true);
-            
-            let exportType = $('input[name="exportOption"]:checked').val();
-            let tableAPI = $('#auditTable').DataTable();
-            let selector = {}; let typeName = "";
-            
-            if (exportType === 'current') { selector = { page: 'current' }; typeName = "Current Visible Page"; } 
-            else if (exportType === 'filtered') { selector = { search: 'applied' }; typeName = "Filtered Results"; } 
-            else { selector = {}; typeName = "All Audit Logs"; }
 
-            let rows = tableAPI.rows(selector).nodes();
-            let recordCount = rows.length;
-            if (recordCount === 0) { alert("No records found matching your criteria to export."); btn.html(originalContent).prop('disabled', false); return; }
+            const payload = new URLSearchParams({
+                csrf_token: <?php echo json_encode((string) ($_SESSION['csrf_token'] ?? '')); ?>,
+                scope: String($('input[name="exportOption"]:checked').val() || 'filtered'),
+                search: <?php echo json_encode($filterState['search']); ?>,
+                module: <?php echo json_encode($filterState['module']); ?>,
+                category: <?php echo json_encode($filterState['category']); ?>,
+                page: '<?php echo (int) $currentPage; ?>',
+                per_page: '<?php echo (int) $perPage; ?>'
+            });
 
-            setTimeout(() => {
-                let exportData = [];
-                $(rows).each(function() {
-                    let viewBtn = $(this).find('.btn-view-details');
-                    let rawSentence = viewBtn.data('sentence');
-                    exportData.push({
-                        "Log ID": viewBtn.data('log-id'), "Date & Time": viewBtn.data('time'), "User Identity": viewBtn.data('user'),
-                        "User Role": viewBtn.data('role'), "Action Type": viewBtn.data('action'), "Module Focus": viewBtn.data('module'),
-                        "Activity Description": rawSentence ? rawSentence.replace(/<[^>]+>/g, '') : '', "Technical Context": viewBtn.data('desc'), "Client IP Address": viewBtn.data('ip')
-                    });
-                });
-                try {
-                    let worksheet = XLSX.utils.json_to_sheet(exportData); let workbook = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(workbook, worksheet, "System Audit Export");
-                    worksheet['!cols'] = [{wch: 10}, {wch: 22}, {wch: 22}, {wch: 15}, {wch: 20}, {wch: 20}, {wch: 65}, {wch: 45}, {wch: 16}];
-                    XLSX.writeFile(workbook, "System_Audit_Logs_" + new Date().toISOString().slice(0,10) + ".xlsx");
-                    
-                    $.post(window.location.href, { log_export_activity: 1, record_count: recordCount, export_type: typeName }).always(function() {
-                        btn.html(originalContent).prop('disabled', false); bootstrap.Modal.getInstance(document.getElementById('exportModal')).hide();
-                    });
-                } catch (err) {
-                    console.error("Export Error:", err); alert("An error occurred during export processing. Check console for details.");
-                    btn.html(originalContent).prop('disabled', false);
+            fetch('api/audit_logs_export.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                credentials: 'same-origin',
+                body: payload.toString()
+            })
+            .then(async response => {
+                const data = await response.json();
+                if (!response.ok || data.status !== 'success') {
+                    throw new Error(data.message || 'The export request failed.');
                 }
-            }, 50);
+                return data;
+            })
+            .then(data => {
+                if (!Array.isArray(data.records) || data.records.length === 0) {
+                    alert('No records were found for the selected export scope.');
+                    return;
+                }
+
+                const worksheet = XLSX.utils.json_to_sheet(data.records);
+                const workbook = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(workbook, worksheet, 'System Audit Export');
+                worksheet['!cols'] = [
+                    {wch: 10}, {wch: 22}, {wch: 22}, {wch: 15}, {wch: 24},
+                    {wch: 22}, {wch: 18}, {wch: 70}, {wch: 18}
+                ];
+                XLSX.writeFile(
+                    workbook,
+                    'System_Audit_Logs_' + new Date().toISOString().slice(0, 10) + '.xlsx'
+                );
+
+                const modal = bootstrap.Modal.getInstance(document.getElementById('exportModal'));
+                if (modal) {
+                    modal.hide();
+                }
+            })
+            .catch(error => {
+                console.error('Audit export error:', error);
+                alert(error.message || 'The audit export could not be generated.');
+            })
+            .finally(() => {
+                btn.html(originalContent).prop('disabled', false);
+            });
         }
     </script>
 </body>

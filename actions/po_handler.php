@@ -3,6 +3,9 @@ session_start();
 require '../config/db_connect.php';
 require '../config/functions.php';
 require_once '../config/workflow_feedback.php';
+require_once '../config/official_po_snapshot.php';
+require_once '../config/official_fund_release_filing.php';
+require_once '../config/upload_policy.php';
 
 if (!function_exists('po_handler_redirect')) {
     function po_handler_redirect(
@@ -122,6 +125,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
 
         $created_po_document_path = null;
+        $official_po_storage_path = null;
+        $official_po_record_number = null;
+        $official_po_document_id = null;
 
         try {
             $conn->begin_transaction();
@@ -660,10 +666,25 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 throw new RuntimeException('The PO history could not be saved.');
             }
 
+            $official_po_record =
+                drms_file_authorized_po_as_official_record(
+                    $conn,
+                    $po_id,
+                    $user_id
+                );
+            $official_po_storage_path =
+                $official_po_record['storage_absolute_path'] ?? null;
+            $official_po_record_number =
+                (string) $official_po_record['record_number'];
+            $official_po_document_id =
+                (int) $official_po_record['doc_id'];
+
             create_role_notification(
                 $conn,
                 'Finance',
-                'PO ' . $po_number . ' is ready for funding release.'
+                'PO ' . $po_number . ' was filed as ' .
+                    $official_po_record_number .
+                    ' and is ready for funding release.'
             );
 
             $assigned_finance = auto_assign_po_hybrid(
@@ -685,37 +706,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     UPLOAD_ERR_NO_FILE
             ) {
                 $file = $_FILES['po_document'];
-                if (
-                    $file['error'] !== UPLOAD_ERR_OK ||
-                    !is_uploaded_file($file['tmp_name'])
-                ) {
+                try {
+                    $validated_po_document = drms_upload_validate(
+                        $conn,
+                        $file,
+                        'proof'
+                    );
+                } catch (DrmsUploadValidationException $upload_error) {
                     throw new DomainException(
-                        'The optional PO supporting document could not be uploaded.'
+                        $upload_error->getMessage()
                     );
                 }
-
-                $allowed_documents = [
-                    'pdf' => 'application/pdf',
-                    'png' => 'image/png',
-                    'jpg' => 'image/jpeg',
-                    'jpeg' => 'image/jpeg',
-                ];
-                $extension = strtolower(
-                    pathinfo($file['name'], PATHINFO_EXTENSION)
-                );
-                $mime_type = (new finfo(FILEINFO_MIME_TYPE))
-                    ->file($file['tmp_name']);
-
-                if (
-                    $file['size'] < 1 ||
-                    $file['size'] > 10 * 1024 * 1024 ||
-                    !isset($allowed_documents[$extension]) ||
-                    $mime_type !== $allowed_documents[$extension]
-                ) {
-                    throw new DomainException(
-                        'The supporting document must be a valid PDF, JPG, or PNG file up to 10 MB.'
-                    );
-                }
+                $extension = $validated_po_document['extension'];
 
                 $upload_directory =
                     dirname(__DIR__) . DIRECTORY_SEPARATOR . 'uploads' .
@@ -736,7 +738,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     $upload_directory . $stored_file_name;
 
                 if (!move_uploaded_file(
-                    $file['tmp_name'],
+                    $validated_po_document['tmp_name'],
                     $created_po_document_path
                 )) {
                     throw new RuntimeException(
@@ -749,7 +751,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     'sha256',
                     $created_po_document_path
                 );
-                $original_file_name = basename((string) $file['name']);
+                $original_file_name = $validated_po_document['original_name'];
 
                 $document_stmt = $conn->prepare(
                     "INSERT INTO documents (
@@ -795,6 +797,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     'requested_fund_amount' => $requested_fund_amount,
                     'gross_profit_amount' => $gross_profit_amount,
                     'supplier_detail_id' => $supplier_detail_id,
+                    'official_record_doc_id' => $official_po_document_id,
+                    'official_record_number' => $official_po_record_number,
                     'next_workflow_role' => 'Finance',
                     'next_workflow_action' => 'Release Funding',
                 ]
@@ -805,11 +809,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     'The Purchase Order transaction could not be completed.'
                 );
             }
+            $official_po_storage_path = null;
 
             header(
                 "Location: ../view_po.php?id=" . $po_id .
                 "&success=" .
-                rawurlencode('PO created and forwarded to Finance for funding.')
+                rawurlencode(
+                    'PO created, filed as ' . $official_po_record_number .
+                    ', and forwarded to Finance for funding.'
+                )
             );
             exit();
         } catch (Throwable $e) {
@@ -820,6 +828,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 is_file($created_po_document_path)
             ) {
                 unlink($created_po_document_path);
+            }
+
+            if (
+                $official_po_storage_path !== null &&
+                is_file($official_po_storage_path)
+            ) {
+                @unlink($official_po_storage_path);
             }
 
             drms_log_workflow_failure(
@@ -1029,50 +1044,29 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     exit();
                 }
 
-                if (
-                    !isset($_FILES['funding_proof']) ||
-                    $_FILES['funding_proof']['error'] !== UPLOAD_ERR_OK ||
-                    !is_uploaded_file($_FILES['funding_proof']['tmp_name'])
-                ) {
+                $funding_proof = $_FILES['funding_proof'] ?? null;
+                try {
+                    $validated_funding_proof = drms_upload_validate(
+                        $conn,
+                        $funding_proof,
+                        'proof'
+                    );
+                } catch (DrmsUploadValidationException $upload_error) {
                     header(
                         "Location: ../release_funding.php?po_id=" . $po_id .
                         "&error=" .
-                        rawurlencode('Payment proof is required before releasing funding.')
+                        rawurlencode($upload_error->getMessage())
                     );
                     exit();
                 }
-
-                $funding_proof = $_FILES['funding_proof'];
-                $funding_extension = strtolower(
-                    pathinfo($funding_proof['name'], PATHINFO_EXTENSION)
-                );
-                $allowed_funding_proofs = [
-                    'pdf' => 'application/pdf',
-                    'jpg' => 'image/jpeg',
-                    'jpeg' => 'image/jpeg',
-                    'png' => 'image/png',
-                ];
-                $funding_mime = (new finfo(FILEINFO_MIME_TYPE))
-                    ->file($funding_proof['tmp_name']);
-
-                if (
-                    $funding_proof['size'] < 1 ||
-                    $funding_proof['size'] > 10 * 1024 * 1024 ||
-                    !isset($allowed_funding_proofs[$funding_extension]) ||
-                    $funding_mime !==
-                        $allowed_funding_proofs[$funding_extension]
-                ) {
-                    header(
-                        "Location: ../release_funding.php?po_id=" . $po_id .
-                        "&error=" .
-                        rawurlencode('Payment proof must be a valid PDF, JPG, or PNG file up to 10 MB.')
-                    );
-                    exit();
-                }
+                $funding_extension = $validated_funding_proof['extension'];
 
                 $funding_directory =
                     __DIR__ . '/../uploads/fund_releases/';
                 $stored_funding_absolute_path = null;
+                $official_fund_release_storage_path = null;
+                $official_fund_release_number = '';
+                $official_fund_release_doc_id = null;
 
                 try {
                     if (
@@ -1230,7 +1224,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         $stored_funding_file_name;
 
                     if (!move_uploaded_file(
-                        $funding_proof['tmp_name'],
+                        $validated_funding_proof['tmp_name'],
                         $stored_funding_absolute_path
                     )) {
                         throw new RuntimeException(
@@ -1253,9 +1247,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     $released_at =
                         $released_datetime->format('Y-m-d H:i:s');
                     $funding_original_name = substr(
-                        basename(
-                            (string) $funding_proof['name']
-                        ),
+                        $validated_funding_proof['original_name'],
                         0,
                         255
                     );
@@ -1330,6 +1322,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         );
                     }
 
+                    $official_fund_release =
+                        drms_file_supplier_fund_release_as_official_record(
+                            $conn,
+                            $fund_release_id,
+                            $user_id
+                        );
+                    $official_fund_release_number = (string)
+                        $official_fund_release['record_number'];
+                    $official_fund_release_doc_id = (int)
+                        $official_fund_release['doc_id'];
+                    $official_fund_release_storage_path =
+                        $official_fund_release['storage_absolute_path'] ?? null;
+
                     $funding_history_stmt = $conn->prepare(
                         "INSERT INTO po_history (
                             po_id,
@@ -1348,7 +1353,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     $funding_history_remarks =
                         'Supplier funding released through ' .
                         $release_method . '. Reference: ' .
-                        $reference_number . '.';
+                        $reference_number . '. Official Record: ' .
+                        $official_fund_release_number . '.';
                     $funding_history_stmt->bind_param(
                         'iis',
                         $po_id,
@@ -1362,7 +1368,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         $conn,
                         $funding_notify_target,
                         'PO ' . $funding_po['po_number'] .
-                            ' is funded with verified payment proof. Confirm supplier readiness and prepare its delivery request.'
+                            ' is funded with verified payment proof filed as ' .
+                            $official_fund_release_number .
+                            '. Confirm supplier readiness and prepare its delivery request.'
                     );
 
                     complete_po_task_assignment(
@@ -1419,6 +1427,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                             'release_method' => $release_method,
                             'reference_number' => $reference_number,
                             'released_at' => $released_at,
+                            'official_record_doc_id' =>
+                                $official_fund_release_doc_id,
+                            'official_record_number' =>
+                                $official_fund_release_number,
                         ]
                     );
 
@@ -1432,11 +1444,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         "Location: ../view_po.php?id=" . $po_id .
                         "&success=" .
                         rawurlencode(
-                            'Supplier funding recorded and forwarded to Procurement for delivery coordination.'
+                            'Supplier funding recorded, filed as ' .
+                            $official_fund_release_number .
+                            ', and forwarded to Procurement for delivery coordination.'
                         )
                     );
                 } catch (Throwable $e) {
                     $conn->rollback();
+
+                    if (
+                        $official_fund_release_storage_path &&
+                        is_file($official_fund_release_storage_path)
+                    ) {
+                        @unlink($official_fund_release_storage_path);
+                    }
 
                     if (
                         $stored_funding_absolute_path &&
@@ -1681,57 +1702,22 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $doc_type = $_POST['doc_type'] ?? 'General'; 
         $redirectUrl = getRedirectUrl($conn, null, $po_id);
 
-        if (
-            !isset($_FILES['document']) ||
-            ($_FILES['document']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK
-        ) {
+        $file = $_FILES['document'] ?? null;
+        try {
+            $validated_attachment = drms_upload_validate(
+                $conn,
+                $file,
+                'workflow_document'
+            );
+        } catch (DrmsUploadValidationException $upload_error) {
             po_handler_redirect(
                 $redirectUrl,
                 'error',
-                'Select a valid file and try the upload again.'
+                $upload_error->getMessage()
             );
         }
-        $file = $_FILES['document'];
-
-        $max_file_size = 10 * 1024 * 1024;
-        if ($file['size'] > $max_file_size) {
-            po_handler_redirect(
-                $redirectUrl,
-                'error',
-                'The selected file is too large. Choose a file no larger than 10 MB.'
-            );
-        }
-
-        $allowedMimeTypes = [
-            'application/pdf' => 'pdf',
-            'image/jpeg' => 'jpg',
-            'image/png' => 'png',
-            'application/msword' => 'doc',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
-            'application/vnd.ms-excel' => 'xls',
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx'
-        ];
-
-        $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-        if (!in_array($ext, $allowedMimeTypes, true)) {
-            po_handler_redirect(
-                $redirectUrl,
-                'error',
-                'The selected file type is not allowed. Choose a PDF, image, Word, or Excel file.'
-            );
-        }
-
-        $finfo = new finfo(FILEINFO_MIME_TYPE);
-        $fileMimeType = $finfo->file($file['tmp_name']);
-        if (!array_key_exists($fileMimeType, $allowedMimeTypes)) {
-            po_handler_redirect(
-                $redirectUrl,
-                'error',
-                'The selected file could not be verified. Choose a valid document or image file.'
-            );
-        }
-
-        $fileHash = hash_file('sha256', $file['tmp_name']);
+        $ext = $validated_attachment['extension'];
+        $fileHash = hash_file('sha256', $validated_attachment['tmp_name']);
         $checkStmt = $conn->prepare("SELECT doc_id FROM documents WHERE file_hash = ?");
         $checkStmt->bind_param("s", $fileHash);
         $checkStmt->execute();
@@ -1753,7 +1739,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $targetPath = $uploadDir . $newFileName; 
         $dbPath = $dbDir . $newFileName;         
 
-        if (move_uploaded_file($file['tmp_name'], $targetPath)) {
+        if (move_uploaded_file($validated_attachment['tmp_name'], $targetPath)) {
             if ($po_id === null) {
                 $stmt = $conn->prepare("INSERT INTO documents (po_id, doc_type, file_name, file_path, file_hash, uploaded_by, status) VALUES (NULL, ?, ?, ?, ?, ?, 'Active')");
                 $stmt->bind_param("ssssi", $doc_type, $newFileName, $dbPath, $fileHash, $user_id);
@@ -1789,6 +1775,5 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 }
 ?>
-
 
 

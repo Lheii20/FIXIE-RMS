@@ -1,0 +1,939 @@
+/*
+ * Fixie DRMS canonical form and action-control system
+ * UI Phase 4
+ *
+ * Loaded after all page/module styles. Screen-only rules standardize control
+ * sizing, typography, focus treatment, icon alignment, and validation states
+ * without changing form actions, buttons, permissions, or page layout logic.
+ */
+
+:root {
+    --app-control-height: 38px;
+    --app-control-height-sm: 34px;
+    --app-control-height-lg: 42px;
+    --app-control-radius: 8px;
+    --app-control-font-size: 13px;
+    --app-control-label-size: 12.5px;
+    --app-control-line: #c4cfdd;
+    --app-control-line-hover: #aab8ca;
+    --app-control-ink: #253044;
+    --app-control-muted: #7a8699;
+    --app-control-surface: #ffffff;
+    --app-control-disabled: #f3f5f8;
+    --app-control-primary: #3158c9;
+    --app-control-danger: #dc3545;
+    --app-control-success: #198754;
+    --app-control-focus-ring: 0 0 0 2px rgba(49, 88, 201, 0.14);
+}
+
+@media screen {
+    /* Standard text, select, search, date, and custom application fields. */
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(
+        .form-control,
+        .form-select,
+        .soft-input,
+        .sleek-input,
+        .sleek-search-input,
+        .sleek-select,
+        .admin-role-select,
+        .dataTables_filter input,
+        .dataTables_length select,
+        .page-input-styled
+    ) {
+        box-sizing: border-box;
+        height: auto;
+        min-height: var(--app-control-height) !important;
+        padding: 7px 10px !important;
+        border: 1px solid var(--app-control-line) !important;
+        border-radius: var(--app-control-radius) !important;
+        background-color: var(--app-control-surface) !important;
+        color: var(--app-control-ink) !important;
+        font-family: inherit;
+        font-size: var(--app-control-font-size) !important;
+        font-weight: 500;
+        line-height: 1.35 !important;
+        box-shadow: none !important;
+        transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(
+        .form-control,
+        .form-select,
+        .soft-input,
+        .sleek-input,
+        .sleek-search-input,
+        .sleek-select,
+        .admin-role-select,
+        .dataTables_filter input,
+        .dataTables_length select,
+        .page-input-styled
+    ):hover:not(:focus):not(:disabled):not([readonly]) {
+        border-color: var(--app-control-line-hover) !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(
+        .form-control,
+        .form-select,
+        .soft-input,
+        .sleek-input,
+        .sleek-search-input,
+        .sleek-select,
+        .admin-role-select,
+        .dataTables_filter input,
+        .dataTables_length select,
+        .page-input-styled
+    ):focus {
+        border-color: var(--app-control-primary) !important;
+        outline: 0 !important;
+        box-shadow: var(--app-control-focus-ring) !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(.form-control, .soft-input, .sleek-input, .sleek-search-input)::placeholder {
+        color: var(--app-control-muted) !important;
+        font-size: 12.5px;
+        font-weight: 400;
+        opacity: 1;
+    }
+
+    /* Textareas retain vertical resizing and never inherit a fixed input height. */
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) textarea:is(.form-control, .soft-input, .sleek-input) {
+        height: auto !important;
+        min-height: 76px !important;
+        max-height: 220px;
+        padding: 9px 10px !important;
+        line-height: 1.45 !important;
+        resize: vertical;
+    }
+
+    /* Read-only and disabled controls remain clearly different from editable fields. */
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(
+        .form-control,
+        .form-select,
+        .soft-input,
+        .sleek-input,
+        .sleek-search-input,
+        .sleek-select,
+        .admin-role-select
+    ):is(:disabled, [readonly]) {
+        border-color: #d3dae5 !important;
+        background-color: var(--app-control-disabled) !important;
+        color: #687489 !important;
+        cursor: not-allowed;
+        opacity: 1;
+    }
+
+    /* Small and large variants stay distinct without becoming bulky. */
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(
+        .form-control.form-control-sm:not(textarea),
+        .form-select.form-select-sm,
+        input.form-control-sm,
+        select.form-select-sm
+    ),
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .input-group-sm > :is(.form-control:not(textarea), .form-select, .input-group-text, .btn) {
+        height: var(--app-control-height-sm) !important;
+        min-height: var(--app-control-height-sm) !important;
+        padding: 5px 8px !important;
+        font-size: 12.5px !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(
+        .form-control.form-control-lg:not(textarea),
+        .form-select.form-select-lg,
+        input.form-control-lg,
+        select.form-select-lg
+    ),
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .input-group-lg > :is(.form-control:not(textarea), .form-select, .input-group-text, .btn) {
+        height: var(--app-control-height-lg) !important;
+        min-height: var(--app-control-height-lg) !important;
+        padding: 9px 11px !important;
+        font-size: 13.5px !important;
+    }
+
+    /* File controls need a little vertical room for the native file button. */
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) input[type="file"].form-control {
+        height: auto !important;
+        padding: 5px 7px !important;
+    }
+
+    /* Consistent labels, helper copy, and check controls. */
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) form label:not(:where(.form-check-label, .btn, .dropdown-item)),
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(.form-label, .form-label-sleek) {
+        margin-bottom: 5px !important;
+        color: #465268 !important;
+        font-size: var(--app-control-label-size) !important;
+        font-weight: 600 !important;
+        line-height: 1.3 !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(.form-text, .invalid-feedback, .valid-feedback) {
+        margin-top: 4px;
+        font-size: 11.5px;
+        line-height: 1.4;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .form-check-label {
+        color: #465268;
+        font-size: 12.5px;
+        line-height: 1.4;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .form-check:not(.form-switch) .form-check-input {
+        width: 16px;
+        height: 16px;
+        border-color: var(--app-control-line) !important;
+        box-shadow: none !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .form-check-input:focus {
+        border-color: var(--app-control-primary) !important;
+        box-shadow: var(--app-control-focus-ring) !important;
+    }
+
+    /* Validation colors must override the neutral border system. */
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(.form-control, .form-select, .soft-input, .sleek-input).is-invalid,
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .was-validated :is(.form-control, .form-select):invalid {
+        border-color: var(--app-control-danger) !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(.form-control, .form-select, .soft-input, .sleek-input).is-valid,
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .was-validated :is(.form-control, .form-select):valid {
+        border-color: var(--app-control-success) !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(.form-control, .form-select, .soft-input, .sleek-input).is-invalid:focus {
+        box-shadow: 0 0 0 2px rgba(220, 53, 69, 0.14) !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(.form-control, .form-select, .soft-input, .sleek-input).is-valid:focus {
+        box-shadow: 0 0 0 2px rgba(25, 135, 84, 0.14) !important;
+    }
+
+    /* Input groups share the standard field height and connected corners. */
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .input-group-text {
+        min-height: var(--app-control-height);
+        padding: 0 10px !important;
+        border-color: var(--app-control-line) !important;
+        background: #f7f9fc !important;
+        color: #667085 !important;
+        font-size: 12.5px !important;
+        line-height: 1 !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .input-group > :not(:first-child) {
+        border-top-left-radius: 0 !important;
+        border-bottom-left-radius: 0 !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .input-group > :not(:last-child) {
+        border-top-right-radius: 0 !important;
+        border-bottom-right-radius: 0 !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .soft-input-group .input-group-text {
+        min-height: var(--app-control-height) !important;
+        border: 1px solid var(--app-control-line) !important;
+        border-right: 0 !important;
+        border-radius: var(--app-control-radius) 0 0 var(--app-control-radius) !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .soft-input-group .soft-input {
+        border-left: 0 !important;
+        border-radius: 0 var(--app-control-radius) var(--app-control-radius) 0 !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .soft-input-group:focus-within :is(.input-group-text, .soft-input) {
+        border-color: var(--app-control-primary) !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .soft-input-group:focus-within {
+        border-radius: var(--app-control-radius);
+        box-shadow: var(--app-control-focus-ring) !important;
+    }
+
+    /* High-specificity legacy filter rules still use the canonical line color. */
+    html body.page-admin-users :is(
+        .admin-users-search,
+        .admin-role-select
+    ),
+    html body.page-audit-logs .audit-filter-bar :is(
+        .form-control,
+        .form-select,
+        .input-group-text
+    ) {
+        border-color: var(--app-control-line) !important;
+    }
+
+    /* Search wrappers align icons and preserve visible typed text. */
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .sleek-search-group {
+        position: relative;
+        min-height: var(--app-control-height);
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .sleek-search-group > i {
+        position: absolute;
+        z-index: 2;
+        top: 50%;
+        left: 12px;
+        display: inline-flex;
+        width: 14px;
+        height: 14px;
+        align-items: center;
+        justify-content: center;
+        margin: 0;
+        color: #7a8699;
+        line-height: 1;
+        pointer-events: none;
+        transform: translateY(-50%);
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .sleek-search-group .sleek-search-input {
+        padding-left: 36px !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(
+        .sleek-input-group,
+        .collection-search,
+        .aging-search,
+        .ledger-search-field > div
+    ) {
+        min-height: var(--app-control-height) !important;
+        border-color: var(--app-control-line) !important;
+        border-radius: var(--app-control-radius) !important;
+        box-shadow: none !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(
+        .sleek-input-group,
+        .collection-search,
+        .aging-search,
+        .ledger-search-field > div
+    ):focus-within {
+        border-color: var(--app-control-primary) !important;
+        box-shadow: var(--app-control-focus-ring) !important;
+    }
+
+    /* Ledger filters use native controls without Bootstrap field classes. */
+    html body.workflow-ui.ledger-page .ledger-filter-form :is(
+        input[type="date"],
+        select
+    ) {
+        box-sizing: border-box;
+        height: var(--app-control-height) !important;
+        min-height: var(--app-control-height) !important;
+        padding: 7px 10px !important;
+        border: 1px solid var(--app-control-line) !important;
+        border-radius: var(--app-control-radius) !important;
+        background-color: var(--app-control-surface) !important;
+        color: var(--app-control-ink) !important;
+        font-family: inherit;
+        font-size: var(--app-control-font-size) !important;
+        font-weight: 500;
+        line-height: 1.35 !important;
+        box-shadow: none !important;
+        transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease !important;
+    }
+
+    html body.workflow-ui.ledger-page .ledger-filter-form :is(
+        input[type="date"],
+        select
+    ):hover:not(:focus):not(:disabled) {
+        border-color: var(--app-control-line-hover) !important;
+    }
+
+    html body.workflow-ui.ledger-page .ledger-filter-form :is(
+        input[type="date"],
+        select
+    ):focus {
+        border-color: var(--app-control-primary) !important;
+        outline: 0 !important;
+        box-shadow: var(--app-control-focus-ring) !important;
+    }
+
+    html body.workflow-ui:is(.collection-page, .aging-page, .ledger-page) :is(
+        .collection-search input,
+        .aging-search input,
+        .ledger-search-field input
+    ) {
+        height: 36px !important;
+        min-height: 36px !important;
+        padding: 0 !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        background: transparent !important;
+        font-size: var(--app-control-font-size) !important;
+        box-shadow: none !important;
+    }
+
+    /* Filter and action rows share one horizontal rhythm without forced widths. */
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(
+        .sleek-filter-bar,
+        .admin-users-toolbar,
+        .admin-requests-toolbar,
+        .audit-filter-bar,
+        .collection-search-form,
+        .aging-search-form,
+        .ledger-filter-form,
+        .ledger-filter-actions
+    ) {
+        align-items: center !important;
+        gap: 8px !important;
+    }
+
+    /* Standard action buttons; colors and click behavior remain page-owned. */
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(
+        .btn,
+        button.btn,
+        .btn-modern,
+        .admin-primary-action,
+        .btn-gradient-primary,
+        .prf-submit-button,
+        .prf-review-reject-button,
+        .prf-review-approve-button,
+        .collection-search-form > button,
+        .aging-search-form > button,
+        .ledger-filter-actions > button
+    ) {
+        display: inline-flex !important;
+        min-height: 36px !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 7px !important;
+        padding: 7px 12px !important;
+        border-radius: var(--app-control-radius) !important;
+        font-size: 12.5px !important;
+        font-weight: 600 !important;
+        line-height: 1.2 !important;
+        letter-spacing: 0 !important;
+        text-align: center;
+        white-space: nowrap;
+        box-shadow: none !important;
+        transform: none !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(.btn.btn-sm, button.btn-sm, .sleek-btn-sm.sleek-btn-sm) {
+        min-height: 32px !important;
+        padding: 5px 9px !important;
+        font-size: 12px !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(.btn.btn-lg, button.btn-lg, .sleek-btn.sleek-btn) {
+        min-height: 40px !important;
+        padding: 9px 14px !important;
+        font-size: 13px !important;
+    }
+
+    /* Keep connected button variants level with their input-group controls. */
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .input-group-sm > .btn {
+        min-height: var(--app-control-height-sm) !important;
+        padding: 5px 8px !important;
+        font-size: 12.5px !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .input-group-lg > .btn {
+        min-height: var(--app-control-height-lg) !important;
+        padding: 9px 11px !important;
+        font-size: 13.5px !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(
+        .btn-view-icon,
+        .action-btn,
+        .btn-dots,
+        .mobile-list-create-action,
+        .custom-cal-nav,
+        .preview-btn-box,
+        .collection-clear-search,
+        .aging-clear,
+        .ledger-filter-actions > a
+    ) {
+        box-sizing: border-box !important;
+        display: inline-flex !important;
+        width: 34px !important;
+        min-width: 34px !important;
+        height: 34px !important;
+        min-height: 34px !important;
+        flex: 0 0 34px !important;
+        align-items: center !important;
+        justify-content: center !important;
+        padding: 0 !important;
+        border-radius: var(--app-control-radius) !important;
+        font-size: 13px !important;
+        line-height: 1 !important;
+        text-align: center;
+        box-shadow: none !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .btn-quick-act {
+        display: inline-flex !important;
+        min-height: 34px !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 6px !important;
+        padding: 6px 10px !important;
+        border-radius: var(--app-control-radius) !important;
+        font-size: 12px !important;
+        line-height: 1.2 !important;
+        white-space: nowrap;
+        box-shadow: none !important;
+        transform: none !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(
+        .btn,
+        .btn-modern,
+        .admin-primary-action,
+        .btn-gradient-primary,
+        .btn-quick-act,
+        .btn-view-icon,
+        .action-btn,
+        .btn-dots,
+        .mobile-list-create-action,
+        .custom-cal-nav,
+        .preview-btn-box,
+        .collection-clear-search,
+        .aging-clear,
+        .ledger-filter-actions > a
+    ) > i {
+        display: inline-flex !important;
+        width: 14px !important;
+        min-width: 14px !important;
+        height: 14px !important;
+        flex: 0 0 14px !important;
+        align-items: center !important;
+        justify-content: center !important;
+        margin: 0 !important;
+        line-height: 1 !important;
+        text-align: center !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(
+        .btn,
+        .btn-modern,
+        .btn-gradient-primary,
+        .btn-quick-act,
+        .collection-search-form > button,
+        .aging-search-form > button,
+        .ledger-filter-actions > button
+    ):focus-visible {
+        outline: 0 !important;
+        box-shadow: var(--app-control-focus-ring) !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(
+        .btn,
+        .btn-modern,
+        .btn-gradient-primary,
+        .btn-quick-act,
+        .collection-search-form > button,
+        .aging-search-form > button,
+        .ledger-filter-actions > button
+    ):disabled {
+        cursor: not-allowed;
+        opacity: 0.62;
+    }
+
+    /* Menus use the same readable density as fields and buttons. */
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .dropdown-item {
+        display: flex;
+        min-height: 36px;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border-radius: 7px;
+        font-size: 13px;
+        font-weight: 500;
+        line-height: 1.25;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .dropdown-item > i {
+        display: inline-flex;
+        width: 16px;
+        min-width: 16px;
+        height: 16px;
+        align-items: center;
+        justify-content: center;
+        margin: 0 !important;
+        line-height: 1;
+        text-align: center;
+    }
+}
+
+@media screen and (max-width: 767.98px) {
+    :root {
+        --app-control-height: 38px;
+        --app-control-height-sm: 34px;
+        --app-control-height-lg: 42px;
+    }
+
+    /* Neutralize old 50–56px mobile overrides without forcing page widths. */
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(
+        .form-control,
+        .form-select,
+        .soft-input,
+        .sleek-input,
+        .sleek-search-input,
+        .sleek-select,
+        .admin-role-select
+    ):not(:where(
+        textarea,
+        [multiple],
+        [size],
+        .form-control-sm,
+        .form-select-sm,
+        .form-control-lg,
+        .form-select-lg
+    )) {
+        height: var(--app-control-height) !important;
+        min-height: var(--app-control-height) !important;
+        font-size: var(--app-control-font-size) !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .input-group-sm > :is(.form-control:not(textarea), .form-select, .input-group-text, .btn) {
+        height: var(--app-control-height-sm) !important;
+        min-height: var(--app-control-height-sm) !important;
+        padding: 5px 8px !important;
+        font-size: 12.5px !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .input-group-lg > :is(.form-control:not(textarea), .form-select, .input-group-text, .btn) {
+        height: var(--app-control-height-lg) !important;
+        min-height: var(--app-control-height-lg) !important;
+        padding: 9px 11px !important;
+        font-size: 13.5px !important;
+    }
+
+    /* Override old page-specific 40px/16px mobile filter rules. */
+    html body.page-admin-users .admin-users-search {
+        height: var(--app-control-height) !important;
+        min-height: var(--app-control-height) !important;
+    }
+
+    html body.page-admin-users :is(
+        .admin-users-search .sleek-search-input,
+        .admin-role-select
+    ),
+    html body.page-audit-logs .audit-filter-bar :is(
+        .form-control,
+        .form-select,
+        .input-group-text
+    ) {
+        height: var(--app-control-height) !important;
+        min-height: var(--app-control-height) !important;
+        font-size: var(--app-control-font-size) !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) :is(
+        .btn-view-icon,
+        .action-btn,
+        .btn-dots,
+        .mobile-list-create-action,
+        .custom-cal-nav,
+        .preview-btn-box,
+        .collection-clear-search,
+        .aging-clear,
+        .ledger-filter-actions > a
+    ) {
+        width: 36px !important;
+        min-width: 36px !important;
+        height: 36px !important;
+        min-height: 36px !important;
+        flex: 0 0 36px !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .btn-quick-act {
+        height: auto !important;
+        min-height: 36px !important;
+    }
+
+    html body[class]:not(:where(
+        .auth-page,
+        .page-forgot-password,
+        .page-reset-password,
+        .page-setup-password
+    )) .dropdown-item {
+        min-height: 38px;
+    }
+}
+
+@media screen and (prefers-reduced-motion: reduce) {
+    html body :is(
+        .form-control,
+        .form-select,
+        .soft-input,
+        .sleek-input,
+        .sleek-search-input,
+        .sleek-select,
+        .admin-role-select,
+        .btn,
+        .btn-modern,
+        .btn-quick-act,
+        .dropdown-item
+    ) {
+        transition: none !important;
+    }
+}

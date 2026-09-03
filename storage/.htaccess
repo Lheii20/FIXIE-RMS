@@ -1,0 +1,11 @@
+Options -Indexes
+
+# Backup packages contain the full database and uploaded company records.
+# They are available only through the authenticated backup handler.
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>

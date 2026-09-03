@@ -1,8 +1,14 @@
 <?php
-require '../config/db_connect.php'; 
+require '../config/db_connect.php';
 
-// Kapag nakaabot ang code dito at hindi pinatay ng db_connect.php, 
-// ibig sabihin ay valid pa ang session ng user at hindi siya kinick ng Admin.
-header('Content-Type: application/json');
+header('Content-Type: application/json; charset=UTF-8');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+
+if (empty($_SESSION['user_id']) || empty($_SESSION['session_token'])) {
+    http_response_code(401);
+    echo json_encode(['status' => 'unauthenticated']);
+    exit();
+}
+
 echo json_encode(['status' => 'valid']);
 ?>

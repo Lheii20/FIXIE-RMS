@@ -1,45 +1,12 @@
 <?php 
 require 'config/db_connect.php'; 
-require 'config/functions.php'; 
+require 'config/functions.php';
+require_once __DIR__ . '/config/physical_records.php';
+$vc3PhysicalPathSql = drms_copy_path_sql(); 
 
 if(!isset($_SESSION['user_id'])) {
     header("Location: index.php");
     exit();
-}
-
-// ==========================================
-// AUTO-CLEANUP: 30-DAY RECYCLE BIN POLICY (WITH DAILY LOCK)
-// ==========================================
-// Tahimik na buburahin ng system ang mga files na 30 days nang nasa Recycle Bin
-$lock_file = __DIR__ . '/config/last_purge_date.txt';
-$today_date = date('Y-m-d');
-$last_purge = file_exists($lock_file) ? file_get_contents($lock_file) : '';
-
-// Tumatakbo lamang ang mabigat na database query na ito ISANG BESES KADA ARAW
-if ($last_purge !== $today_date) {
-    $cleanup_stmt = $conn->query("SELECT doc_id, file_path, file_name FROM documents WHERE status = 'Recycled' AND deleted_at <= DATE_SUB(NOW(), INTERVAL 30 DAY)");
-    if ($cleanup_stmt && $cleanup_stmt->num_rows > 0) {
-        while ($del_doc = $cleanup_stmt->fetch_assoc()) {
-            $path = $del_doc['file_path']; 
-            
-            if (file_exists($path) && is_file($path)) {
-                unlink($path);
-            } elseif (file_exists('../' . $path) && is_file('../' . $path)) {
-                unlink('../' . $path);
-            }
-            
-            $hard_del = $conn->prepare("DELETE FROM documents WHERE doc_id = ?");
-            $hard_del->bind_param("i", $del_doc['doc_id']);
-            $hard_del->execute();
-            
-            if (function_exists('log_audit_action')) {
-                $system_user_id = $_SESSION['user_id']; 
-                log_audit_action($conn, $system_user_id, 'SYSTEM_AUTO_PURGE', "System Auto-Permanently Deleted document after 30 days in Recycle Bin: " . $del_doc['file_name']);
-            }
-        }
-    }
-    // I-save ang petsa ngayon para bukas na ulit ito tatakbo
-    file_put_contents($lock_file, $today_date);
 }
 
 // ==========================================
@@ -571,7 +538,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if ($folder_policy === null) redirectDocumentsWithMessage("error", "Retention Policy is required when creating a sub-folder.", $parent);
         }
 
-        $drawer_id = ($is_new_parent || empty($_POST['drawer_id'])) ? null : intval($_POST['drawer_id']);
+        $drawer_id = null; // VC3: digital classification does not assign physical storage.
         $stmt_create = $conn->prepare("INSERT INTO document_categories (parent_category, sub_category, policy_id, classification_keywords, drawer_id) VALUES (?, ?, ?, ?, ?)");
         $stmt_create->bind_param("ssisi", $parent, $sub, $folder_policy, $keywords, $drawer_id);
         
@@ -828,15 +795,32 @@ if (!function_exists('getParentFolderCount')) {
 // ==========================================
 // PARAMETERS & FILTERS & SORTING
 // ==========================================
-$search = $_GET['search'] ?? '';
+$search = trim((string) ($_GET['search'] ?? ''));
 $type_filter = $_GET['type'] ?? '';
 $parent_filter = $_GET['parent'] ?? '';
-$doc_status = $_GET['doc_status'] ?? ''; 
+$doc_status = (string) ($_GET['doc_status'] ?? '');
 $view_disposition = isset($_GET['disposition']) && $_GET['disposition'] == '1';
 $view_archives = isset($_GET['view_archives']) && $_GET['view_archives'] == '1';
 $view_shared = isset($_GET['shared']) && $_GET['shared'] == '1';
 $view_recycled = isset($_GET['view_recycled']) && $_GET['view_recycled'] == '1';
-$sort = $_GET['sort'] ?? 'date_desc';
+$sort = (string) ($_GET['sort'] ?? 'date_desc');
+
+$allowed_record_statuses = ['Archived', 'Recycled'];
+$allowed_record_sorts = ['date_desc', 'date_asc', 'name_asc', 'name_desc'];
+if (!in_array($doc_status, $allowed_record_statuses, true)) $doc_status = '';
+if (!in_array($sort, $allowed_record_sorts, true)) $sort = 'date_desc';
+if (!$view_archives && !$view_disposition && !$view_shared && !$view_recycled) {
+    if ($doc_status === 'Archived') $view_archives = true;
+    if ($doc_status === 'Recycled') $view_recycled = true;
+}
+if ($view_archives || $view_disposition || $view_shared || $view_recycled) $doc_status = '';
+$records_query_active = $search !== '' || $doc_status !== '' || $sort !== 'date_desc';
+
+// Official Record disposition is managed from one canonical workspace.
+if ($view_disposition) {
+    header('Location: documents.php?disposition=1');
+    exit();
+}
 
 $order_by = "d.uploaded_at DESC";
 if ($sort === 'date_asc') $order_by = "d.uploaded_at ASC";
@@ -847,7 +831,7 @@ elseif ($sort === 'name_desc') $order_by = "d.file_name DESC";
 // SYSTEM ADMINISTRATOR HARD REDIRECT
 // ----------------------------------------------------
 if ($role === 'Admin') {
-    if ($view_disposition || $view_archives || $view_shared) {
+    if ($view_disposition || $view_archives || $view_shared || $view_recycled) {
         header("Location: general_docs.php?error=" . urlencode("Unauthorized Access: System Administrators are restricted from viewing document directories."));
         exit();
     }
@@ -872,11 +856,15 @@ if(!empty($parent_filter)) $return_params[] = "parent=".urlencode($parent_filter
 if($view_archives) $return_params[] = "view_archives=1";
 if($view_disposition) $return_params[] = "disposition=1";
 if($view_shared) $return_params[] = "shared=1";
+if($view_recycled) $return_params[] = "view_recycled=1";
+if(!empty($search)) $return_params[] = "search=".urlencode($search);
+if(!empty($doc_status)) $return_params[] = "doc_status=".urlencode($doc_status);
+if($sort !== 'date_desc') $return_params[] = "sort=".urlencode($sort);
 
 $exact_return_url = "general_docs.php" . (!empty($return_params) ? "?" . implode("&", $return_params) : "");
 
-$page_title = "Company Files (Working Documents)";
-$page_subtitle = "Drafts, temporary files, and documents for approval.";
+$page_title = "Company Files";
+$page_subtitle = "Drafts and working documents that have not yet been declared official.";
 $show_back_btn = false;
 $back_url = "general_docs.php";
 
@@ -885,8 +873,8 @@ if ($view_disposition) {
     $page_subtitle = "These documents have reached the end of their legal retention period.";
     $show_back_btn = true;
 } elseif ($view_archives) {
-    $page_title = "Archived Company Files";
-    $page_subtitle = "Historical and inactive documents. Search or restore if needed.";
+    $page_title = "Archived Working Files";
+    $page_subtitle = "Inactive working files that may still be searched or restored.";
     $show_back_btn = true;
 } elseif ($view_recycled) {
     $page_title = "Recycle Bin";
@@ -910,12 +898,14 @@ if ($view_disposition) {
 }
 
 $breadcrumbs = [];
-$breadcrumbs[] = ['label' => 'Company Files', 'url' => 'general_docs.php', 'active' => empty($view_archives) && empty($view_disposition) && empty($view_shared) && empty($parent_filter) && empty($type_filter)];
+$breadcrumbs[] = ['label' => 'Company Files', 'url' => 'general_docs.php', 'active' => empty($view_archives) && empty($view_disposition) && empty($view_shared) && empty($view_recycled) && empty($parent_filter) && empty($type_filter)];
 
 if ($view_archives) {
     $breadcrumbs[] = ['label' => 'Archived', 'url' => 'general_docs.php?view_archives=1', 'active' => empty($parent_filter) && empty($type_filter)];
 } elseif ($view_disposition) {
     $breadcrumbs[] = ['label' => 'Ready for Disposition', 'url' => 'general_docs.php?disposition=1', 'active' => empty($parent_filter) && empty($type_filter)];
+} elseif ($view_recycled) {
+    $breadcrumbs[] = ['label' => 'Recycle Bin', 'url' => 'general_docs.php?view_recycled=1', 'active' => true];
 } elseif ($view_shared) {
     $breadcrumbs[] = ['label' => 'Shared with Me', 'url' => 'general_docs.php?shared=1', 'active' => true];
 }
@@ -935,7 +925,7 @@ if (!empty($parent_filter)) {
     }
 }
 
-if (empty($view_archives) && empty($view_disposition) && empty($view_shared) && empty($parent_filter) && empty($type_filter)) {
+if (empty($view_archives) && empty($view_disposition) && empty($view_shared) && empty($view_recycled) && empty($parent_filter) && empty($type_filter)) {
     $breadcrumbs[0]['active'] = true;
 }
 
@@ -984,16 +974,13 @@ if ($view_disposition) {
         SELECT d.*, p.policy_name, p.action_after_retention, u.full_name, 
                DATE_ADD(DATE_ADD(d.uploaded_at, INTERVAL (COALESCE(p.active_years, 0) + COALESCE(p.archive_years, 0)) YEAR), INTERVAL (COALESCE(p.active_months, 0) + COALESCE(p.archive_months, 0)) MONTH) AS retention_date,
                locker.full_name AS locked_by_name,
-               CONCAT_WS(' > ', b.name, r.name, c.name, dr.name, dc.sub_category) as full_physical_path
+               $vc3PhysicalPathSql as full_physical_path
         FROM documents d
         LEFT JOIN document_categories dc ON d.category = dc.sub_category
         LEFT JOIN retention_policies p ON dc.policy_id = p.policy_id
         LEFT JOIN users u ON d.uploaded_by = u.user_id
         LEFT JOIN users locker ON d.locked_by = locker.user_id
-        LEFT JOIN virt_drawers dr ON dc.drawer_id = dr.id
-        LEFT JOIN virt_cabinets c ON dr.cabinet_id = c.id
-        LEFT JOIN virt_rooms r ON c.room_id = r.id
-        LEFT JOIN virt_buildings b ON r.building_id = b.id
+/* VC3 physical path is resolved by its independent folder ID. 0 */
         WHERE $disp_where_clause
         ORDER BY retention_date ASC";
         
@@ -1006,17 +993,16 @@ if ($view_disposition) {
     }
 }
 
-$view_recycled = isset($_GET['view_recycled']) && $_GET['view_recycled'] == '1';
-
 $where = [];
-if ($view_archives) {
-    $where[] = "d.status = 'Archived'";
-} elseif ($view_recycled) {
-    $where[] = "d.status = 'Recycled'";
-} else {
-    $where[] = "d.status = 'Active'";
+$effective_doc_status = $view_archives
+    ? 'Archived'
+    : ($view_recycled ? 'Recycled' : ($doc_status !== '' ? $doc_status : 'Active'));
+$where[] = "d.status = '" . $effective_doc_status . "'";
+if ($effective_doc_status === 'Archived') {
+    $where[] = "COALESCE(d.disposition_status, '') <> 'Destroyed'";
 }
 $where[] = "(d.record_phase = 'Working' OR d.record_phase = 'For Review' OR d.record_phase = 'Converted' OR d.record_phase IS NULL)"; // STRICT ENFORCEMENT
+$where[] = "COALESCE(d.disposition_status, '') <> 'Destroyed'";
 
 $params = [];
 $types = "";
@@ -1039,16 +1025,6 @@ if ($view_shared) {
         $types .= "s";
     }
     
-    if (!empty($doc_status)) {
-        if ($doc_status == 'Archived') {
-            $where[0] = "d.status = 'Archived'"; 
-        } else {
-            $where[] = "d.status = ?";
-            $params[] = $doc_status;
-            $types .= "s";
-        }
-    }
-
     if (!$is_top_mgmt) {
         if (empty($user_categories)) {
             $where[] = "(d.uploaded_by = ? OR d.file_permissions LIKE ?)";
@@ -1066,26 +1042,18 @@ if ($view_shared) {
 }
 }
 
-// Tanging Working, For Review, at Converted files lang ang lalabas dito sa Company Files
-if (!$view_archives && !$view_disposition && !$view_shared) {
-    $where[] = "(d.record_phase = 'Working' OR d.record_phase = 'For Review' OR d.record_phase = 'Converted' OR d.record_phase IS NULL)";
-}
-
 $whereClause = implode(' AND ', $where);
 
 $query = "SELECT d.*, p.po_number, p.client_name, p.amount, p.status as po_status, u.full_name, locker.full_name AS locked_by_name,
-                 vdl.status AS physical_status, dc.drawer_id, dc.id AS cat_id,
-                 CONCAT_WS(' > ', b.name, r.name, c.name, dr.name, dc.sub_category) as full_physical_path
+                 vdl.status AS physical_status, vdl.physical_folder_id, NULL AS drawer_id, vdl.physical_folder_id AS cat_id,
+                 $vc3PhysicalPathSql as full_physical_path
           FROM documents d
           LEFT JOIN purchase_orders p ON d.po_id = p.po_id
           LEFT JOIN users u ON d.uploaded_by = u.user_id
           LEFT JOIN users locker ON d.locked_by = locker.user_id
           LEFT JOIN virt_document_locations vdl ON d.doc_id = vdl.document_id
           LEFT JOIN document_categories dc ON d.category = dc.sub_category
-          LEFT JOIN virt_drawers dr ON dc.drawer_id = dr.id
-          LEFT JOIN virt_cabinets c ON dr.cabinet_id = c.id
-          LEFT JOIN virt_rooms r ON c.room_id = r.id
-          LEFT JOIN virt_buildings b ON r.building_id = b.id
+/* VC3 physical path is resolved by its independent folder ID. 1 */
           WHERE $whereClause 
           ORDER BY $order_by";
 
@@ -1121,6 +1089,7 @@ if(isset($_GET['success'])) {
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
     
     
+<link rel="stylesheet" href="assets/css/physical-records.css?v=vc4b2-1">
 </head>
 <body class="bg-f8f9fa page-general-docs">
 <?php include 'sidebar.php'; ?>
@@ -1213,33 +1182,96 @@ if(isset($_GET['success'])) {
                 </ol>
             </nav>
             
-            <form method="GET" action="general_docs.php" class="d-flex m-0 align-items-center">
-                <?php if($view_archives): ?><input type="hidden" name="view_archives" value="1"><?php endif; ?>
-                <?php if($view_shared): ?><input type="hidden" name="shared" value="1"><?php endif; ?>
-                <?php if(!empty($parent_filter)): ?><input type="hidden" name="parent" value="<?php echo htmlspecialchars($parent_filter); ?>"><?php endif; ?>
-                <?php if(!empty($type_filter)): ?><input type="hidden" name="type" value="<?php echo htmlspecialchars($type_filter); ?>"><?php endif; ?>
-                
-                <div class="input-group input-group-sm sleek-search shadow-sm rounded-3" style="width: 380px;">
-                    <span class="input-group-text bg-white border-0 text-muted"><i class="fas fa-search"></i></span>
-                    <input type="text" name="search" id="documentSearchInput" class="form-control border-0 shadow-none px-2" placeholder="Search" value="<?php echo htmlspecialchars($search); ?>">
-                    
-                    <button class="btn bg-white border-0 text-muted shadow-none px-3" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Sort options" data-bs-boundary="body">
-                        <i class="fas fa-sort-amount-down"></i>
+            <?php
+                $records_context_params = [];
+                if ($view_archives) $records_context_params['view_archives'] = '1';
+                if ($view_shared) $records_context_params['shared'] = '1';
+                if ($view_recycled) $records_context_params['view_recycled'] = '1';
+                if (!empty($parent_filter)) $records_context_params['parent'] = $parent_filter;
+                if (!empty($type_filter)) $records_context_params['type'] = $type_filter;
+
+                $records_filter_reset_params = $records_context_params;
+                if ($search !== '') $records_filter_reset_params['search'] = $search;
+
+                $records_search_clear_params = $records_context_params;
+                if ($doc_status !== '') $records_search_clear_params['doc_status'] = $doc_status;
+                if ($sort !== 'date_desc') $records_search_clear_params['sort'] = $sort;
+
+                $records_filter_count = ($doc_status !== '' ? 1 : 0) + ($sort !== 'date_desc' ? 1 : 0);
+                $records_filter_reset_url = 'general_docs.php' . (!empty($records_filter_reset_params) ? '?' . http_build_query($records_filter_reset_params) : '');
+                $records_search_clear_url = 'general_docs.php' . (!empty($records_search_clear_params) ? '?' . http_build_query($records_search_clear_params) : '');
+                $show_record_status_filter = !$view_archives && !$view_disposition && !$view_shared && !$view_recycled;
+            ?>
+            <form method="GET" action="general_docs.php" class="records-search-form" role="search">
+                <?php foreach ($records_context_params as $param_name => $param_value): ?>
+                    <input type="hidden" name="<?php echo htmlspecialchars($param_name); ?>" value="<?php echo htmlspecialchars($param_value); ?>">
+                <?php endforeach; ?>
+
+                <div class="records-search-control">
+                    <label class="records-search-field" for="documentSearchInput">
+                        <span class="records-search-icon" aria-hidden="true"><i class="fas fa-search"></i></span>
+                        <input type="search" name="search" id="documentSearchInput" placeholder="Search file name or folder" value="<?php echo htmlspecialchars($search); ?>" autocomplete="off">
+                        <?php if ($search !== ''): ?>
+                            <a class="records-search-clear" href="<?php echo htmlspecialchars($records_search_clear_url); ?>" title="Clear search" aria-label="Clear search"><i class="fas fa-times"></i></a>
+                        <?php endif; ?>
+                    </label>
+
+                    <button class="records-search-submit" type="submit" title="Search records" aria-label="Search records">
+                        <i class="fas fa-arrow-right" aria-hidden="true"></i>
                     </button>
-                    <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0 rounded-3">
-                        <li><h6 class="dropdown-header text-uppercase fs-xs fw-bold">Sort By</h6></li>
-                        <li><button type="submit" name="sort" value="date_desc" class="dropdown-item text-dark fs-sm <?php echo $sort == 'date_desc' ? 'active' : ''; ?>">Newest First</button></li>
-                        <li><button type="submit" name="sort" value="date_asc" class="dropdown-item text-dark fs-sm <?php echo $sort == 'date_asc' ? 'active' : ''; ?>">Oldest First</button></li>
-                        <li><button type="submit" name="sort" value="name_asc" class="dropdown-item text-dark fs-sm <?php echo $sort == 'name_asc' ? 'active' : ''; ?>">Name (A-Z)</button></li>
-                        <li><button type="submit" name="sort" value="name_desc" class="dropdown-item text-dark fs-sm <?php echo $sort == 'name_desc' ? 'active' : ''; ?>">Name (Z-A)</button></li>
-                    </ul>
+
+                    <div class="dropdown records-filter-dropdown">
+                        <button class="records-filter-toggle<?php echo $records_filter_count > 0 ? ' is-active' : ''; ?>" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                            <i class="fas fa-sliders-h" aria-hidden="true"></i>
+                            <span>Filters</span>
+                            <?php if ($records_filter_count > 0): ?><span class="records-filter-count"><?php echo $records_filter_count; ?></span><?php endif; ?>
+                        </button>
+
+                        <div class="dropdown-menu dropdown-menu-end records-filter-menu">
+                            <div class="records-filter-heading">
+                                <div>
+                                    <strong>Refine records</strong>
+                                    <span>Choose how records are displayed.</span>
+                                </div>
+                                <i class="fas fa-filter" aria-hidden="true"></i>
+                            </div>
+
+                            <div class="records-filter-fields">
+                                <?php if ($show_record_status_filter): ?>
+                                    <label class="records-filter-field">
+                                        <span>File status</span>
+                                        <select name="doc_status">
+                                            <option value="">Current files</option>
+                                            <option value="Archived" <?php echo $doc_status === 'Archived' ? 'selected' : ''; ?>>Archived</option>
+                                            <option value="Recycled" <?php echo $doc_status === 'Recycled' ? 'selected' : ''; ?>>Recycle bin</option>
+                                        </select>
+                                    </label>
+                                <?php endif; ?>
+
+                                <label class="records-filter-field">
+                                    <span>Sort by</span>
+                                    <select name="sort">
+                                        <option value="date_desc" <?php echo $sort === 'date_desc' ? 'selected' : ''; ?>>Newest first</option>
+                                        <option value="date_asc" <?php echo $sort === 'date_asc' ? 'selected' : ''; ?>>Oldest first</option>
+                                        <option value="name_asc" <?php echo $sort === 'name_asc' ? 'selected' : ''; ?>>Name A–Z</option>
+                                        <option value="name_desc" <?php echo $sort === 'name_desc' ? 'selected' : ''; ?>>Name Z–A</option>
+                                    </select>
+                                </label>
+                            </div>
+
+                            <div class="records-filter-actions">
+                                <a href="<?php echo htmlspecialchars($records_filter_reset_url); ?>">Reset filters</a>
+                                <button type="submit"><i class="fas fa-check me-1" aria-hidden="true"></i>Apply</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </form>
         </div>
     </div>
     <!-- END HEADER -->
 
-    <?php if (!$view_archives && !$view_disposition && !$view_shared && !$view_recycled && empty($search)): ?>
+    <?php if (!$view_archives && !$view_disposition && !$view_shared && !$view_recycled && !$records_query_active): ?>
          
         <?php if (empty($parent_filter) && empty($type_filter)): ?>
             <div class="folders-section mt-3 mb-2">
@@ -1383,7 +1415,7 @@ if(isset($_GET['success'])) {
 
     <?php endif; ?>
 
-    <?php if ($view_disposition || (!empty($type_filter)) || $view_archives || $view_recycled || $view_shared || !empty($search)): ?>
+    <?php if ($view_disposition || (!empty($type_filter)) || $view_archives || $view_recycled || $view_shared || $records_query_active): ?>
         
         <?php if ($role === 'Admin'): ?>
             <div class="col-12 text-center py-5 bg-white border rounded-4 shadow-sm mt-3 flex-grow-1">
@@ -1420,9 +1452,7 @@ if(isset($_GET['success'])) {
                                 if ($is_restricted && !$is_system_admin && !$is_mine && !isset($file_permissions['user_'.$_SESSION['user_id']])) {
                                     $has_file_access = false;
                                 }
-                                $document_file_url = $doc['doc_type'] === 'Proof of Delivery'
-                                    ? 'download.php?type=document&record_id=' . (int) $doc['doc_id']
-                                    : $doc['file_path'];
+                                $document_file_url = 'download.php?type=document&record_id=' . (int) $doc['doc_id'];
                             ?>
                             <tr id="target-doc-<?php echo $doc['doc_id']; ?>" class="<?php echo $has_file_access ? 'cursor-pointer file-row-title' : ''; ?>" <?php if($has_file_access): ?>onclick="openDocumentViewer('<?php echo htmlspecialchars(addslashes($document_file_url), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['file_name']), ENT_QUOTES); ?>', <?php echo $is_img ? 'true' : 'false'; ?>)"<?php endif; ?>>
                                 <td class="ps-4 py-3">
@@ -1561,9 +1591,7 @@ if(isset($_GET['success'])) {
                                 
                                 $has_file_access = ($my_file_role !== 'None');
                                 $can_edit_file = in_array($my_file_role, ['Editor']);
-                                $document_file_url = $doc['doc_type'] === 'Proof of Delivery'
-                                    ? 'download.php?type=document&record_id=' . (int) $doc['doc_id']
-                                    : $doc['file_path'];
+                                $document_file_url = 'download.php?type=document&record_id=' . (int) $doc['doc_id'];
                             ?>
                             <tr id="target-doc-<?php echo $doc['doc_id']; ?>" class="<?php echo $has_file_access ? 'cursor-pointer file-row-title' : ''; ?>" <?php if($has_file_access): ?>onclick="openDocumentViewer('<?php echo htmlspecialchars(addslashes($document_file_url), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['file_name']), ENT_QUOTES); ?>', <?php echo $is_img ? 'true' : 'false'; ?>)"<?php endif; ?>>
                                 <td class="ps-4 py-3">
@@ -1753,14 +1781,14 @@ if(isset($_GET['success'])) {
                                                                     if ($p_stat === 'Digital') {
                                                                         $stat_color = 'text-secondary';
                                                                         $stat_icon = 'fa-laptop';
-                                                                        $btn_text = 'Digital Copy Only';
+                                                                        $btn_text = 'No registered physical copy';
                                                                     } else {
                                                                         $stat_color = ($p_stat === 'Borrowed') ? 'text-warning' : 'text-success';
                                                                         $stat_icon = ($p_stat === 'Borrowed') ? 'fa-hand-holding' : 'fa-check-circle';
-                                                                        $btn_text = 'Physical: ' . $p_stat;
+                                                                        $btn_text = empty($doc['physical_folder_id']) ? 'Physical: ' . $p_stat . ' · Unassigned' : 'Physical: ' . $p_stat;
                                                                     }
                                                                 ?>
-                                                                <button type="button" class="dropdown-item fw-medium text-dark" onclick="openPhysicalLocationModal(<?php echo $doc['doc_id']; ?>, '<?php echo htmlspecialchars(addslashes($doc['file_name'])); ?>', '<?php echo htmlspecialchars(addslashes($doc['category'])); ?>', '<?php echo $p_stat; ?>', '<?php echo $doc['drawer_id'] ?? ''; ?>', '<?php echo $doc['cat_id'] ?? ''; ?>', '<?php echo htmlspecialchars(addslashes($doc['full_physical_path'] ?? '')); ?>')">
+                                                                <button type="button" class="dropdown-item fw-medium text-dark" onclick="openPhysicalRecordProfile(<?php echo (int)$doc['doc_id']; ?>)">
                                                                     <i class="fas <?php echo $stat_icon; ?> <?php echo $stat_color; ?> me-2 w-15px text-center"></i> <?php echo $btn_text; ?>
                                                                 </button>
                                                             </li>
@@ -2060,62 +2088,9 @@ if(isset($_GET['success'])) {
     </div>
 </div>
 
-<!-- PHYSICAL STATUS MODAL -->
-<div class="modal fade sleek-modal" id="physicalLocationModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content shadow-lg border-0 rounded-4">
-            <div class="modal-header bg-white border-bottom pb-3 pt-4 px-4 rounded-top-4">
-                <div>
-                    <h5 class="modal-title fw-bold text-dark fs-5 letter-spacing-tight"><i class="fas fa-map-marker-alt text-success me-2"></i>Physical Document Status</h5>
-                    <p class="text-muted mb-0 fs-xs mt-1">Update the physical availability of this document.</p>
-                </div>
-                <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal" style="margin-top: -15px;"></button>
-            </div>
-            <div class="modal-body p-4 bg-f8f9fa rounded-bottom-4">
+<?php require __DIR__ . '/includes/physical_record_profile.php'; ?>
 
-            <div class="mb-4">
-                    <label class="form-label fw-bold small text-muted text-uppercase letter-spacing-tight">Current Physical Status</label>
-                    <div id="plDynamicStatusBox" class="p-3 bg-white border rounded-3 shadow-sm d-flex align-items-center">
-                        <!-- Dynamic Status Injected Here by JS -->
-                    </div>
-                    <div class="form-text fs-xs mt-2"><i class="fas fa-info-circle text-primary me-1"></i> Check-out and Check-in activities must be managed directly through the Virtual Cabinet.</div>
-                </div>
-                <div class="alert bg-white border text-dark fs-sm mb-4 shadow-sm rounded-3 p-3">
-                    <div class="d-flex align-items-center mb-1">
-                        <i class="fas fa-file-alt text-primary fs-4 me-3 flex-shrink-0"></i>
-                        <span class="fw-bold fs-md text-truncate text-dark" id="plDocName"></span>
-                    </div>
-                    <div class="pt-3 mt-2 border-top border-light">
-                        <div class="text-muted fs-xs text-uppercase fw-bold letter-spacing-tight mb-2">Physical Storage Path</div>
-                        <div id="plFullPath" class="lh-base w-100" style="word-break: break-word;"></div>
-                    </div>
-                </div>
-                
-
-                <div class="d-flex justify-content-between align-items-center mt-4 pt-3 border-top border-light">
-                    <button type="button" class="btn btn-light bg-white border fw-medium px-4 shadow-sm rounded-pill" data-bs-dismiss="modal">Close</button>
-                    <div class="d-flex gap-2">
-                        <a href="#" id="plGoToCabinetBtn" class="btn btn-primary fw-bold px-4 shadow-sm rounded-pill d-none">
-                            <i class="fas fa-external-link-alt me-2"></i> Manage in Virtual Cabinet
-                        </a>
-                        <form action="actions/physical_location_handler.php" method="POST" id="plStoreForm" class="m-0 d-none">
-                            <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                            <input type="hidden" name="action" value="update_location">
-                            <input type="hidden" name="doc_id" id="plStoreDocId">
-                            <input type="hidden" name="status" value="Stored">
-                            <input type="hidden" name="return_url" value="<?php echo htmlspecialchars($_SERVER['REQUEST_URI']); ?>">
-                            <button type="submit" class="btn btn-success fw-bold px-4 shadow-sm rounded-pill">
-                                <i class="fas fa-print me-2"></i> Store in Cabinet
-                            </button>
-                        </form>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- DECLARE OFFICIAL MODAL -->
+  <!-- DECLARE OFFICIAL MODAL -->
 <div class="modal fade sleek-modal" id="declareOfficialModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content shadow-lg border-0">
@@ -2137,6 +2112,13 @@ if(isset($_GET['success'])) {
                     <div class="mb-4">
                         <label class="form-label fw-bold small text-muted text-uppercase letter-spacing-tight">Document Name</label>
                         <input type="text" class="form-control bg-light fs-sm text-dark fw-bold" id="declareDocName" readonly>
+                    </div>
+
+                    <div class="d-flex align-items-start gap-2 border rounded-3 bg-light p-3 mb-4">
+                        <input class="form-check-input flex-shrink-0 mt-1" type="checkbox" name="official_signature_confirmed" value="1" id="declareSignatureConfirmed" required>
+                        <label class="form-check-label fs-sm text-dark mb-0" for="declareSignatureConfirmed">
+                            I confirm that this copy contains the required signature(s) and is ready to become an Official Record.
+                        </label>
                     </div>
 
                     <div class="d-flex justify-content-end gap-2">
@@ -2584,17 +2566,7 @@ if(isset($_GET['success'])) {
                         <input type="text" name="new_folder_name" class="form-control shadow-none" placeholder="e.g. Employee Contracts, Q1 Reports" required>
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label fw-bold small text-muted text-uppercase letter-spacing-tight">Physical Storage (Drawer) <span class="text-danger">*</span></label>
-                        <select name="drawer_id" class="form-select shadow-none bg-light" required>
-                            <option value="">-- Select Physical Cabinet/Drawer --</option>
-                            <?php foreach ($drawers as $dr): ?>
-                                <option value="<?php echo $dr['id']; ?>">
-                                    <?php echo htmlspecialchars($dr['building'] . ' > ' . $dr['room'] . ' > ' . $dr['cabinet'] . ' > ' . $dr['drawer']); ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
+                    <p class="form-text">This is a digital classification folder. Assign paper copies separately through their Physical Record profile.</p>
 
                     <div class="mb-4">
                         <label class="form-label fw-bold small text-muted text-uppercase letter-spacing-tight">Retention Policy <span class="text-danger">*</span></label>
@@ -3616,83 +3588,9 @@ if(isset($_GET['success'])) {
         new bootstrap.Modal(document.getElementById('legalHoldModal')).show();
     }
 
-    function openPhysicalLocationModal(docId, fileName, category, currentStatus, drawerId, folderId, fullPhysicalPath = '') {
-        document.getElementById('plDocName').innerText = fileName;
-        document.getElementById('plStoreDocId').value = docId; // Set ID para sa Store in Cabinet Form
-        
-        let pathHtml = '';
-        
-        // CHECK 1: Kung digital palang at wala pang physical copy
-        if (currentStatus === 'Digital') {
-            pathHtml = '<div class="text-muted fs-sm py-1"><i class="fas fa-laptop text-secondary me-2"></i>This document is currently digital-only. No physical copy is stored yet.</div>';
-        } 
-        // CHECK 2: Kung ang mismong folder ay hindi naka-map sa Cabinet
-        else if (!drawerId || drawerId == 0 || drawerId == '') {
-            pathHtml = '<div class="text-muted fs-sm py-1"><i class="fas fa-info-circle text-secondary me-2"></i>The folder for this document is not mapped to a physical cabinet.</div>';
-        } 
-        // CHECK 3: Kung physically stored/borrowed na at may kumpletong location path
-        else if (fullPhysicalPath && fullPhysicalPath.trim() !== '') {
-            let pathArr = fullPhysicalPath.split(' > ');
-            const icons = ['fa-building', 'fa-door-open', 'fa-server', 'fa-window-minimize', 'fa-folder-open'];
-            
-            pathHtml = '<div class="d-flex flex-wrap align-items-center gap-2 mt-1">';
-            pathArr.forEach((step, idx) => {
-                let icon = icons[idx] || 'fa-map-marker-alt';
-                let isLast = idx === (pathArr.length - 1);
-                
-                let badgeClass = isLast ? 'bg-primary text-white shadow-sm border border-primary' : 'bg-f8f9fa text-dark border shadow-sm';
-                let iconClass = isLast ? 'text-white opacity-75' : 'text-primary opacity-75';
-                
-                pathHtml += `<span class="badge ${badgeClass} px-3 py-2 fs-xs fw-bold rounded-pill"><i class="fas ${icon} ${iconClass} me-1"></i> ${step}</span>`;
-                
-                if (!isLast) {
-                    pathHtml += `<i class="fas fa-chevron-right text-secondary opacity-50 mx-1" style="font-size: 0.7rem;"></i>`;
-                }
-            });
-            pathHtml += '</div>';
-        } else {
-            pathHtml = '<div class="text-muted fs-sm py-1"><i class="fas fa-info-circle me-2 text-secondary"></i>Location data unavailable.</div>';
-        }
-        
-        document.getElementById('plFullPath').innerHTML = pathHtml;
-        
-        let statusBox = document.getElementById('plDynamicStatusBox');
-        let cabLink = document.getElementById('plGoToCabinetBtn');
-        let storeForm = document.getElementById('plStoreForm');
-        
-        // DEFAULT: I-reset at itago muna ang mga buttons
-        cabLink.href = '#';
-        cabLink.classList.add('d-none');
-        if (storeForm) storeForm.classList.add('d-none');
+    function openPhysicalLocationModal(docId) { window.openPhysicalRecordProfile(docId); }
 
-        // Kapag naka-map ang folder SA Cabinet, AT idineklara bilang Physical (Stored o Borrowed)
-        if (drawerId && folderId && currentStatus !== 'Digital') {
-            cabLink.href = 'virtual_cabinet.php?drawer=' + drawerId + '&folder=' + folderId + '&doc=' + docId;
-            cabLink.classList.remove('d-none');
-            
-            if (currentStatus === 'Borrowed') {
-                statusBox.innerHTML = '<div class="bg-warning text-dark rounded-circle d-flex align-items-center justify-content-center me-3 shadow-sm flex-shrink-0" style="width: 42px; height: 42px;"><i class="fas fa-hand-holding fs-5"></i></div><div><h6 class="mb-0 fw-bold text-dark">Currently Borrowed</h6><div class="fs-xs text-muted">Physical file is checked out from the cabinet.</div></div>';
-                statusBox.className = 'p-3 bg-warning bg-opacity-10 border border-warning border-opacity-25 rounded-3 shadow-sm d-flex align-items-center';
-            } else {
-                statusBox.innerHTML = '<div class="bg-success text-white rounded-circle d-flex align-items-center justify-content-center me-3 shadow-sm flex-shrink-0" style="width: 42px; height: 42px;"><i class="fas fa-check-circle fs-5"></i></div><div><h6 class="mb-0 fw-bold text-success">Stored in Cabinet</h6><div class="fs-xs text-muted">Physical file is securely stored and available.</div></div>';
-                statusBox.className = 'p-3 bg-success bg-opacity-10 border border-success border-opacity-25 rounded-3 shadow-sm d-flex align-items-center';
-            }
-        } 
-        // Kapag DIGITAL ONLY
-        else {
-            statusBox.innerHTML = '<div class="bg-secondary text-white rounded-circle d-flex align-items-center justify-content-center me-3 shadow-sm flex-shrink-0" style="width: 42px; height: 42px;"><i class="fas fa-laptop fs-5"></i></div><div><h6 class="mb-0 fw-bold text-dark">Digital Copy Only</h6><div class="fs-xs text-muted">This is purely a digital file. No physical document is stored in the cabinet.</div></div>';
-            statusBox.className = 'p-3 bg-light border border-secondary border-opacity-25 rounded-3 shadow-sm d-flex align-items-center';
-            
-            // KUNG MAY CABINET NA NAKA-ASSIGN SA FOLDER NA ITO, ILABAS ANG "STORE IN CABINET" BUTTON!
-            if (drawerId && folderId && storeForm) {
-                storeForm.classList.remove('d-none');
-            }
-        }
-
-        new bootstrap.Modal(document.getElementById('physicalLocationModal')).show();
-    }
-
-    function confirmReplacePhysical() {
+      function confirmReplacePhysical() {
         Swal.fire({
             title: '<span class="fs-5 fw-bold text-dark letter-spacing-tight mt-2">Replace Physical Copy?</span>',
             html: '<p class="text-muted fs-sm mb-0">Confirm that you have printed the latest digital version, replaced the old physical copy in the cabinet, and segregated the old copy as Superseded.</p>',
@@ -4296,6 +4194,7 @@ if(isset($_GET['success'])) {
     function openDeclareOfficialModal(docId, fileName) {
         document.getElementById('declareDocId').value = docId;
         document.getElementById('declareDocName').value = fileName;
+        document.getElementById('declareSignatureConfirmed').checked = false;
         new bootstrap.Modal(document.getElementById('declareOfficialModal')).show();
     }
 
@@ -4440,5 +4339,6 @@ if(isset($_GET['success'])) {
         }
     });
 </script>
+<script src="assets/js/physical-record-profile.js?v=vc4b2-1"></script>
 </body>
 </html>

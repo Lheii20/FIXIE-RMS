@@ -538,6 +538,774 @@ function process_workflow_action($conn, $po_id, $action_key, $user_id, $user_rol
 }
 
 // ==========================================
+// OFFICIAL RECORD IDENTIFICATION
+// ==========================================
+if (!function_exists('drms_allocate_official_record_number')) {
+    function drms_allocate_official_record_number(
+        mysqli $conn,
+        string $record_prefix,
+        ?string $recorded_at = null
+    ): string {
+        $record_prefix = strtoupper(trim($record_prefix));
+        if (!preg_match('/^[A-Z][A-Z0-9]{1,9}$/', $record_prefix)) {
+            throw new DomainException(
+                'The records folder has an invalid Official Record code.'
+            );
+        }
+
+        $timestamp = $recorded_at !== null && trim($recorded_at) !== ''
+            ? strtotime($recorded_at)
+            : time();
+        if ($timestamp === false) {
+            throw new DomainException('The Official Record date is invalid.');
+        }
+
+        $record_year = (int) date('Y', $timestamp);
+        $sequence_stmt = $conn->prepare(
+            "INSERT INTO official_record_sequences (
+                record_year,
+                last_sequence
+             ) VALUES (
+                ?,
+                LAST_INSERT_ID(1)
+             )
+             ON DUPLICATE KEY UPDATE
+                last_sequence = LAST_INSERT_ID(last_sequence + 1),
+                updated_at = CURRENT_TIMESTAMP"
+        );
+        $sequence_stmt->bind_param('i', $record_year);
+        $sequence_stmt->execute();
+        $sequence_stmt->close();
+
+        $sequence_result = $conn->query(
+            'SELECT LAST_INSERT_ID() AS allocated_sequence'
+        );
+        $sequence_row = $sequence_result->fetch_assoc();
+        $allocated_sequence = (int) ($sequence_row['allocated_sequence'] ?? 0);
+        if ($allocated_sequence < 1) {
+            throw new RuntimeException(
+                'The Official Record number could not be allocated.'
+            );
+        }
+
+        return sprintf(
+            '%s-%04d-%04d',
+            $record_prefix,
+            $record_year,
+            $allocated_sequence
+        );
+    }
+}
+
+if (!function_exists('drms_official_folder_schema_is_installed')) {
+    function drms_official_folder_schema_is_installed(mysqli $conn): bool
+    {
+        $result = $conn->query(
+            "SELECT
+                (
+                    SELECT COUNT(DISTINCT column_name)
+                    FROM information_schema.COLUMNS
+                    WHERE table_schema = DATABASE()
+                      AND table_name = 'document_categories'
+                      AND column_name IN (
+                          'record_prefix',
+                          'system_folder_key',
+                          'is_system_folder',
+                          'system_sort_order'
+                      )
+                ) AS category_column_count,
+                (
+                    SELECT COUNT(DISTINCT column_name)
+                    FROM information_schema.COLUMNS
+                    WHERE table_schema = DATABASE()
+                      AND table_name = 'documents'
+                      AND column_name = 'original_file_name'
+                ) AS document_column_count"
+        );
+        $row = $result ? $result->fetch_assoc() : null;
+
+        return $row &&
+            (int) $row['category_column_count'] === 4 &&
+            (int) $row['document_column_count'] === 1;
+    }
+}
+
+if (!function_exists('drms_get_official_folder_profile')) {
+    function drms_get_official_folder_profile(
+        mysqli $conn,
+        string $category
+    ): array {
+        if (!drms_official_folder_schema_is_installed($conn)) {
+            throw new RuntimeException(
+                'Install the controlled Official Records folder migration first.'
+            );
+        }
+
+        $category = trim($category);
+        if ($category === '') {
+            throw new InvalidArgumentException(
+                'Select an Official Records folder before filing the document.'
+            );
+        }
+
+        $folder_stmt = $conn->prepare(
+            "SELECT
+                id,
+                parent_category,
+                sub_category,
+                record_prefix,
+                system_folder_key,
+                is_system_folder,
+                policy_id
+             FROM document_categories
+             WHERE sub_category = ?
+             ORDER BY is_system_folder DESC, id ASC
+             LIMIT 1"
+        );
+        $folder_stmt->bind_param('s', $category);
+        $folder_stmt->execute();
+        $folder = $folder_stmt->get_result()->fetch_assoc();
+        $folder_stmt->close();
+
+        if (!$folder) {
+            throw new RuntimeException(
+                'The selected Official Records folder no longer exists.'
+            );
+        }
+
+        $record_prefix = strtoupper(trim((string) $folder['record_prefix']));
+        if (!preg_match('/^[A-Z][A-Z0-9]{1,9}$/', $record_prefix)) {
+            throw new RuntimeException(
+                'Assign a unique 2-10 character record code to the selected folder before filing an Official Record.'
+            );
+        }
+
+        $policy_id = (int) ($folder['policy_id'] ?? 0);
+        if ($policy_id < 1) {
+            throw new RuntimeException(
+                'Assign a retention policy to the Official Records folder before filing this document.'
+            );
+        }
+
+        $folder['record_prefix'] = $record_prefix;
+        $folder['policy_id'] = $policy_id;
+        $folder['is_system_folder'] = (int) $folder['is_system_folder'];
+
+        return $folder;
+    }
+}
+
+if (!function_exists('drms_build_official_file_name')) {
+    function drms_build_official_file_name(
+        string $record_number,
+        string $original_file_name,
+        ?string $fallback_source_path = null
+    ): string {
+        $extension = strtolower((string) pathinfo(
+            basename($original_file_name),
+            PATHINFO_EXTENSION
+        ));
+        if ($extension === '' && $fallback_source_path !== null) {
+            $extension = strtolower((string) pathinfo(
+                basename($fallback_source_path),
+                PATHINFO_EXTENSION
+            ));
+        }
+        $extension = preg_replace('/[^a-z0-9]/', '', $extension);
+        $extension = substr((string) $extension, 0, 12);
+
+        return $record_number . ($extension !== '' ? '.' . $extension : '');
+    }
+}
+
+if (!function_exists('drms_prepare_official_storage_directory')) {
+    function drms_prepare_official_storage_directory(
+        string $project_root,
+        string $record_prefix
+    ): array {
+        $storage_segment = strtolower($record_prefix);
+        $absolute_directory = rtrim(
+            $project_root,
+            DIRECTORY_SEPARATOR
+        ) . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR .
+            'official' . DIRECTORY_SEPARATOR . $storage_segment;
+
+        if (
+            !is_dir($absolute_directory) &&
+            !mkdir($absolute_directory, 0750, true) &&
+            !is_dir($absolute_directory)
+        ) {
+            throw new RuntimeException(
+                'The protected Official Records folder could not be prepared.'
+            );
+        }
+
+        return [
+            'absolute_directory' => $absolute_directory,
+            'database_directory' => 'uploads/official/' . $storage_segment,
+        ];
+    }
+}
+
+if (!function_exists('drms_normalize_official_record_type')) {
+    function drms_normalize_official_record_type(
+        ?string $document_type,
+        ?string $category
+    ): string {
+        $normalized_type = trim((string) $document_type);
+        if ($normalized_type === '' || strcasecmp($normalized_type, 'Generic') === 0) {
+            $normalized_type = trim((string) $category);
+        }
+        if ($normalized_type === '') {
+            $normalized_type = 'General Record';
+        }
+
+        return mb_substr($normalized_type, 0, 50);
+    }
+}
+
+if (!function_exists('drms_official_source_linkage_is_installed')) {
+    function drms_official_source_linkage_is_installed(mysqli $conn): bool
+    {
+        $result = $conn->query(
+            "SELECT
+                (
+                    SELECT COUNT(DISTINCT column_name)
+                    FROM information_schema.COLUMNS
+                    WHERE table_schema = DATABASE()
+                      AND table_name = 'documents'
+                      AND column_name IN (
+                          'source_module',
+                          'source_record_id',
+                          'business_reference'
+                      )
+                ) AS source_column_count,
+                (
+                    SELECT COUNT(DISTINCT index_name)
+                    FROM information_schema.STATISTICS
+                    WHERE table_schema = DATABASE()
+                      AND table_name = 'documents'
+                      AND index_name = 'uq_documents_source_record'
+                ) AS source_unique_index_count"
+        );
+        $row = $result ? $result->fetch_assoc() : null;
+
+        return $row &&
+            (int) $row['source_column_count'] === 3 &&
+            (int) $row['source_unique_index_count'] === 1;
+    }
+}
+
+if (!function_exists('drms_file_existing_source_as_official_record')) {
+    function drms_file_existing_source_as_official_record(
+        mysqli $conn,
+        string $source_absolute_path,
+        string $original_file_name,
+        string $expected_hash,
+        string $category,
+        string $document_type,
+        int $declared_by,
+        string $declared_at,
+        string $source_module,
+        int $source_record_id,
+        ?string $business_reference = null,
+        ?int $uploaded_by = null,
+        ?int $po_id = null,
+        ?string $tags = null
+    ): array {
+        if (!drms_official_source_linkage_is_installed($conn)) {
+            throw new RuntimeException(
+                'The Official Record source-linkage migration is not installed.'
+            );
+        }
+
+        $source_module = trim($source_module);
+        $category = trim($category);
+        $expected_hash = strtolower(trim($expected_hash));
+
+        if (
+            $source_record_id < 1 ||
+            $declared_by < 1 ||
+            $category === '' ||
+            !preg_match('/^[A-Za-z][A-Za-z0-9 _-]{1,49}$/', $source_module)
+        ) {
+            throw new InvalidArgumentException(
+                'The Official Record source metadata is invalid.'
+            );
+        }
+
+        if (!preg_match('/^[a-f0-9]{64}$/', $expected_hash)) {
+            throw new InvalidArgumentException(
+                'The source document hash is invalid.'
+            );
+        }
+
+        if (strtotime($declared_at) === false) {
+            throw new InvalidArgumentException(
+                'The Official Record declaration date is invalid.'
+            );
+        }
+
+        $existing_stmt = $conn->prepare(
+            "SELECT doc_id, record_number
+             FROM documents
+             WHERE source_module = ?
+               AND source_record_id = ?
+             LIMIT 1
+             FOR UPDATE"
+        );
+        $existing_stmt->bind_param(
+            'si',
+            $source_module,
+            $source_record_id
+        );
+        $existing_stmt->execute();
+        $existing_record = $existing_stmt->get_result()->fetch_assoc();
+        $existing_stmt->close();
+
+        if ($existing_record) {
+            return [
+                'created' => false,
+                'doc_id' => (int) $existing_record['doc_id'],
+                'record_number' => (string) $existing_record['record_number'],
+                'storage_absolute_path' => null,
+            ];
+        }
+
+        $project_root = realpath(dirname(__DIR__));
+        $source_real_path = realpath($source_absolute_path);
+        if ($project_root === false || $source_real_path === false) {
+            throw new RuntimeException(
+                'The source document could not be located.'
+            );
+        }
+
+        $project_prefix = rtrim(
+            $project_root,
+            DIRECTORY_SEPARATOR
+        ) . DIRECTORY_SEPARATOR;
+        if (
+            !is_file($source_real_path) ||
+            stripos($source_real_path, $project_prefix) !== 0
+        ) {
+            throw new RuntimeException(
+                'The source document is outside protected project storage.'
+            );
+        }
+
+        $actual_source_hash = strtolower(
+            (string) hash_file('sha256', $source_real_path)
+        );
+        if (
+            $actual_source_hash === '' ||
+            !hash_equals($expected_hash, $actual_source_hash)
+        ) {
+            throw new RuntimeException(
+                'The source document failed integrity verification.'
+            );
+        }
+
+        $folder = drms_get_official_folder_profile($conn, $category);
+        $policy_id = (int) $folder['policy_id'];
+        $record_prefix = (string) $folder['record_prefix'];
+
+        $display_name = trim((string) preg_replace(
+            '/[\x00-\x1F\x7F]/u',
+            ' ',
+            basename($original_file_name)
+        ));
+        if ($display_name === '') {
+            $display_name = basename($source_real_path);
+        }
+        $display_name = mb_substr($display_name, 0, 255);
+
+        $document_type = drms_normalize_official_record_type(
+            $document_type,
+            $category
+        );
+        $category = mb_substr($category, 0, 100);
+        $business_reference = trim((string) $business_reference);
+        $business_reference = $business_reference !== ''
+            ? mb_substr($business_reference, 0, 100)
+            : null;
+        $tags = trim((string) $tags);
+        $tags = $tags !== '' ? mb_substr($tags, 0, 255) : null;
+        $uploaded_by = ($uploaded_by ?? 0) > 0
+            ? $uploaded_by
+            : $declared_by;
+
+        $record_number = drms_allocate_official_record_number(
+            $conn,
+            $record_prefix,
+            $declared_at
+        );
+        $stored_file_name = drms_build_official_file_name(
+            $record_number,
+            $display_name,
+            $source_real_path
+        );
+        $storage = drms_prepare_official_storage_directory(
+            $project_root,
+            $record_prefix
+        );
+        $stored_absolute_path = $storage['absolute_directory'] .
+            DIRECTORY_SEPARATOR . $stored_file_name;
+
+        if (is_file($stored_absolute_path)) {
+            throw new RuntimeException(
+                'The allocated Official Record file name already exists.'
+            );
+        }
+
+        try {
+            if (!copy($source_real_path, $stored_absolute_path)) {
+                throw new RuntimeException(
+                    'The independent Official Record copy could not be created.'
+                );
+            }
+            @chmod($stored_absolute_path, 0640);
+
+            $stored_hash = strtolower(
+                (string) hash_file('sha256', $stored_absolute_path)
+            );
+            if (
+                $stored_hash === '' ||
+                !hash_equals($expected_hash, $stored_hash)
+            ) {
+                throw new RuntimeException(
+                    'The Official Record copy failed integrity verification.'
+                );
+            }
+
+            $database_file_path = $storage['database_directory'] . '/' .
+                $stored_file_name;
+
+            $insert_stmt = $conn->prepare(
+                "INSERT INTO documents (
+                    po_id,
+                    doc_type,
+                    file_name,
+                    original_file_name,
+                    record_number,
+                    business_reference,
+                    source_module,
+                    source_record_id,
+                    file_path,
+                    category,
+                    tags,
+                    file_hash,
+                    uploaded_by,
+                    policy_id,
+                    status,
+                    record_phase,
+                    declared_at,
+                    declared_by,
+                    is_locked
+                 ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    'Active', 'Official', ?, ?, 1
+                 )"
+            );
+            $insert_types = 'issssssissssiisi';
+            $insert_stmt->bind_param(
+                $insert_types,
+                $po_id,
+                $document_type,
+                $stored_file_name,
+                $display_name,
+                $record_number,
+                $business_reference,
+                $source_module,
+                $source_record_id,
+                $database_file_path,
+                $category,
+                $tags,
+                $stored_hash,
+                $uploaded_by,
+                $policy_id,
+                $declared_at,
+                $declared_by
+            );
+            $insert_stmt->execute();
+            $doc_id = (int) $conn->insert_id;
+            $insert_stmt->close();
+
+            if ($doc_id < 1) {
+                throw new RuntimeException(
+                    'The Official Record index entry could not be created.'
+                );
+            }
+
+            return [
+                'created' => true,
+                'doc_id' => $doc_id,
+                'record_number' => $record_number,
+                'file_name' => $stored_file_name,
+                'storage_absolute_path' => $stored_absolute_path,
+            ];
+        } catch (Throwable $exception) {
+            if (is_file($stored_absolute_path)) {
+                @unlink($stored_absolute_path);
+            }
+            throw $exception;
+        }
+    }
+}
+
+if (!function_exists('drms_file_generated_pdf_as_official_record')) {
+    function drms_file_generated_pdf_as_official_record(
+        mysqli $conn,
+        callable $pdf_factory,
+        string $original_file_name,
+        string $category,
+        string $document_type,
+        int $declared_by,
+        string $declared_at,
+        string $source_module,
+        int $source_record_id,
+        ?string $business_reference = null,
+        ?int $uploaded_by = null,
+        ?int $po_id = null,
+        ?string $tags = null
+    ): array {
+        if (!drms_official_source_linkage_is_installed($conn)) {
+            throw new RuntimeException(
+                'The Official Record source-linkage migration is not installed.'
+            );
+        }
+        if (!drms_official_folder_schema_is_installed($conn)) {
+            throw new RuntimeException(
+                'The controlled Official Records folder migration is not installed.'
+            );
+        }
+
+        $source_module = trim($source_module);
+        $category = trim($category);
+        if (
+            $source_record_id < 1 ||
+            $declared_by < 1 ||
+            $category === '' ||
+            !preg_match('/^[A-Za-z][A-Za-z0-9 _-]{1,49}$/', $source_module) ||
+            strtotime($declared_at) === false
+        ) {
+            throw new InvalidArgumentException(
+                'The generated Official Record metadata is invalid.'
+            );
+        }
+
+        $existing_stmt = $conn->prepare(
+            "SELECT doc_id, record_number, file_name
+             FROM documents
+             WHERE source_module = ?
+               AND source_record_id = ?
+             LIMIT 1
+             FOR UPDATE"
+        );
+        $existing_stmt->bind_param('si', $source_module, $source_record_id);
+        $existing_stmt->execute();
+        $existing_record = $existing_stmt->get_result()->fetch_assoc();
+        $existing_stmt->close();
+
+        if ($existing_record) {
+            return [
+                'created' => false,
+                'doc_id' => (int) $existing_record['doc_id'],
+                'record_number' => (string) $existing_record['record_number'],
+                'file_name' => (string) $existing_record['file_name'],
+                'storage_absolute_path' => null,
+            ];
+        }
+
+        $folder = drms_get_official_folder_profile($conn, $category);
+        if ((int) $folder['is_system_folder'] !== 1) {
+            throw new RuntimeException(
+                'Generated workflow records must use a protected system folder.'
+            );
+        }
+
+        $original_file_name = trim((string) preg_replace(
+            '/[\x00-\x1F\x7F]/u',
+            ' ',
+            basename($original_file_name)
+        ));
+        if ($original_file_name === '') {
+            $original_file_name = 'generated-official-record.pdf';
+        }
+        if (strtolower((string) pathinfo(
+            $original_file_name,
+            PATHINFO_EXTENSION
+        )) !== 'pdf') {
+            $original_file_name .= '.pdf';
+        }
+        $original_file_name = mb_substr($original_file_name, 0, 255);
+
+        $document_type = drms_normalize_official_record_type(
+            $document_type,
+            $category
+        );
+        $category = mb_substr($category, 0, 100);
+        $business_reference = trim((string) $business_reference);
+        $business_reference = $business_reference !== ''
+            ? mb_substr($business_reference, 0, 100)
+            : null;
+        $tags = trim((string) $tags);
+        $tags = $tags !== '' ? mb_substr($tags, 0, 255) : null;
+        $uploaded_by = ($uploaded_by ?? 0) > 0
+            ? $uploaded_by
+            : $declared_by;
+
+        $record_number = drms_allocate_official_record_number(
+            $conn,
+            (string) $folder['record_prefix'],
+            $declared_at
+        );
+        $stored_file_name = drms_build_official_file_name(
+            $record_number,
+            $original_file_name
+        );
+
+        $project_root = realpath(dirname(__DIR__));
+        if ($project_root === false) {
+            throw new RuntimeException(
+                'The protected project storage could not be located.'
+            );
+        }
+        $storage = drms_prepare_official_storage_directory(
+            $project_root,
+            (string) $folder['record_prefix']
+        );
+        $stored_absolute_path = $storage['absolute_directory'] .
+            DIRECTORY_SEPARATOR . $stored_file_name;
+        $temporary_absolute_path = $storage['absolute_directory'] .
+            DIRECTORY_SEPARATOR . '.' . $stored_file_name . '.' .
+            bin2hex(random_bytes(8)) . '.tmp';
+
+        if (is_file($stored_absolute_path)) {
+            throw new RuntimeException(
+                'The allocated Official Record file name already exists.'
+            );
+        }
+
+        try {
+            $pdf_content = $pdf_factory($record_number, $stored_file_name);
+            if (
+                !is_string($pdf_content) ||
+                strlen($pdf_content) < 100 ||
+                strncmp($pdf_content, '%PDF-', 5) !== 0 ||
+                strpos($pdf_content, '%%EOF') === false
+            ) {
+                throw new RuntimeException(
+                    'The generated Official Record is not a valid PDF document.'
+                );
+            }
+
+            $written_bytes = file_put_contents(
+                $temporary_absolute_path,
+                $pdf_content,
+                LOCK_EX
+            );
+            if ($written_bytes !== strlen($pdf_content)) {
+                throw new RuntimeException(
+                    'The generated Official Record PDF could not be written completely.'
+                );
+            }
+
+            $stored_hash = strtolower((string) hash_file(
+                'sha256',
+                $temporary_absolute_path
+            ));
+            if (!preg_match('/^[a-f0-9]{64}$/', $stored_hash)) {
+                throw new RuntimeException(
+                    'The generated Official Record hash could not be created.'
+                );
+            }
+
+            if (!rename($temporary_absolute_path, $stored_absolute_path)) {
+                throw new RuntimeException(
+                    'The generated Official Record PDF could not be finalized.'
+                );
+            }
+            @chmod($stored_absolute_path, 0640);
+
+            $database_file_path = $storage['database_directory'] . '/' .
+                $stored_file_name;
+            $policy_id = (int) $folder['policy_id'];
+
+            $insert_stmt = $conn->prepare(
+                "INSERT INTO documents (
+                    po_id,
+                    doc_type,
+                    file_name,
+                    original_file_name,
+                    record_number,
+                    business_reference,
+                    source_module,
+                    source_record_id,
+                    file_path,
+                    category,
+                    tags,
+                    file_hash,
+                    uploaded_by,
+                    policy_id,
+                    status,
+                    record_phase,
+                    declared_at,
+                    declared_by,
+                    is_locked
+                 ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    'Active', 'Official', ?, ?, 1
+                 )"
+            );
+            $insert_stmt->bind_param(
+                'issssssissssiisi',
+                $po_id,
+                $document_type,
+                $stored_file_name,
+                $original_file_name,
+                $record_number,
+                $business_reference,
+                $source_module,
+                $source_record_id,
+                $database_file_path,
+                $category,
+                $tags,
+                $stored_hash,
+                $uploaded_by,
+                $policy_id,
+                $declared_at,
+                $declared_by
+            );
+            $insert_stmt->execute();
+            $doc_id = (int) $conn->insert_id;
+            $insert_stmt->close();
+
+            if ($doc_id < 1) {
+                throw new RuntimeException(
+                    'The generated Official Record index entry could not be created.'
+                );
+            }
+
+            return [
+                'created' => true,
+                'doc_id' => $doc_id,
+                'record_number' => $record_number,
+                'file_name' => $stored_file_name,
+                'storage_absolute_path' => $stored_absolute_path,
+            ];
+        } catch (Throwable $exception) {
+            if (is_file($temporary_absolute_path)) {
+                @unlink($temporary_absolute_path);
+            }
+            if (is_file($stored_absolute_path)) {
+                @unlink($stored_absolute_path);
+            }
+            throw $exception;
+        }
+    }
+}
+
+// ==========================================
 // QUOTATION & CLIENT PO TRACKER FUNCTIONS
 // ==========================================
 

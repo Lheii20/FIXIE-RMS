@@ -1,4 +1,15 @@
 <?php
+// Include-only UI partial: reject direct web execution without changing its
+// behavior when rendered inside the collection pages.
+if (
+    PHP_SAPI !== 'cli' &&
+    isset($_SERVER['SCRIPT_FILENAME']) &&
+    realpath((string) $_SERVER['SCRIPT_FILENAME']) === __FILE__
+) {
+    http_response_code(404);
+    exit('Not found.');
+}
+
 $collection_section = isset($collection_section)
     ? (string) $collection_section
     : 'overview';

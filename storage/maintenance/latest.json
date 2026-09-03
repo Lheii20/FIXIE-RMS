@@ -1,0 +1,63 @@
+{
+    "run_id": "20260902_080709_e8bfed58",
+    "status": "success",
+    "dry_run": true,
+    "requested_task": "all",
+    "started_at": "2026-09-02T08:07:09+08:00",
+    "php_sapi": "cli",
+    "php_version": "8.2.12",
+    "tasks": {
+        "archive_due_records": {
+            "status": "success",
+            "duration_ms": 6,
+            "evaluated": 0,
+            "affected": 0,
+            "message": "0 Official Record(s) would move to Archived."
+        },
+        "flag_disposition_due": {
+            "status": "success",
+            "duration_ms": 1,
+            "evaluated": 0,
+            "affected": 0,
+            "message": "0 Official Record(s) would be marked Ready for Disposition."
+        },
+        "send_retention_alerts": {
+            "status": "success",
+            "duration_ms": 4,
+            "evaluated": 0,
+            "affected": 0,
+            "message": "0 recipient alert(s) would be evaluated for 0 record(s)."
+        },
+        "purge_recycled_working_files": {
+            "status": "success",
+            "duration_ms": 1,
+            "evaluated": 0,
+            "affected": 0,
+            "message": "0 recycled working file record(s) would be purged."
+        },
+        "sync_collection_reminders": {
+            "status": "success",
+            "duration_ms": 2,
+            "evaluated": 0,
+            "affected": 0,
+            "message": "2 active Finance user(s) and 0 open receivable(s) would be evaluated."
+        },
+        "cleanup_security_data": {
+            "status": "success",
+            "duration_ms": 3,
+            "evaluated": 1,
+            "affected": 0,
+            "details": {
+                "login_attempts": 0,
+                "password_otps": 0,
+                "legacy_reset_tokens": 1,
+                "setup_tokens": 0,
+                "email_codes": 0
+            },
+            "message": "1 expired security row(s) or token(s) would be cleaned."
+        }
+    },
+    "finished_at": "2026-09-02T08:07:10+08:00",
+    "duration_ms": 22,
+    "exit_code": 0
+}

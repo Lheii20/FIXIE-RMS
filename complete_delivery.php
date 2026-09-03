@@ -61,6 +61,8 @@ if ($po_id > 0) {
                 plan.vehicle_plate_number,
                 plan.tracking_reference,
                 reviewer.full_name AS reviewed_by_name,
+                plan_record.doc_id AS plan_record_doc_id,
+                plan_record.record_number AS plan_record_number,
                 item_total.expected_item_quantity
              FROM purchase_orders po
              INNER JOIN po_delivery_requests delivery_request
@@ -72,6 +74,12 @@ if ($po_id > 0) {
                AND plan.record_status = 'Active'
              LEFT JOIN users reviewer
                 ON reviewer.user_id = plan.reviewed_by
+             LEFT JOIN documents plan_record
+                ON plan_record.source_module = 'Logistics Plan'
+               AND plan_record.source_record_id = plan.delivery_plan_id
+               AND plan_record.record_phase = 'Official'
+               AND plan_record.status <> 'Recycled'
+               AND plan_record.is_locked = 1
              INNER JOIN (
                 SELECT
                     po_id,
@@ -113,6 +121,15 @@ if ($po_id > 0) {
                 $record['logistics_status'] !== 'Scheduled') {
                 $eligibility_error =
                     'The delivery request does not have an active approved schedule.';
+            } elseif (
+                empty($record['plan_record_doc_id']) ||
+                !preg_match(
+                    '/^LGP-\d{4}-\d{4}$/',
+                    (string) ($record['plan_record_number'] ?? '')
+                )
+            ) {
+                $eligibility_error =
+                    'The Approved Logistics Plan Official Record is missing. Complete the Supply Chain schedule approval before recording delivery.';
             } elseif ($existing_receipt) {
                 $eligibility_error =
                     'An active client delivery receipt already exists.';
@@ -311,7 +328,7 @@ $initial_due_date = (new DateTimeImmutable('now'))
                                         </div>
                                         <span class="delivery-readonly-chip">
                                             <i class="fas fa-lock"></i>
-                                            Read-only schedule
+                                            <?php echo htmlspecialchars((string) $record['plan_record_number']); ?>
                                         </span>
                                     </div>
 

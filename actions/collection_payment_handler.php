@@ -4,6 +4,8 @@ session_start();
 require '../config/db_connect.php';
 require '../config/functions.php';
 require_once '../config/workflow_feedback.php';
+require_once '../config/official_payment_confirmation_filing.php';
+require_once '../config/upload_policy.php';
 
 date_default_timezone_set('Asia/Manila');
 
@@ -183,50 +185,30 @@ if (!$confirmed) {
     );
 }
 
-if (
-    !isset($_FILES['payment_proof']) ||
-    $_FILES['payment_proof']['error'] !== UPLOAD_ERR_OK ||
-    !is_uploaded_file($_FILES['payment_proof']['tmp_name'])
-) {
+try {
+    $proof = $_FILES['payment_proof'] ?? null;
+    $validated_proof = drms_upload_validate(
+        $conn,
+        $proof,
+        'proof'
+    );
+} catch (DrmsUploadValidationException $upload_error) {
     phase5d_payment_redirect(
         $po_id,
         $return_to,
         'error',
-        'Payment proof is required.'
+        $upload_error->getMessage()
     );
 }
-
-$proof = $_FILES['payment_proof'];
-$proof_extension = strtolower(
-    pathinfo((string) $proof['name'], PATHINFO_EXTENSION)
-);
-$allowed_proofs = [
-    'pdf' => 'application/pdf',
-    'jpg' => 'image/jpeg',
-    'jpeg' => 'image/jpeg',
-    'png' => 'image/png',
-];
-$proof_mime = (new finfo(FILEINFO_MIME_TYPE))->file(
-    $proof['tmp_name']
-);
-
-if (
-    $proof['size'] < 1 ||
-    $proof['size'] > 10 * 1024 * 1024 ||
-    !isset($allowed_proofs[$proof_extension]) ||
-    $proof_mime !== $allowed_proofs[$proof_extension]
-) {
-    phase5d_payment_redirect(
-        $po_id,
-        $return_to,
-        'error',
-        'Payment proof must be a valid PDF, JPG, or PNG file up to 10 MB.'
-    );
-}
+$proof_extension = $validated_proof['extension'];
 
 $user_id = (int) $_SESSION['user_id'];
 $payment_directory = __DIR__ . '/../uploads/payments/';
 $proof_file_path = null;
+$proof_file_hash = '';
+$official_record_storage_path = null;
+$payment_record_number = '';
+$payment_record_doc_id = null;
 
 try {
     // Run the collaboration-table guard before opening the payment
@@ -435,13 +417,27 @@ try {
     $proof_file_path = date('YmdHis') . '_collection_' .
         bin2hex(random_bytes(8)) . '.' . $proof_extension;
     if (!move_uploaded_file(
-        $proof['tmp_name'],
+        $validated_proof['tmp_name'],
         $payment_directory . $proof_file_path
     )) {
         throw new RuntimeException(
             'The payment proof could not be saved.'
         );
     }
+    $proof_file_hash = strtolower((string) hash_file(
+        'sha256',
+        $payment_directory . $proof_file_path
+    ));
+    if (!preg_match('/^[a-f0-9]{64}$/', $proof_file_hash)) {
+        throw new RuntimeException(
+            'The payment-proof integrity hash could not be generated.'
+        );
+    }
+    $proof_original_name = substr(
+        $validated_proof['original_name'],
+        0,
+        255
+    );
 
     $balance_after = max(
         round($balance_before - $amount_paid, 2),
@@ -467,11 +463,13 @@ try {
             recorded_by,
             payment_method,
             reference_number,
-            proof_file_path
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            proof_file_path,
+            proof_original_name,
+            proof_file_hash
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
     $insert_stmt->bind_param(
-        'idsssisss',
+        'idsssisssss',
         $po_id,
         $amount_paid,
         $payment_datetime,
@@ -480,7 +478,9 @@ try {
         $user_id,
         $payment_method,
         $reference_number,
-        $proof_file_path
+        $proof_file_path,
+        $proof_original_name,
+        $proof_file_hash
     );
     $insert_stmt->execute();
     $payment_id = (int) $conn->insert_id;
@@ -491,6 +491,18 @@ try {
             'The payment record could not be saved.'
         );
     }
+
+    $official_payment_record =
+        drms_file_client_payment_as_official_record(
+            $conn,
+            $payment_id,
+            $user_id
+        );
+    $payment_record_number = (string)
+        $official_payment_record['record_number'];
+    $payment_record_doc_id = (int) $official_payment_record['doc_id'];
+    $official_record_storage_path =
+        $official_payment_record['storage_absolute_path'] ?? null;
 
     // Only the financial collection position changes. The operational PO status,
     // location, and currently assigned delivery/procurement task stay untouched.
@@ -505,7 +517,8 @@ try {
     $po_update->close();
 
     $history_remarks = $payment_label . ' recorded. Balance: ₱' .
-        number_format($balance_after, 2) . '.';
+        number_format($balance_after, 2) . '. Official record: ' .
+        $payment_record_number . '.';
     $collection_history_stmt = $conn->prepare(
         "INSERT INTO po_collection_status_history (
             po_id,
@@ -613,18 +626,34 @@ try {
             'payment_classification' => $classification,
             'payment_method' => $payment_method,
             'reference_number' => $reference_number,
+            'document_id' => $payment_record_doc_id,
+            'record_number' => $payment_record_number,
         ]
     );
 
+    drms_consolidate_client_payment_source(
+        $conn,
+        $payment_id,
+        $proof_file_hash,
+        $official_payment_record,
+        $payment_directory . $proof_file_path
+    );
+    $proof_file_path = null;
+
     $conn->commit();
+    $official_record_storage_path = null;
 
     phase5d_payment_redirect(
         $po_id,
         $return_to,
         'success',
         $new_collection_status === 'Paid'
-            ? 'Full client payment was verified. Collection status is now Paid; the PO workflow stage was not changed.'
-            : 'Client payment was verified. The remaining balance is ₱' .
+            ? 'Full client payment was verified and filed as ' .
+                $payment_record_number .
+                '. Collection status is now Paid; the PO workflow stage was not changed.'
+            : 'Client payment was verified and filed as ' .
+                $payment_record_number .
+                '. The remaining balance is ₱' .
                 number_format($balance_after, 2) . '.'
     );
 } catch (Throwable $error) {
@@ -635,6 +664,12 @@ try {
         is_file($payment_directory . $proof_file_path)
     ) {
         unlink($payment_directory . $proof_file_path);
+    }
+    if (
+        $official_record_storage_path &&
+        is_file($official_record_storage_path)
+    ) {
+        unlink($official_record_storage_path);
     }
 
     drms_log_workflow_failure(

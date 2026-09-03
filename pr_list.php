@@ -2,6 +2,7 @@
   require 'config/db_connect.php'; 
   require 'config/functions.php';
   require_once 'config/workflow_access.php';
+  require_once __DIR__ . '/config/frontend_assets.php';
 
   drms_require_workflow_roles([
       'Sales Staff',
@@ -73,8 +74,9 @@
       <link rel="stylesheet" href="assets/css/all.min.css">
       <link href="assets/css/compact-mobile-lists.css" rel="stylesheet">
       <link href="assets/css/mobile-drive-lists.css?v=<?php echo filemtime(__DIR__ . '/assets/css/mobile-drive-lists.css'); ?>" rel="stylesheet">
-      <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+      <?= drms_frontend_style_tags(['datatables-bs5-css']) ?>
       <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
+      <link href="assets/css/transaction-lists.css?v=<?php echo filemtime(__DIR__ . '/assets/css/transaction-lists.css'); ?>" rel="stylesheet">
   </head>
   <body class="page-pr-list workflow-ui">
       <?php include 'sidebar.php'; ?>
@@ -253,10 +255,7 @@
           </div>
       </div>
 
-      <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-      <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-      <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-      <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+      <?= drms_frontend_script_tags(['jquery', 'bootstrap', 'datatables', 'datatables-bs5']) ?>
     
       <script>
           $(document).ready(function() {
@@ -272,11 +271,11 @@
                           "next": "<i class='fas fa-angle-right'></i>"
                       }
                   },
-                  "dom": 't<"d-flex justify-content-between align-items-center border-top"ip>',
+                  "dom": '<"tx-table-scroll"t><"tx-pagination-bar d-flex justify-content-between align-items-center border-top"ip>',
                   "initComplete": function() {
                       setTimeout(() => {
                           $('#grid-skeleton').hide();
-                          $('#grid-content').fadeIn(300);
+                          $('#grid-content').removeClass('init-hidden').addClass('is-ready');
                       }, 200); 
                   }
               });

@@ -1,11 +1,11 @@
 Options -Indexes
 
-<FilesMatch "(?i)(^|.*_)(client_)?delivery_[a-f0-9]{8,}\.(pdf|png|jpe?g)$">
-    <IfModule mod_authz_core.c>
-        Require all denied
-    </IfModule>
-    <IfModule !mod_authz_core.c>
-        Order allow,deny
-        Deny from all
-    </IfModule>
-</FilesMatch>
+# Uploaded business records are never public assets. They must be served by
+# download.php, which checks the session, role, record status, and file path.
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>

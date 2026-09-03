@@ -83,7 +83,26 @@ if (!phase6b2_is_installed($conn)) {
     );
 }
 
+if (
+    $decision === 'Acknowledged' &&
+    (
+        !function_exists('drms_official_source_linkage_is_installed') ||
+        !drms_official_source_linkage_is_installed($conn) ||
+        !function_exists('drms_official_folder_schema_is_installed') ||
+        !drms_official_folder_schema_is_installed($conn)
+    )
+) {
+    phase6b2_redirect(
+        $quotation_id,
+        'error',
+        'Install the controlled Official Records folder migration before acknowledging an official Client PO.'
+    );
+}
+
 $transaction_started = false;
+$official_record_storage_path = null;
+$official_record_number = null;
+$official_record_doc_id = null;
 
 try {
     if (!$conn->begin_transaction()) {
@@ -114,12 +133,16 @@ try {
     }
 
     $official_po_statement = $conn->prepare(
-        "SELECT
+         "SELECT
             approval_record_id,
+            internal_reference,
             actual_client_po_number,
             client_po_date,
             final_approval_date,
+            proof_original_name,
             proof_file_path,
+            proof_file_hash,
+            recorded_by,
             record_status
          FROM client_approval_records
          WHERE approval_record_id = ?
@@ -200,6 +223,7 @@ try {
         ? 'Authenticated Digital Sign-off'
         : 'Authenticated Review';
     $stored_remarks = $remarks !== '' ? $remarks : null;
+    $acted_at = date('Y-m-d H:i:s');
 
     $insert_statement = $conn->prepare(
         "INSERT INTO client_po_internal_acknowledgements (
@@ -213,10 +237,10 @@ try {
             acted_by,
             acted_at,
             record_status
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'Active')"
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active')"
     );
     $insert_statement->bind_param(
-        'iisssssi',
+        'iisssssis',
         $approval_record_id,
         $quotation_id,
         $decision,
@@ -224,7 +248,8 @@ try {
         $signatory_name,
         $signatory_role,
         $stored_remarks,
-        $gm_id
+        $gm_id,
+        $acted_at
     );
     $insert_statement->execute();
     $acknowledgement_id = (int) $conn->insert_id;
@@ -245,19 +270,46 @@ try {
             );
         }
 
+        $official_record = drms_file_existing_source_as_official_record(
+            $conn,
+            $official_po_path,
+            (string) $official_po['proof_original_name'],
+            (string) $official_po['proof_file_hash'],
+            'Signed Client Purchase Orders',
+            'Signed Client Purchase Order',
+            $gm_id,
+            $acted_at,
+            'Client PO Approval',
+            $approval_record_id,
+            (string) $official_po['actual_client_po_number'],
+            !empty($official_po['recorded_by'])
+                ? (int) $official_po['recorded_by']
+                : $gm_id,
+            null,
+            'client po,quotation ' . $quotation['quotation_number'] .
+                ',approval ' . $official_po['internal_reference']
+        );
+        $official_record_number = (string) $official_record['record_number'];
+        $official_record_doc_id = (int) $official_record['doc_id'];
+        $official_record_storage_path =
+            $official_record['storage_absolute_path'] ?? null;
+
         $sales_message = sprintf(
-            'GM acknowledged Client PO %s for %s. The PRF can now be prepared.',
+            'GM acknowledged Client PO %s for %s. Official Record %s was filed and the PRF can now be prepared.',
             $official_po['actual_client_po_number'],
-            $quotation['quotation_number']
+            $quotation['quotation_number'],
+            $official_record_number
         );
         $sales_key = 'client-po:acknowledged:' . $approval_record_id;
         $success_message =
-            'Official Client PO acknowledged. Sales may now prepare the PRF.';
+            'Official Client PO acknowledged and filed as ' .
+            $official_record_number . '. Sales may now prepare the PRF.';
         $audit_action = 'ACKNOWLEDGE_CLIENT_PO';
         $audit_description = sprintf(
-            'Acknowledged official Client PO %s for Quotation %s.',
+            'Acknowledged official Client PO %s for Quotation %s and filed Official Record %s.',
             $official_po['actual_client_po_number'],
-            $quotation['quotation_number']
+            $quotation['quotation_number'],
+            $official_record_number
         );
     } else {
         $record_update = $conn->prepare(
@@ -340,16 +392,26 @@ try {
             'decision' => $decision,
             'method' => $method,
             'remarks' => $stored_remarks,
+            'official_record_doc_id' => $official_record_doc_id,
+            'official_record_number' => $official_record_number,
         ]
     );
 
     $conn->commit();
     $transaction_started = false;
+    $official_record_storage_path = null;
 
     phase6b2_redirect($quotation_id, 'success', $success_message);
 } catch (Throwable $exception) {
     if ($transaction_started) {
         $conn->rollback();
+    }
+
+    if (
+        $official_record_storage_path !== null &&
+        is_file($official_record_storage_path)
+    ) {
+        @unlink($official_record_storage_path);
     }
 
     drms_log_workflow_failure(

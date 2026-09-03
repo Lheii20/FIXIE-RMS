@@ -1,0 +1,53 @@
+.saas-logout-form,
+.mobile-side-nav__logout-form {
+    width: 100%;
+    margin: 0;
+}
+
+.saas-logout-button {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    gap: 10px;
+    padding: 8px 12px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: #dc2626;
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition: color 0.3s ease, background-color 0.3s ease, transform 0.36s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.saas-logout-button i {
+    width: 16px;
+    color: #dc2626;
+    font-size: 0.9rem;
+    text-align: center;
+}
+
+.saas-logout-button:hover,
+.saas-logout-button:focus-visible {
+    background: #fef2f2;
+    color: #b91c1c;
+    outline: none;
+    transform: translateX(3px);
+}
+
+.mobile-side-nav__logout-button {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.mobile-side-nav__logout-button:hover,
+.mobile-side-nav__logout-button:focus-visible {
+    background: #fef2f2;
+    outline: none;
+}

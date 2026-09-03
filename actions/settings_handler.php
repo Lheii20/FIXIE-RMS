@@ -1,6 +1,7 @@
 <?php
 session_start();
 require '../config/db_connect.php';
+require_once '../config/upload_policy.php';
 
 // Security check: Must be an Admin to update global settings
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Admin') { 
@@ -11,14 +12,24 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Admin') {
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'update_settings') {
     
     // Validate CSRF Token
-    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+    if (!isset($_POST['csrf_token']) || !is_string($_POST['csrf_token']) || !hash_equals((string) $_SESSION['csrf_token'], $_POST['csrf_token'])) {
         header("Location: ../admin_settings.php?error=SecurityTokenMismatch");
         exit();
     }
 
     // Get input values
-    $session_timeout = intval($_POST['session_timeout']);
-    $max_upload_size = intval($_POST['max_upload_size']);
+    $session_timeout = intval($_POST['session_timeout'] ?? 30);
+    $max_upload_size = intval($_POST['max_upload_size'] ?? 5);
+
+    if (!in_array($session_timeout, [15, 30, 60, 120], true)) {
+        header("Location: ../admin_settings.php?error=InvalidSessionTimeout");
+        exit();
+    }
+
+    if (!in_array($max_upload_size, drms_upload_allowed_document_limits_mb(), true)) {
+        header("Location: ../admin_settings.php?error=InvalidUploadSize");
+        exit();
+    }
 
     // Prepare Update Statement
     $stmt = $conn->prepare("UPDATE system_settings SET setting_value = ? WHERE setting_key = ?");

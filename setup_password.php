@@ -1,6 +1,11 @@
-<?php 
-session_start();
+<?php
+require_once __DIR__ . '/config/session_bootstrap.php';
 require 'config/db_connect.php';
+
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('Referrer-Policy: no-referrer');
+header('X-Frame-Options: DENY');
 
 // Check which flow the user is accessing the setup page from
 $is_token_flow = isset($_GET['token']) && isset($_GET['email']);
@@ -16,21 +21,36 @@ $error_msg = '';
 $valid_request = false;
 
 if ($is_token_flow) {
-    $token = $_GET['token'];
-    $email = $_GET['email'];
-    
-    // Verify Token Expiration & Link
-    $stmt = $conn->prepare("SELECT full_name FROM users WHERE email = ? AND setup_token = ? AND setup_token_expire > NOW()");
-    $stmt->bind_param("ss", $email, $token);
-    $stmt->execute();
-    $res = $stmt->get_result();
-    
-    if ($res->num_rows > 0) {
-        $user = $res->fetch_assoc();
-        $fullname = $user['full_name'];
-        $valid_request = true;
-    } else {
+    $token = trim((string) $_GET['token']);
+    $email = strtolower(trim((string) $_GET['email']));
+
+    if (!preg_match('/^[a-f0-9]{64}$/', $token) || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
         $error_msg = "This setup link has already been used, is invalid, or has expired after 24 hours.";
+    } else {
+        $token_hash = hash('sha256', $token);
+
+        // Only the SHA-256 token digest is stored in the database.
+        $stmt = $conn->prepare(
+            "SELECT full_name
+             FROM users
+             WHERE LOWER(email) = ?
+               AND setup_token = ?
+               AND setup_token_purpose = 'Account Setup'
+               AND setup_token_expire > NOW()
+               AND status = 'Active'
+             LIMIT 1"
+        );
+        $stmt->bind_param("ss", $email, $token_hash);
+        $stmt->execute();
+        $res = $stmt->get_result();
+
+        if ($res->num_rows > 0) {
+            $user = $res->fetch_assoc();
+            $fullname = $user['full_name'];
+            $valid_request = true;
+        } else {
+            $error_msg = "This setup link has already been used, is invalid, or has expired after 24 hours.";
+        }
     }
 } elseif ($is_session_flow) {
     $fullname = $_SESSION['temp_fullname'] ?? 'User';
@@ -100,17 +120,18 @@ if ($is_token_flow) {
                         <?php endif; ?>
                         
                         <form action="actions/auth.php" method="POST" class="mt-4">
+                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8'); ?>">
                             
                             <?php if($is_token_flow): ?>
-                                <input type="hidden" name="token" value="<?php echo htmlspecialchars($token); ?>">
-                                <input type="hidden" name="email" value="<?php echo htmlspecialchars($email); ?>">
+                                <input type="hidden" name="token" value="<?php echo htmlspecialchars($token, ENT_QUOTES, 'UTF-8'); ?>">
+                                <input type="hidden" name="email" value="<?php echo htmlspecialchars($email, ENT_QUOTES, 'UTF-8'); ?>">
                                 <input type="hidden" name="flow_type" value="token">
                             <?php else: ?>
                                 <input type="hidden" name="flow_type" value="session">
                             <?php endif; ?>
 
                             <div class="custom-input-group">
-                                <input type="password" name="new_password" id="newPass" class="custom-input" placeholder="Enter New Password" required autocomplete="off">
+                                <input type="password" name="new_password" id="newPass" class="custom-input" placeholder="Enter New Password" required autocomplete="new-password" maxlength="128">
                                 <i class="fas fa-lock input-icon-left"></i>
                                 <button type="button" class="btn-toggle-pass" onclick="togglePass('newPass', 'newIcon')">
                                     <i class="fas fa-eye" id="newIcon"></i>
@@ -118,7 +139,7 @@ if ($is_token_flow) {
                             </div>
                             
                             <div class="custom-input-group mb-4">
-                                <input type="password" name="confirm_password" id="confirmPass" class="custom-input" placeholder="Confirm New Password" required autocomplete="off">
+                                <input type="password" name="confirm_password" id="confirmPass" class="custom-input" placeholder="Confirm New Password" required autocomplete="new-password" maxlength="128">
                                 <i class="fas fa-check-double input-icon-left"></i>
                                 <button type="button" class="btn-toggle-pass" onclick="togglePass('confirmPass', 'confirmIcon')">
                                     <i class="fas fa-eye" id="confirmIcon"></i>

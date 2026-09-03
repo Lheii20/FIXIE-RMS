@@ -2,6 +2,7 @@
 session_start();
 require '../config/db_connect.php';
 require '../config/functions.php';
+require_once '../config/upload_policy.php';
 
 if (!isset($_SESSION['user_id'])) { die("Unauthorized access."); }
 
@@ -18,14 +19,42 @@ function userCanUseOfficialFolder($conn, $category, $role) {
     if (has_permission($conn, $_SESSION['user_id'], 'can_view_all_folders')) return true;
     if (empty($category)) return false;
 
-    $stmt = $conn->prepare("SELECT assigned_to_role FROM document_categories WHERE sub_category = ? LIMIT 1");
+    $stmt = $conn->prepare(
+        "SELECT dc.id
+         FROM document_categories dc
+         LEFT JOIN category_role_access cra
+           ON cra.category_id = dc.id
+          AND cra.role_name = ?
+         WHERE dc.sub_category = ?
+           AND (
+               cra.category_id IS NOT NULL OR
+               FIND_IN_SET(?, REPLACE(COALESCE(dc.assigned_to_role, ''), ', ', ',')) > 0
+           )
+         LIMIT 1"
+    );
+    $stmt->bind_param("sss", $role, $category, $role);
+    $stmt->execute();
+    return $stmt->get_result()->num_rows > 0;
+}
+
+function isWorkflowManagedOfficialFolder($conn, $category) {
+    if (
+        !function_exists('drms_official_folder_schema_is_installed') ||
+        !drms_official_folder_schema_is_installed($conn)
+    ) {
+        return false;
+    }
+
+    $stmt = $conn->prepare(
+        "SELECT id
+         FROM document_categories
+         WHERE sub_category = ?
+           AND is_system_folder = 1
+         LIMIT 1"
+    );
     $stmt->bind_param("s", $category);
     $stmt->execute();
-    $res = $stmt->get_result();
-    if ($row = $res->fetch_assoc()) {
-        return uploadFolderRoleMatches($row['assigned_to_role'], $role);
-    }
-    return false;
+    return $stmt->get_result()->num_rows > 0;
 }
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
@@ -112,14 +141,28 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     if ($action === 'analyze_document') {
         header('Content-Type: application/json');
         
-        if (!isset($_FILES['document']) || $_FILES['document']['error'] !== UPLOAD_ERR_OK) {
+        if (!isset($_FILES['document'])) {
             echo json_encode(['status' => 'none']);
             exit();
         }
 
         $file = $_FILES['document'];
-        $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-        $tmpPath = $file['tmp_name'];
+        try {
+            $validated_upload = drms_upload_validate(
+                $conn,
+                $file,
+                'document'
+            );
+        } catch (DrmsUploadValidationException $upload_error) {
+            echo json_encode([
+                'status' => 'error',
+                'message' => $upload_error->getMessage(),
+            ]);
+            exit();
+        }
+
+        $ext = $validated_upload['extension'];
+        $tmpPath = $validated_upload['tmp_name'];
         
         // SMART FALLBACK: Palaging isama ang filename para sa mga encoded PDFs at Images
         $extractedText = $file['name'] . " "; 
@@ -436,9 +479,21 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             ? "../documents.php?type=" . urlencode($doc_category)
             : "../general_docs.php?type=" . urlencode($doc_category);
 
-        if ((empty($doc_category) && empty($doc_type)) || !$file || $file['error'] !== UPLOAD_ERR_OK) {
+        if ((empty($doc_category) && empty($doc_type)) || !$file) {
             header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "error=InvalidInput");
             exit();
+        }
+
+        if ($is_official_intake && $doc_category === '') {
+            header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "error=" . urlencode("Select a records folder before filing an Official Record."));
+            exit();
+        }
+
+        if ($is_official_intake) {
+            $doc_type = drms_normalize_official_record_type(
+                $doc_type,
+                $doc_category
+            );
         }
 
         if (!empty($doc_category) && !userCanUseOfficialFolder($conn, $doc_category, $_SESSION['role'])) {
@@ -446,27 +501,30 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             exit();
         }
 
-        $max_file_size = 50 * 1024 * 1024; 
-        if ($file['size'] > $max_file_size) {
-            header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "error=FileSizeExceeded");
+        if (
+            $doc_category !== '' &&
+            isWorkflowManagedOfficialFolder($conn, $doc_category)
+        ) {
+            header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "error=" . urlencode("Protected workflow folders are filed automatically from their related PO approval step. Use a client-created folder for manual uploads."));
             exit();
         }
 
-        $allowedMimeTypes = [
-            'application/pdf' => 'pdf',
-            'image/jpeg' => 'jpg',
-            'image/png' => 'png',
-            'application/msword' => 'doc',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
-            'application/vnd.ms-excel' => 'xls',
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx'
-        ];
-
-        $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-        if (!in_array($ext, $allowedMimeTypes)) {
-            header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "error=InvalidFileExtension");
+        try {
+            $validated_upload = drms_upload_validate(
+                $conn,
+                $file,
+                'document'
+            );
+        } catch (DrmsUploadValidationException $upload_error) {
+            header(
+                "Location: $redirectUrl" .
+                (strpos($redirectUrl, '?') ? '&' : '?') .
+                'error=' . urlencode($upload_error->getMessage())
+            );
             exit();
         }
+
+        $ext = $validated_upload['extension'];
 
         // --- FILENAME SANITIZATION & LENGTH LIMIT (Fix implemented here) ---
         // Enforce a strict mb_substr limit before saving the file to prevent DB truncation
@@ -477,7 +535,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $sanitized_file_name = $base_name . '.' . $ext;
         // -------------------------------------------------------------------
 
-        $fileHash = hash_file('sha256', $file['tmp_name']);
+        $fileHash = hash_file('sha256', $validated_upload['tmp_name']);
         
         $checkStmt = $conn->prepare("SELECT doc_id FROM documents WHERE file_hash = ?");
         $checkStmt->bind_param("s", $fileHash);
@@ -487,22 +545,21 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             exit();
         }
 
-        $upload_dir = '../uploads/';
-        if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
-
-        // Applying the sanitized filename here as well for physical file saving
-        $new_filename = time() . '_' . bin2hex(random_bytes(4)) . '_' . preg_replace("/[^a-zA-Z0-9.-]/", "_", $sanitized_file_name);
-        $dest_path = $upload_dir . $new_filename;
-
-        if (move_uploaded_file($file['tmp_name'], $dest_path)) {
-            $db_path = 'uploads/' . $new_filename;
-            $status = 'Active';
-            
-            // Gamitin ang in-input na document_name kung meron, kung wala, original filename
-            $final_name_to_save = !empty($document_name) ? $document_name . '.' . $ext : $sanitized_file_name;
-
-            $policy_id = null;
-            if ($doc_category !== '') {
+        $policy_id = null;
+        $folder_profile = null;
+        if ($doc_category !== '') {
+            if ($is_official_intake) {
+                try {
+                    $folder_profile = drms_get_official_folder_profile(
+                        $conn,
+                        $doc_category
+                    );
+                    $policy_id = (int) $folder_profile['policy_id'];
+                } catch (Throwable $e) {
+                    header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "error=" . urlencode($e->getMessage()));
+                    exit();
+                }
+            } else {
                 $policy_stmt = $conn->prepare("SELECT policy_id FROM document_categories WHERE sub_category = ? AND policy_id IS NOT NULL ORDER BY id ASC LIMIT 1");
                 $policy_stmt->bind_param("s", $doc_category);
                 $policy_stmt->execute();
@@ -510,11 +567,77 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 $policy_id = $policy_row ? (int) $policy_row['policy_id'] : null;
                 $policy_stmt->close();
             }
+        }
+
+        if ($is_official_intake && $policy_id === null) {
+            header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "error=" . urlencode("Assign a retention policy to the selected records folder before filing an Official Record."));
+            exit();
+        }
+
+        $project_root = realpath(__DIR__ . '/..');
+        if ($project_root === false) {
+            header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "error=" . urlencode("The protected project storage could not be located."));
+            exit();
+        }
+
+        $upload_dir = '../uploads/';
+        if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
+
+        // Preserve the uploaded/source name separately. Official Records use
+        // the controlled folder code as both the RMS ID and actual file name.
+        $original_name_to_save = !empty($document_name)
+            ? $document_name . '.' . $ext
+            : $sanitized_file_name;
+        $record_number = null;
+        $record_locked = 0;
+        $final_name_to_save = $original_name_to_save;
+        $new_filename = time() . '_' . bin2hex(random_bytes(4)) . '_' .
+            preg_replace("/[^a-zA-Z0-9.-]/", "_", $sanitized_file_name);
+        $dest_path = $upload_dir . $new_filename;
+        $db_path = 'uploads/' . $new_filename;
+
+        if ($is_official_intake) {
+            try {
+                $record_number = drms_allocate_official_record_number(
+                    $conn,
+                    (string) $folder_profile['record_prefix'],
+                    $declared_at
+                );
+                $record_locked = 1;
+                $final_name_to_save = drms_build_official_file_name(
+                    $record_number,
+                    $original_name_to_save,
+                    $file['name']
+                );
+                $storage = drms_prepare_official_storage_directory(
+                    $project_root,
+                    (string) $folder_profile['record_prefix']
+                );
+                $dest_path = $storage['absolute_directory'] .
+                    DIRECTORY_SEPARATOR . $final_name_to_save;
+                $db_path = $storage['database_directory'] . '/' .
+                    $final_name_to_save;
+
+                if (is_file($dest_path)) {
+                    throw new RuntimeException(
+                        'The allocated Official Record file name already exists.'
+                    );
+                }
+            } catch (Throwable $e) {
+                error_log('Official Record intake numbering failed: ' . $e->getMessage());
+                header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "error=" . urlencode($e->getMessage()));
+                exit();
+            }
+        }
+
+        if (move_uploaded_file($validated_upload['tmp_name'], $dest_path)) {
+            $status = 'Active';
 
             // Official intake records the declaration actor/date and snapshots
             // the retention policy assigned to the selected folder.
-            $stmt = $conn->prepare("INSERT INTO documents (po_id, file_name, file_path, category, doc_type, status, record_phase, uploaded_by, file_hash, policy_id, declared_at, declared_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->bind_param("issssssisisi", $po_id, $final_name_to_save, $db_path, $doc_category, $doc_type, $status, $record_phase, $user_id, $fileHash, $policy_id, $declared_at, $declared_by);
+            $stmt = $conn->prepare("INSERT INTO documents (po_id, file_name, original_file_name, file_path, category, doc_type, status, record_phase, uploaded_by, file_hash, policy_id, declared_at, declared_by, record_number, is_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $insert_types = 'i' . str_repeat('s', 7) . 'isisisi';
+            $stmt->bind_param($insert_types, $po_id, $final_name_to_save, $original_name_to_save, $db_path, $doc_category, $doc_type, $status, $record_phase, $user_id, $fileHash, $policy_id, $declared_at, $declared_by, $record_number, $record_locked);
             
             if ($stmt->execute()) {
                 $new_doc_id = $stmt->insert_id;
@@ -531,14 +654,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     $stmt_phys->execute();
                 }
 
-                $record_label = $is_official_intake ? 'signed Official Record' : 'Working Document';
+                $record_label = $is_official_intake
+                    ? 'signed Official Record ' . $record_number
+                    : 'Working Document';
                 $audit_description = "Indexed and uploaded $record_label: " . $sanitized_file_name . " [$doc_category]";
                 if (function_exists('log_document_action')) {
                     log_document_action($conn, $user_id, 'UPLOAD_RECORD', $new_doc_id, $audit_description, $redirectUrl);
                 } else {
                     log_audit_action($conn, $user_id, 'UPLOAD_RECORD', $audit_description);
                 }
-                header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "success=Uploaded");
+                $success_message = $is_official_intake
+                    ? "Official Record $record_number filed successfully."
+                    : 'Working Document uploaded successfully.';
+                header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "success=" . urlencode($success_message));
             } else {
                 unlink($dest_path);
                 header("Location: $redirectUrl" . (strpos($redirectUrl, '?') ? '&' : '?') . "error=DatabaseError");
@@ -560,8 +688,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $doc_id = intval($_POST['doc_id']);
         $redirectUrl = $_POST['return_url'] ?? '../general_docs.php';
 
-        $record_lock_name = null;
-        $record_lock_acquired = false;
+        $official_copy_absolute = null;
+        $transaction_committed = false;
 
         try {
             $conn->begin_transaction();
@@ -582,42 +710,41 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
             
             // Validate Enterprise Physical Synchronization
-            if (isset($orig['physical_version']) && $orig['current_version'] != $orig['physical_version']) {
+            $physical_check = $conn->prepare("SELECT id FROM virt_document_locations WHERE document_id = ? FOR UPDATE");
+            $physical_check->bind_param('i', $doc_id);
+            $physical_check->execute();
+            $has_registered_physical_copy = (bool) $physical_check->get_result()->fetch_row();
+            if ($has_registered_physical_copy && isset($orig['physical_version']) && $orig['current_version'] != $orig['physical_version']) {
                 throw new Exception("Cannot declare this document as an Official Record. The stored physical copy (v" . number_format($orig['physical_version'], 1) . ") is not synchronized with the latest digital version (v" . number_format($orig['current_version'], 1) . "). Please physically replace and verify it first.");
             }
 
-            // 2. Generate the existing REC number safely. The naming-series
-            // redesign is handled in a later phase; no company prefix is added.
-            $year = date('Y');
-            $record_lock_name = "official_record_number_$year";
-            $lock_stmt = $conn->prepare("SELECT GET_LOCK(?, 5) AS lock_acquired");
-            $lock_stmt->bind_param("s", $record_lock_name);
-            $lock_stmt->execute();
-            $lock_row = $lock_stmt->get_result()->fetch_assoc();
-            $record_lock_acquired = (int) ($lock_row['lock_acquired'] ?? 0) === 1;
-            $lock_stmt->close();
-
-            if (!$record_lock_acquired) {
-                throw new Exception("The record number service is busy. Please try again.");
+            // 2. Resolve the controlled folder code. The numeric sequence is
+            // organization-wide per year; the prefix identifies the folder.
+            $cat = !empty($orig['category']) ? $orig['category'] : $orig['doc_type'];
+            $folder_profile = drms_get_official_folder_profile($conn, $cat);
+            if ((int) $folder_profile['is_system_folder'] === 1) {
+                throw new Exception(
+                    'Protected workflow folders are filed automatically from their related PO approval step.'
+                );
             }
-
-            $prefix = "REC-$year-";
-            $sequence_stmt = $conn->prepare("SELECT COALESCE(MAX(CAST(SUBSTRING(record_number, ?) AS UNSIGNED)), 0) + 1 AS next_number FROM documents WHERE record_number LIKE CONCAT(?, '%')");
-            $sequence_start = strlen($prefix) + 1;
-            $sequence_stmt->bind_param("is", $sequence_start, $prefix);
-            $sequence_stmt->execute();
-            $sequence_row = $sequence_stmt->get_result()->fetch_assoc();
-            $record_number = sprintf("REC-%s-%04d", $year, (int) $sequence_row['next_number']);
-            $sequence_stmt->close();
+            $record_number = drms_allocate_official_record_number(
+                $conn,
+                (string) $folder_profile['record_prefix']
+            );
 
             // 3. Clone as Official Record (Locks it and moves it to Virtual Cabinet)
-            $cat = !empty($orig['category']) ? $orig['category'] : $orig['doc_type'];
-            
             // Safe variables for PHP 8 binding
             $po_id = $orig['po_id'];
-            $file_name = $orig['file_name'];
-            $file_path = $orig['file_path'];
-            $doc_type = $orig['doc_type'];
+            $original_file_name = trim((string) (
+                $orig['original_file_name'] ?? $orig['file_name']
+            ));
+            if ($original_file_name === '') {
+                $original_file_name = (string) $orig['file_name'];
+            }
+            $doc_type = drms_normalize_official_record_type(
+                $orig['doc_type'] ?? null,
+                $cat
+            );
             $status = $orig['status'];
             $uploaded_by = $orig['uploaded_by'];
             $uploaded_at = $orig['uploaded_at'];
@@ -626,21 +753,57 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $access_type = $orig['access_type'];
             $file_permissions = $orig['file_permissions'];
 
-            $physical_version = $orig['physical_version'] ?? $current_version;
-            $policy_id = !empty($orig['policy_id']) ? (int) $orig['policy_id'] : null;
-
-            if ($policy_id === null && $cat !== '') {
-                $policy_stmt = $conn->prepare("SELECT policy_id FROM document_categories WHERE sub_category = ? AND policy_id IS NOT NULL ORDER BY id ASC LIMIT 1");
-                $policy_stmt->bind_param("s", $cat);
-                $policy_stmt->execute();
-                $policy_row = $policy_stmt->get_result()->fetch_assoc();
-                $policy_id = $policy_row ? (int) $policy_row['policy_id'] : null;
-                $policy_stmt->close();
+            // The official record receives its own immutable binary. This
+            // prevents a future disposition from deleting the working copy or
+            // another record that happens to reference the same source path.
+            $project_root = realpath(__DIR__ . '/..');
+            $stored_source_path = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, ltrim((string) $orig['file_path'], '/\\'));
+            if ($project_root === false || $stored_source_path === '' || strpos($stored_source_path, '..') !== false) {
+                throw new Exception('The source file path is invalid.');
             }
 
-            $insert = $conn->prepare("INSERT INTO documents (po_id, file_name, file_path, category, doc_type, status, uploaded_by, uploaded_at, file_hash, current_version, physical_version, access_type, file_permissions, policy_id, record_phase, declared_at, declared_by, record_number, is_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Official', NOW(), ?, ?, 1)");
-            $insert->bind_param("isssssissssssiis", 
-                $po_id, $file_name, $file_path, $cat, $doc_type, 
+            $source_absolute = realpath($project_root . DIRECTORY_SEPARATOR . $stored_source_path);
+            $project_prefix = rtrim($project_root, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
+            if ($source_absolute === false || !is_file($source_absolute) || stripos($source_absolute, $project_prefix) !== 0) {
+                throw new Exception('The source file is missing or outside the protected project storage.');
+            }
+
+            $file_name = drms_build_official_file_name(
+                $record_number,
+                $original_file_name,
+                $source_absolute
+            );
+            $storage = drms_prepare_official_storage_directory(
+                $project_root,
+                (string) $folder_profile['record_prefix']
+            );
+            $official_copy_absolute = $storage['absolute_directory'] .
+                DIRECTORY_SEPARATOR . $file_name;
+
+            if (is_file($official_copy_absolute)) {
+                throw new Exception(
+                    'The allocated Official Record file name already exists.'
+                );
+            }
+
+            if (!copy($source_absolute, $official_copy_absolute)) {
+                throw new Exception('Unable to create the immutable Official Record copy.');
+            }
+            @chmod($official_copy_absolute, 0640);
+
+            $official_copy_hash = hash_file('sha256', $official_copy_absolute);
+            if ($official_copy_hash === false || !hash_equals(strtolower($file_hash), strtolower($official_copy_hash))) {
+                throw new Exception('Official Record copy verification failed. The source file was not changed.');
+            }
+
+            $file_path = $storage['database_directory'] . '/' . $file_name;
+
+            $physical_version = $orig['physical_version'] ?? $current_version;
+            $policy_id = (int) $folder_profile['policy_id'];
+
+            $insert = $conn->prepare("INSERT INTO documents (po_id, file_name, original_file_name, file_path, category, doc_type, status, uploaded_by, uploaded_at, file_hash, current_version, physical_version, access_type, file_permissions, policy_id, record_phase, declared_at, declared_by, record_number, is_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Official', NOW(), ?, ?, 1)");
+            $insert->bind_param("issssssissssssiis", 
+                $po_id, $file_name, $original_file_name, $file_path, $cat, $doc_type, 
                 $status, $uploaded_by, $uploaded_at, $file_hash, 
                 $current_version, $physical_version, $access_type, $file_permissions, 
                 $policy_id, $user_id, $record_number
@@ -672,27 +835,23 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             // ==========================================================
 
             $conn->commit();
+            $transaction_committed = true;
 
-            if ($record_lock_acquired) {
-                $release_stmt = $conn->prepare("SELECT RELEASE_LOCK(?)");
-                $release_stmt->bind_param("s", $record_lock_name);
-                $release_stmt->execute();
-                $release_stmt->close();
-                $record_lock_acquired = false;
-            }
-
-            if (function_exists('log_audit_action')) {
-                log_audit_action($conn, $user_id, 'DECLARE_OFFICIAL', "Declared Doc ID $doc_id as Official Record $record_number");
+            try {
+                if (function_exists('log_audit_action')) {
+                    log_audit_action($conn, $user_id, 'DECLARE_OFFICIAL', "Declared Doc ID $doc_id as Official Record $record_number with an independently stored immutable copy.");
+                }
+            } catch (Throwable $audit_error) {
+                error_log('Declare Official audit warning: ' . $audit_error->getMessage());
             }
             header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "success=" . urlencode("Success! Working copy locked and Official Record $record_number generated."));
             
         } catch (Throwable $e) {
-            $conn->rollback();
-            if ($record_lock_acquired && $record_lock_name !== null) {
-                $release_stmt = $conn->prepare("SELECT RELEASE_LOCK(?)");
-                $release_stmt->bind_param("s", $record_lock_name);
-                $release_stmt->execute();
-                $release_stmt->close();
+            if (!$transaction_committed) {
+                $conn->rollback();
+            }
+            if (!$transaction_committed && $official_copy_absolute !== null && is_file($official_copy_absolute)) {
+                @unlink($official_copy_absolute);
             }
             error_log("Declare Official Error: " . $e->getMessage());
             // FIX: Ipinasa ang totoong $e->getMessage() para malaman ng user kung bakit na-block

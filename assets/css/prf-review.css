@@ -11,6 +11,10 @@
     color: var(--prf-review-text);
 }
 
+.prf-print-document {
+    display: none;
+}
+
 .prf-review-shell {
     width: 100%;
     max-width: 1440px;
@@ -84,6 +88,34 @@
     display: flex;
     align-items: center;
     gap: 7px;
+}
+
+.prf-review-print-button {
+    display: inline-flex;
+    min-height: 34px;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 7px 11px;
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 740;
+    line-height: 1;
+    white-space: nowrap;
+    background: var(--prf-review-primary);
+    border: 1px solid var(--prf-review-primary);
+    border-radius: 9px;
+    box-shadow: 0 4px 10px rgba(37, 99, 235, 0.16);
+    transition: 0.16s ease;
+}
+
+.prf-review-print-button:hover,
+.prf-review-print-button:focus-visible {
+    color: #fff;
+    background: var(--prf-review-primary-dark);
+    border-color: var(--prf-review-primary-dark);
+    outline: none;
+    transform: translateY(-1px);
 }
 
 .prf-review-version,
@@ -1082,8 +1114,14 @@
     }
 
     .prf-review-header-actions {
+        flex-wrap: wrap;
         gap: 5px;
         padding-left: 0;
+    }
+
+    .prf-review-print-button {
+        width: 100%;
+        flex: 1 0 100%;
     }
 
     .prf-review-version,
@@ -1121,23 +1159,482 @@
 }
 
 @media print {
-    .prf-review-back,
-    .prf-review-header-actions,
-    .prf-review-alert,
-    .prf-review-decision-card,
-    .prf-review-source-documents {
+    @page {
+        size: A4 portrait;
+        margin: 0;
+    }
+
+    body.page-view-pr {
+        padding: 10mm 12mm !important;
+        color: #0f172a !important;
+        background: #fff !important;
+        font-family: Arial, Helvetica, sans-serif !important;
+        font-size: 8.5pt !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
+    body.page-view-pr .saas-navbar,
+    body.page-view-pr .mobile-side-nav,
+    body.page-view-pr .mobile-nav-backdrop,
+    body.page-view-pr .prf-review-shell,
+    body.page-view-pr #commandPaletteOverlay {
         display: none !important;
     }
 
-    .prf-review-page,
-    .prf-review-card,
-    .prf-review-route-card,
-    .prf-review-source-card {
-        background: #fff !important;
+    body.page-view-pr .main-content {
+        width: 100% !important;
+        min-height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: transparent !important;
         box-shadow: none !important;
     }
 
-    .prf-review-layout {
-        grid-template-columns: 1fr;
+    body.page-view-pr .prf-print-document {
+        display: block !important;
+        width: 100%;
+        color: #0f172a;
+    }
+
+    .prf-print-draft-banner {
+        margin-bottom: 5mm;
+        padding: 2.5mm 4mm;
+        color: #b91c1c !important;
+        font-size: 10pt;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-align: center;
+        text-transform: uppercase;
+        background: #fff1f2 !important;
+        border: 1.5px solid #ef4444;
+        border-radius: 2mm;
+    }
+
+    .prf-print-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 8mm;
+        padding-bottom: 4mm;
+        border-bottom: 2px solid #2563eb;
+    }
+
+    .prf-print-brand {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 3mm;
+    }
+
+    .prf-print-brand img {
+        width: 14mm;
+        height: 14mm;
+        object-fit: contain;
+    }
+
+    .prf-print-brand div,
+    .prf-print-title {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .prf-print-brand strong {
+        color: #0f172a;
+        font-size: 13pt;
+        line-height: 1.15;
+    }
+
+    .prf-print-brand span {
+        margin-top: 0.8mm;
+        color: #475569;
+        font-size: 8pt;
+    }
+
+    .prf-print-brand small {
+        margin-top: 0.5mm;
+        color: #64748b;
+        font-size: 7pt;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+    }
+
+    .prf-print-title {
+        align-items: flex-end;
+        text-align: right;
+    }
+
+    .prf-print-title > span {
+        color: #475569;
+        font-size: 7.5pt;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+
+    .prf-print-title h1 {
+        margin: 1mm 0;
+        color: #0f172a;
+        font-size: 15pt;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+    }
+
+    .prf-print-record-status {
+        display: inline-flex;
+        min-height: 6mm;
+        align-items: center;
+        justify-content: center;
+        padding: 1mm 3mm;
+        font-size: 7.5pt;
+        letter-spacing: 0.08em;
+        border: 1px solid;
+        border-radius: 99px;
+    }
+
+    .prf-print-record-status.is-official {
+        color: #166534 !important;
+        background: #f0fdf4 !important;
+        border-color: #86efac;
+    }
+
+    .prf-print-record-status.is-draft {
+        color: #9a3412 !important;
+        background: #fff7ed !important;
+        border-color: #fdba74;
+    }
+
+    .prf-print-reference-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        margin: 4mm 0;
+        border: 1px solid #cbd5e1;
+        border-radius: 2mm;
+        overflow: hidden;
+        break-inside: avoid;
+    }
+
+    .prf-print-reference-grid > div {
+        min-width: 0;
+        padding: 2.5mm 3mm;
+        background: #f8fafc !important;
+        border-right: 1px solid #cbd5e1;
+    }
+
+    .prf-print-reference-grid > div:last-child {
+        border-right: 0;
+    }
+
+    .prf-print-reference-grid span,
+    .prf-print-section-label,
+    .prf-print-section-heading span,
+    .prf-print-remarks > span {
+        display: block;
+        color: #64748b;
+        font-size: 6.8pt;
+        font-weight: 700;
+        letter-spacing: 0.065em;
+        text-transform: uppercase;
+    }
+
+    .prf-print-reference-grid strong {
+        display: block;
+        margin-top: 0.8mm;
+        color: #0f172a;
+        font-size: 8.5pt;
+        overflow-wrap: anywhere;
+    }
+
+    .prf-print-reference-grid small {
+        display: block;
+        margin-top: 0.5mm;
+        color: #64748b;
+        font-size: 7pt;
+    }
+
+    .prf-print-party-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 3mm;
+        margin-bottom: 4mm;
+        break-inside: avoid;
+    }
+
+    .prf-print-party-grid article {
+        padding: 3mm;
+        border: 1px solid #cbd5e1;
+        border-radius: 2mm;
+    }
+
+    .prf-print-party-grid h2 {
+        margin: 1.2mm 0 2mm;
+        color: #0f172a;
+        font-size: 10pt;
+        font-weight: 750;
+    }
+
+    .prf-print-party-grid dl,
+    .prf-print-financial-list {
+        margin: 0;
+    }
+
+    .prf-print-party-grid dl > div {
+        display: grid;
+        grid-template-columns: 34mm minmax(0, 1fr);
+        gap: 2mm;
+        padding: 1mm 0;
+        border-top: 1px solid #e2e8f0;
+    }
+
+    .prf-print-party-grid dt,
+    .prf-print-financial-list dt {
+        color: #64748b;
+        font-size: 7.2pt;
+        font-weight: 600;
+    }
+
+    .prf-print-party-grid dd,
+    .prf-print-financial-list dd {
+        margin: 0;
+        color: #0f172a;
+        font-weight: 650;
+        text-align: right;
+        overflow-wrap: anywhere;
+    }
+
+    .prf-print-section {
+        margin-bottom: 4mm;
+    }
+
+    .prf-print-section-heading {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 4mm;
+        margin-bottom: 2mm;
+        break-after: avoid;
+    }
+
+    .prf-print-section-heading h2,
+    .prf-print-financial-copy h2 {
+        margin: 0.8mm 0 0;
+        color: #0f172a;
+        font-size: 10pt;
+        font-weight: 750;
+    }
+
+    .prf-print-section-heading small {
+        color: #64748b;
+        font-size: 7pt;
+    }
+
+    .prf-print-items {
+        width: 100%;
+        margin: 0;
+        border: 1px solid #94a3b8;
+        border-collapse: collapse;
+    }
+
+    .prf-print-items thead {
+        display: table-header-group;
+    }
+
+    .prf-print-items tr {
+        break-inside: avoid;
+    }
+
+    .prf-print-items th {
+        padding: 2mm 2.2mm;
+        color: #fff !important;
+        font-size: 7pt;
+        font-weight: 750;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        background: #1e3a5f !important;
+        border: 1px solid #1e3a5f;
+    }
+
+    .prf-print-items td {
+        padding: 2.2mm;
+        color: #0f172a;
+        font-size: 7.7pt;
+        vertical-align: top;
+        border: 1px solid #cbd5e1;
+    }
+
+    .prf-print-items td > strong {
+        display: block;
+        font-size: 8pt;
+    }
+
+    .prf-print-items td > small {
+        display: block;
+        margin-top: 0.5mm;
+        color: #64748b;
+        font-size: 6.7pt;
+    }
+
+    .prf-print-items td > p {
+        margin: 0.8mm 0 0;
+        color: #475569;
+        font-size: 6.8pt;
+        line-height: 1.3;
+    }
+
+    .prf-print-items .is-number {
+        width: 8mm;
+        text-align: center;
+    }
+
+    .prf-print-items .is-quantity {
+        width: 13mm;
+        text-align: center;
+    }
+
+    .prf-print-items .is-money {
+        width: 27mm;
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    .prf-print-empty {
+        padding: 5mm !important;
+        color: #64748b !important;
+        text-align: center;
+    }
+
+    .prf-print-financial-section {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 78mm;
+        gap: 5mm;
+        margin-bottom: 5mm;
+        padding: 3mm;
+        background: #f8fafc !important;
+        border: 1px solid #cbd5e1;
+        border-radius: 2mm;
+        break-inside: avoid;
+    }
+
+    .prf-print-financial-copy > p {
+        max-width: 95%;
+        margin: 1.5mm 0 0;
+        color: #475569;
+        font-size: 7.3pt;
+        line-height: 1.4;
+    }
+
+    .prf-print-remarks {
+        margin-top: 3mm;
+        padding-top: 2mm;
+        border-top: 1px solid #cbd5e1;
+    }
+
+    .prf-print-remarks p {
+        margin: 1mm 0 0;
+        color: #334155;
+        font-size: 7.2pt;
+        line-height: 1.35;
+    }
+
+    .prf-print-financial-list > div {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 4mm;
+        padding: 1.2mm 0;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .prf-print-financial-list > div:last-child {
+        border-bottom: 0;
+    }
+
+    .prf-print-financial-list .is-requested {
+        margin-top: 0.8mm;
+        padding: 1.8mm 2mm;
+        background: #eff6ff !important;
+        border: 1px solid #bfdbfe;
+        border-radius: 1.5mm;
+    }
+
+    .prf-print-financial-list .is-requested dt,
+    .prf-print-financial-list .is-requested dd {
+        color: #1d4ed8 !important;
+        font-weight: 800;
+    }
+
+    .prf-print-financial-list .is-profit dt,
+    .prf-print-financial-list .is-profit dd {
+        color: #166534 !important;
+        font-weight: 700;
+    }
+
+    .prf-print-approvals {
+        break-inside: avoid;
+    }
+
+    .prf-print-signature-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 3mm;
+    }
+
+    .prf-print-signature-grid article {
+        min-width: 0;
+        padding: 2.5mm;
+        text-align: center;
+        border: 1px solid #cbd5e1;
+        border-radius: 2mm;
+    }
+
+    .prf-print-signature-line {
+        height: 9mm;
+        margin-bottom: 1.5mm;
+        border-bottom: 1px solid #64748b;
+    }
+
+    .prf-print-signature-grid strong,
+    .prf-print-signature-grid span,
+    .prf-print-signature-grid small {
+        display: block;
+        overflow-wrap: anywhere;
+    }
+
+    .prf-print-signature-grid strong {
+        min-height: 4mm;
+        color: #0f172a;
+        font-size: 7.4pt;
+    }
+
+    .prf-print-signature-grid span {
+        margin-top: 0.5mm;
+        color: #475569;
+        font-size: 6.5pt;
+        font-weight: 650;
+    }
+
+    .prf-print-signature-grid small {
+        margin-top: 1mm;
+        color: #64748b;
+        font-size: 6.2pt;
+        line-height: 1.3;
+    }
+
+    .prf-print-footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 8mm;
+        margin-top: 5mm;
+        padding-top: 2.5mm;
+        color: #64748b;
+        font-size: 6.5pt;
+        border-top: 1px solid #cbd5e1;
+    }
+
+    .prf-print-footer strong {
+        max-width: 90mm;
+        color: #334155;
+        font-weight: 650;
+        text-align: right;
     }
 }

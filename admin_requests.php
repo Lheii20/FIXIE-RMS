@@ -2,8 +2,24 @@
 
 if(!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Admin') { header("Location: dashboard.php"); exit(); }
 
-$status_filter = $_GET['status'] ?? 'Pending'; $search = $_GET['search'] ?? '';
+$allowed_statuses = ['Pending', 'Approved', 'Rejected', 'All'];
+$status_filter = (string) ($_GET['status'] ?? 'Pending');
+if (!in_array($status_filter, $allowed_statuses, true)) { $status_filter = 'Pending'; }
+$search = substr(trim((string) ($_GET['search'] ?? '')), 0, 100);
 $where_clauses = []; $params = []; $types = "";
+
+$request_feedback = [
+    'ActionCompleted' => 'The account request was updated successfully.',
+    'RequestAlreadyResolved' => 'This request has already been approved or rejected.',
+    'UsernameAlreadyExists' => 'That username is already assigned to another account.',
+    'InvalidUsername' => 'The proposed username does not follow the required format.',
+    'UnsupportedRequestType' => 'This legacy request type cannot be approved from this workflow.',
+    'InvalidDecision' => 'The submitted request decision is invalid.',
+    'RequestNotFound' => 'The account request could not be found.',
+    'RequestFailed' => 'The request could not be updated. Please try again.'
+];
+$success_message = $request_feedback[(string) ($_GET['success'] ?? '')] ?? 'The account request was updated successfully.';
+$error_message = $request_feedback[(string) ($_GET['error'] ?? '')] ?? 'Unable to update the request.';
 
 if ($status_filter !== 'All') { $where_clauses[] = "r.status = ?"; $params[] = $status_filter; $types .= "s"; }
 if (!empty($search)) { $where_clauses[] = "(u.full_name LIKE ? OR u.username LIKE ? OR r.request_type LIKE ? OR r.reason LIKE ?)"; $search_term = "%$search%"; $params = array_merge($params, [$search_term, $search_term, $search_term, $search_term]); $types .= "ssss"; }
@@ -38,7 +54,7 @@ $reqs = $stmt->get_result();
             
             <form method="GET" class="admin-requests-toolbar d-flex flex-column flex-sm-row align-items-sm-center gap-2 m-0 w-100">
                 <div class="admin-request-search position-relative w-100">
-                    <input type="search" name="search" class="form-control form-control-sm pe-4 shadow-none w-100 rounded-custom" placeholder="Search user or reason..." value="<?php echo htmlspecialchars($search); ?>">
+                    <input type="search" name="search" maxlength="100" class="form-control form-control-sm pe-4 shadow-none w-100 rounded-custom" placeholder="Search user or reason..." value="<?php echo htmlspecialchars($search); ?>">
                     <i class="admin-search-icon fas fa-search position-absolute text-muted" aria-hidden="true"></i>
                 </div>
                 
@@ -255,7 +271,7 @@ $reqs = $stmt->get_result();
             toast: true,
             position: 'bottom-end',
             icon: 'success',
-            title: 'Request updated successfully.',
+            title: <?php echo json_encode($success_message, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>,
             showConfirmButton: false,
             timer: 2600,
             timerProgressBar: true,
@@ -266,7 +282,7 @@ $reqs = $stmt->get_result();
             toast: true,
             position: 'bottom-end',
             icon: 'error',
-            title: 'Unable to update the request.',
+            title: <?php echo json_encode($error_message, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>,
             showConfirmButton: false,
             timer: 3200,
             timerProgressBar: true,

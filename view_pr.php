@@ -52,6 +52,27 @@ if (!$pr) {
     exit();
 }
 
+$official_record_stmt = $conn->prepare(
+    "SELECT
+        doc_id,
+        record_number,
+        file_name,
+        declared_at
+     FROM documents
+     WHERE source_module = 'Purchase Requisition Form'
+       AND source_record_id = ?
+       AND record_phase = 'Official'
+       AND status <> 'Recycled'
+     LIMIT 1"
+);
+$official_record_stmt->bind_param('i', $pr_id);
+$official_record_stmt->execute();
+$official_record = $official_record_stmt->get_result()->fetch_assoc();
+$official_record_stmt->close();
+$official_record_link = $official_record
+    ? 'download.php?type=document&record_id=' . (int) $official_record['doc_id']
+    : '';
+
 $items_stmt = $conn->prepare(
     "SELECT *
      FROM pr_items
@@ -68,6 +89,7 @@ while ($item = $items_result->fetch_assoc()) {
 
 $supplier = null;
 $approval_records = [];
+$approval_by_stage = [];
 $current_approval = null;
 
 $supplier_stmt = $conn->prepare(
@@ -102,6 +124,7 @@ $approval_result = $approval_stmt->get_result();
 
 while ($approval = $approval_result->fetch_assoc()) {
     $approval_records[] = $approval;
+    $approval_by_stage[$approval['approval_stage']] = $approval;
     if (
         $approval['decision'] === 'Pending' &&
         $approval['approval_stage'] === $pr['current_approval_stage']
@@ -112,6 +135,27 @@ while ($approval = $approval_result->fetch_assoc()) {
 
 // An official route is proven by its recorded approval stages, not a version flag.
 $is_sequential = !empty($approval_records);
+$owner_approval = $approval_by_stage['Owner Approval'] ?? null;
+$is_official_prf = $is_sequential &&
+    in_array($pr['status'], ['Approved', 'Converted_to_PO'], true) &&
+    $pr['current_approval_stage'] === 'Official Approved' &&
+    !empty($pr['final_approved_by']) &&
+    !empty($pr['final_approved_at']) &&
+    $owner_approval &&
+    $owner_approval['decision'] === 'Approved' &&
+    !empty($owner_approval['acted_by']) &&
+    !empty($owner_approval['acted_at']);
+$print_record_status = $is_official_prf
+    ? 'OFFICIAL' . ($official_record
+        ? ' - ' . $official_record['record_number']
+        : '')
+    : 'DRAFT';
+
+$print_approval_stages = [
+    'GM Review' => 'Reviewed by General Manager',
+    'Finance Review' => 'Checked by Finance',
+    'Owner Approval' => 'Approved by Owner / President',
+];
 
 $role = (string) $_SESSION['role'];
 $can_decide = $is_sequential &&
@@ -216,6 +260,10 @@ function prf_review_money($value): string
                 </div>
 
                 <div class="prf-review-header-actions">
+                    <button type="button" class="prf-review-print-button" onclick="window.print()" aria-label="Print or save this purchase requisition as PDF">
+                        <i class="fas fa-print"></i>
+                        <span>Print / Save PDF</span>
+                    </button>
                     <span class="prf-review-version"><i class="fas fa-route"></i> PRF workflow</span>
                     <span class="prf-review-status <?php echo $status_class; ?>">
                         <i class="fas <?php echo $status_icon; ?>"></i>
@@ -540,6 +588,11 @@ function prf_review_money($value): string
                             <span>Official PRF</span>
                             <h3>Ready for PO conversion</h3>
                             <p>The approval route is complete. Procurement can prepare the supplier Purchase Order.</p>
+                            <?php if ($official_record): ?>
+                                <a href="<?php echo htmlspecialchars($official_record_link); ?>" target="_blank" rel="noopener">
+                                    View <?php echo htmlspecialchars($official_record['record_number']); ?> <i class="fas fa-file-pdf"></i>
+                                </a>
+                            <?php endif; ?>
                             <a href="create_po.php?pr_id=<?php echo $pr_id; ?>">
                                 Convert to PO <i class="fas fa-arrow-right"></i>
                             </a>
@@ -571,11 +624,210 @@ function prf_review_money($value): string
                                     This request is ready for the next procurement step.
                                 <?php endif; ?>
                             </p>
+                            <?php if ($official_record): ?>
+                                <a href="<?php echo htmlspecialchars($official_record_link); ?>" target="_blank" rel="noopener">
+                                    View <?php echo htmlspecialchars($official_record['record_number']); ?> <i class="fas fa-file-pdf"></i>
+                                </a>
+                            <?php endif; ?>
                         </section>
                     <?php endif; ?>
                 </aside>
             </div>
         </div>
+
+        <section class="prf-print-document" aria-label="Printable purchase requisition form">
+            <?php if (!$is_official_prf): ?>
+                <div class="prf-print-draft-banner">Draft copy — not an official record</div>
+            <?php endif; ?>
+
+            <header class="prf-print-header">
+                <div class="prf-print-brand">
+                    <img src="assets/images/fixie_logo.png" alt="Fixie Computer Ventures logo">
+                    <div>
+                        <strong>Fixie Computer Ventures</strong>
+                        <span>Computer products and business solutions</span>
+                        <small>Internal procurement document</small>
+                    </div>
+                </div>
+                <div class="prf-print-title">
+                    <span>Purchase Requisition Form</span>
+                    <h1><?php echo htmlspecialchars($pr['pr_number']); ?></h1>
+                    <strong class="prf-print-record-status <?php echo $is_official_prf ? 'is-official' : 'is-draft'; ?>">
+                        <?php echo $print_record_status; ?>
+                    </strong>
+                </div>
+            </header>
+
+            <section class="prf-print-reference-grid" aria-label="Document references">
+                <div>
+                    <span>PRF number</span>
+                    <strong><?php echo htmlspecialchars($pr['pr_number']); ?></strong>
+                    <?php if ($official_record): ?>
+                        <small>RMS: <?php echo htmlspecialchars($official_record['record_number']); ?></small>
+                    <?php endif; ?>
+                </div>
+                <div>
+                    <span>Date prepared</span>
+                    <strong><?php echo prf_review_date($pr['submitted_for_approval_at'] ?: $pr['date_created'], 'M d, Y'); ?></strong>
+                </div>
+                <div>
+                    <span>Client PO</span>
+                    <strong><?php echo htmlspecialchars($pr['actual_client_po_number'] ?: 'Not recorded'); ?></strong>
+                    <small><?php echo prf_review_date($pr['client_po_date']); ?></small>
+                </div>
+                <div>
+                    <span>Source quotation</span>
+                    <strong><?php echo htmlspecialchars($pr['quotation_number'] ?: 'Not recorded'); ?></strong>
+                </div>
+            </section>
+
+            <section class="prf-print-party-grid" aria-label="Request and supplier details">
+                <article>
+                    <span class="prf-print-section-label">Request details</span>
+                    <h2><?php echo htmlspecialchars($pr['client_name']); ?></h2>
+                    <dl>
+                        <div><dt>Prepared by</dt><dd><?php echo htmlspecialchars($pr['creator_name'] ?: 'Not recorded'); ?></dd></div>
+                        <div><dt>Role</dt><dd><?php echo htmlspecialchars($pr['creator_role'] ?: 'Not recorded'); ?></dd></div>
+                        <div><dt>Approval position</dt><dd><?php echo htmlspecialchars($status_label); ?></dd></div>
+                    </dl>
+                </article>
+                <article>
+                    <span class="prf-print-section-label">Supplier details</span>
+                    <h2><?php echo htmlspecialchars($supplier['supplier_name'] ?? 'Not recorded'); ?></h2>
+                    <dl>
+                        <div><dt>Supplier reference</dt><dd><?php echo htmlspecialchars($supplier['supplier_reference'] ?? 'Not recorded'); ?></dd></div>
+                        <div><dt>Quotation date</dt><dd><?php echo prf_review_date($supplier['supplier_quote_date'] ?? null); ?></dd></div>
+                        <div><dt>Payment method</dt><dd><?php echo htmlspecialchars($supplier['payment_method'] ?? 'Not recorded'); ?></dd></div>
+                        <div><dt>Payment terms</dt><dd><?php echo htmlspecialchars($supplier['payment_terms'] ?? 'Not recorded'); ?></dd></div>
+                    </dl>
+                </article>
+            </section>
+
+            <section class="prf-print-section">
+                <div class="prf-print-section-heading">
+                    <div>
+                        <span>Requested items</span>
+                        <h2>Cost worksheet</h2>
+                    </div>
+                    <small><?php echo count($items); ?> item line<?php echo count($items) === 1 ? '' : 's'; ?></small>
+                </div>
+
+                <table class="prf-print-items">
+                    <thead>
+                        <tr>
+                            <th class="is-number">#</th>
+                            <th>Item description and specifications</th>
+                            <th class="is-quantity">Qty</th>
+                            <th class="is-money">Unit cost</th>
+                            <th class="is-money">Cost total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (empty($items)): ?>
+                            <tr><td colspan="5" class="prf-print-empty">No item lines recorded.</td></tr>
+                        <?php else: ?>
+                            <?php foreach ($items as $index => $item): ?>
+                                <?php
+                                $category = $category_map[$item['category']] ?? $item['category'];
+                                $unit_cost = (float) ($item['unit_cost'] ?? 0);
+                                $line_cost = isset($item['total_cost'])
+                                    ? (float) $item['total_cost']
+                                    : ((int) $item['quantity'] * $unit_cost);
+                                ?>
+                                <tr>
+                                    <td class="is-number"><?php echo $index + 1; ?></td>
+                                    <td>
+                                        <strong><?php echo htmlspecialchars($item['item_name']); ?></strong>
+                                        <small>
+                                            <?php echo htmlspecialchars((string) $category); ?>
+                                            <?php if (!empty($item['brand'])): ?>
+                                                · <?php echo htmlspecialchars($item['brand']); ?>
+                                            <?php endif; ?>
+                                        </small>
+                                        <?php if (!empty($item['specifications'])): ?>
+                                            <p><?php echo nl2br(htmlspecialchars($item['specifications'])); ?></p>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="is-quantity"><?php echo (int) $item['quantity']; ?></td>
+                                    <td class="is-money"><?php echo prf_review_money($unit_cost); ?></td>
+                                    <td class="is-money"><strong><?php echo prf_review_money($line_cost); ?></strong></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </section>
+
+            <section class="prf-print-financial-section" aria-label="Financial summary">
+                <div class="prf-print-financial-copy">
+                    <span class="prf-print-section-label">Financial purpose</span>
+                    <h2>Funding and profitability summary</h2>
+                    <p>The requested fund covers the supplier cost and recorded related expense for this client order.</p>
+                    <?php if (!empty($pr['remarks'])): ?>
+                        <div class="prf-print-remarks">
+                            <span>Request remarks</span>
+                            <p><?php echo nl2br(htmlspecialchars($pr['remarks'])); ?></p>
+                        </div>
+                    <?php endif; ?>
+                </div>
+                <dl class="prf-print-financial-list">
+                    <div><dt>Client selling amount</dt><dd><?php echo prf_review_money($pr['amount']); ?></dd></div>
+                    <div><dt>Cost of goods</dt><dd><?php echo prf_review_money($pr['cost_of_goods_amount']); ?></dd></div>
+                    <div><dt>Other expense</dt><dd><?php echo prf_review_money($pr['other_expense_amount']); ?></dd></div>
+                    <div class="is-requested"><dt>Funds requested</dt><dd><?php echo prf_review_money($pr['requested_fund_amount']); ?></dd></div>
+                    <div class="is-profit"><dt>Projected gross profit</dt><dd><?php echo prf_review_money($pr['gross_profit_amount']); ?></dd></div>
+                    <div><dt>Projected margin</dt><dd><?php echo number_format((float) $pr['gross_margin_percent'], 2); ?>%</dd></div>
+                </dl>
+            </section>
+
+            <section class="prf-print-approvals" aria-label="Approval record">
+                <div class="prf-print-section-heading">
+                    <div>
+                        <span>Signatories</span>
+                        <h2>Preparation and approval record</h2>
+                    </div>
+                    <small><?php echo $is_official_prf ? 'Final approval complete' : 'Approval route incomplete'; ?></small>
+                </div>
+
+                <div class="prf-print-signature-grid">
+                    <article>
+                        <div class="prf-print-signature-line"></div>
+                        <strong><?php echo htmlspecialchars($pr['creator_name'] ?: 'Not recorded'); ?></strong>
+                        <span>Prepared by Sales Staff</span>
+                        <small><?php echo prf_review_date($pr['submitted_for_approval_at'] ?: $pr['date_created'], 'M d, Y · h:i A'); ?></small>
+                    </article>
+
+                    <?php foreach ($print_approval_stages as $stage => $stage_label): ?>
+                        <?php
+                        $stage_record = $approval_by_stage[$stage] ?? null;
+                        $stage_decision = $stage_record['decision'] ?? 'Pending';
+                        $stage_actor = $stage_record['acted_by_name'] ?? '';
+                        ?>
+                        <article>
+                            <div class="prf-print-signature-line"></div>
+                            <strong><?php echo htmlspecialchars($stage_actor ?: 'Pending signatory'); ?></strong>
+                            <span><?php echo htmlspecialchars($stage_label); ?></span>
+                            <small>
+                                <?php echo htmlspecialchars($stage_decision); ?>
+                                <?php if (!empty($stage_record['acted_at'])): ?>
+                                    · <?php echo prf_review_date($stage_record['acted_at'], 'M d, Y · h:i A'); ?>
+                                <?php endif; ?>
+                            </small>
+                        </article>
+                    <?php endforeach; ?>
+                </div>
+            </section>
+
+            <footer class="prf-print-footer">
+                <span>Generated from the Fixie DRMS on <?php echo date('M d, Y · h:i A'); ?>.</span>
+                <strong>
+                    <?php echo $is_official_prf
+                        ? 'Official status verified from the completed Owner / President approval' .
+                            ($official_record ? ' and filed as ' . htmlspecialchars($official_record['record_number']) . '.' : '.')
+                        : 'This copy remains a draft until final Owner / President approval is recorded.'; ?>
+                </strong>
+            </footer>
+        </section>
     </main>
 
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>

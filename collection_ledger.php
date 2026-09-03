@@ -220,6 +220,12 @@ try {
             ON po.po_id = payment.po_id
         LEFT JOIN users recorder
             ON recorder.user_id = payment.recorded_by
+        LEFT JOIN documents payment_record
+            ON payment_record.source_module = 'Client Payment'
+           AND payment_record.source_record_id = payment.payment_id
+           AND payment_record.record_phase = 'Official'
+           AND payment_record.status <> 'Recycled'
+           AND payment_record.is_locked = 1
     ";
 
     $summary_sql = "SELECT
@@ -227,10 +233,7 @@ try {
             COUNT(*) AS transaction_count,
             COUNT(DISTINCT payment.po_id) AS po_count,
             COUNT(DISTINCT po.client_name) AS client_count,
-            SUM(
-                payment.proof_file_path IS NOT NULL AND
-                TRIM(payment.proof_file_path) <> ''
-            ) AS proof_count
+            COUNT(payment_record.doc_id) AS proof_count
         {$base_join}
         WHERE {$where_sql}";
     $summary_stmt = $conn->prepare($summary_sql);
@@ -268,6 +271,8 @@ try {
             payment.payment_method,
             payment.reference_number,
             payment.proof_file_path,
+            payment_record.doc_id AS payment_record_doc_id,
+            payment_record.record_number AS payment_record_number,
             recorder.full_name AS recorded_by_name,
             po.po_number,
             po.client_name,
@@ -314,9 +319,15 @@ try {
             ),
             0
         );
-        $row['proof_exists'] = !empty($row['proof_file_path']) && is_file(
-            __DIR__ . '/uploads/payments/' . basename($row['proof_file_path'])
-        );
+        $row['official_proof_exists'] =
+            !empty($row['payment_record_doc_id']);
+        $row['legacy_proof_exists'] =
+            !$row['official_proof_exists'] &&
+            !empty($row['proof_file_path']) &&
+            is_file(
+                __DIR__ . '/uploads/payments/' .
+                basename($row['proof_file_path'])
+            );
         $payment_rows[] = $row;
     }
     $row_stmt->close();
@@ -382,7 +393,7 @@ $last_row_number = min($page * $per_page, $total_rows);
                 </article>
                 <article class="ledger-kpi ledger-kpi-amber">
                     <span class="ledger-kpi-icon"><i class="fas fa-file-shield"></i></span>
-                    <div><small>Proof references</small><strong><?php echo number_format($summary['proof_count']); ?> / <?php echo number_format($summary['transaction_count']); ?></strong><span>Stored payment-proof paths</span></div>
+                    <div><small>Official evidence</small><strong><?php echo number_format($summary['proof_count']); ?> / <?php echo number_format($summary['transaction_count']); ?></strong><span>Locked PAY records in this view</span></div>
                 </article>
             </section>
 
@@ -477,8 +488,10 @@ $last_row_number = min($page * $per_page, $total_rows);
                                         <td data-label="Recorded by"><div class="ledger-recorder"><span><i class="fas fa-user-check"></i></span><div><strong><?php echo htmlspecialchars($row['recorded_by_name'] ?: 'System record'); ?></strong><small>Payment #<?php echo (int) $row['payment_id']; ?></small></div></div></td>
                                         <td data-label="Evidence">
                                             <div class="ledger-evidence-actions">
-                                                <?php if ($row['proof_exists']): ?>
-                                                    <a href="download.php?type=payment_proof&amp;record_id=<?php echo (int) $row['payment_id']; ?>" class="ledger-proof-button" target="_blank" rel="noopener"><i class="fas fa-paperclip"></i>Proof</a>
+                                                <?php if ($row['official_proof_exists']): ?>
+                                                    <a href="download.php?type=document&amp;record_id=<?php echo (int) $row['payment_record_doc_id']; ?>" class="ledger-proof-button" target="_blank" rel="noopener" aria-label="Open locked Official Record <?php echo htmlspecialchars((string) $row['payment_record_number'], ENT_QUOTES); ?>"><i class="fas fa-paperclip"></i><?php echo htmlspecialchars((string) $row['payment_record_number']); ?></a>
+                                                <?php elseif ($row['legacy_proof_exists']): ?>
+                                                    <a href="download.php?type=payment_proof&amp;record_id=<?php echo (int) $row['payment_id']; ?>" class="ledger-proof-button" target="_blank" rel="noopener"><i class="fas fa-paperclip"></i>Legacy proof</a>
                                                 <?php elseif (!empty($row['proof_file_path'])): ?>
                                                     <span class="ledger-proof-missing"><i class="fas fa-file-circle-xmark"></i>Missing file</span>
                                                 <?php else: ?>
@@ -505,6 +518,6 @@ $last_row_number = min($page * $per_page, $total_rows);
         </div>
     </main>
 
-    <script src="assets/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

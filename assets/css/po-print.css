@@ -1,0 +1,486 @@
+.po-print-document {
+    display: none;
+}
+
+@media print {
+    @page {
+        size: A4 portrait;
+        margin: 0;
+    }
+
+    body.page-view-po {
+        padding: 10mm 12mm !important;
+        color: #0f172a !important;
+        background: #fff !important;
+        font-family: Arial, Helvetica, sans-serif !important;
+        font-size: 8.5pt !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
+    body.page-view-po .saas-navbar,
+    body.page-view-po .mobile-side-nav,
+    body.page-view-po .mobile-nav-backdrop,
+    body.page-view-po .main-content > :not(.po-print-document),
+    body.page-view-po #commandPaletteOverlay {
+        display: none !important;
+    }
+
+    body.page-view-po .main-content {
+        display: block !important;
+        width: 100% !important;
+        min-height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        opacity: 1 !important;
+        transform: none !important;
+    }
+
+    body.page-view-po .po-print-document {
+        display: block !important;
+        width: 100%;
+        color: #0f172a;
+    }
+
+    .po-print-draft-banner {
+        margin-bottom: 5mm;
+        padding: 2.5mm 4mm;
+        color: #b91c1c !important;
+        font-size: 10pt;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-align: center;
+        text-transform: uppercase;
+        background: #fff1f2 !important;
+        border: 1.5px solid #ef4444;
+        border-radius: 2mm;
+    }
+
+    .po-print-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 8mm;
+        padding-bottom: 4mm;
+        border-bottom: 2px solid #2563eb;
+    }
+
+    .po-print-brand {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 3mm;
+    }
+
+    .po-print-brand img {
+        width: 14mm;
+        height: 14mm;
+        object-fit: contain;
+    }
+
+    .po-print-brand div,
+    .po-print-title {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .po-print-brand strong {
+        color: #0f172a;
+        font-size: 13pt;
+        line-height: 1.15;
+    }
+
+    .po-print-brand span {
+        margin-top: 0.8mm;
+        color: #475569;
+        font-size: 8pt;
+    }
+
+    .po-print-brand small {
+        margin-top: 0.5mm;
+        color: #64748b;
+        font-size: 7pt;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+    }
+
+    .po-print-title {
+        align-items: flex-end;
+        text-align: right;
+    }
+
+    .po-print-title > span {
+        color: #475569;
+        font-size: 7.5pt;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+
+    .po-print-title h1 {
+        margin: 1mm 0;
+        color: #0f172a;
+        font-size: 15pt;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+    }
+
+    .po-print-record-status {
+        display: inline-flex;
+        min-height: 6mm;
+        align-items: center;
+        justify-content: center;
+        padding: 1mm 3mm;
+        font-size: 7.5pt;
+        letter-spacing: 0.08em;
+        border: 1px solid;
+        border-radius: 99px;
+    }
+
+    .po-print-record-status.is-official {
+        color: #166534 !important;
+        background: #f0fdf4 !important;
+        border-color: #86efac;
+    }
+
+    .po-print-record-status.is-draft {
+        color: #9a3412 !important;
+        background: #fff7ed !important;
+        border-color: #fdba74;
+    }
+
+    .po-print-reference-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        margin: 4mm 0;
+        overflow: hidden;
+        border: 1px solid #cbd5e1;
+        border-radius: 2mm;
+        break-inside: avoid;
+    }
+
+    .po-print-reference-grid > div {
+        min-width: 0;
+        padding: 2.5mm 3mm;
+        background: #f8fafc !important;
+        border-right: 1px solid #cbd5e1;
+    }
+
+    .po-print-reference-grid > div:last-child {
+        border-right: 0;
+    }
+
+    .po-print-reference-grid span,
+    .po-print-section-label,
+    .po-print-section-heading span,
+    .po-print-remarks > span {
+        display: block;
+        color: #64748b;
+        font-size: 6.8pt;
+        font-weight: 700;
+        letter-spacing: 0.065em;
+        text-transform: uppercase;
+    }
+
+    .po-print-reference-grid strong {
+        display: block;
+        margin-top: 0.8mm;
+        color: #0f172a;
+        font-size: 8.5pt;
+        overflow-wrap: anywhere;
+    }
+
+    .po-print-party-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 3mm;
+        margin-bottom: 4mm;
+        break-inside: avoid;
+    }
+
+    .po-print-party-grid article {
+        padding: 3mm;
+        border: 1px solid #cbd5e1;
+        border-radius: 2mm;
+    }
+
+    .po-print-party-grid h2 {
+        margin: 1.2mm 0 2mm;
+        color: #0f172a;
+        font-size: 10pt;
+        font-weight: 750;
+    }
+
+    .po-print-party-grid dl,
+    .po-print-financial-list {
+        margin: 0;
+    }
+
+    .po-print-party-grid dl > div {
+        display: grid;
+        grid-template-columns: 34mm minmax(0, 1fr);
+        gap: 2mm;
+        padding: 1mm 0;
+        border-top: 1px solid #e2e8f0;
+    }
+
+    .po-print-party-grid dt,
+    .po-print-financial-list dt {
+        color: #64748b;
+        font-size: 7.2pt;
+        font-weight: 600;
+    }
+
+    .po-print-party-grid dd,
+    .po-print-financial-list dd {
+        margin: 0;
+        color: #0f172a;
+        font-weight: 650;
+        text-align: right;
+        overflow-wrap: anywhere;
+    }
+
+    .po-print-section {
+        margin-bottom: 4mm;
+    }
+
+    .po-print-section-heading {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 4mm;
+        margin-bottom: 2mm;
+        break-after: avoid;
+    }
+
+    .po-print-section-heading h2,
+    .po-print-financial-copy h2 {
+        margin: 0.8mm 0 0;
+        color: #0f172a;
+        font-size: 10pt;
+        font-weight: 750;
+    }
+
+    .po-print-section-heading small {
+        max-width: 90mm;
+        color: #64748b;
+        font-size: 7pt;
+        text-align: right;
+    }
+
+    .po-print-items {
+        width: 100%;
+        margin: 0;
+        border: 1px solid #94a3b8;
+        border-collapse: collapse;
+    }
+
+    .po-print-items thead {
+        display: table-header-group;
+    }
+
+    .po-print-items tr {
+        break-inside: avoid;
+    }
+
+    .po-print-items th {
+        padding: 2mm 2.2mm;
+        color: #fff !important;
+        font-size: 7pt;
+        font-weight: 750;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        background: #1e3a5f !important;
+        border: 1px solid #1e3a5f;
+    }
+
+    .po-print-items td {
+        padding: 2.2mm;
+        color: #0f172a;
+        font-size: 7.7pt;
+        vertical-align: top;
+        border: 1px solid #cbd5e1;
+    }
+
+    .po-print-items td > strong,
+    .po-print-items td > small,
+    .po-print-items td > p {
+        display: block;
+    }
+
+    .po-print-items td > strong {
+        font-size: 8pt;
+    }
+
+    .po-print-items td > small {
+        margin-top: 0.5mm;
+        color: #64748b;
+        font-size: 6.7pt;
+    }
+
+    .po-print-items td > p {
+        margin: 0.8mm 0 0;
+        color: #475569;
+        font-size: 6.8pt;
+        line-height: 1.3;
+    }
+
+    .po-print-items .is-number {
+        width: 8mm;
+        text-align: center;
+    }
+
+    .po-print-items .is-quantity {
+        width: 13mm;
+        text-align: center;
+    }
+
+    .po-print-items .is-money {
+        width: 27mm;
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    .po-print-empty {
+        padding: 5mm !important;
+        color: #64748b !important;
+        text-align: center;
+    }
+
+    .po-print-financial-section {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 78mm;
+        gap: 5mm;
+        margin-bottom: 5mm;
+        padding: 3mm;
+        background: #f8fafc !important;
+        border: 1px solid #cbd5e1;
+        border-radius: 2mm;
+        break-inside: avoid;
+    }
+
+    .po-print-financial-copy > p {
+        max-width: 95%;
+        margin: 1.5mm 0 0;
+        color: #475569;
+        font-size: 7.3pt;
+        line-height: 1.4;
+    }
+
+    .po-print-remarks {
+        margin-top: 3mm;
+        padding-top: 2mm;
+        border-top: 1px solid #cbd5e1;
+    }
+
+    .po-print-remarks p {
+        margin: 1mm 0 0;
+        color: #334155;
+        font-size: 7.2pt;
+        line-height: 1.35;
+    }
+
+    .po-print-financial-list > div {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 4mm;
+        padding: 1.2mm 0;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .po-print-financial-list > div:last-child {
+        border-bottom: 0;
+    }
+
+    .po-print-financial-list .is-requested {
+        margin-top: 0.8mm;
+        padding: 1.8mm 2mm;
+        background: #eff6ff !important;
+        border: 1px solid #bfdbfe;
+        border-radius: 1.5mm;
+    }
+
+    .po-print-financial-list .is-requested dt,
+    .po-print-financial-list .is-requested dd {
+        color: #1d4ed8 !important;
+        font-weight: 800;
+    }
+
+    .po-print-financial-list .is-profit dt,
+    .po-print-financial-list .is-profit dd {
+        color: #166534 !important;
+        font-weight: 700;
+    }
+
+    .po-print-approvals {
+        break-inside: avoid;
+    }
+
+    .po-print-signature-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 3mm;
+    }
+
+    .po-print-signature-grid article {
+        min-width: 0;
+        padding: 2.5mm;
+        text-align: center;
+        border: 1px solid #cbd5e1;
+        border-radius: 2mm;
+    }
+
+    .po-print-signature-line {
+        height: 9mm;
+        margin-bottom: 1.5mm;
+        border-bottom: 1px solid #64748b;
+    }
+
+    .po-print-signature-grid strong,
+    .po-print-signature-grid span,
+    .po-print-signature-grid small {
+        display: block;
+        overflow-wrap: anywhere;
+    }
+
+    .po-print-signature-grid strong {
+        min-height: 4mm;
+        color: #0f172a;
+        font-size: 7.4pt;
+    }
+
+    .po-print-signature-grid span {
+        margin-top: 0.5mm;
+        color: #475569;
+        font-size: 6.5pt;
+        font-weight: 650;
+    }
+
+    .po-print-signature-grid small {
+        margin-top: 1mm;
+        color: #64748b;
+        font-size: 6.2pt;
+        line-height: 1.3;
+    }
+
+    .po-print-footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 8mm;
+        margin-top: 5mm;
+        padding-top: 2.5mm;
+        color: #64748b;
+        font-size: 6.5pt;
+        border-top: 1px solid #cbd5e1;
+    }
+
+    .po-print-footer strong {
+        max-width: 90mm;
+        color: #334155;
+        font-weight: 650;
+        text-align: right;
+    }
+}

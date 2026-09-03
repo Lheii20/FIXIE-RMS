@@ -1,0 +1,794 @@
+/*
+ * Fixie DRMS transaction list system
+ * UI Phase 5A
+ *
+ * Shared visual treatment for Purchase Orders, Purchase Requests,
+ * and Client Quotations. This file changes presentation only.
+ */
+
+:root {
+    --tx-line: #b7c2d1;
+    --tx-line-soft: #d7dee8;
+    --tx-line-row: #e2e7ee;
+    --tx-surface: #ffffff;
+    --tx-surface-soft: #f6f8fb;
+    --tx-surface-hover: #f8fafc;
+    --tx-ink: #202b3c;
+    --tx-ink-soft: #435168;
+    --tx-muted: #6a778a;
+    --tx-primary: #2854c5;
+    --tx-primary-soft: #edf3ff;
+    --tx-radius: 12px;
+}
+
+@media screen {
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .main-content {
+        box-sizing: border-box;
+        display: flex;
+        height: 100vh;
+        height: 100dvh;
+        max-height: 100dvh;
+        min-height: 0;
+        flex-direction: column;
+        padding-bottom: 26px !important;
+        overflow: hidden;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .page-header {
+        box-sizing: border-box;
+        display: flex;
+        width: 100%;
+        min-width: 0;
+        align-items: center;
+        justify-content: space-between;
+        flex: 0 0 auto;
+        gap: 18px;
+        margin: 0 0 12px !important;
+        padding: 14px 15px !important;
+        border: 1px solid var(--tx-line) !important;
+        border-radius: var(--tx-radius) !important;
+        background: var(--tx-surface) !important;
+        box-shadow: none !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .page-header .list-title-row {
+        display: flex;
+        min-width: 210px;
+        flex: 1 1 auto;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .list-title-copy {
+        min-width: 0;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .list-title-copy h3 {
+        margin: 0 !important;
+        color: var(--tx-ink) !important;
+        font-size: 17px !important;
+        font-weight: 720 !important;
+        line-height: 1.25 !important;
+        letter-spacing: -.018em !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .list-title-subtitle {
+        display: block;
+        margin-top: 3px !important;
+        color: var(--tx-muted) !important;
+        font-size: 12px !important;
+        font-weight: 450 !important;
+        line-height: 1.35 !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .sleek-filter-bar {
+        min-width: 0;
+        flex: 0 1 auto;
+        justify-content: flex-end;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .grid-card {
+        box-sizing: border-box;
+        position: relative;
+        display: flex;
+        width: 100%;
+        min-width: 0;
+        min-height: 0;
+        flex: 1 1 auto;
+        flex-direction: column;
+        overflow: hidden;
+        border: 1px solid var(--tx-line) !important;
+        border-radius: var(--tx-radius) !important;
+        background: var(--tx-surface) !important;
+        box-shadow: none !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .table-responsive-custom {
+        display: flex;
+        height: 100%;
+        max-height: none !important;
+        min-height: 0;
+        flex: 1 1 0;
+        flex-direction: column;
+        width: 100%;
+        overflow: hidden;
+        scrollbar-color: #b7c2d1 #f6f8fb;
+        scrollbar-width: thin;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #grid-content {
+        width: 100%;
+        height: auto;
+        min-height: 0;
+        flex: 0 0 auto;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #grid-content.is-ready {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #grid-skeleton {
+        height: 100%;
+        min-height: 0;
+        flex: 1 1 auto;
+        overflow: hidden;
+    }
+
+    body.page-po-list #dataTable.premium-table {
+        min-width: 1040px;
+    }
+
+    body.page-pr-list #dataTable.premium-table {
+        min-width: 760px;
+    }
+
+    body.page-quotation-list #dataTable.premium-table {
+        min-width: 930px;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #dataTable.premium-table {
+        width: 100% !important;
+        margin: 0 !important;
+        border: 0 !important;
+        border-collapse: separate !important;
+        border-spacing: 0 !important;
+        table-layout: fixed;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #dataTable.premium-table thead th {
+        box-sizing: border-box;
+        height: 42px;
+        padding: 0 13px !important;
+        border-top: 0 !important;
+        border-right: 0 !important;
+        border-bottom: 1px solid var(--tx-line) !important;
+        background: var(--tx-surface-soft) !important;
+        color: #59677a !important;
+        font-size: 10.5px !important;
+        font-weight: 720 !important;
+        line-height: 1.2 !important;
+        letter-spacing: .052em !important;
+        text-transform: uppercase !important;
+        vertical-align: middle !important;
+        white-space: nowrap !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #dataTable.premium-table thead th:first-child {
+        padding-left: 15px !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #dataTable.premium-table tbody tr {
+        background: var(--tx-surface);
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #dataTable.premium-table tbody tr:hover td,
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #dataTable.premium-table tbody tr:focus-within td {
+        background: var(--tx-surface-hover) !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #dataTable.premium-table tbody td {
+        box-sizing: border-box;
+        min-height: 62px;
+        padding: 11px 13px !important;
+        border-top: 0 !important;
+        border-right: 0 !important;
+        border-bottom: 1px solid var(--tx-line-row) !important;
+        background: var(--tx-surface);
+        color: var(--tx-ink-soft);
+        font-size: 12.5px !important;
+        line-height: 1.35 !important;
+        vertical-align: middle !important;
+        transition: background-color 140ms ease;
+    }
+
+    /*
+     * Keep long table content inside its assigned column. The action cell is
+     * intentionally excluded so menus and interactive controls remain usable.
+     */
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #dataTable.premium-table tbody td:not(:last-child) {
+        overflow: hidden;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #dataTable.premium-table tbody td:first-child {
+        padding-left: 15px !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #dataTable.premium-table tbody tr:last-child td {
+        border-bottom: 0 !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .order-info-block {
+        display: flex !important;
+        min-width: 0;
+        align-items: center !important;
+        gap: 10px !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .doc-icon-box {
+        display: inline-flex !important;
+        width: 36px !important;
+        min-width: 36px !important;
+        height: 36px !important;
+        min-height: 36px !important;
+        flex: 0 0 36px !important;
+        align-items: center !important;
+        justify-content: center !important;
+        margin: 0 !important;
+        border: 1px solid #c9d6e8 !important;
+        border-radius: 9px !important;
+        background: var(--tx-primary-soft) !important;
+        color: var(--tx-primary) !important;
+        font-size: 13px !important;
+        box-shadow: none !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .doc-details {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        flex: 1 1 auto;
+        overflow: hidden;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .doc-title {
+        display: block;
+        max-width: 100%;
+        overflow: hidden;
+        color: var(--tx-ink) !important;
+        font-size: 13px !important;
+        font-weight: 690 !important;
+        line-height: 1.25 !important;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .mobile-list-subline {
+        display: flex;
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        align-items: center;
+        gap: 6px;
+        margin-top: 3px;
+        overflow: hidden;
+    }
+
+    /* Shared client-name treatment for the PO, PR, and Quotation tables. */
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .mobile-list-subline > .data-label:first-child {
+        display: block !important;
+        width: auto;
+        max-width: 100%;
+        min-width: 0;
+        flex: 1 1 0%;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+
+    /* Reusable single-line values in the remaining data columns. */
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #dataTable.premium-table tbody td:not(:first-child):not(:last-child) > :is(.data-value, .data-label) {
+        display: block;
+        width: 100%;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .data-label {
+        color: var(--tx-muted) !important;
+        font-size: 11px !important;
+        font-weight: 450 !important;
+        line-height: 1.25 !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .data-value {
+        color: var(--tx-ink-soft);
+        font-size: 12px !important;
+        line-height: 1.35 !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .currency-data {
+        color: #26354b !important;
+        font-size: 12.5px !important;
+        font-weight: 680 !important;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .badge-soft {
+        display: inline-flex !important;
+        width: fit-content;
+        max-width: 100%;
+        min-height: 25px !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 6px !important;
+        margin: 0 !important;
+        padding: 4px 8px !important;
+        border-width: 1px !important;
+        border-style: solid !important;
+        border-radius: 999px !important;
+        font-size: 10.5px !important;
+        font-weight: 680 !important;
+        line-height: 1.2 !important;
+        text-align: center !important;
+        white-space: normal;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .badge-soft > i {
+        flex: 0 0 auto;
+        font-size: 9.5px !important;
+        line-height: 1 !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .action-flex {
+        display: flex !important;
+        min-width: 0;
+        align-items: center !important;
+        justify-content: flex-end !important;
+        gap: 6px !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) :is(.btn-view-icon, .btn-quick-act) {
+        box-sizing: border-box;
+        display: inline-flex !important;
+        min-height: 32px !important;
+        align-items: center !important;
+        justify-content: center !important;
+        margin: 0 !important;
+        border-radius: 8px !important;
+        font-size: 11px !important;
+        font-weight: 650 !important;
+        line-height: 1 !important;
+        box-shadow: none !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .btn-view-icon {
+        width: 32px !important;
+        min-width: 32px !important;
+        height: 32px !important;
+        padding: 0 !important;
+        border: 1px solid #c6d1df !important;
+        background: #ffffff !important;
+        color: #41536c !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .btn-view-icon:hover {
+        border-color: #9bb3d6 !important;
+        background: var(--tx-primary-soft) !important;
+        color: var(--tx-primary) !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .btn-quick-act {
+        padding: 0 10px !important;
+        white-space: nowrap;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .btn-quick-outline {
+        border: 1px solid #c3cfdd !important;
+        background: #ffffff !important;
+        color: #42546d !important;
+        text-decoration: none !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .btn-quick-outline:hover {
+        border-color: #9cb4d6 !important;
+        background: var(--tx-primary-soft) !important;
+        color: var(--tx-primary) !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .btn-quick-approve {
+        border: 1px solid #168568 !important;
+        background: #168568 !important;
+        color: #ffffff !important;
+        text-decoration: none !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .btn-quick-approve:hover {
+        border-color: #106e57 !important;
+        background: #106e57 !important;
+        color: #ffffff !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .dataTables_wrapper {
+        display: flex;
+        height: 100%;
+        min-height: 0;
+        flex: 1 1 0;
+        flex-direction: column;
+        width: 100%;
+        color: var(--tx-muted) !important;
+        font-size: 11px !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .tx-table-scroll {
+        width: 100%;
+        min-height: 0;
+        flex: 1 1 0;
+        overflow: auto;
+        overscroll-behavior: contain;
+        scrollbar-color: #b7c2d1 #f6f8fb;
+        scrollbar-width: thin;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .tx-table-scroll::-webkit-scrollbar {
+        width: 9px;
+        height: 9px;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .tx-table-scroll::-webkit-scrollbar-track {
+        background: #f6f8fb;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .tx-table-scroll::-webkit-scrollbar-thumb {
+        border: 2px solid #f6f8fb;
+        border-radius: 999px;
+        background: #b7c2d1;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #dataTable_wrapper > .d-flex.justify-content-between.align-items-center.border-top {
+        position: relative;
+        z-index: 20;
+        min-height: 50px;
+        flex: 0 0 auto;
+        gap: 12px;
+        margin-top: auto;
+        padding: 8px 12px !important;
+        border-top: 1px solid var(--tx-line) !important;
+        background: var(--tx-surface-soft);
+        box-shadow: 0 -1px 0 rgba(32, 43, 60, 0.025);
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .dataTables_info {
+        padding: 0 !important;
+        color: var(--tx-muted) !important;
+        font-size: 11px !important;
+        font-weight: 500 !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .dataTables_paginate {
+        display: flex;
+        align-items: center;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .dataTables_paginate .paginate_button {
+        display: inline-flex !important;
+        width: 30px;
+        min-width: 30px !important;
+        height: 30px;
+        min-height: 30px !important;
+        align-items: center;
+        justify-content: center;
+        margin: 0 2px !important;
+        padding: 0 !important;
+        border: 1px solid #c5cfdd !important;
+        border-radius: 7px !important;
+        background: #ffffff !important;
+        color: #526278 !important;
+        font-size: 10.5px !important;
+        line-height: 1 !important;
+        box-shadow: none !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .dataTables_paginate .paginate_button.current {
+        border-color: var(--tx-primary) !important;
+        background: var(--tx-primary) !important;
+        color: #ffffff !important;
+        font-weight: 700 !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .dataTables_paginate .paginate_button:hover:not(.current):not(.disabled) {
+        border-color: #9bb3d6 !important;
+        background: var(--tx-primary-soft) !important;
+        color: var(--tx-primary) !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .dataTables_paginate .paginate_button.disabled {
+        opacity: .42;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #dataTable.premium-table td.dataTables_empty {
+        height: 180px;
+        padding: 44px 20px !important;
+        color: var(--tx-muted) !important;
+        font-size: 12.5px !important;
+        font-weight: 550 !important;
+        text-align: center !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .skeleton-wrapper {
+        padding: 2px 14px !important;
+        background: #ffffff;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .skeleton-row {
+        min-height: 62px;
+        align-items: center;
+        margin: 0 !important;
+        padding: 10px 0 !important;
+        border-color: var(--tx-line-row) !important;
+    }
+
+    /*
+     * Final two-row operation workspace.
+     * This overrides the legacy global DataTables scroll rule: row 1 is the
+     * only scrollable list and row 2 is always the bottom pagination bar.
+     */
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .grid-card {
+        position: relative !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #grid-content.is-ready {
+        position: absolute !important;
+        inset: 0 !important;
+        display: block !important;
+        width: auto !important;
+        height: auto !important;
+        min-height: 0 !important;
+        overflow: hidden !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #grid-content.is-ready > .table-responsive-custom {
+        position: absolute !important;
+        inset: 0 !important;
+        display: block !important;
+        width: auto !important;
+        height: auto !important;
+        max-height: none !important;
+        min-height: 0 !important;
+        overflow: hidden !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #grid-content.is-ready #dataTable_wrapper {
+        position: absolute !important;
+        inset: 0 !important;
+        display: grid !important;
+        width: auto !important;
+        height: auto !important;
+        min-height: 0 !important;
+        grid-template-rows: minmax(0, 1fr) auto !important;
+        align-content: stretch !important;
+        justify-content: stretch !important;
+        overflow: hidden !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #grid-content.is-ready #dataTable_wrapper > .tx-table-scroll {
+        grid-row: 1;
+        width: 100%;
+        min-width: 0;
+        min-height: 0;
+        overflow: auto !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #grid-content.is-ready #dataTable_wrapper > .tx-pagination-bar {
+        grid-row: 2;
+        width: 100%;
+        min-width: 0;
+        margin: 0 !important;
+        align-self: end;
+    }
+}
+
+@media screen and (max-width: 1199.98px) {
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .page-header {
+        align-items: stretch;
+        flex-direction: column;
+        gap: 11px;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .sleek-filter-bar {
+        width: 100%;
+        justify-content: flex-start;
+    }
+}
+
+@media screen and (max-width: 767.98px) {
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .main-content {
+        padding-bottom: 16px !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .page-header {
+        gap: 10px !important;
+        margin-bottom: 9px !important;
+        padding: 11px !important;
+        border-radius: 11px !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .page-header .list-title-row {
+        min-width: 0 !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .list-title-copy h3 {
+        font-size: 15px !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .page-header .list-title-row .mobile-list-create-action {
+        width: 40px !important;
+        min-width: 40px !important;
+        max-width: 40px !important;
+        height: 40px !important;
+        min-height: 40px !important;
+        max-height: 40px !important;
+        flex: 0 0 40px !important;
+        border: 1px solid #214aaa !important;
+        border-radius: 10px !important;
+        background: var(--tx-primary) !important;
+        box-shadow: none !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .page-header .list-title-row .mobile-list-create-icon {
+        width: 18px !important;
+        min-width: 18px !important;
+        max-width: 18px !important;
+        height: 18px !important;
+        min-height: 18px !important;
+        max-height: 18px !important;
+        flex-basis: 18px !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .grid-card {
+        border-radius: 11px !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .table-responsive-custom {
+        overflow: hidden !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #dataTable.premium-table {
+        width: 100% !important;
+        min-width: 0 !important;
+        table-layout: fixed !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #dataTable.premium-table tbody tr {
+        height: 66px !important;
+        background: #ffffff !important;
+        box-shadow: inset 0 -1px 0 var(--tx-line-row) !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #dataTable.premium-table tbody tr:last-child {
+        box-shadow: none !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #dataTable.premium-table tbody td:first-child {
+        padding: 9px 5px 9px 11px !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #dataTable.premium-table tbody td:last-child {
+        width: 48px !important;
+        padding: 8px 10px 8px 2px !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .doc-icon-box {
+        width: 34px !important;
+        min-width: 34px !important;
+        height: 34px !important;
+        min-height: 34px !important;
+        flex-basis: 34px !important;
+        border-radius: 8px !important;
+        font-size: 12px !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .doc-title {
+        font-size: 12.5px !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .mobile-list-status {
+        display: inline-flex !important;
+        width: fit-content !important;
+        max-width: 118px !important;
+        min-height: 19px !important;
+        flex: 0 1 auto !important;
+        align-items: center !important;
+        justify-content: center !important;
+        padding: 2px 6px !important;
+        border-width: 1px !important;
+        border-style: solid !important;
+        border-radius: 999px !important;
+        font-size: 9px !important;
+        font-weight: 680 !important;
+        line-height: 1.15 !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .btn-view-icon {
+        width: 34px !important;
+        min-width: 34px !important;
+        height: 34px !important;
+        min-height: 34px !important;
+        border-radius: 8px !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #dataTable_wrapper > .d-flex.justify-content-between.align-items-center.border-top {
+        min-height: 48px;
+        flex-direction: row !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 8px !important;
+        padding: 8px 10px !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .dataTables_info {
+        width: auto !important;
+        flex: 1 1 auto;
+        font-size: 10.5px !important;
+        text-align: left !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .dataTables_paginate {
+        width: auto !important;
+        flex: 0 0 auto;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .dataTables_paginate .paginate_button {
+        width: 30px !important;
+        min-width: 30px !important;
+        height: 30px !important;
+        min-height: 30px !important;
+        margin: 0 1px !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #dataTable.premium-table td.dataTables_empty {
+        display: table-cell !important;
+        width: 100% !important;
+        height: 150px !important;
+        padding: 36px 16px !important;
+    }
+}
+
+@media screen and (max-width: 479.98px) {
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .main-content {
+        padding-bottom: 12px !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) #dataTable_wrapper > .d-flex.justify-content-between.align-items-center.border-top {
+        align-items: center !important;
+        flex-direction: column !important;
+        justify-content: center !important;
+    }
+
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) .dataTables_info {
+        width: 100% !important;
+        text-align: center !important;
+    }
+}
+
+@media screen and (prefers-reduced-motion: reduce) {
+    body:is(.page-po-list, .page-pr-list, .page-quotation-list) :is(
+        #dataTable.premium-table tbody td,
+        .btn-view-icon,
+        .btn-quick-act,
+        .paginate_button
+    ) {
+        transition: none !important;
+    }
+}

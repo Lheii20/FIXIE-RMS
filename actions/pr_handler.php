@@ -4,6 +4,8 @@ require '../config/db_connect.php';
 require '../config/functions.php';
 require_once '../config/client_po_acknowledgement.php';
 require_once '../config/workflow_feedback.php';
+require_once '../config/official_prf_snapshot.php';
+require_once '../config/upload_policy.php';
 
 if (!isset($_SESSION['user_id'])) {
     header('Location: ../index.php');
@@ -80,41 +82,14 @@ function phase2_prf_optional_date($value, string $label): ?string
     return $date_value;
 }
 
-function phase2_prf_upload_supplier_quote(?array $file): ?array
+function phase2_prf_upload_supplier_quote(mysqli $conn, ?array $file): ?array
 {
     if (!$file || ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
         return null;
     }
 
-    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-        throw new RuntimeException('The supplier quotation could not be uploaded.');
-    }
-
-    $file_size = (int) ($file['size'] ?? 0);
-    if ($file_size < 1 || $file_size > 10 * 1024 * 1024) {
-        throw new RuntimeException('The supplier quotation must not exceed 10 MB.');
-    }
-
-    $temporary_path = (string) ($file['tmp_name'] ?? '');
-    if ($temporary_path === '' || !is_uploaded_file($temporary_path)) {
-        throw new RuntimeException('The supplier quotation upload is invalid.');
-    }
-
-    $finfo = finfo_open(FILEINFO_MIME_TYPE);
-    $mime_type = $finfo ? finfo_file($finfo, $temporary_path) : false;
-    if ($finfo) {
-        finfo_close($finfo);
-    }
-
-    $allowed_mime_types = [
-        'application/pdf' => 'pdf',
-        'image/jpeg' => 'jpg',
-        'image/png' => 'png',
-    ];
-
-    if (!$mime_type || !isset($allowed_mime_types[$mime_type])) {
-        throw new RuntimeException('Supplier quotation must be a PDF, JPG, or PNG file.');
-    }
+    $validated_proof = drms_upload_validate($conn, $file, 'proof');
+    $temporary_path = $validated_proof['tmp_name'];
 
     $upload_directory = dirname(__DIR__) . DIRECTORY_SEPARATOR .
         'uploads' . DIRECTORY_SEPARATOR . 'supplier_quotes';
@@ -126,7 +101,7 @@ function phase2_prf_upload_supplier_quote(?array $file): ?array
     }
 
     $stored_name = date('YmdHis') . '_supplier_quote_' .
-        bin2hex(random_bytes(12)) . '.' . $allowed_mime_types[$mime_type];
+        bin2hex(random_bytes(12)) . '.' . $validated_proof['extension'];
     $absolute_path = $upload_directory . DIRECTORY_SEPARATOR . $stored_name;
 
     if (!move_uploaded_file($temporary_path, $absolute_path)) {
@@ -140,7 +115,7 @@ function phase2_prf_upload_supplier_quote(?array $file): ?array
     }
 
     return [
-        'original_name' => substr(basename((string) ($file['name'] ?? 'supplier-quote')), 0, 255),
+        'original_name' => substr($validated_proof['original_name'], 0, 255),
         'stored_name' => $stored_name,
         'absolute_path' => $absolute_path,
         'hash' => $file_hash,
@@ -223,6 +198,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $actor_role = (string) ($_SESSION['role'] ?? '');
         $is_approval = $action === 'approve_pr_stage';
         $transaction_started = false;
+        $official_record_storage_path = null;
+        $official_record_number = null;
+        $official_record_doc_id = null;
 
         if ($pr_id < 1) {
             header('Location: ../pr_list.php?error=' . rawurlencode('Invalid Purchase Request.'));
@@ -316,21 +294,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
 
             $decision = $is_approval ? 'Approved' : 'Rejected';
+            $decision_acted_at = date('Y-m-d H:i:s');
             $approval_record_id = (int) $current_stage['pr_approval_record_id'];
             $decision_stmt = $conn->prepare(
                 "UPDATE pr_approval_records
                  SET decision = ?,
                      decision_remarks = NULLIF(?, ''),
                      acted_by = ?,
-                     acted_at = NOW()
+                     acted_at = ?
                  WHERE pr_approval_record_id = ?
                    AND decision = 'Pending'"
             );
             $decision_stmt->bind_param(
-                'ssii',
+                'ssisi',
                 $decision,
                 $decision_remarks,
                 $actor_id,
+                $decision_acted_at,
                 $approval_record_id
             );
             $decision_stmt->execute();
@@ -506,27 +486,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                  SET status = 'Approved',
                      current_approval_stage = 'Official Approved',
                      final_approved_by = ?,
-                     final_approved_at = NOW()
+                     final_approved_at = ?
                  WHERE pr_id = ?
                    AND status = 'Pending'
                    AND current_approval_stage = ?"
             );
-            $final_stmt->bind_param('iis', $actor_id, $pr_id, $approval_stage);
+            $final_stmt->bind_param(
+                'isis',
+                $actor_id,
+                $decision_acted_at,
+                $pr_id,
+                $approval_stage
+            );
             $final_stmt->execute();
 
             if ($final_stmt->affected_rows !== 1) {
                 throw new RuntimeException('The final PRF approval could not be saved.');
             }
 
+            $official_record = drms_file_approved_prf_as_official_record(
+                $conn,
+                $pr_id,
+                $actor_id
+            );
+            $official_record_number = (string) $official_record['record_number'];
+            $official_record_doc_id = (int) $official_record['doc_id'];
+            $official_record_storage_path =
+                $official_record['storage_absolute_path'] ?? null;
+
             phase2_prf_notify_role(
                 $conn,
                 'Procurement',
-                "PRF $pr_number is officially approved and ready for PO conversion."
+                "PRF $pr_number is officially approved, filed as $official_record_number, and ready for PO conversion."
             );
             phase2_prf_notify_role(
                 $conn,
                 'Sales Staff',
-                "PRF $pr_number received final Owner approval."
+                "PRF $pr_number received final Owner approval and was filed as $official_record_number."
             );
 
             log_audit_action(
@@ -544,6 +540,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     'current_approval_stage' => 'Official Approved',
                     'decision' => 'Approved',
                     'final_approved_by' => $actor_id,
+                    'official_record_doc_id' => $official_record_doc_id,
+                    'official_record_number' => $official_record_number,
                 ]
             );
 
@@ -551,15 +549,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 throw new RuntimeException('The final approval could not be committed.');
             }
             $transaction_started = false;
+            $official_record_storage_path = null;
 
             phase2_prf_redirect_to_view(
                 $pr_id,
                 'success',
-                'PRF is officially approved and ready for PO conversion.'
+                "PRF is officially approved and filed as $official_record_number. It is ready for PO conversion."
             );
         } catch (Throwable $exception) {
             if ($transaction_started) {
                 $conn->rollback();
+            }
+
+            if (
+                $official_record_storage_path !== null &&
+                is_file($official_record_storage_path)
+            ) {
+                @unlink($official_record_storage_path);
             }
 
             drms_log_workflow_failure(
@@ -696,6 +702,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
 
             $uploaded_supplier_quote = phase2_prf_upload_supplier_quote(
+                $conn,
                 $_FILES['supplier_quote_file'] ?? null
             );
 

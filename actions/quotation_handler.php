@@ -5,6 +5,7 @@ require '../config/db_connect.php';
 require '../config/functions.php';
 require_once '../config/client_po_acknowledgement.php';
 require_once '../config/workflow_feedback.php';
+require_once '../config/upload_policy.php';
 
 if (
     !isset($_SESSION['user_id']) ||
@@ -348,40 +349,23 @@ if ($action === 'receive_po') {
     |--------------------------------------------------------------------------
     */
 
-    if (
-        !isset($_FILES['po_file']) ||
-        $_FILES['po_file']['error'] !== UPLOAD_ERR_OK ||
-        !is_uploaded_file($_FILES['po_file']['tmp_name'])
-    ) {
+    $file = $_FILES['po_file'] ?? null;
+    try {
+        $validated_proof = drms_upload_validate(
+            $conn,
+            $file,
+            'proof'
+        );
+    } catch (DrmsUploadValidationException $upload_error) {
         header(
             "Location: ../quotations_list.php?error=" .
-            rawurlencode(
-                "Please attach the client approval proof."
-            )
+            rawurlencode($upload_error->getMessage())
         );
         exit();
     }
 
-    $file = $_FILES['po_file'];
-    $maximum_file_size = 10 * 1024 * 1024;
-
-    $original_file_name = basename(
-        (string) $file['name']
-    );
-
-    $file_extension = strtolower(
-        pathinfo(
-            $original_file_name,
-            PATHINFO_EXTENSION
-        )
-    );
-
-    $allowed_files = [
-        'pdf' => 'application/pdf',
-        'jpg' => 'image/jpeg',
-        'jpeg' => 'image/jpeg',
-        'png' => 'image/png'
-    ];
+    $original_file_name = $validated_proof['original_name'];
+    $file_extension = $validated_proof['extension'];
 
     if (
         $original_file_name === '' ||
@@ -391,38 +375,6 @@ if ($action === 'receive_po') {
             "Location: ../quotations_list.php?error=" .
             rawurlencode(
                 "The proof file name is invalid or too long."
-            )
-        );
-        exit();
-    }
-
-    if (
-        $file['size'] < 1 ||
-        $file['size'] > $maximum_file_size ||
-        !array_key_exists(
-            $file_extension,
-            $allowed_files
-        )
-    ) {
-        header(
-            "Location: ../quotations_list.php?error=" .
-            rawurlencode(
-                "Proof must be a PDF, JPG, or PNG file no larger than 10 MB."
-            )
-        );
-        exit();
-    }
-
-    $finfo = new finfo(FILEINFO_MIME_TYPE);
-    $mime_type = $finfo->file($file['tmp_name']);
-
-    if (
-        $mime_type !== $allowed_files[$file_extension]
-    ) {
-        header(
-            "Location: ../quotations_list.php?error=" .
-            rawurlencode(
-                "The uploaded proof is not a valid PDF or image."
             )
         );
         exit();
@@ -581,7 +533,7 @@ if ($action === 'receive_po') {
 
         if (
             !move_uploaded_file(
-                $file['tmp_name'],
+                $validated_proof['tmp_name'],
                 $stored_file_path
             )
         ) {

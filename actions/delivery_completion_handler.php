@@ -4,6 +4,8 @@ session_start();
 require '../config/db_connect.php';
 require '../config/functions.php';
 require_once '../config/workflow_feedback.php';
+require_once '../config/official_delivery_receipt_filing.php';
+require_once '../config/upload_policy.php';
 
 date_default_timezone_set('Asia/Manila');
 
@@ -266,46 +268,25 @@ if (!$confirmed) {
     );
 }
 
-if (
-    !isset($_FILES['delivery_receipt_proof']) ||
-    $_FILES['delivery_receipt_proof']['error'] !== UPLOAD_ERR_OK ||
-    !is_uploaded_file($_FILES['delivery_receipt_proof']['tmp_name'])
-) {
+try {
+    $proof = $_FILES['delivery_receipt_proof'] ?? null;
+    $validated_proof = drms_upload_validate(
+        $conn,
+        $proof,
+        'proof'
+    );
+} catch (DrmsUploadValidationException $upload_error) {
     phase4d_redirect(
         $po_id,
         'error',
-        'Client acknowledgement proof is required.'
+        $upload_error->getMessage()
     );
 }
+$proof_extension = $validated_proof['extension'];
 
-$proof = $_FILES['delivery_receipt_proof'];
-$proof_extension = strtolower(
-    pathinfo((string) $proof['name'], PATHINFO_EXTENSION)
-);
-$allowed_proofs = [
-    'pdf' => 'application/pdf',
-    'jpg' => 'image/jpeg',
-    'jpeg' => 'image/jpeg',
-    'png' => 'image/png',
-];
-$proof_mime = (new finfo(FILEINFO_MIME_TYPE))
-    ->file($proof['tmp_name']);
-
-if (
-    $proof['size'] < 1 ||
-    $proof['size'] > 10 * 1024 * 1024 ||
-    !isset($allowed_proofs[$proof_extension]) ||
-    $proof_mime !== $allowed_proofs[$proof_extension]
-) {
-    phase4d_redirect(
-        $po_id,
-        'error',
-        'Client acknowledgement proof must be a valid PDF, JPG, or PNG file up to 10 MB.'
-    );
-}
-
-$upload_directory = __DIR__ . '/../uploads/';
+$upload_directory = __DIR__ . '/../uploads/delivery_receipts/';
 $stored_absolute_path = null;
+$official_record_storage_path = null;
 $user_id = (int) $_SESSION['user_id'];
 
 try {
@@ -463,7 +444,7 @@ try {
     $stored_file_name = date('YmdHis') . '_client_delivery_' .
         bin2hex(random_bytes(12)) . '.' . $proof_extension;
     $stored_absolute_path = $upload_directory . $stored_file_name;
-    if (!move_uploaded_file($proof['tmp_name'], $stored_absolute_path)) {
+    if (!move_uploaded_file($validated_proof['tmp_name'], $stored_absolute_path)) {
         throw new RuntimeException(
             'The client acknowledgement proof could not be saved.'
         );
@@ -477,7 +458,7 @@ try {
     }
 
     $proof_original_name = substr(
-        basename((string) $proof['name']),
+        $validated_proof['original_name'],
         0,
         255
     );
@@ -563,49 +544,20 @@ try {
         );
     }
 
-    $document_type = 'Proof of Delivery';
-    $document_record_number = 'POD-' .
+    $delivery_receipt_reference = 'POD-' .
         str_pad((string) $po_id, 4, '0', STR_PAD_LEFT) . '-' .
         str_pad((string) $receipt_cycle, 2, '0', STR_PAD_LEFT);
-    $document_file_path = 'uploads/' .
-        $stored_file_name;
-    $document_category = 'Delivery Receipts';
-    $document_tags = 'client receipt,proof of delivery';
-    $document_stmt = $conn->prepare(
-        "INSERT INTO documents (
-            po_id,
-            doc_type,
-            file_name,
-            record_number,
-            file_path,
-            category,
-            tags,
-            file_hash,
-            uploaded_by,
-            status,
-            record_phase,
-            declared_at,
-            declared_by
-         ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            'Active', 'Official', NOW(), ?
-         )"
-    );
-    $document_stmt->bind_param(
-        'isssssssii',
-        $po_id,
-        $document_type,
-        $stored_file_name,
-        $document_record_number,
-        $document_file_path,
-        $document_category,
-        $document_tags,
-        $proof_file_hash,
-        $user_id,
-        $user_id
-    );
-    $document_stmt->execute();
-    $document_id = (int) $conn->insert_id;
+
+    $official_record =
+        drms_file_client_delivery_receipt_as_official_record(
+            $conn,
+            $delivery_receipt_id,
+            $user_id
+        );
+    $document_record_number = (string) $official_record['record_number'];
+    $document_id = (int) $official_record['doc_id'];
+    $official_record_storage_path =
+        $official_record['storage_absolute_path'] ?? null;
 
     $plan_stmt = $conn->prepare(
         "UPDATE po_delivery_plans
@@ -682,7 +634,8 @@ try {
         );
     }
 
-    $history_remarks = 'Client delivery completed. Receipt: ' .
+    $history_remarks = 'Client delivery completed. Delivery reference: ' .
+        $delivery_receipt_reference . '. RMS record: ' .
         $document_record_number . '. Accepted by ' . $recipient_name .
         '. Collection due ' . $collection_due_date . ' (' .
         $collection_term_days . ' calendar days).';
@@ -728,9 +681,13 @@ try {
         $notify_target,
         $collection_is_paid
             ? 'PO ' . $delivery['po_number'] .
-                ' was received by the client and is already fully paid from verified advance collection.'
+                ' was received by the client and filed as ' .
+                $document_record_number .
+                '. It is already fully paid from verified advance collection.'
             : 'PO ' . $delivery['po_number'] .
-                ' was received by the client. Remaining collection of ₱' .
+                ' was received by the client and filed as ' .
+                $document_record_number .
+                '. Remaining collection of ₱' .
                 number_format($remaining_collection_balance, 2) .
                 ' is due on ' .
                 date('M d, Y', strtotime($collection_due_date)) . '.'
@@ -750,6 +707,8 @@ try {
             'logistics_status' => 'Completed',
             'delivery_receipt_id' => $delivery_receipt_id,
             'document_id' => $document_id,
+            'record_number' => $document_record_number,
+            'delivery_receipt_reference' => $delivery_receipt_reference,
             'recipient_name' => $recipient_name,
             'actual_handover_at' => $actual_handover_sql,
             'collection_term_days' => $collection_term_days,
@@ -761,12 +720,24 @@ try {
         ]
     );
 
+    drms_consolidate_client_delivery_receipt_source(
+        $conn,
+        $delivery_receipt_id,
+        $proof_file_hash,
+        $official_record,
+        (string) $stored_absolute_path
+    );
+    $stored_absolute_path = null;
+
     $conn->commit();
+    $official_record_storage_path = null;
     header(
         'Location: ../view_po.php?id=' . $po_id . '&success=' .
         rawurlencode($collection_is_paid
-            ? 'Client delivery recorded. The PO was already fully paid through verified advance collection.'
-            : 'Client delivery recorded. Finance collection is due on ' .
+            ? 'Client delivery recorded as ' . $document_record_number .
+                '. The PO was already fully paid through verified advance collection.'
+            : 'Client delivery recorded as ' . $document_record_number .
+                '. Finance collection is due on ' .
                 date('M d, Y', strtotime($collection_due_date)) . '.')
     );
     exit();
@@ -775,6 +746,13 @@ try {
 
     if ($stored_absolute_path && is_file($stored_absolute_path)) {
         unlink($stored_absolute_path);
+    }
+
+    if (
+        $official_record_storage_path &&
+        is_file($official_record_storage_path)
+    ) {
+        unlink($official_record_storage_path);
     }
 
     drms_log_workflow_failure(
@@ -793,4 +771,3 @@ try {
     }
     phase4d_redirect($po_id, 'error', $public_error);
 }
-

@@ -1,0 +1,152 @@
+{
+  "schema": 1,
+  "phase": "5M6B",
+  "assets": [
+    {
+      "id": "jquery",
+      "kind": "script",
+      "version": "3.7.0",
+      "path": "assets/vendor/jquery/3.7.0/jquery.min.js",
+      "url": "https://code.jquery.com/jquery-3.7.0.min.js",
+      "bytes": 87462,
+      "sha256": "d8f9afbf492e4c139e9d2bcb9ba6ef7c14921eb509fb703bc7a3f911b774eff8",
+      "integrity": "sha384-NXgwF8Kv9SSAr+jemKKcbvQsz+teULH/a5UNJvZc6kP47hZgl62M1vGnw6gHQhb1",
+      "requires": []
+    },
+    {
+      "id": "jquery-license",
+      "kind": "license",
+      "version": "3.7.0",
+      "path": "assets/vendor/jquery/3.7.0/LICENSE.txt",
+      "url": "https://cdn.jsdelivr.net/npm/jquery@3.7.0/LICENSE.txt",
+      "bytes": 1117,
+      "sha256": "ca9fad8cfd8c84afbb1926357132b99184ab42a077000aa7817b33b242c13053"
+    },
+    {
+      "id": "bootstrap",
+      "kind": "script",
+      "version": "5.3.0",
+      "path": "assets/vendor/bootstrap/5.3.0/bootstrap.bundle.min.js",
+      "url": "https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js",
+      "bytes": 80421,
+      "sha256": "aa53d582f97eb594c2a5cc5824574707f9ba9837bce3046bfa5f3556860f4e04",
+      "integrity": "sha384-geWF76RCwLtnZ8qwWowPQNguL3RmwHVBC9FhGdlKrxdiJJigb/j/68SIy3Te4Bkz",
+      "requires": []
+    },
+    {
+      "id": "bootstrap-license",
+      "kind": "license",
+      "version": "5.3.0",
+      "path": "assets/vendor/bootstrap/5.3.0/LICENSE",
+      "url": "https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/LICENSE",
+      "bytes": 1093,
+      "sha256": "3d0b0c88216e4752b9afd3d24e36faaf27873b5a45a61458bb3c83e794c26832"
+    },
+    {
+      "id": "popper-license",
+      "kind": "license",
+      "version": "2.11.7",
+      "path": "assets/vendor/bootstrap/5.3.0/POPPER-LICENSE.md",
+      "url": "https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.7/LICENSE.md",
+      "bytes": 1082,
+      "sha256": "bf67e2c9b7974543bb18ced3a0b37f53729aaff953b442dd89a3adaf90fd93e8"
+    },
+    {
+      "id": "xlsx",
+      "kind": "script",
+      "version": "0.18.5",
+      "path": "assets/vendor/xlsx/0.18.5/xlsx.full.min.js",
+      "url": "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
+      "bytes": 881727,
+      "sha256": "c9506197caf809a075b6dee1da0d36fb19da7158ffe8a88e7b0c96c5d8623c99",
+      "integrity": "sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw",
+      "requires": []
+    },
+    {
+      "id": "xlsx-license",
+      "kind": "license",
+      "version": "0.18.5",
+      "path": "assets/vendor/xlsx/0.18.5/LICENSE",
+      "url": "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/LICENSE",
+      "bytes": 11355,
+      "sha256": "4d2a38ac35cda06a555c84074a819d413339cd3691b822cae50f8f322fe01f64"
+    },
+    {
+      "id": "datatables",
+      "kind": "script",
+      "version": "1.13.6",
+      "path": "assets/vendor/datatables/1.13.6/jquery.dataTables.min.js",
+      "url": "https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js",
+      "bytes": 87103,
+      "sha256": "24362c145a81e1e2fd95185c4300d2595afb2cadd9f1580c2ddce95bc19b2084",
+      "integrity": "sha384-k5vbMeKHbxEZ0AEBTSdR7UjAgWCcUfrS8c0c5b2AfIh7olfhNkyCZYwOfzOQhauK"
+    },
+    {
+      "id": "datatables-bs5",
+      "kind": "script",
+      "version": "1.13.6",
+      "path": "assets/vendor/datatables/1.13.6/dataTables.bootstrap5.min.js",
+      "url": "https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js",
+      "bytes": 2358,
+      "sha256": "de25c7adf49de31cc8d58caba281748c6e0e5701a2480a14d7e59d6301306199",
+      "integrity": "sha384-PgPBH0hy6DTJwu7pTf6bkRqPlf/+pjUBExpr/eIfzszlGYFlF9Wi9VTAJODPhgCO"
+    },
+    {
+      "id": "datatables-bs5-css",
+      "kind": "style",
+      "version": "1.13.6",
+      "path": "assets/vendor/datatables/1.13.6/dataTables.bootstrap5.min.css",
+      "url": "https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css",
+      "bytes": 11981,
+      "sha256": "e16fe3d8fbf737955f6d50e1cc8f122b31c51c17da39d676099d655dfc4da1f5",
+      "integrity": "sha384-5oFfLntNy8kuC2TaebWZbaHTqdh3Q+7PwYbB490gupK0YtTAB7mBJGv4bQl9g9rK"
+    },
+    {
+      "id": "datatables-license",
+      "kind": "license",
+      "version": "1.13.6",
+      "path": "assets/vendor/datatables/1.13.6/CORE-LICENSE.txt",
+      "url": "https://cdn.jsdelivr.net/npm/datatables.net@1.13.6/License.txt",
+      "bytes": 1120,
+      "sha256": "62b5fdd54371b4f6bd07a60dbc78b38814f49a8028213f540dc2733cad605382"
+    },
+    {
+      "id": "datatables-bs5-license",
+      "kind": "license",
+      "version": "1.13.6",
+      "path": "assets/vendor/datatables/1.13.6/BOOTSTRAP5-LICENSE.txt",
+      "url": "https://cdn.jsdelivr.net/npm/datatables.net-bs5@1.13.6/License.txt",
+      "bytes": 1120,
+      "sha256": "62b5fdd54371b4f6bd07a60dbc78b38814f49a8028213f540dc2733cad605382"
+    },
+    {
+      "id": "sweetalert2",
+      "kind": "script",
+      "version": "11.26.25",
+      "path": "assets/vendor/sweetalert2/11.26.25/sweetalert2.all.min.js",
+      "url": "https://cdn.jsdelivr.net/npm/sweetalert2@11.26.25",
+      "bytes": 79150,
+      "sha256": "4e86f0e22e4771b5b8aac24c613c661806a678b1afa284d03cf6ad03d3e21a0a",
+      "integrity": "sha384-nLoOnA/BDh8A/jxqtckg4DumuCGOBYUnNJLZdQz/zfYNp3wcjGSoWTAzgko06G/2"
+    },
+    {
+      "id": "sweetalert2-css",
+      "kind": "style",
+      "version": "11.26.25",
+      "path": "assets/vendor/sweetalert2/11.26.25/sweetalert2.min.css",
+      "url": "https://cdn.jsdelivr.net/npm/sweetalert2@11.26.25/dist/sweetalert2.min.css",
+      "bytes": 30251,
+      "sha256": "a1173e56fd474be04ddbefa81bd75cc465627ef2f5db261792e7d25fb7871743",
+      "integrity": "sha384-dCW5imOdApH6OwpFau8cZNKjqVbJYnCA5q+8YsMYP3XwXKsV6Jfz1u6MZLnXaBsS"
+    },
+    {
+      "id": "sweetalert2-license",
+      "kind": "license",
+      "version": "11.26.25",
+      "path": "assets/vendor/sweetalert2/11.26.25/LICENSE",
+      "url": "https://cdn.jsdelivr.net/npm/sweetalert2@11.26.25/LICENSE",
+      "bytes": 1097,
+      "sha256": "879aa33feba35b3428c6485fc17cddd8c820d7a8780281aa945e60582a28c4b4"
+    }
+  ]
+}

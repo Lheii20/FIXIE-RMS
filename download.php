@@ -33,6 +33,11 @@ function drms_document_is_accessible(
     int $user_id,
     string $role
 ): bool {
+    // System Administrators maintain the application but do not read company records.
+    if ($role === 'Admin') {
+        return false;
+    }
+
     if ((int) ($document['uploaded_by'] ?? 0) === $user_id) {
         return true;
     }
@@ -162,25 +167,39 @@ try {
             drms_download_error(400, 'Invalid avatar file.');
         }
 
+        $avatar_path = 'uploads/avatars/' . $avatar_file;
         $avatar_stmt = $conn->prepare(
-            "SELECT avatar
+            "SELECT user_id, avatar
              FROM users
-             WHERE user_id = ?
+             WHERE (avatar = ? OR avatar = ?)
+               AND (user_id = ? OR ? = 'Admin')
+             ORDER BY CASE WHEN user_id = ? THEN 0 ELSE 1 END
              LIMIT 1"
         );
-        $avatar_stmt->bind_param('i', $user_id);
+        $avatar_stmt->bind_param(
+            'ssisi',
+            $avatar_path,
+            $avatar_file,
+            $user_id,
+            $role,
+            $user_id
+        );
         $avatar_stmt->execute();
         $avatar_record = $avatar_stmt->get_result()->fetch_assoc();
         $avatar_stmt->close();
 
         if (
             !$avatar_record ||
-            basename((string) ($avatar_record['avatar'] ?? '')) !== $avatar_file
+            basename((string) ($avatar_record['avatar'] ?? '')) !== $avatar_file ||
+            (
+                (int) ($avatar_record['user_id'] ?? 0) !== $user_id &&
+                $role !== 'Admin'
+            )
         ) {
             drms_download_error(403, 'Access denied.');
         }
 
-        $stored_path = 'uploads/avatars/' . $avatar_file;
+        $stored_path = $avatar_path;
         $download_name = $avatar_file;
     } elseif ($type === 'client_approval') {
         if ($record_id < 1) {
@@ -294,6 +313,56 @@ try {
         $stored_path = 'uploads/payments/' .
             basename($record['proof_file_path']);
         $download_name = basename($record['proof_file_path']);
+    } elseif ($type === 'document_version') {
+        if ($record_id < 1) {
+            drms_download_error(400, 'Invalid document version record.');
+        }
+
+        $stmt = $conn->prepare(
+            "SELECT
+                dv.version_id,
+                dv.version_number,
+                dv.file_name AS version_file_name,
+                dv.file_path AS version_file_path,
+                d.doc_id,
+                d.po_id,
+                d.doc_type,
+                d.file_name,
+                d.category,
+                d.uploaded_by,
+                d.status,
+                d.disposition_status,
+                d.access_type,
+                d.file_permissions
+             FROM document_versions dv
+             JOIN documents d ON d.doc_id = dv.doc_id
+             WHERE dv.version_id = ?
+             LIMIT 1"
+        );
+        $stmt->bind_param('i', $record_id);
+        $stmt->execute();
+        $record = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if (
+            !$record ||
+            !drms_document_is_accessible($conn, $record, $user_id, $role)
+        ) {
+            drms_download_error(403, 'Access denied.');
+        }
+        if (($record['disposition_status'] ?? '') === 'Destroyed') {
+            drms_download_error(
+                410,
+                'This record was securely destroyed. Its stored versions are no longer available.'
+            );
+        }
+
+        $stored_path = (string) $record['version_file_path'];
+        $version_name = trim((string) ($record['version_file_name'] ?? ''));
+        $download_name = $version_name !== ''
+            ? $version_name
+            : (string) $record['file_name'];
+        $audit_document_id = (int) $record['doc_id'];
     } elseif ($type === 'document') {
         if ($record_id < 1) {
             drms_download_error(400, 'Invalid document record.');
@@ -309,6 +378,7 @@ try {
                 category,
                 uploaded_by,
                 status,
+                disposition_status,
                 access_type,
                 file_permissions
              FROM documents
@@ -325,6 +395,16 @@ try {
             !drms_document_is_accessible($conn, $record, $user_id, $role)
         ) {
             drms_download_error(403, 'Access denied.');
+        }
+
+        if (
+            ($record['disposition_status'] ?? '') === 'Destroyed' ||
+            str_starts_with((string) ($record['file_path'] ?? ''), '[SECURELY DESTROYED')
+        ) {
+            drms_download_error(
+                410,
+                'This record was securely destroyed. Only its disposition history and destruction certificate remain available.'
+            );
         }
 
         $stored_path = (string) $record['file_path'];

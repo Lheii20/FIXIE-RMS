@@ -63,6 +63,42 @@ function notifyDispositionRequester(mysqli $conn, array $request, string $decisi
     $stmt->execute();
 }
 
+function resolveDispositionFilePath(string $storedPath): array
+{
+    $projectRoot = realpath(__DIR__ . '/..');
+    $uploadsRoot = realpath(__DIR__ . '/../uploads');
+    $relativePath = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, ltrim($storedPath, '/\\'));
+
+    if ($projectRoot === false || $uploadsRoot === false || $relativePath === '' || strpos($relativePath, '..') !== false) {
+        throw new RuntimeException('The stored file path is invalid.');
+    }
+
+    $absolutePath = realpath($projectRoot . DIRECTORY_SEPARATOR . $relativePath);
+    $uploadsPrefix = rtrim($uploadsRoot, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
+    if ($absolutePath === false || !is_file($absolutePath) || stripos($absolutePath, $uploadsPrefix) !== 0) {
+        throw new RuntimeException('The protected record file is missing or outside the approved uploads directory.');
+    }
+
+    return [
+        'absolute' => $absolutePath,
+        'project_root' => $projectRoot,
+        'uploads_root' => $uploadsRoot
+    ];
+}
+
+function releaseDispositionLock(mysqli $conn, ?string $lockName, bool &$lockAcquired): void
+{
+    if (!$lockAcquired || $lockName === null) {
+        return;
+    }
+
+    $stmt = $conn->prepare('SELECT RELEASE_LOCK(?)');
+    $stmt->bind_param('s', $lockName);
+    $stmt->execute();
+    $stmt->close();
+    $lockAcquired = false;
+}
+
 if (!isset($_SESSION['user_id']) || empty($_SESSION['role'])) {
     dispositionRedirect('error', 'Unauthorized access.');
 }
@@ -73,12 +109,19 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $sessionToken = $_SESSION['csrf_token'] ?? '';
 $requestToken = $_POST['csrf_token'] ?? '';
-if ($sessionToken === '' || !hash_equals($sessionToken, $requestToken)) {
+if (!is_string($sessionToken) || !is_string($requestToken) || $sessionToken === '' || !hash_equals($sessionToken, $requestToken)) {
     dispositionRedirect('error', 'Invalid security token. Refresh the page and try again.');
 }
 
 $userId = (int) $_SESSION['user_id'];
-$action = trim($_POST['action'] ?? '');
+$action = is_string($_POST['action'] ?? null) ? trim($_POST['action']) : '';
+$executionOriginalPath = null;
+$executionQuarantinePath = null;
+$executionFileMoved = false;
+$executionFileDeleted = false;
+$executionCommitted = false;
+$certificateLockName = null;
+$certificateLockAcquired = false;
 
 try {
     if ($action === 'request_disposition') {
@@ -346,11 +389,362 @@ try {
         dispositionRedirect('success', "Disposition request #$requestId was cancelled.");
     }
 
+    if ($action === 'execute_disposition') {
+        if (!has_permission($conn, $userId, 'can_execute_disposition')) {
+            dispositionRedirect('error', 'You do not have permission to execute approved disposition requests.');
+        }
+
+        $requestId = (int) ($_POST['request_id'] ?? 0);
+        $confirmation = strtoupper(trim($_POST['execution_confirmation'] ?? ''));
+        $executionNotes = trim($_POST['execution_notes'] ?? '');
+
+        if ($requestId < 1) {
+            dispositionRedirect('error', 'Select a valid disposition request.');
+        }
+        if (dispositionTextLength($executionNotes) > 1000) {
+            dispositionRedirect('error', 'Execution notes cannot exceed 1000 characters.');
+        }
+
+        $conn->begin_transaction();
+        $requestStmt = $conn->prepare(
+            "SELECT r.*, d.file_name, d.file_path, d.file_hash, d.record_number,
+                    d.record_phase, d.status AS document_status,
+                    d.disposition_status, d.is_legal_hold,
+                    requester.full_name AS requester_name,
+                    reviewer.full_name AS reviewer_name
+               FROM disposition_requests r
+               JOIN documents d ON d.doc_id = r.doc_id
+               JOIN users requester ON requester.user_id = r.requested_by
+               JOIN users reviewer ON reviewer.user_id = r.reviewed_by
+              WHERE r.request_id = ?
+              LIMIT 1
+              FOR UPDATE"
+        );
+        $requestStmt->bind_param('i', $requestId);
+        $requestStmt->execute();
+        $request = $requestStmt->get_result()->fetch_assoc();
+
+        if (!$request) {
+            throw new RuntimeException('Approved disposition request not found.');
+        }
+        if ($request['status'] !== 'Approved') {
+            throw new RuntimeException('Only an Approved disposition request can be executed.');
+        }
+        if ((int) $request['requested_by'] === (int) $request['reviewed_by']) {
+            throw new RuntimeException('The request does not have an independent reviewer.');
+        }
+        if ($request['record_phase'] !== 'Official' || $request['disposition_status'] !== 'Ready for Disposition') {
+            throw new RuntimeException('The linked Official Record is no longer ready for disposition.');
+        }
+        if ((int) $request['is_legal_hold'] === 1) {
+            throw new RuntimeException('The linked record is under Legal Hold and cannot be executed.');
+        }
+
+        $requestedAction = $request['requested_action'];
+        $requiredConfirmation = $requestedAction === 'Destroy' ? 'DESTROY' : 'ARCHIVE';
+        if (!hash_equals($requiredConfirmation, $confirmation)) {
+            throw new RuntimeException("Type $requiredConfirmation exactly to confirm this execution.");
+        }
+
+        $executedAt = date('Y-m-d H:i:s');
+        $docId = (int) $request['doc_id'];
+
+        if ($requestedAction === 'Permanent Archive') {
+            $executionMethod = 'Permanent digital archive; original verified file retained';
+            $resultPayload = [
+                'request_id' => $requestId,
+                'doc_id' => $docId,
+                'action' => $requestedAction,
+                'file_sha256' => $request['file_hash'],
+                'executed_by' => $userId,
+                'executed_at' => $executedAt
+            ];
+            $resultHash = hash('sha256', json_encode($resultPayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+
+            $docUpdate = $conn->prepare(
+                "UPDATE documents
+                    SET status = 'Archived',
+                        disposition_status = 'Permanently Archived',
+                        dss_recommendation = 'Retention completed and permanent archive execution verified.'
+                  WHERE doc_id = ?
+                    AND disposition_status = 'Ready for Disposition'
+                    AND is_legal_hold = 0"
+            );
+            $docUpdate->bind_param('i', $docId);
+            $docUpdate->execute();
+            if ($docUpdate->affected_rows !== 1) {
+                throw new RuntimeException('The Official Record changed before archive execution. Refresh and try again.');
+            }
+
+            $requestUpdate = $conn->prepare(
+                "UPDATE disposition_requests
+                    SET status = 'Executed', executed_by = ?, executed_at = ?,
+                        execution_method = ?, execution_notes = ?,
+                        execution_result_hash = ?, certificate_id = NULL
+                  WHERE request_id = ? AND status = 'Approved'"
+            );
+            $requestUpdate->bind_param('issssi', $userId, $executedAt, $executionMethod, $executionNotes, $resultHash, $requestId);
+            $requestUpdate->execute();
+            if ($requestUpdate->affected_rows !== 1) {
+                throw new RuntimeException('The approved request changed before execution. Refresh and try again.');
+            }
+
+            $conn->commit();
+            $executionCommitted = true;
+
+            try {
+                log_document_action(
+                    $conn,
+                    $userId,
+                    'EXECUTE_PERMANENT_ARCHIVE',
+                    $docId,
+                    "Executed permanent archive request #$requestId. Result hash: $resultHash",
+                    'documents.php?disposition=1'
+                );
+                notifyDispositionRequester($conn, $request, 'executed for permanent archive');
+            } catch (Throwable $sideEffectError) {
+                error_log('Permanent archive audit/notification warning: ' . $sideEffectError->getMessage());
+            }
+
+            dispositionRedirect('success', "Disposition request #$requestId was completed as a Permanent Archive.");
+        }
+
+        if ($requestedAction !== 'Destroy') {
+            throw new RuntimeException('The approved request contains an unsupported disposition action.');
+        }
+
+        // VC4B1: the execution and certificate concern the digital binary only.
+        if (($_POST['digital_scope_confirmed'] ?? '') !== '1') {
+            throw new RuntimeException('Confirm that this destroys only the digital file, not the physical paper copy.');
+        }
+
+        $resolvedFile = resolveDispositionFilePath((string) $request['file_path']);
+        $executionOriginalPath = $resolvedFile['absolute'];
+
+        // The target binary must belong only to this Official Record. New
+        // official declarations receive an independent copy. Shared legacy
+        // binaries are blocked instead of risking deletion of another record.
+        $sharedStmt = $conn->prepare(
+            "SELECT doc_id
+               FROM documents
+              WHERE file_path = ?
+                AND doc_id <> ?
+                AND disposition_status <> 'Destroyed'
+              LIMIT 1
+              FOR UPDATE"
+        );
+        $sharedStmt->bind_param('si', $request['file_path'], $docId);
+        $sharedStmt->execute();
+        if ($sharedStmt->get_result()->num_rows > 0) {
+            throw new RuntimeException('Destruction is blocked because another record still references the same stored file. Create an independent Official Record copy first.');
+        }
+
+        $actualHash = hash_file('sha256', $executionOriginalPath);
+        if ($actualHash === false || !hash_equals(strtolower((string) $request['file_hash']), strtolower($actualHash))) {
+            throw new RuntimeException('File integrity verification failed. The stored file does not match the Official Record hash.');
+        }
+        $fileSize = filesize($executionOriginalPath);
+        if ($fileSize === false) {
+            throw new RuntimeException('Unable to verify the stored file size.');
+        }
+
+        $quarantineDirectory = $resolvedFile['uploads_root'] . DIRECTORY_SEPARATOR . '.disposition_quarantine';
+        if (!is_dir($quarantineDirectory) && !mkdir($quarantineDirectory, 0700, true)) {
+            throw new RuntimeException('Unable to create protected disposition storage.');
+        }
+
+        $executionQuarantinePath = $quarantineDirectory . DIRECTORY_SEPARATOR
+            . 'request_' . $requestId . '_' . bin2hex(random_bytes(8)) . '.pending';
+        if (!rename($executionOriginalPath, $executionQuarantinePath)) {
+            throw new RuntimeException('Unable to move the file into protected disposition storage. No record was changed.');
+        }
+        $executionFileMoved = true;
+
+        $year = date('Y');
+        $certificateLockName = "destruction_certificate_number_$year";
+        $lockStmt = $conn->prepare('SELECT GET_LOCK(?, 5) AS lock_acquired');
+        $lockStmt->bind_param('s', $certificateLockName);
+        $lockStmt->execute();
+        $lockRow = $lockStmt->get_result()->fetch_assoc();
+        $certificateLockAcquired = (int) ($lockRow['lock_acquired'] ?? 0) === 1;
+        $lockStmt->close();
+        if (!$certificateLockAcquired) {
+            throw new RuntimeException('The certificate number service is busy. Please try again.');
+        }
+
+        $certificatePrefix = "DC-$year-";
+        $sequenceStart = strlen($certificatePrefix) + 1;
+        $sequenceStmt = $conn->prepare(
+            "SELECT COALESCE(MAX(CAST(SUBSTRING(certificate_number, ?) AS UNSIGNED)), 0) + 1 AS next_number
+               FROM destruction_certificates
+              WHERE certificate_number LIKE CONCAT(?, '%')"
+        );
+        $sequenceStmt->bind_param('is', $sequenceStart, $certificatePrefix);
+        $sequenceStmt->execute();
+        $sequenceRow = $sequenceStmt->get_result()->fetch_assoc();
+        $certificateNumber = sprintf('DC-%s-%06d', $year, (int) $sequenceRow['next_number']);
+        $sequenceStmt->close();
+
+        $deletionMethod = 'Digital file only: SHA-256 verified application quarantine and unlink; physical copy not disposed';
+        $certificatePayload = [
+            'certificate_number' => $certificateNumber,
+            'request_id' => $requestId,
+            'doc_id' => $docId,
+            'file_sha256' => $actualHash,
+            'file_size' => (int) $fileSize,
+            'requested_by' => (int) $request['requested_by'],
+            'reviewed_by' => (int) $request['reviewed_by'],
+            'destroyed_by' => $userId,
+            'destroyed_at' => $executedAt,
+            'method' => $deletionMethod
+        ];
+        $certificateHash = hash('sha256', json_encode($certificatePayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+
+        $certificateStmt = $conn->prepare(
+            "INSERT INTO destruction_certificates
+                (certificate_number, request_id, doc_id, file_name,
+                 original_file_path, file_sha256, file_size, reason,
+                 retention_policy_id, retention_authority, requested_by,
+                 reviewed_by, destroyed_by, destroyed_at, deletion_method,
+                 certificate_hash)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        );
+        $certificateStmt->bind_param(
+            'siisssisisiiisss',
+            $certificateNumber,
+            $requestId,
+            $docId,
+            $request['file_name'],
+            $request['file_path'],
+            $actualHash,
+            $fileSize,
+            $request['reason'],
+            $request['retention_policy_id'],
+            $request['retention_authority'],
+            $request['requested_by'],
+            $request['reviewed_by'],
+            $userId,
+            $executedAt,
+            $deletionMethod,
+            $certificateHash
+        );
+        $certificateStmt->execute();
+        $certificateId = (int) $certificateStmt->insert_id;
+
+        $destroyedMarker = '[SECURELY DESTROYED - ' . $certificateNumber . ']';
+        $docUpdate = $conn->prepare(
+            "UPDATE documents
+                SET file_path = ?, status = 'Archived',
+                    disposition_status = 'Destroyed',
+                    dss_recommendation = 'Retention completed and secure destruction certified.'
+              WHERE doc_id = ?
+                AND disposition_status = 'Ready for Disposition'
+                AND is_legal_hold = 0"
+        );
+        $docUpdate->bind_param('si', $destroyedMarker, $docId);
+        $docUpdate->execute();
+        if ($docUpdate->affected_rows !== 1) {
+            throw new RuntimeException('The Official Record changed before destruction execution. No file was deleted.');
+        }
+
+        $requestUpdate = $conn->prepare(
+            "UPDATE disposition_requests
+                SET status = 'Executed', executed_by = ?, executed_at = ?,
+                    execution_method = ?, execution_notes = ?,
+                    execution_result_hash = ?, certificate_id = ?
+              WHERE request_id = ? AND status = 'Approved'"
+        );
+        $requestUpdate->bind_param('issssii', $userId, $executedAt, $deletionMethod, $executionNotes, $certificateHash, $certificateId, $requestId);
+        $requestUpdate->execute();
+        if ($requestUpdate->affected_rows !== 1) {
+            throw new RuntimeException('The approved request changed before destruction execution. No file was deleted.');
+        }
+
+        $conn->commit();
+        $executionCommitted = true;
+        releaseDispositionLock($conn, $certificateLockName, $certificateLockAcquired);
+
+        if (!unlink($executionQuarantinePath)) {
+            // Compensate the committed database state while the quarantined file
+            // is still intact, then restore it to its original location.
+            $conn->begin_transaction();
+            $revertRequest = $conn->prepare(
+                "UPDATE disposition_requests
+                    SET status = 'Approved', executed_by = NULL, executed_at = NULL,
+                        execution_method = NULL, execution_notes = NULL,
+                        execution_result_hash = NULL, certificate_id = NULL
+                  WHERE request_id = ? AND status = 'Executed'"
+            );
+            $revertRequest->bind_param('i', $requestId);
+            $revertRequest->execute();
+
+            $revertDocument = $conn->prepare(
+                "UPDATE documents
+                    SET file_path = ?, status = 'Archived',
+                        disposition_status = 'Ready for Disposition',
+                        dss_recommendation = 'Approved disposition request is waiting for execution.'
+                  WHERE doc_id = ? AND disposition_status = 'Destroyed'"
+            );
+            $revertDocument->bind_param('si', $request['file_path'], $docId);
+            $revertDocument->execute();
+
+            $deleteCertificate = $conn->prepare('DELETE FROM destruction_certificates WHERE certificate_id = ?');
+            $deleteCertificate->bind_param('i', $certificateId);
+            $deleteCertificate->execute();
+
+            if (!rename($executionQuarantinePath, $executionOriginalPath)) {
+                $conn->rollback();
+                error_log("CRITICAL: Unable to restore quarantined file for disposition request #$requestId.");
+                throw new RuntimeException('Secure deletion could not be completed. Administrator recovery is required.');
+            }
+
+            $conn->commit();
+            $executionFileMoved = false;
+            $executionCommitted = false;
+            throw new RuntimeException('Secure deletion could not be completed. The file and Approved request were restored.');
+        }
+
+        $executionFileDeleted = true;
+        $executionFileMoved = false;
+
+        try {
+            log_document_action(
+                $conn,
+                $userId,
+                'EXECUTE_SECURE_DESTRUCTION',
+                $docId,
+                "Executed destruction request #$requestId; certificate $certificateNumber; certificate hash $certificateHash.",
+                'documents.php?disposition=1'
+            );
+            notifyDispositionRequester($conn, $request, "executed with certificate $certificateNumber");
+        } catch (Throwable $sideEffectError) {
+            error_log('Destruction audit/notification warning: ' . $sideEffectError->getMessage());
+        }
+
+        dispositionRedirect('success', "Digital file destruction completed. Certificate $certificateNumber was generated. Any registered physical copy remains tracked in Virtual Cabinet; it was not disposed.");
+    }
+
     dispositionRedirect('error', 'Unsupported disposition action.');
 } catch (Throwable $e) {
+    if ($certificateLockAcquired) {
+        try {
+            releaseDispositionLock($conn, $certificateLockName, $certificateLockAcquired);
+        } catch (Throwable $lockError) {
+            error_log('Disposition lock release warning: ' . $lockError->getMessage());
+        }
+    }
+
     try {
         $conn->rollback();
     } catch (Throwable $ignored) {
+    }
+
+    if ($executionFileMoved && !$executionFileDeleted && !$executionCommitted
+        && $executionQuarantinePath !== null && is_file($executionQuarantinePath)
+        && $executionOriginalPath !== null && !file_exists($executionOriginalPath)) {
+        if (!@rename($executionQuarantinePath, $executionOriginalPath)) {
+            error_log('CRITICAL: Unable to restore a disposition quarantine file after rollback.');
+        }
     }
 
     error_log('Disposition workflow error: ' . $e->getMessage());

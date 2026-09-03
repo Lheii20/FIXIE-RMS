@@ -1,4 +1,15 @@
 <?php
+// Include-only UI partial: reject direct web execution without changing its
+// behavior when rendered by quotation pages.
+if (
+    PHP_SAPI !== 'cli' &&
+    isset($_SERVER['SCRIPT_FILENAME']) &&
+    realpath((string) $_SERVER['SCRIPT_FILENAME']) === __FILE__
+) {
+    http_response_code(404);
+    exit('Not found.');
+}
+
 $client_approval_modal_id = preg_replace(
     '/[^A-Za-z0-9_-]/',
     '',

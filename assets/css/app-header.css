@@ -1,0 +1,349 @@
+/*
+ * Fixie DRMS canonical page-header system
+ * UI Phase 2
+ *
+ * Loaded by sidebar.php after page and module styles. This file owns only the
+ * screen presentation of primary page headers, heading hierarchy, subtitles,
+ * header actions, and the gap before page content. It does not change print.
+ */
+
+:root {
+    --app-header-surface: rgba(255, 255, 255, 0.98);
+    --app-header-border: #c4cfdd;
+    --app-header-ink: #172033;
+    --app-header-muted: #667085;
+    --app-header-primary: #3158c9;
+    --app-header-radius: 12px;
+    --app-header-padding-y: 14px;
+    --app-header-padding-x: 16px;
+    --app-header-gap: 12px;
+    --app-header-title-size: 20px;
+    --app-header-subtitle-size: 13px;
+    --app-header-shadow: 0 1px 2px rgba(23, 32, 51, 0.04);
+}
+
+@media screen {
+    /* Primary header surfaces used by the authenticated application pages. */
+    html body.dashboard-page .main-content > .dashboard-header,
+    html body.workflow-ui:is(
+        .page-quotation-list,
+        .page-pr-list,
+        .page-po-list
+    ) .main-content > .page-header,
+    html body:is(.page-documents, .page-general-docs) .main-content > .header-section,
+    html body.page-notifications .notifications-shell > .notif-header,
+    html body:is(
+        .page-admin-users,
+        .page-admin-requests,
+        .page-admin-settings,
+        .page-admin-backup,
+        .page-audit-logs
+    ) .admin-page-header,
+    html body.page-settings .settings-header,
+    html body.page-virtual-cabinet .vc-page-header,
+    html body.workflow-ui.page-create-quotation .create-form-header,
+    html body.workflow-ui .prf-page-header,
+    html body.workflow-ui .prf-review-header {
+        box-sizing: border-box;
+        width: 100%;
+        margin-top: 0 !important;
+        margin-bottom: 14px !important;
+        padding: var(--app-header-padding-y) var(--app-header-padding-x) !important;
+        border: 1px solid var(--app-header-border) !important;
+        border-radius: var(--app-header-radius) !important;
+        background: var(--app-header-surface) !important;
+        box-shadow: var(--app-header-shadow) !important;
+    }
+
+    /* Preserve each page's established layout while normalizing alignment. */
+    html body.dashboard-page .main-content > .dashboard-header,
+    html body.workflow-ui:is(
+        .page-quotation-list,
+        .page-pr-list,
+        .page-po-list
+    ) .main-content > .page-header,
+    html body.page-notifications .notifications-shell > .notif-header,
+    html body:is(.page-admin-users, .page-admin-requests, .page-audit-logs) .admin-page-header,
+    html body.page-virtual-cabinet .vc-page-header {
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: var(--app-header-gap) !important;
+    }
+
+    html body:is(.page-documents, .page-general-docs) .header-section > .d-flex:first-child {
+        align-items: center !important;
+        gap: var(--app-header-gap) !important;
+        margin-bottom: 10px !important;
+    }
+
+    /* One compact and readable title hierarchy, regardless of HTML tag. */
+    html body.dashboard-page .dashboard-header h5,
+    html body.workflow-ui:is(
+        .page-quotation-list,
+        .page-pr-list,
+        .page-po-list
+    ) .page-header .list-title-copy h3,
+    html body:is(.page-documents, .page-general-docs) .header-section h3,
+    html body.page-notifications .notif-header h5,
+    html body:is(
+        .page-admin-users,
+        .page-admin-requests,
+        .page-admin-settings,
+        .page-admin-backup,
+        .page-audit-logs
+    ) .admin-page-header :is(h2, h3, h4, h5),
+    html body.page-settings .settings-header h2,
+    html body.page-virtual-cabinet .vc-page-header h3,
+    html body.workflow-ui.page-create-quotation .create-form-heading h4,
+    html body.workflow-ui .prf-page-heading h2,
+    html body.workflow-ui .prf-review-heading h2,
+    html body.workflow-ui:is(.collection-page, .aging-page, .ledger-page)
+        .collection-workspace-header :is(.collection-header, .aging-header, .ledger-header) h2 {
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+        color: var(--app-header-ink) !important;
+        font-size: var(--app-header-title-size) !important;
+        font-weight: 720 !important;
+        line-height: 1.22 !important;
+        letter-spacing: -0.022em !important;
+    }
+
+    /* Subtitles remain readable but do not make the header bulky. */
+    html body.dashboard-page .dashboard-header p,
+    html body.workflow-ui:is(
+        .page-quotation-list,
+        .page-pr-list,
+        .page-po-list
+    ) .page-header .list-title-subtitle,
+    html body:is(.page-documents, .page-general-docs) .header-section h3 + p,
+    html body.page-notifications .notif-header p,
+    html body:is(
+        .page-admin-users,
+        .page-admin-requests,
+        .page-admin-settings,
+        .page-admin-backup,
+        .page-audit-logs
+    ) .admin-page-header p,
+    html body.page-settings .settings-header p,
+    html body.page-virtual-cabinet .vc-page-header p,
+    html body.workflow-ui.page-create-quotation .create-form-heading p,
+    html body.workflow-ui .prf-page-heading p,
+    html body.workflow-ui .prf-review-heading p,
+    html body.workflow-ui:is(.collection-page, .aging-page, .ledger-page)
+        .collection-workspace-header :is(.collection-header, .aging-header, .ledger-header) p {
+        margin-top: 3px !important;
+        margin-bottom: 0 !important;
+        color: var(--app-header-muted) !important;
+        font-size: var(--app-header-subtitle-size) !important;
+        font-weight: 400 !important;
+        line-height: 1.42 !important;
+        letter-spacing: 0 !important;
+    }
+
+    /* Small context labels shared by forms and Collections. */
+    html body.workflow-ui :is(
+        .prf-eyebrow,
+        .prf-review-eyebrow,
+        .collection-eyebrow,
+        .aging-eyebrow,
+        .ledger-eyebrow
+    ) {
+        margin-bottom: 3px !important;
+        color: var(--app-header-primary) !important;
+        font-size: 11px !important;
+        font-weight: 720 !important;
+        line-height: 1.25 !important;
+        letter-spacing: 0.075em !important;
+        text-transform: uppercase !important;
+    }
+
+    /* The fixed Collections header keeps its approved layout and visual weight. */
+    html body.workflow-ui:is(.collection-page, .aging-page, .ledger-page)
+        .collection-workspace-header {
+        border-color: var(--app-header-border) !important;
+        border-radius: var(--app-header-radius) !important;
+        background: var(--app-header-surface) !important;
+        box-shadow: var(--app-header-shadow) !important;
+    }
+
+    /* View pages use an action toolbar instead of a textual page header. */
+    html body.workflow-ui:is(.page-view-quotation, .page-view-po) .view-doc-toolbar {
+        box-sizing: border-box;
+        width: 100%;
+        min-height: 54px;
+        margin-top: 0 !important;
+        margin-bottom: 14px !important;
+        padding: 9px 12px !important;
+        border: 1px solid var(--app-header-border) !important;
+        border-radius: var(--app-header-radius) !important;
+        background: var(--app-header-surface) !important;
+        box-shadow: var(--app-header-shadow) !important;
+    }
+
+    /* Properly centered title icons without changing which icons are shown. */
+    html body:is(
+        .page-documents,
+        .page-general-docs,
+        .page-admin-users,
+        .page-admin-requests,
+        .page-admin-settings,
+        .page-admin-backup,
+        .page-audit-logs,
+        .page-virtual-cabinet
+    ) :is(
+        .header-section,
+        .admin-page-header,
+        .vc-page-header
+    ) :is(h2, h3, h4, h5) > i {
+        display: inline-flex !important;
+        width: 18px;
+        height: 18px;
+        align-items: center;
+        justify-content: center;
+        margin-right: 8px !important;
+        line-height: 1 !important;
+        vertical-align: -1px;
+    }
+
+    /* Header actions share one control rhythm; labels and permissions remain intact. */
+    html body :is(
+        .dashboard-header,
+        .page-header,
+        .header-section,
+        .notif-header,
+        .admin-page-header,
+        .settings-header,
+        .vc-page-header,
+        .create-form-header,
+        .prf-page-header,
+        .prf-review-header,
+        .view-doc-toolbar
+    ) :is(.btn, .btn-modern, .admin-primary-action, .prf-back-button, .prf-review-back) {
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 7px !important;
+        border-radius: 8px !important;
+        font-size: 12.5px !important;
+        line-height: 1.2 !important;
+    }
+
+    html body :is(
+        .dashboard-header,
+        .page-header,
+        .header-section,
+        .notif-header,
+        .admin-page-header,
+        .settings-header,
+        .vc-page-header,
+        .create-form-header,
+        .prf-page-header,
+        .prf-review-header,
+        .view-doc-toolbar
+    ) :is(.btn, .btn-modern, .admin-primary-action, .prf-back-button, .prf-review-back) > i {
+        display: inline-flex !important;
+        width: 14px;
+        height: 14px;
+        flex: 0 0 14px;
+        align-items: center;
+        justify-content: center;
+        margin: 0 !important;
+        line-height: 1 !important;
+        text-align: center;
+    }
+
+    /* Search and filter controls inside headers use the same readable height. */
+    html body.workflow-ui:is(
+        .page-quotation-list,
+        .page-pr-list,
+        .page-po-list
+    ) .page-header :is(.sleek-search-input, .sleek-select),
+    html body.page-admin-requests .admin-page-header :is(.form-control, .form-select),
+    html body.page-virtual-cabinet .vc-page-header .form-control {
+        box-sizing: border-box;
+        min-height: 36px !important;
+        font-size: 13px !important;
+        line-height: 1.3 !important;
+    }
+}
+
+@media screen and (max-width: 991.98px) {
+    html body.workflow-ui:is(
+        .page-quotation-list,
+        .page-pr-list,
+        .page-po-list
+    ) .main-content > .page-header,
+    html body.page-admin-requests .admin-page-header {
+        align-items: stretch !important;
+    }
+}
+
+@media screen and (max-width: 767.98px) {
+    :root {
+        --app-header-padding-y: 12px;
+        --app-header-padding-x: 12px;
+        --app-header-title-size: 18.5px;
+        --app-header-subtitle-size: 12.5px;
+    }
+
+    html body.dashboard-page .main-content > .dashboard-header,
+    html body.workflow-ui:is(
+        .page-quotation-list,
+        .page-pr-list,
+        .page-po-list
+    ) .main-content > .page-header,
+    html body:is(.page-documents, .page-general-docs) .main-content > .header-section,
+    html body.page-notifications .notifications-shell > .notif-header,
+    html body:is(
+        .page-admin-users,
+        .page-admin-requests,
+        .page-admin-settings,
+        .page-admin-backup,
+        .page-audit-logs
+    ) .admin-page-header,
+    html body.page-settings .settings-header,
+    html body.page-virtual-cabinet .vc-page-header,
+    html body.workflow-ui.page-create-quotation .create-form-header,
+    html body.workflow-ui .prf-page-header,
+    html body.workflow-ui .prf-review-header,
+    html body.workflow-ui:is(.page-view-quotation, .page-view-po) .view-doc-toolbar,
+    html body.workflow-ui:is(.collection-page, .aging-page, .ledger-page)
+        .collection-workspace-header {
+        margin-bottom: 12px !important;
+        border-radius: 10px !important;
+    }
+
+    html body:is(.page-documents, .page-general-docs) .header-section > .d-flex:first-child {
+        margin-bottom: 8px !important;
+    }
+
+    html body.workflow-ui:is(
+        .page-create-pr,
+        .page-create-po,
+        .funding-release-page,
+        .delivery-request-page,
+        .logistics-review-page,
+        .delivery-completion-page,
+        .followup-page,
+        .payment-page
+    ) .prf-page-heading h2,
+    html body.workflow-ui.page-view-pr .prf-review-heading h2 {
+        font-size: var(--app-header-title-size) !important;
+    }
+
+    html body.workflow-ui:is(.page-view-quotation, .page-view-po) .view-doc-toolbar {
+        min-height: 50px;
+        padding: 8px 10px !important;
+    }
+}
+
+@media screen and (max-width: 479.98px) {
+    :root {
+        --app-header-padding-y: 11px;
+        --app-header-padding-x: 11px;
+    }
+
+    html body.workflow-ui .prf-page-header,
+    html body.workflow-ui .prf-review-header {
+        gap: 9px !important;
+    }
+}
