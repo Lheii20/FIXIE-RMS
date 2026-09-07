@@ -1,16 +1,20 @@
 <?php
 require_once __DIR__ . '/session_bootstrap.php';
 
-$host = getenv('DB_HOST') ?: "localhost";
-$user = getenv('DB_USER') ?: "root";
-$pass = getenv('DB_PASS') ?: "";
-$db   = getenv('DB_NAME') ?: "fixie_drms";
+$database_config = drms_runtime_section('database');
+$host = (string) $database_config['host'];
+$port = (int) $database_config['port'];
+$user = (string) $database_config['user'];
+$pass = (string) $database_config['password'];
+$db   = (string) $database_config['name'];
 
 try {
     mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
     
-    $conn = new mysqli($host, $user, $pass, $db);
-    $conn->set_charset("utf8mb4"); 
+    $conn = new mysqli($host, $user, $pass, $db, $port);
+    $conn->set_charset("utf8mb4");
+    drms_runtime_database_timezone($conn);
+    unset($database_config, $host, $port, $user, $pass, $db);
 
     // =========================================================================
     // 1. AUTO-SETUP SESSION MANAGEMENT (Para sa Force Logout at Active Status)

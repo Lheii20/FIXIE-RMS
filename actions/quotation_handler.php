@@ -532,7 +532,7 @@ if ($action === 'receive_po') {
             $stored_file_name;
 
         if (
-            !move_uploaded_file(
+            !drms_storage_move_uploaded_file(
                 $validated_proof['tmp_name'],
                 $stored_file_path
             )

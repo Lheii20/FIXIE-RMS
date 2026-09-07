@@ -756,7 +756,7 @@ if ($is_top_mgmt) {
 $db_counts = [];
 if (!empty($user_categories)) {
     $placeholders = implode(',', array_fill(0, count($user_categories), '?'));
-    $count_sql = "SELECT category, COUNT(*) as cnt FROM documents WHERE status = 'Active' AND (record_phase = 'Working' OR record_phase = 'For Review' OR record_phase = 'Converted' OR record_phase IS NULL) AND category IN ($placeholders) GROUP BY category";
+    $count_sql = "SELECT category, COUNT(*) as cnt FROM documents WHERE status = 'Active' AND (record_phase = 'Working' OR record_phase = 'For Review' OR record_phase IS NULL) AND category IN ($placeholders) GROUP BY category";
     $stmt_counts = $conn->prepare($count_sql);
     
     $count_types = str_repeat('s', count($user_categories));
@@ -1001,7 +1001,7 @@ $where[] = "d.status = '" . $effective_doc_status . "'";
 if ($effective_doc_status === 'Archived') {
     $where[] = "COALESCE(d.disposition_status, '') <> 'Destroyed'";
 }
-$where[] = "(d.record_phase = 'Working' OR d.record_phase = 'For Review' OR d.record_phase = 'Converted' OR d.record_phase IS NULL)"; // STRICT ENFORCEMENT
+$where[] = "(d.record_phase = 'Working' OR d.record_phase = 'For Review' OR d.record_phase IS NULL)"; // STRICT ENFORCEMENT
 $where[] = "COALESCE(d.disposition_status, '') <> 'Destroyed'";
 
 $params = [];
@@ -1089,7 +1089,7 @@ if(isset($_GET['success'])) {
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
     
     
-<link rel="stylesheet" href="assets/css/physical-records.css?v=vc4b2-1">
+<link rel="stylesheet" href="assets/css/physical-records.css?v=<?php echo filemtime(__DIR__ . '/assets/css/physical-records.css'); ?>">
 </head>
 <body class="bg-f8f9fa page-general-docs">
 <?php include 'sidebar.php'; ?>
@@ -1117,6 +1117,9 @@ if(isset($_GET['success'])) {
             
             <div class="d-flex gap-2 align-items-center">
                 
+                <?php if ($role !== 'Admin'): ?>
+                    <a class="btn btn-outline-primary d-inline-flex align-items-center gap-2" href="official_declarations.php"><i class="fas fa-file-signature" aria-hidden="true"></i> Declaration requests</a>
+                <?php endif; ?>
                 <!-- GLOBAL UPLOAD BUTTON (Sleek, Prominent, Pill-shaped) -->
                 <?php if (!$hide_upload_button): ?>
                     <button class="btn btn-primary fw-bold px-4 py-2 shadow-sm rounded-pill d-flex align-items-center transition-all" data-bs-toggle="modal" data-bs-target="#uploadModal">
@@ -1766,13 +1769,10 @@ if(isset($_GET['success'])) {
                                                             </button>
                                                         </li>
                                                         
+                                                        <?php if (in_array($role, ['Sales Staff','Procurement','Finance','Supply Chain','GM','President'], true) && ($can_edit_file || in_array($role, ['GM','President'], true))): ?>
+                                                            <li><a class="dropdown-item fw-medium text-success" href="official_declarations.php?doc_id=<?php echo (int) $doc['doc_id']; ?>"><i class="fas fa-paper-plane me-2"></i> Request official declaration</a></li>
+                                                        <?php endif; ?>
                                                         <?php if ($can_manage || $is_top_mgmt): ?>
-                                                            <li><hr class="dropdown-divider"></li>
-                                                            <li>
-                                                                <button type="button" class="dropdown-item fw-bold text-success" onclick="openDeclareOfficialModal(<?php echo $doc['doc_id']; ?>, '<?php echo htmlspecialchars(addslashes($doc['file_name'])); ?>')">
-                                                                    <i class="fas fa-certificate me-2"></i> Declare as Official Record
-                                                                </button>
-                                                            </li>
                                                             <li>
                                                                 <?php 
                                                                     $p_stat = $doc['physical_status'] ?? 'Digital'; 
@@ -2091,46 +2091,6 @@ if(isset($_GET['success'])) {
 <?php require __DIR__ . '/includes/physical_record_profile.php'; ?>
 
   <!-- DECLARE OFFICIAL MODAL -->
-<div class="modal fade sleek-modal" id="declareOfficialModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content shadow-lg border-0">
-            <div class="modal-header border-bottom-0 pb-0">
-                <h5 class="modal-title fw-bold text-dark fs-5"><i class="fas fa-certificate text-success me-2"></i>Declare Official Record</h5>
-                <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body pt-3">
-                <form action="actions/document_handler.php" method="POST">
-                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                    <input type="hidden" name="action" value="declare_official">
-                    <input type="hidden" name="doc_id" id="declareDocId">
-                    <input type="hidden" name="return_url" value="<?php echo htmlspecialchars($_SERVER['REQUEST_URI']); ?>">
-                    
-                    <div class="alert alert-success bg-success bg-opacity-10 border-success border-opacity-25 text-success fs-sm mb-3">
-                        <i class="fas fa-info-circle me-2"></i> <strong>Confirmation:</strong> Declaring this as an Official Record will finalize it and move it to the Official Records directory.
-                    </div>
-
-                    <div class="mb-4">
-                        <label class="form-label fw-bold small text-muted text-uppercase letter-spacing-tight">Document Name</label>
-                        <input type="text" class="form-control bg-light fs-sm text-dark fw-bold" id="declareDocName" readonly>
-                    </div>
-
-                    <div class="d-flex align-items-start gap-2 border rounded-3 bg-light p-3 mb-4">
-                        <input class="form-check-input flex-shrink-0 mt-1" type="checkbox" name="official_signature_confirmed" value="1" id="declareSignatureConfirmed" required>
-                        <label class="form-check-label fs-sm text-dark mb-0" for="declareSignatureConfirmed">
-                            I confirm that this copy contains the required signature(s) and is ready to become an Official Record.
-                        </label>
-                    </div>
-
-                    <div class="d-flex justify-content-end gap-2">
-                        <button type="button" class="btn btn-light sleek-btn-sm border" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-success sleek-btn-sm px-4 fw-bold">Confirm & Move</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
-
 <!-- UPLOAD MODAL -->
 <?php if (!$hide_upload_button): ?>
 <div class="modal fade sleek-modal" id="uploadModal" tabindex="-1" aria-hidden="true">
@@ -3970,38 +3930,50 @@ if(isset($_GET['success'])) {
     }
 
     // ==========================================
-    // RENAME FUNCTION (SWEETALERT PROMPT)
+    // RENAME FUNCTION (SHARED SYSTEM PROMPT)
     // ==========================================
     function renameFile(docId, currentName) {
-        Swal.fire({
-            title: '<span class="fs-5 fw-bold text-dark letter-spacing-tight mt-2">Rename File</span>',
-            html: `
-                <form id="renameForm_${docId}" action="general_docs.php" method="POST" class="text-start mt-3">
-                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                    <input type="hidden" name="action" value="rename_file">
-                    <input type="hidden" name="doc_id" value="${docId}">
-                    <input type="hidden" name="return_url" value="${window.location.href}">
-                    <label class="form-label text-muted fs-xs fw-bold text-uppercase">New File Name</label>
-                    <input type="text" name="new_name" class="form-control shadow-none bg-light" value="${currentName}" required>
-                </form>
-            `,
-            icon: 'info',
-            width: 400,
-            padding: '1.5rem',
-            showCancelButton: true,
-            confirmButtonText: 'Save Changes',
-            cancelButtonText: 'Cancel',
-            customClass: {
-                popup: 'rounded-4 shadow-lg border-0',
-                confirmButton: 'btn btn-primary btn-sm fw-bold px-4 rounded-pill w-100',
-                cancelButton: 'btn btn-light btn-sm fw-medium px-4 rounded-pill border w-100 bg-white text-dark',
-                actions: 'd-flex w-100 mt-4 gap-2 flex-row-reverse'
-            },
-            buttonsStyling: false
-        }).then((result) => {
-            if (result.isConfirmed) {
-                document.getElementById('renameForm_' + docId).submit();
-            }
+        if (!window.DRMSFeedback) return;
+
+        window.DRMSFeedback.prompt({
+            title: 'Rename file',
+            message: 'Use a clear file name and keep the correct extension when it is required.',
+            inputLabel: 'New file name',
+            inputType: 'text',
+            value: currentName,
+            placeholder: 'Enter the new file name',
+            required: true,
+            requiredMessage: 'Enter a file name before saving.',
+            maxLength: 255,
+            confirmText: 'Save changes',
+            cancelText: 'Keep current name',
+            tone: 'info'
+        }).then((newName) => {
+            if (newName === null) return;
+
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = 'general_docs.php';
+            form.hidden = true;
+
+            const fields = {
+                csrf_token: <?php echo json_encode((string) ($_SESSION['csrf_token'] ?? ''), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT); ?>,
+                action: 'rename_file',
+                doc_id: String(docId),
+                return_url: window.location.href,
+                new_name: newName
+            };
+
+            Object.entries(fields).forEach(([name, value]) => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = name;
+                input.value = String(value);
+                form.appendChild(input);
+            });
+
+            document.body.appendChild(form);
+            form.submit();
         });
     }
 
@@ -4191,12 +4163,6 @@ if(isset($_GET['success'])) {
         });
     }
 
-    function openDeclareOfficialModal(docId, fileName) {
-        document.getElementById('declareDocId').value = docId;
-        document.getElementById('declareDocName').value = fileName;
-        document.getElementById('declareSignatureConfirmed').checked = false;
-        new bootstrap.Modal(document.getElementById('declareOfficialModal')).show();
-    }
 
     function confirmSoftDelete(buttonElement) {
         const form = $(buttonElement).closest('form');
@@ -4339,6 +4305,6 @@ if(isset($_GET['success'])) {
         }
     });
 </script>
-<script src="assets/js/physical-record-profile.js?v=vc4b2-1"></script>
+<script src="assets/js/physical-record-profile.js?v=<?php echo filemtime(__DIR__ . '/assets/js/physical-record-profile.js'); ?>"></script>
 </body>
 </html>

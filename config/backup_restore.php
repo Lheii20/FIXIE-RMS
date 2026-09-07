@@ -3,6 +3,8 @@
 // Complete backup/restore engine for Fixie DRMS. This helper intentionally
 // stores archives outside uploads/ and exposes no direct HTTP file path.
 
+require_once __DIR__ . '/runtime.php';
+
 function drms_backup_project_root(): string
 {
     return dirname(__DIR__);
@@ -49,13 +51,86 @@ function drms_backup_initialize_storage(): void
 
 function drms_backup_database_config(): array
 {
+    $database = drms_runtime_section('database');
     return [
-        'host' => (string) (getenv('DB_HOST') ?: 'localhost'),
-        'port' => (string) (getenv('DB_PORT') ?: '3306'),
-        'user' => (string) (getenv('DB_USER') ?: 'root'),
-        'password' => (string) (getenv('DB_PASS') ?: ''),
-        'database' => (string) (getenv('DB_NAME') ?: 'fixie_drms'),
+        'host' => (string) $database['host'],
+        'port' => (string) $database['port'],
+        'user' => (string) $database['user'],
+        'password' => (string) $database['password'],
+        'database' => (string) $database['name'],
     ];
+}
+
+function drms_backup_capability_report(): array
+{
+    $app = drms_runtime_section('app');
+    $profile = (string) ($app['hosting_profile'] ?? 'standard');
+    $enabled_by_config = drms_runtime_feature_enabled('server_backup');
+    $zip_available = class_exists('ZipArchive');
+    $process_available = function_exists('proc_open');
+    $storage_root = drms_backup_storage_root();
+    $storage_available = is_dir($storage_root)
+        ? is_writable($storage_root)
+        : is_writable(drms_backup_project_root());
+    $database_tools_available = false;
+    $reasons = [];
+
+    if (!$enabled_by_config) {
+        $reasons[] = $profile === 'infinityfree'
+            ? 'Complete server backup and restore are disabled on the InfinityFree profile because database process tools are not available there.'
+            : 'Complete server backup and restore are disabled in the current runtime configuration.';
+    }
+    if (!$zip_available) {
+        $reasons[] = 'The PHP ZIP extension is not available on this server.';
+    }
+    if (!$process_available) {
+        $reasons[] = 'The server does not allow the protected database export/import process.';
+    }
+    if (!$storage_available) {
+        $reasons[] = 'Protected backup storage is not writable by PHP.';
+    }
+
+    if ($enabled_by_config && $process_available) {
+        try {
+            drms_backup_find_binary('mysqldump');
+            drms_backup_find_binary('mysql');
+            $database_tools_available = true;
+        } catch (Throwable $error) {
+            $reasons[] = 'The MySQL backup and restore command-line tools were not found on this server.';
+        }
+    }
+
+    $available = $enabled_by_config
+        && $zip_available
+        && $process_available
+        && $storage_available
+        && $database_tools_available;
+
+    return [
+        'available' => $available,
+        'profile' => $profile,
+        'enabled_by_config' => $enabled_by_config,
+        'zip_available' => $zip_available,
+        'process_available' => $process_available,
+        'storage_available' => $storage_available,
+        'database_tools_available' => $database_tools_available,
+        'reasons' => $reasons,
+    ];
+}
+
+function drms_backup_assert_server_operations_available(): void
+{
+    $capability = drms_backup_capability_report();
+    if ($capability['available'] === true) {
+        return;
+    }
+
+    $message = implode(' ', $capability['reasons']);
+    throw new RuntimeException(
+        $message !== ''
+            ? $message
+            : 'Complete server backup and restore are unavailable on this host.'
+    );
 }
 
 function drms_backup_safe_random(int $bytes = 8): string
@@ -245,6 +320,12 @@ function drms_backup_run_process(
     ?string $stdin_path = null,
     ?string $stdout_path = null
 ): array {
+    if (!function_exists('proc_open')) {
+        throw new RuntimeException(
+            'The server does not allow the protected database export/import process.'
+        );
+    }
+
     $descriptors = [
         0 => $stdin_path !== null
             ? ['file', $stdin_path, 'rb']
@@ -436,6 +517,8 @@ function drms_backup_archive_path_is_safe(string $path): bool
 
 function drms_backup_create_package(string $type = 'manual'): array
 {
+    drms_backup_assert_server_operations_available();
+
     if (!class_exists('ZipArchive')) {
         throw new RuntimeException('The PHP ZIP extension is not available.');
     }
@@ -906,6 +989,8 @@ function drms_backup_clear_restore_marker(): void
 
 function drms_backup_restore_package(string $archive_path): array
 {
+    drms_backup_assert_server_operations_available();
+
     $database_config = drms_backup_database_config();
     $verification = drms_backup_verify_package(
         $archive_path,

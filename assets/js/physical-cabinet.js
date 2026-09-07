@@ -1,20 +1,29 @@
 (() => {
   'use strict';
   const root=document.getElementById('vc3Workspace');if(!root)return;
-  // data-redesign="vc5c": install this four-column renderer with the matching page.
-  if(root.dataset.redesign!=='vc5c'){
+  // data-redesign="vc5f": install this mobile-refined renderer with the matching page and stylesheet.
+  if(root.dataset.redesign!=='vc5f'){
     const message=document.getElementById('vc3Error');
     if(message){message.hidden=false;message.textContent='Virtual Cabinet files are out of sync. Save the updated page and script together, then refresh.';}
     return;
   }
   const el=id=>document.getElementById('vc3'+id);
   const node=(tag,text,cls='')=>{const n=document.createElement(tag);n.textContent=text;n.className=cls;return n;};
-  let scope='all',custody='all',page=1,pages=1,query='',serial=0,timer=null,nodes=[],copyStats={},directorySerial=0;
+  let scope='all',custody='all',page=1,pages=1,query='',serial=0,timer=null,nodes=[],copyStats={},directorySerial=0,locationPanelTouched=false;
   const expanded=new Map();
+  const compactLocations=window.matchMedia('(max-width: 1399px)');
   const icon=name=>{const i=node('i','','fas fa-'+name);i.setAttribute('aria-hidden','true');return i;};
   const typeIcons={building:'building',room:'door-open',cabinet:'archive',drawer:'layer-group',box:'box',folder:'folder'};
   function error(text=''){el('Error').textContent=text;el('Error').hidden=!text;}
   function syncExport(){const form=el('ExportForm');if(!form)return;el('ExportScope').value=scope;el('ExportCustody').value=custody;el('ExportQuery').value=query;}
+  function setLocationPanel(open,focusToggle=false){
+    el('LocationPanel').hidden=!open;root.classList.toggle('is-location-collapsed',!open);el('LocationToggle').setAttribute('aria-expanded',String(open));
+    const label=el('LocationToggle').querySelector('span');if(label)label.textContent=open?'Hide locations':'Locations';
+    el('LocationToggle').title=open?'Hide the location browser and widen the file list':'Browse cabinets, drawers and folders';
+    if(focusToggle)el('LocationToggle').focus();
+  }
+  function applyLocationDefault(){if(!locationPanelTouched)setLocationPanel(!compactLocations.matches);}
+  function finishLocationChoice(){if(compactLocations.matches){locationPanelTouched=true;setLocationPanel(false,true);}}
   async function api(params){const controller=new AbortController(), timeout=setTimeout(()=>controller.abort(),20000);
     try{const response=await fetch('actions/cabinet_fetcher.php?'+new URLSearchParams(params),{credentials:'same-origin',cache:'no-store',signal:controller.signal});
       if(response.redirected)throw new Error('Refresh and sign in again.');let body;try{body=await response.json();}catch(invalidResponse){throw new Error('Unexpected server response. Refresh and sign in again; ask the administrator to check the server log if this continues.');}if(!response.ok || !body.ok)throw new Error(body.message||'Unable to load cabinet.');return body;
@@ -26,7 +35,7 @@
       button.setAttribute('aria-current',scope===key?'true':'false');
       const symbol=icon(kind);symbol.classList.add('vc5-tree-icon');button.append(symbol,node('span',text,'vc5-tree-label'));
       if(count!==undefined)button.append(node('span',String(count),'vc5-tree-count'));
-      button.addEventListener('click',()=>{scope=key;page=1;clearTimeout(timer);load();target.querySelectorAll('button[data-scope]').forEach(b=>b.setAttribute('aria-current',b.dataset.scope===key?'true':'false'));});
+      button.addEventListener('click',()=>{scope=key;page=1;clearTimeout(timer);load();target.querySelectorAll('button[data-scope]').forEach(b=>b.setAttribute('aria-current',b.dataset.scope===key?'true':'false'));finishLocationChoice();});
       parent.append(button);
     };
     choice('All physical copies','all',target,copyStats.total,'layer-group');
@@ -89,7 +98,8 @@
       const result=await api({action:'get_documents',scope,custody,query,page:String(page)});if(current!==serial)return;
       page=result.page;pages=result.pages;el('Rows').replaceChildren();
       for(const record of result.data){
-        const row=node('tr',''),identity=node('td',''),location=node('td',''),state=node('td',''),actions=node('td','');
+        const row=node('tr','','vc5-copy-row'),identity=node('td',''),location=node('td',''),state=node('td',''),actions=node('td','');
+        identity.dataset.label='Record';location.dataset.label='Location';state.dataset.label='Custody';actions.dataset.label='Action';
         const group=node('div','','vc5-record'),symbol=node('span','','vc5-record-icon');symbol.append(icon('file-alt'));
         const text=node('div','','vc5-record-text'),name=node('strong',record.file_name);name.title=record.file_name;
         const classification=(record.lifecycle_status==='Archived'?'Archived':record.record_phase||'Working')+' · '+record.category;
@@ -118,6 +128,8 @@
   el('Search').addEventListener('input',()=>{clearTimeout(timer);serial++;query=el('Search').value.trim();syncExport();el('Clear').disabled=!query;el('Prev').disabled=true;el('Next').disabled=true;page=1;timer=setTimeout(load,250);});
   el('Clear').addEventListener('click',()=>{clearTimeout(timer);el('Search').value='';query='';page=1;load();el('Search').focus();});
   el('LocationSearch').addEventListener('input',tree);
+  el('LocationToggle').addEventListener('click',()=>{locationPanelTouched=true;setLocationPanel(el('LocationPanel').hidden);});
+  if(typeof compactLocations.addEventListener==='function')compactLocations.addEventListener('change',applyLocationDefault);else compactLocations.addListener(applyLocationDefault);
   el('Custody').addEventListener('change',()=>{clearTimeout(timer);custody=el('Custody').value;page=1;load();});
   el('Prev').addEventListener('click',()=>{if(page>1){page--;load();}});el('Next').addEventListener('click',()=>{if(page<pages){page++;load();}});
   el('Refresh').addEventListener('click',async()=>{clearTimeout(timer);el('Refresh').disabled=true;try{if(await directory())await load();}finally{el('Refresh').disabled=false;}});
@@ -158,6 +170,7 @@
     }
   });
   document.addEventListener('physical-copy-updated',async()=>{if(await directory())await load();});
+  applyLocationDefault();
   (async()=>{
     if(!await directory()){tableMessage('Unable to load the cabinet','Use Refresh to try again.','exclamation-circle');el('Count').textContent='Not loaded';return;}
     const params=new URLSearchParams(window.location.search),folder=params.get('physical_folder'),custodyParam=params.get('custody');

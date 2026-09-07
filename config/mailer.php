@@ -1,17 +1,25 @@
 <?php
 
+require_once __DIR__ . '/runtime.php';
+
 function drms_configure_mailer($mail, array $overrides = []) {
-    $host = getenv('DRMS_SMTP_HOST') ?: 'smtp.gmail.com';
-    $port = (int) (getenv('DRMS_SMTP_PORT') ?: 587);
-    $username = getenv('DRMS_SMTP_USER') ?: '';
-    $password = getenv('DRMS_SMTP_PASS') ?: '';
-    $secure = strtolower(getenv('DRMS_SMTP_SECURE') ?: 'tls');
+    $mailConfig = drms_runtime_section('mail');
+    $host = (string) $mailConfig['host'];
+    $port = (int) $mailConfig['port'];
+    $username = (string) $mailConfig['username'];
+    $password = (string) $mailConfig['password'];
+    $secure = (string) $mailConfig['encryption'];
+    $timeout = (int) $mailConfig['timeout_seconds'];
 
-    $from = $overrides['from'] ?? (getenv('DRMS_MAIL_FROM') ?: $username);
-    $fromName = $overrides['from_name'] ?? (getenv('DRMS_MAIL_FROM_NAME') ?: 'Fixie DRMS Security');
+    $from = $overrides['from'] ?? ((string) $mailConfig['from'] ?: $username);
+    $fromName = $overrides['from_name'] ?? (string) $mailConfig['from_name'];
 
-    if ($username === '' || $password === '' || $from === '') {
-        throw new RuntimeException('SMTP credentials are not configured. Set DRMS_SMTP_USER, DRMS_SMTP_PASS, and DRMS_MAIL_FROM.');
+    if (
+        $username === '' ||
+        $password === '' ||
+        filter_var($from, FILTER_VALIDATE_EMAIL) === false
+    ) {
+        throw new RuntimeException('SMTP credentials are not configured in config/runtime.local.php or the server environment.');
     }
 
     $mail->isSMTP();
@@ -20,6 +28,13 @@ function drms_configure_mailer($mail, array $overrides = []) {
     $mail->Username = $username;
     $mail->Password = $password;
     $mail->Port = $port;
+    $mail->CharSet = 'UTF-8';
+    $mail->Encoding = 'base64';
+    $mail->Timeout = $timeout;
+    $mail->Timelimit = $timeout;
+    $mail->SMTPDebug = 0;
+    $mail->SMTPAutoTLS = true;
+    $mail->SMTPKeepAlive = false;
 
     if ($secure === 'ssl') {
         $mail->SMTPSecure = \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_SMTPS;

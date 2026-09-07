@@ -237,7 +237,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'upload_version') {
             $original_stmt->close();
         }
 
-        if (!move_uploaded_file($validated_upload['tmp_name'], $stored_absolute_path)) {
+        if (!drms_storage_move_uploaded_file($validated_upload['tmp_name'], $stored_absolute_path)) {
             throw new RuntimeException('Unable to store the uploaded version.');
         }
         $file_moved = true;

@@ -444,7 +444,7 @@ try {
     $stored_file_name = date('YmdHis') . '_client_delivery_' .
         bin2hex(random_bytes(12)) . '.' . $proof_extension;
     $stored_absolute_path = $upload_directory . $stored_file_name;
-    if (!move_uploaded_file($validated_proof['tmp_name'], $stored_absolute_path)) {
+    if (!drms_storage_move_uploaded_file($validated_proof['tmp_name'], $stored_absolute_path)) {
         throw new RuntimeException(
             'The client acknowledgement proof could not be saved.'
         );

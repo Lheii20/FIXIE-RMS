@@ -1,6 +1,7 @@
 <?php 
 require 'config/db_connect.php'; 
 require 'config/functions.php';
+require_once 'config/upload_policy.php';
 
 if(!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Admin') { header("Location: dashboard.php"); exit(); }
 
@@ -10,6 +11,10 @@ $conn->query("INSERT IGNORE INTO system_settings (setting_key, setting_value) VA
 $settings = [];
 $res = $conn->query("SELECT * FROM system_settings");
 while($row = $res->fetch_assoc()){ $settings[$row['setting_key']] = $row['setting_value']; }
+
+$allowed_upload_sizes = drms_upload_allowed_document_limits_mb();
+$effective_upload_size = drms_upload_document_limit_mb($conn);
+$server_upload_limit = drms_upload_server_limit_mb();
 
 $toastMsg = ''; $toastType = '';
 if(isset($_GET['success'])) {
@@ -22,7 +27,7 @@ if(isset($_GET['success'])) {
     if ($_GET['error'] === 'InvalidSessionTimeout') {
         $toastMsg = 'Select one of the available session timeout options.';
     } elseif ($_GET['error'] === 'InvalidUploadSize') {
-        $toastMsg = 'Maximum upload size must be between 1 MB and 100 MB.';
+        $toastMsg = 'Select an upload size supported by the current hosting server.';
     } elseif ($_GET['error'] === 'SecurityTokenMismatch') {
         $toastMsg = 'Your session validation expired. Refresh the page and try again.';
     } else {
@@ -81,11 +86,13 @@ if(isset($_GET['success'])) {
                             <div class="mt-auto">
                                 <label class="form-label-sleek">Max Upload Size (per file)</label>
                                 <select name="max_upload_size" class="form-select sleek-input">
-                                    <option value="2" <?php echo ($settings['max_upload_size'] == '2') ? 'selected' : ''; ?>>2 MB</option>
-                                    <option value="5" <?php echo ($settings['max_upload_size'] == '5') ? 'selected' : ''; ?>>5 MB (Standard)</option>
-                                    <option value="10" <?php echo ($settings['max_upload_size'] == '10') ? 'selected' : ''; ?>>10 MB</option>
-                                    <option value="25" <?php echo ($settings['max_upload_size'] == '25') ? 'selected' : ''; ?>>25 MB (Large files)</option>
+                                    <?php foreach ($allowed_upload_sizes as $upload_size): ?>
+                                        <option value="<?php echo $upload_size; ?>" <?php echo ($effective_upload_size === $upload_size) ? 'selected' : ''; ?>>
+                                            <?php echo $upload_size; ?> MB<?php echo $upload_size === 5 ? ' (Standard)' : ''; ?>
+                                        </option>
+                                    <?php endforeach; ?>
                                 </select>
+                                <small class="d-block text-muted mt-2">Current hosting limit: <?php echo $server_upload_limit; ?> MB per file. Unsupported sizes are removed automatically.</small>
                             </div>
                         </div>
                     </div>

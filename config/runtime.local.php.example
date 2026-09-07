@@ -1,0 +1,42 @@
+<?php
+/**
+ * Copy this file as config/runtime.local.php on the target server, replace all
+ * placeholder values, and never share the completed file. For paid hosting,
+ * change hosting_profile to "shared" and enable only supported features.
+ */
+return [
+    'app' => [
+        'environment' => 'production',
+        'url' => 'https://your-domain.example',
+        'timezone' => 'Asia/Manila',
+        'hosting_profile' => 'infinityfree',
+        'trust_proxy_https' => false,
+    ],
+    'database' => [
+        'host' => 'sql000.infinityfree.com',
+        'port' => 3306,
+        'user' => 'if0_00000000',
+        'password' => 'REPLACE_WITH_DATABASE_PASSWORD',
+        'name' => 'if0_00000000_fixie_drms',
+    ],
+    'mail' => [
+        'host' => 'smtp.gmail.com',
+        'port' => 587,
+        'username' => 'your-email@example.com',
+        'password' => 'REPLACE_WITH_SMTP_APP_PASSWORD',
+        'encryption' => 'tls',
+        'from' => 'your-email@example.com',
+        'from_name' => 'Fixie DRMS Security',
+        'timeout_seconds' => 20,
+        'required' => true,
+    ],
+    'uploads' => [
+        'host_max_mb' => 10,
+    ],
+    'features' => [
+        // InfinityFree does not provide Cron or server process execution.
+        'scheduled_maintenance' => false,
+        'server_backup' => false,
+        'large_uploads' => false,
+    ],
+];

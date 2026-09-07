@@ -1,8 +1,10 @@
 <?php
 require 'config/db_connect.php';
 require 'config/functions.php';
+require_once __DIR__ . '/config/navigation_context.php';
 require_once 'config/workflow_access.php';
 require_once 'config/client_po_acknowledgement.php';
+require_once 'config/e_signature.php';
 
 date_default_timezone_set('Asia/Manila');
 
@@ -32,6 +34,7 @@ if ($quotation_result->num_rows === 0) {
 }
 
 $quote = $quotation_result->fetch_assoc();
+$back_url = drms_contextual_back_url('quotations_list.php', 'quotation:' . $quotation_id);
 $items_data = [];
 
 $item_statement = $conn->prepare(
@@ -117,6 +120,32 @@ $official_po_acknowledgement = (
 ) : null;
 $has_gm_acknowledgement = $official_po_acknowledgement &&
     $official_po_acknowledgement['decision'] === 'Acknowledged';
+$official_po_acknowledgement_signature = null;
+if (
+    $has_gm_acknowledgement &&
+    $acknowledgement_source_record &&
+    drms_signature_tables_ready($conn)
+) {
+    $signature_statement = $conn->prepare(
+        "SELECT signature_id, signer_name, signer_role, verification_code, signed_at,
+                signature_image_path
+         FROM document_signature_events
+         WHERE record_module = 'Client PO'
+           AND record_id = ?
+           AND signature_stage = 'GM Acknowledgement'
+           AND signature_type = 'Electronic Approval'
+           AND signature_status = 'Valid'
+         ORDER BY signature_id DESC
+         LIMIT 1"
+    );
+    $signature_source_id = (int) $acknowledgement_source_record['approval_record_id'];
+    $signature_statement->bind_param('i', $signature_source_id);
+    $signature_statement->execute();
+    $official_po_acknowledgement_signature = $signature_statement
+        ->get_result()
+        ->fetch_assoc();
+    $signature_statement->close();
+}
 $phase9c2d_ready =
     function_exists('drms_official_source_linkage_is_installed') &&
     drms_official_source_linkage_is_installed($conn);
@@ -199,6 +228,7 @@ if ($status === 'Pending Approval' && $latest_supporting_record !== null) {
     <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link href="assets/css/client-approval.css?v=<?php echo filemtime(__DIR__ . '/assets/css/client-approval.css'); ?>" rel="stylesheet">
     <link href="assets/css/client-po-acknowledgement.css?v=<?php echo filemtime(__DIR__ . '/assets/css/client-po-acknowledgement.css'); ?>" rel="stylesheet">
+    <link href="assets/css/e-signature.css?v=<?php echo (string) (@filemtime(__DIR__ . '/assets/css/e-signature.css') ?: 1); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -215,7 +245,7 @@ if ($status === 'Pending Approval' && $latest_supporting_record !== null) {
             >
                 <div class="view-doc-toolbar-main d-flex align-items-center gap-2">
                     <a
-                        href="quotations_list.php"
+                        href="<?php echo htmlspecialchars($back_url, ENT_QUOTES, 'UTF-8'); ?>"
                         class="view-doc-back btn btn-sm btn-light border shadow-sm px-3"
                         style="font-weight: 600; border-radius: 8px;"
                     >
@@ -481,10 +511,11 @@ if ($status === 'Pending Approval' && $latest_supporting_record !== null) {
                         </div>
 
                         <?php if ($can_review_official_po): ?>
-                            <form action="actions/client_po_acknowledgement_handler.php" method="POST">
+                            <form id="clientPoAcknowledgementForm" action="actions/client_po_acknowledgement_handler.php" method="POST">
                                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'] ?? ''); ?>">
                                 <input type="hidden" name="quotation_id" value="<?php echo $quotation_id; ?>">
                                 <input type="hidden" name="approval_record_id" value="<?php echo (int) $official_approval_record['approval_record_id']; ?>">
+                                <input type="hidden" name="decision" id="clientPoAcknowledgementDecision" value="">
 
                                 <div class="po-ack-form-grid">
                                     <div>
@@ -496,26 +527,23 @@ if ($status === 'Pending Approval' && $latest_supporting_record !== null) {
                                             maxlength="1000"
                                             placeholder="Optional for approval; required when returning the document."
                                         ></textarea>
-                                        <label class="po-ack-confirmation" for="poAckConfirmation">
-                                            <input id="poAckConfirmation" type="checkbox" name="confirmation" value="1" required>
-                                            <span>I reviewed the attached official Client PO and confirm this authenticated account as my digital sign-off.</span>
-                                        </label>
+                                        <p class="po-ack-signature-note">
+                                            <i class="fas fa-signature"></i>
+                                            Your active GM account and electronic-signature consent will be recorded with this Client PO acknowledgment.
+                                        </p>
                                     </div>
 
                                     <div class="po-ack-actions">
                                         <button
-                                            type="submit"
-                                            name="decision"
-                                            value="Returned"
+                                            type="button"
+                                            id="clientPoReturnButton"
                                             class="po-ack-button is-return"
-                                            formnovalidate
                                         >
                                             <i class="fas fa-undo-alt"></i> Return to Sales
                                         </button>
                                         <button
-                                            type="submit"
-                                            name="decision"
-                                            value="Acknowledged"
+                                            type="button"
+                                            id="clientPoAcknowledgeButton"
                                             class="po-ack-button is-sign"
                                         >
                                             <i class="fas fa-signature"></i> Sign & acknowledge
@@ -570,6 +598,22 @@ if ($status === 'Pending Approval' && $latest_supporting_record !== null) {
                                 <span>Signed at</span>
                                 <strong><?php echo date('M d, Y h:i A', strtotime($official_po_acknowledgement['acted_at'])); ?></strong>
                             </div>
+                            <?php if ($official_po_acknowledgement_signature): ?>
+                                <div class="po-ack-audit-item po-ack-signature-evidence">
+                                    <span>Electronic signature</span>
+                                    <div class="po-ack-signature-image">
+                                        <?php if (!empty($official_po_acknowledgement_signature['signature_image_path'])): ?>
+                                            <img
+                                                src="signature_print_image.php?id=<?php echo (int) $official_po_acknowledgement_signature['signature_id']; ?>"
+                                                alt="Electronic signature of <?php echo htmlspecialchars($official_po_acknowledgement_signature['signer_name']); ?>"
+                                            >
+                                        <?php else: ?>
+                                            <strong>/s/ <?php echo htmlspecialchars($official_po_acknowledgement_signature['signer_name']); ?></strong>
+                                        <?php endif; ?>
+                                    </div>
+                                    <small><i class="fas fa-shield-check"></i> Verified · <?php echo htmlspecialchars($official_po_acknowledgement_signature['verification_code']); ?></small>
+                                </div>
+                            <?php endif; ?>
                             <?php if ($client_po_official_record): ?>
                                 <div class="po-ack-audit-item">
                                     <span>Official Record ID</span>
@@ -936,6 +980,7 @@ if ($status === 'Pending Approval' && $latest_supporting_record !== null) {
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="assets/js/client-approval-form.js?v=<?php echo filemtime(__DIR__ . '/assets/js/client-approval-form.js'); ?>"></script>
+    <script src="assets/js/e-signature.js?v=<?php echo (string) (@filemtime(__DIR__ . '/assets/js/e-signature.js') ?: 1); ?>"></script>
 
     <script>
         function viewFile(path, type) {
@@ -977,6 +1022,42 @@ if ($status === 'Pending Approval' && $latest_supporting_record !== null) {
 
         if (successMessage) Toast.fire({ icon: 'success', title: successMessage });
         if (errorMessage) Toast.fire({ icon: 'error', title: errorMessage });
+
+        (function initializeClientPoAcknowledgement() {
+            const form = document.getElementById('clientPoAcknowledgementForm');
+            const decision = document.getElementById('clientPoAcknowledgementDecision');
+            const acknowledgeButton = document.getElementById('clientPoAcknowledgeButton');
+            const returnButton = document.getElementById('clientPoReturnButton');
+            if (!form || !decision) return;
+
+            if (acknowledgeButton) {
+                acknowledgeButton.addEventListener('click', function () {
+                    if (!window.DRMSESignature) {
+                        Toast.fire({ icon: 'error', title: 'The electronic-signature component is unavailable. Refresh the page and try again.' });
+                        return;
+                    }
+                    decision.value = 'Acknowledged';
+                    window.DRMSESignature.open({
+                        form: form,
+                        title: 'Sign Client PO acknowledgment',
+                        subtitle: 'Confirm the official Client PO before Sales is allowed to prepare the PRF.',
+                        recordLabel: <?php echo json_encode(
+                            'Client PO ' . (string) ($official_approval_record['actual_client_po_number'] ?? ''),
+                            JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
+                        ); ?>,
+                        stage: 'GM Acknowledgement',
+                        consent: 'I reviewed the attached official Client Purchase Order and acknowledge its internal receipt and authorization for PRF preparation through my electronic signature.'
+                    });
+                });
+            }
+
+            if (returnButton) {
+                returnButton.addEventListener('click', function () {
+                    decision.value = 'Returned';
+                    if (form.requestSubmit) form.requestSubmit(); else form.submit();
+                });
+            }
+        }());
     </script>
 </body>
 </html>

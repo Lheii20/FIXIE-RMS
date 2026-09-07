@@ -1,6 +1,7 @@
 <?php
 require 'config/db_connect.php';
 require_once 'config/functions.php';
+require_once 'config/storage_security.php';
 
 if (empty($_SESSION['user_id'])) {
     http_response_code(403);
@@ -130,34 +131,12 @@ function drms_document_is_accessible(
 
 function drms_resolve_upload_path(string $stored_path): string
 {
-    $uploads_root = realpath(__DIR__ . DIRECTORY_SEPARATOR . 'uploads');
-    if ($uploads_root === false) {
-        drms_download_error(404, 'File storage is unavailable.');
-    }
-
-    $normalized_path = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $stored_path);
-    $normalized_path = ltrim($normalized_path, DIRECTORY_SEPARATOR);
-    if (stripos($normalized_path, 'uploads' . DIRECTORY_SEPARATOR) === 0) {
-        $normalized_path = substr(
-            $normalized_path,
-            strlen('uploads' . DIRECTORY_SEPARATOR)
-        );
-    }
-
-    $resolved_path = realpath(
-        $uploads_root . DIRECTORY_SEPARATOR . $normalized_path
-    );
-    $required_prefix = $uploads_root . DIRECTORY_SEPARATOR;
-
-    if (
-        $resolved_path === false ||
-        !is_file($resolved_path) ||
-        strncmp($resolved_path, $required_prefix, strlen($required_prefix)) !== 0
-    ) {
+    try {
+        return drms_storage_resolve_existing_file($stored_path);
+    } catch (RuntimeException $error) {
+        error_log('Secure download path rejected: ' . $error->getMessage());
         drms_download_error(404, 'File not found.');
     }
-
-    return $resolved_path;
 }
 
 try {

@@ -203,6 +203,21 @@
     accent-color: var(--po-ack-blue);
 }
 
+.po-ack-signature-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.42rem;
+    margin: 0.55rem 0 0;
+    color: #465166;
+    font-size: 0.78rem;
+    line-height: 1.4;
+}
+
+.po-ack-signature-note i {
+    margin-top: 0.1rem;
+    color: var(--po-ack-blue);
+}
+
 .po-ack-actions {
     display: flex;
     align-items: center;
@@ -284,6 +299,51 @@
     color: var(--po-ack-ink);
     font-size: 0.82rem;
     line-height: 1.4;
+}
+
+.po-ack-signature-evidence {
+    grid-column: span 2;
+}
+
+.po-ack-signature-image {
+    display: flex;
+    width: min(100%, 220px);
+    height: 42px;
+    align-items: flex-end;
+    justify-content: center;
+    padding: 2px 6px 0;
+    overflow: hidden;
+    background: #fbfdff;
+    border-bottom: 1px solid #94a3b8;
+    border-radius: 5px 5px 0 0;
+}
+
+.po-ack-signature-image img {
+    display: block;
+    width: 100%;
+    height: 39px;
+    object-fit: contain;
+    object-position: center bottom;
+}
+
+.po-ack-signature-image strong {
+    max-width: 100%;
+    padding-bottom: 4px;
+    overflow: hidden;
+    color: #1d4ed8;
+    font-family: "Segoe Script", "Brush Script MT", cursive;
+    font-size: 0.9rem;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.po-ack-signature-evidence small {
+    display: block;
+    margin-top: 0.28rem;
+    color: var(--po-ack-green);
+    font-size: 0.68rem;
+    font-weight: 650;
 }
 
 .po-ack-remarks {
@@ -399,6 +459,10 @@
     .po-ack-summary-grid,
     .po-ack-audit {
         grid-template-columns: 1fr;
+    }
+
+    .po-ack-signature-evidence {
+        grid-column: 1 / -1;
     }
 
     .po-ack-actions {

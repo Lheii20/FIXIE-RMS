@@ -1,6 +1,7 @@
 <?php
 require 'config/db_connect.php';
 require 'config/functions.php';
+require_once __DIR__ . '/config/navigation_context.php';
 require_once 'config/workflow_access.php';
 
 drms_require_workflow_roles([
@@ -17,6 +18,8 @@ if ($pr_id < 1) {
     header('Location: pr_list.php?error=' . rawurlencode('Invalid Purchase Request.'));
     exit();
 }
+
+$back_url = drms_contextual_back_url('pr_list.php', 'purchase_request:' . $pr_id);
 
 $pr_stmt = $conn->prepare(
     "SELECT
@@ -90,6 +93,7 @@ while ($item = $items_result->fetch_assoc()) {
 $supplier = null;
 $approval_records = [];
 $approval_by_stage = [];
+$signature_events_by_stage = [];
 $current_approval = null;
 
 $supplier_stmt = $conn->prepare(
@@ -131,6 +135,31 @@ while ($approval = $approval_result->fetch_assoc()) {
     ) {
         $current_approval = $approval;
     }
+}
+
+$active_approval_cycle = (int) ($approval_records[0]['approval_cycle'] ?? 0);
+if ($active_approval_cycle > 0) {
+    $signature_version = 'approval-cycle-' . $active_approval_cycle;
+    $signature_stmt = $conn->prepare(
+        "SELECT signature_id, signature_stage, signer_name, signer_role, verification_code, signed_at,
+                signature_image_path
+         FROM document_signature_events
+         WHERE record_module = 'PRF'
+           AND record_id = ?
+           AND signed_version = ?
+           AND signature_type = 'Electronic Approval'
+           AND signature_status = 'Valid'
+         ORDER BY signature_id DESC"
+    );
+    $signature_stmt->bind_param('is', $pr_id, $signature_version);
+    $signature_stmt->execute();
+    $signature_result = $signature_stmt->get_result();
+    while ($signature = $signature_result->fetch_assoc()) {
+        if (!isset($signature_events_by_stage[$signature['signature_stage']])) {
+            $signature_events_by_stage[$signature['signature_stage']] = $signature;
+        }
+    }
+    $signature_stmt->close();
 }
 
 // An official route is proven by its recorded approval stages, not a version flag.
@@ -245,11 +274,12 @@ function prf_review_money($value): string
 </head>
 <body class="page-view-pr prf-review-page workflow-ui">
     <?php include 'sidebar.php'; ?>
+    <?php include 'includes/e_signature_modal.php'; ?>
 
     <main class="main-content fade-in">
         <div class="container-fluid prf-review-shell">
             <header class="prf-review-header">
-                <a href="pr_list.php" class="prf-review-back" aria-label="Back to purchase requests">
+                <a href="<?php echo htmlspecialchars($back_url, ENT_QUOTES, 'UTF-8'); ?>" class="prf-review-back" aria-label="Back to previous page">
                     <i class="fas fa-arrow-left"></i>
                 </a>
 
@@ -362,6 +392,7 @@ function prf_review_money($value): string
                             $stage_display = $approval['approval_stage'] === 'Owner Approval'
                                 ? 'Owner / President Approval'
                                 : $approval['approval_stage'];
+                            $stage_signature = $signature_events_by_stage[$approval['approval_stage']] ?? null;
                             ?>
                             <article class="prf-review-route-step <?php echo $step_class; ?>">
                                 <div class="prf-review-step-marker"><?php echo $step_icon; ?></div>
@@ -377,6 +408,24 @@ function prf_review_money($value): string
                                             <?php echo htmlspecialchars($approval['acted_by_name']); ?>
                                             · <?php echo prf_review_date($approval['acted_at'], 'M d, Y · h:i A'); ?>
                                         </p>
+                                        <?php if ($stage_signature): ?>
+                                            <div class="prf-review-step-signature" aria-label="Electronic signature">
+                                                <?php if (!empty($stage_signature['signature_image_path'])): ?>
+                                                    <img
+                                                        src="signature_print_image.php?id=<?php echo (int) $stage_signature['signature_id']; ?>"
+                                                        alt="Electronic signature of <?php echo htmlspecialchars($stage_signature['signer_name']); ?>"
+                                                    >
+                                                <?php else: ?>
+                                                    <span>/s/ <?php echo htmlspecialchars($stage_signature['signer_name']); ?></span>
+                                                <?php endif; ?>
+                                            </div>
+                                            <small class="prf-review-step-signature-proof">
+                                                <i class="fas fa-signature me-1"></i>
+                                                E-signed · <?php echo htmlspecialchars($stage_signature['verification_code']); ?>
+                                            </small>
+                                        <?php elseif ($approval['decision'] === 'Approved'): ?>
+                                            <small class="d-block mt-1 text-muted">Approval record predates electronic signing.</small>
+                                        <?php endif; ?>
                                     <?php elseif ($approval['decision'] === 'Pending' && $step_class === 'is-current'): ?>
                                         <p>Waiting for the assigned reviewer</p>
                                     <?php else: ?>
@@ -802,15 +851,29 @@ function prf_review_money($value): string
                         $stage_record = $approval_by_stage[$stage] ?? null;
                         $stage_decision = $stage_record['decision'] ?? 'Pending';
                         $stage_actor = $stage_record['acted_by_name'] ?? '';
+                        $stage_signature = $signature_events_by_stage[$stage] ?? null;
                         ?>
                         <article>
-                            <div class="prf-print-signature-line"></div>
+                            <div class="prf-print-signature-line">
+                                <?php if ($stage_signature && !empty($stage_signature['signature_image_path'])): ?>
+                                    <img
+                                        class="prf-print-electronic-signature"
+                                        src="signature_print_image.php?id=<?php echo (int) $stage_signature['signature_id']; ?>"
+                                        alt="Electronic signature of <?php echo htmlspecialchars($stage_signature['signer_name']); ?>"
+                                    >
+                                <?php elseif ($stage_signature): ?>
+                                    <span class="prf-print-electronic-signature-text">/s/ <?php echo htmlspecialchars($stage_signature['signer_name']); ?></span>
+                                <?php endif; ?>
+                            </div>
                             <strong><?php echo htmlspecialchars($stage_actor ?: 'Pending signatory'); ?></strong>
                             <span><?php echo htmlspecialchars($stage_label); ?></span>
                             <small>
                                 <?php echo htmlspecialchars($stage_decision); ?>
                                 <?php if (!empty($stage_record['acted_at'])): ?>
                                     · <?php echo prf_review_date($stage_record['acted_at'], 'M d, Y · h:i A'); ?>
+                                <?php endif; ?>
+                                <?php if ($stage_signature): ?>
+                                    <br>E-sign verified · <?php echo htmlspecialchars($stage_signature['verification_code']); ?>
                                 <?php endif; ?>
                             </small>
                         </article>

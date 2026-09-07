@@ -1,6 +1,7 @@
 <?php 
 require 'config/db_connect.php'; 
 require 'config/functions.php';
+require_once __DIR__ . '/config/navigation_context.php';
 require_once 'config/workflow_access.php';
 require_once 'config/po_record_timeline.php';
 require_once 'config/workflow_feedback.php';
@@ -28,6 +29,7 @@ if ($po_id === false || $po_id === null) {
     );
 }
 $po_id = (int) $po_id;
+$back_url = drms_contextual_back_url('po_list.php', 'purchase_order:' . $po_id);
 $request_success = drms_public_feedback_message(
     $_GET['success'] ?? '',
     'The purchase-order action was completed successfully.'
@@ -90,6 +92,7 @@ $official_po_record_link = $official_po_record
 
 $source_quotation = null;
 $source_pr_approval_by_stage = [];
+$source_pr_signature_events_by_stage = [];
 if (!empty($po['pr_id'])) {
     $source_quote_stmt = $conn->prepare(
         "SELECT
@@ -128,6 +131,7 @@ if (!empty($po['pr_id'])) {
 
     $source_pr_approval_stmt = $conn->prepare(
         "SELECT
+            approval.approval_cycle,
             approval.approval_stage,
             approval.required_role,
             approval.decision,
@@ -152,7 +156,55 @@ if (!empty($po['pr_id'])) {
         $source_pr_approval_by_stage[$source_pr_approval['approval_stage']] =
             $source_pr_approval;
     }
+
+    $source_pr_signature_cycle = (int) (
+        $source_pr_approval_by_stage['GM Review']['approval_cycle'] ?? 0
+    );
+    if ($source_pr_signature_cycle > 0) {
+        $signature_version = 'approval-cycle-' . $source_pr_signature_cycle;
+        $source_pr_signature_stmt = $conn->prepare(
+            "SELECT signature_id, signature_stage, signer_name, signer_role,
+                    verification_code, signed_at, signature_image_path
+             FROM document_signature_events
+             WHERE record_module = 'PRF'
+               AND record_id = ?
+               AND signed_version = ?
+               AND signature_type = 'Electronic Approval'
+               AND signature_status = 'Valid'
+             ORDER BY signature_id DESC"
+        );
+        $source_pr_signature_stmt->bind_param('is', $po['pr_id'], $signature_version);
+        $source_pr_signature_stmt->execute();
+        $source_pr_signature_result = $source_pr_signature_stmt->get_result();
+        while ($signature = $source_pr_signature_result->fetch_assoc()) {
+            if (!isset($source_pr_signature_events_by_stage[$signature['signature_stage']])) {
+                $source_pr_signature_events_by_stage[$signature['signature_stage']] = $signature;
+            }
+        }
+        $source_pr_signature_stmt->close();
+    }
 }
+
+$po_signature_events_by_stage = [];
+$po_signature_stmt = $conn->prepare(
+    "SELECT signature_id, signature_stage, signer_name, signer_role,
+            verification_code, signed_at, signature_image_path
+     FROM document_signature_events
+     WHERE record_module = 'PO'
+       AND record_id = ?
+       AND signature_type = 'Electronic Approval'
+       AND signature_status = 'Valid'
+     ORDER BY signature_id DESC"
+);
+$po_signature_stmt->bind_param('i', $po_id);
+$po_signature_stmt->execute();
+$po_signature_result = $po_signature_stmt->get_result();
+while ($signature = $po_signature_result->fetch_assoc()) {
+    if (!isset($po_signature_events_by_stage[$signature['signature_stage']])) {
+        $po_signature_events_by_stage[$signature['signature_stage']] = $signature;
+    }
+}
+$po_signature_stmt->close();
 
 $po_approval_history_by_status = [];
 $po_approval_history_stmt = $conn->prepare(
@@ -185,18 +237,21 @@ $print_po_signatory_stages = [
     [
         'pr_stage' => 'GM Review',
         'po_status' => 'GM-Approved',
+        'po_stage' => 'GM Review',
         'expected_from' => 'Pending',
         'label' => 'Reviewed by General Manager',
     ],
     [
         'pr_stage' => 'Finance Review',
         'po_status' => 'Finance-Approved',
+        'po_stage' => 'Finance Review',
         'expected_from' => 'GM-Approved',
         'label' => 'Checked by Finance',
     ],
     [
         'pr_stage' => 'Owner Approval',
         'po_status' => 'President-Approved',
+        'po_stage' => 'President Approval',
         'expected_from' => 'Finance-Approved',
         'label' => 'Approved by Owner / President',
     ],
@@ -547,6 +602,7 @@ $can_upload_files = ($role == 'Procurement');
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
+    <link href="assets/css/e-signature.css?v=<?php echo (string) (@filemtime(__DIR__ . '/assets/css/e-signature.css') ?: 1); ?>" rel="stylesheet">
     <link href="assets/css/po-print.css?v=<?php echo (string) (@filemtime(__DIR__ . '/assets/css/po-print.css') ?: 1); ?>" rel="stylesheet">
 </head>
 <body class="page-view-po workflow-ui">
@@ -554,7 +610,7 @@ $can_upload_files = ($role == 'Procurement');
     <div class="main-content fade-in">
         
         <div class="view-doc-toolbar view-po-toolbar d-flex justify-content-between align-items-center mb-4 no-print bg-white p-3 shadow-sm border rounded-12-imp">
-            <a href="po_list.php" class="view-doc-back btn btn-sm btn-light border px-3 shadow-sm fw-600 rounded-8" aria-label="Back to purchase orders">
+            <a href="<?php echo htmlspecialchars($back_url, ENT_QUOTES, 'UTF-8'); ?>" class="view-doc-back btn btn-sm btn-light border px-3 shadow-sm fw-600 rounded-8" aria-label="Back to previous page">
                 <i class="fas fa-arrow-left me-2"></i><span>Back</span>
             </a>
             
@@ -662,11 +718,20 @@ $can_upload_files = ($role == 'Procurement');
                     </div>
                 </div>
                 <?php if ($is_task_assignee && $other_eligible_users > 0): ?>
-                    <form action="actions/po_handler.php" method="POST" class="m-0">
+                    <form
+                        action="actions/po_handler.php"
+                        method="POST"
+                        class="m-0"
+                        data-drms-confirm="The current task will be passed to the next available eligible user."
+                        data-drms-confirm-title="Re-assign this task?"
+                        data-drms-confirm-button="Yes, re-assign"
+                        data-drms-cancel-button="Keep assignment"
+                        data-drms-confirm-tone="warning"
+                    >
                         <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
                         <input type="hidden" name="action" value="reassign_task">
                         <input type="hidden" name="po_id" value="<?php echo (int)$po_id; ?>">
-                        <button type="submit" class="btn btn-sm btn-outline-secondary px-3 fw-bold rounded-8" onclick="return confirm('Ipasa ang task na ito sa next available user?');"><i class="fas fa-random me-1"></i> Re-assign Task</button>
+                        <button type="submit" class="btn btn-sm btn-outline-secondary px-3 fw-bold rounded-8"><i class="fas fa-random me-1"></i> Re-assign Task</button>
                     </form>
                 <?php endif; ?>
             </div>
@@ -1129,7 +1194,15 @@ $can_upload_files = ($role == 'Procurement');
                                         <div class="d-flex gap-2 po-attachment-actions">
                                             <a href="<?php echo $secureLink; ?>" class="btn btn-sm btn-white border" title="Download" aria-label="Download <?php echo htmlspecialchars($doc['file_name']); ?>"><i class="fas fa-download text-primary"></i></a>
                                             <?php if($can_delete_files): ?>
-                                            <form action="actions/po_handler.php" method="POST" onsubmit="return confirm('Permanently delete this file?');">
+                                            <form
+                                                action="actions/po_handler.php"
+                                                method="POST"
+                                                data-drms-confirm="This file will be permanently removed from this PO. This action cannot be undone."
+                                                data-drms-confirm-title="Delete this attachment?"
+                                                data-drms-confirm-button="Delete attachment"
+                                                data-drms-cancel-button="Keep file"
+                                                data-drms-confirm-tone="danger"
+                                            >
                                                 <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                                                 <input type="hidden" name="action" value="delete">
                                                 <input type="hidden" name="doc_id" value="<?php echo $doc['doc_id']; ?>">
@@ -1399,6 +1472,7 @@ $can_upload_files = ($role == 'Procurement');
                         $signatory_date = null;
                         $signatory_decision = 'Pending';
                         $signatory_source = '';
+                        $print_signature = null;
 
                         if (
                             $pr_signatory &&
@@ -1411,6 +1485,10 @@ $can_upload_files = ($role == 'Procurement');
                             $signatory_date = $pr_signatory['acted_at'];
                             $signatory_decision = 'Approved';
                             $signatory_source = 'Official PRF approval';
+                            $print_signature =
+                                $source_pr_signature_events_by_stage[
+                                    $signatory_stage['pr_stage']
+                                ] ?? null;
                         } elseif (
                             $po_signatory &&
                             $po_signatory['status_from'] ===
@@ -1423,10 +1501,24 @@ $can_upload_files = ($role == 'Procurement');
                             $signatory_date = $po_signatory['acted_at'];
                             $signatory_decision = 'Approved';
                             $signatory_source = 'PO approval history';
+                            $print_signature =
+                                $po_signature_events_by_stage[
+                                    $signatory_stage['po_stage']
+                                ] ?? null;
                         }
                         ?>
                         <article>
-                            <div class="po-print-signature-line"></div>
+                            <div class="po-print-signature-line">
+                                <?php if ($print_signature && !empty($print_signature['signature_image_path'])): ?>
+                                    <img
+                                        class="po-print-electronic-signature"
+                                        src="signature_print_image.php?id=<?php echo (int) $print_signature['signature_id']; ?>"
+                                        alt="Electronic signature of <?php echo htmlspecialchars($print_signature['signer_name']); ?>"
+                                    >
+                                <?php elseif ($print_signature): ?>
+                                    <span class="po-print-electronic-signature-text">/s/ <?php echo htmlspecialchars($print_signature['signer_name']); ?></span>
+                                <?php endif; ?>
+                            </div>
                             <strong><?php echo htmlspecialchars($signatory_name ?: 'Pending signatory'); ?></strong>
                             <span><?php echo htmlspecialchars($signatory_stage['label']); ?></span>
                             <small>
@@ -1483,6 +1575,7 @@ $can_upload_files = ($role == 'Procurement');
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="assets/js/e-signature.js?v=<?php echo (string) (@filemtime(__DIR__ . '/assets/js/e-signature.js') ?: 1); ?>"></script>
     
     <script>
         const Toast = Swal.mixin({
@@ -1582,6 +1675,38 @@ $can_upload_files = ($role == 'Procurement');
             });
         }
 
+        function submitPOApproval(actionKey, id, poNumber, btnLabel) {
+            $('#dynamicAction').val(actionKey);
+            $('#dynamicPoId').val(id);
+            $('#dynamicRemarks').val('');
+
+            const signatureStages = {
+                approve_gm: 'GM Review',
+                approve_finance: 'Finance Review',
+                approve_president: 'President Approval'
+            };
+            const stage = signatureStages[actionKey];
+            const form = document.getElementById('dynamicActionForm');
+
+            if (stage) {
+                if (!window.DRMSESignature || !form) {
+                    Toast.fire({ icon: 'error', title: 'The electronic-signature component is unavailable. Refresh the page and try again.' });
+                    return;
+                }
+                window.DRMSESignature.open({
+                    form: form,
+                    title: 'Sign PO approval',
+                    subtitle: 'Confirm this assigned approval before the Purchase Order workflow is updated.',
+                    recordLabel: 'PO ' + poNumber,
+                    stage: stage,
+                    consent: 'I reviewed the displayed Internal Purchase Order data and authorize this assigned approval stage through my electronic signature.'
+                });
+                return;
+            }
+
+            form.submit();
+        }
+
         function confirmApprovePO(e, actionKey, id, poNumber, btnLabel) {
             e.preventDefault();
             e.stopPropagation();
@@ -1601,10 +1726,7 @@ $can_upload_files = ($role == 'Procurement');
                 }
             }).then((result) => {
                 if (result.isConfirmed) {
-                    $('#dynamicAction').val(actionKey); 
-                    $('#dynamicPoId').val(id);
-                    $('#dynamicRemarks').val('');
-                    $('#dynamicActionForm').submit();
+                    submitPOApproval(actionKey, id, poNumber, btnLabel);
                 }
             });
         }

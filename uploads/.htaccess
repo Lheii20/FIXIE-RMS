@@ -1,5 +1,16 @@
 Options -Indexes
 
+# Defense in depth: never let uploaded extensions become executable handlers.
+<IfModule mod_mime.c>
+    RemoveHandler .php .phtml .pht .phar .cgi .pl .py .sh
+    RemoveType .php .phtml .pht .phar .cgi .pl .py .sh
+</IfModule>
+
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Cache-Control "no-store, private"
+</IfModule>
+
 # Uploaded business records are never public assets. They must be served by
 # download.php, which checks the session, role, record status, and file path.
 <IfModule mod_authz_core.c>

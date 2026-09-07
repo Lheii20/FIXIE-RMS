@@ -1270,7 +1270,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
       <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
     
     
-  <link rel="stylesheet" href="assets/css/physical-records.css?v=vc4b2-1">
+  <link rel="stylesheet" href="assets/css/physical-records.css?v=<?php echo filemtime(__DIR__ . '/assets/css/physical-records.css'); ?>">
   <style>
     #dispositionExecutionModal .modal-content{max-height:calc(100dvh - 32px);overflow:hidden}
     #dispositionExecutionModal .modal-header,#dispositionExecutionModal .modal-footer{flex:none}
@@ -1327,6 +1327,9 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                       <?php endif; ?>
                   <?php endif; ?>
 
+                  <?php if ($role !== 'Admin'): ?>
+                      <a class="btn btn-outline-primary d-inline-flex align-items-center gap-2" href="official_declarations.php"><i class="fas fa-file-signature" aria-hidden="true"></i> Declaration requests</a>
+                  <?php endif; ?>
                   <!-- 3-DOTS OPTIONS MENU -->
                   <div class="dropdown">
                       <button class="btn bg-transparent border-0 shadow-none d-flex align-items-center justify-content-center hover-circle" type="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-boundary="body" style="width: 40px; height: 40px; transition: all 0.2s;" title="More Actions">
@@ -2309,46 +2312,6 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
   <?php require __DIR__ . '/includes/physical_record_profile.php'; ?>
 
   <!-- DECLARE OFFICIAL MODAL -->
-  <div class="modal fade sleek-modal" id="declareOfficialModal" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog modal-dialog-centered">
-          <div class="modal-content shadow-lg border-0">
-              <div class="modal-header border-bottom-0 pb-0">
-                  <h5 class="modal-title fw-bold text-dark fs-5"><i class="fas fa-certificate text-success me-2"></i>Declare Official Record</h5>
-                  <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal"></button>
-              </div>
-              <div class="modal-body pt-3">
-                  <form action="actions/document_handler.php" method="POST">
-                      <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                      <input type="hidden" name="action" value="declare_official">
-                      <input type="hidden" name="doc_id" id="declareDocId">
-                      <input type="hidden" name="return_url" value="<?php echo htmlspecialchars($_SERVER['REQUEST_URI']); ?>">
-                    
-                      <div class="alert alert-success bg-success bg-opacity-10 border-success border-opacity-25 text-success fs-sm mb-3">
-                          <i class="fas fa-info-circle me-2"></i> <strong>Confirmation:</strong> Declaring this as an Official Record will finalize it and move it to the Official Records directory.
-                      </div>
-
-                      <div class="mb-4">
-                          <label class="form-label fw-bold small text-muted text-uppercase letter-spacing-tight">Document Name</label>
-                          <input type="text" class="form-control bg-light fs-sm text-dark fw-bold" id="declareDocName" readonly>
-                      </div>
-
-                      <div class="form-check border rounded-3 bg-light px-3 py-3 mb-4">
-                          <input class="form-check-input ms-0 me-2" type="checkbox" name="official_signature_confirmed" value="1" id="declareSignatureConfirmed" required>
-                          <label class="form-check-label fs-sm text-dark" for="declareSignatureConfirmed">
-                              I confirm that this copy contains the required signature(s) and is ready to become an Official Record.
-                          </label>
-                      </div>
-
-                      <div class="d-flex justify-content-end gap-2">
-                          <button type="button" class="btn btn-light sleek-btn-sm border" data-bs-dismiss="modal">Cancel</button>
-                          <button type="submit" class="btn btn-success sleek-btn-sm px-4 fw-bold">Confirm & Move</button>
-                      </div>
-                  </form>
-              </div>
-          </div>
-      </div>
-  </div>
-
   <!-- UPLOAD MODAL -->
   <?php if (!$hide_upload_button): ?>
   <div class="modal fade sleek-modal" id="uploadModal" tabindex="-1" aria-hidden="true">
@@ -2365,7 +2328,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                   <form action="actions/document_handler.php" method="POST" enctype="multipart/form-data">
                       <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                       <input type="hidden" name="action" value="upload">
-                      <input type="hidden" name="record_intake" value="official">
+                      <input type="hidden" name="record_intake" value="working">
                       <input type="file" name="document" id="uploadDocumentInput" class="d-none" required>
                     
                       <div class="mb-4 position-relative">
@@ -2477,13 +2440,13 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                       <div class="form-check border rounded-3 bg-white px-3 py-3 mb-4 shadow-sm">
                           <input class="form-check-input ms-0 me-2" type="checkbox" name="official_signature_confirmed" value="1" id="uploadSignatureConfirmed" required>
                           <label class="form-check-label fs-sm text-dark" for="uploadSignatureConfirmed">
-                              I confirm that the uploaded copy contains the required signature(s) and may be filed as an Official Record.
+                              This signed copy will be saved to Company Files. Submit a declaration request there for management verification.
                           </label>
                       </div>
 
                       <!-- DAGDAG: Nilagyan ng id="uploadSubmitBtn" -->
                       <button type="submit" id="uploadSubmitBtn" class="btn btn-primary w-100 fw-bold shadow-sm rounded-pill py-2 modal-btn-hover transition-all">
-                          <i class="fas fa-check-circle me-2"></i> Upload and Index File
+                          <i class="fas fa-check-circle me-2"></i> Upload to Company Files
                       </button>
                   </form>
               </div>
@@ -3671,7 +3634,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                   // DAGDAG: I-enable ulit ang Submit Button kapag tapos na ang scanning (success man o error)
                   if (submitBtn) {
                       submitBtn.disabled = false;
-                      submitBtn.innerHTML = '<i class="fas fa-check-circle me-2"></i> Upload and Index File';
+                      submitBtn.innerHTML = '<i class="fas fa-check-circle me-2"></i> Upload to Company Files';
                       submitBtn.classList.replace('btn-secondary', 'btn-primary');
                       submitBtn.style.cursor = 'pointer';
                   }
@@ -4463,38 +4426,50 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
       }
 
       // ==========================================
-      // RENAME FUNCTION (SWEETALERT PROMPT)
+      // RENAME FUNCTION (SHARED SYSTEM PROMPT)
       // ==========================================
       function renameFile(docId, currentName) {
-          Swal.fire({
-              title: '<span class="fs-5 fw-bold text-dark letter-spacing-tight mt-2">Rename File</span>',
-              html: `
-                  <form id="renameForm_${docId}" action="documents.php" method="POST" class="text-start mt-3">
-                      <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                      <input type="hidden" name="action" value="rename_file">
-                      <input type="hidden" name="doc_id" value="${docId}">
-                      <input type="hidden" name="return_url" value="${window.location.href}">
-                      <label class="form-label text-muted fs-xs fw-bold text-uppercase">New File Name</label>
-                      <input type="text" name="new_name" class="form-control shadow-none bg-light" value="${currentName}" required>
-                  </form>
-              `,
-              icon: 'info',
-              width: 400,
-              padding: '1.5rem',
-              showCancelButton: true,
-              confirmButtonText: 'Save Changes',
-              cancelButtonText: 'Cancel',
-              customClass: {
-                  popup: 'rounded-4 shadow-lg border-0',
-                  confirmButton: 'btn btn-primary btn-sm fw-bold px-4 rounded-pill w-100',
-                  cancelButton: 'btn btn-light btn-sm fw-medium px-4 rounded-pill border w-100 bg-white text-dark',
-                  actions: 'd-flex w-100 mt-4 gap-2 flex-row-reverse'
-              },
-              buttonsStyling: false
-          }).then((result) => {
-              if (result.isConfirmed) {
-                  document.getElementById('renameForm_' + docId).submit();
-              }
+          if (!window.DRMSFeedback) return;
+
+          window.DRMSFeedback.prompt({
+              title: 'Rename file',
+              message: 'Use a clear file name and keep the correct extension when it is required.',
+              inputLabel: 'New file name',
+              inputType: 'text',
+              value: currentName,
+              placeholder: 'Enter the new file name',
+              required: true,
+              requiredMessage: 'Enter a file name before saving.',
+              maxLength: 255,
+              confirmText: 'Save changes',
+              cancelText: 'Keep current name',
+              tone: 'info'
+          }).then((newName) => {
+              if (newName === null) return;
+
+              const form = document.createElement('form');
+              form.method = 'POST';
+              form.action = 'documents.php';
+              form.hidden = true;
+
+              const fields = {
+                  csrf_token: <?php echo json_encode((string) ($_SESSION['csrf_token'] ?? ''), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT); ?>,
+                  action: 'rename_file',
+                  doc_id: String(docId),
+                  return_url: window.location.href,
+                  new_name: newName
+              };
+
+              Object.entries(fields).forEach(([name, value]) => {
+                  const input = document.createElement('input');
+                  input.type = 'hidden';
+                  input.name = name;
+                  input.value = String(value);
+                  form.appendChild(input);
+              });
+
+              document.body.appendChild(form);
+              form.submit();
           });
       }
 
@@ -4684,12 +4659,6 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
           });
       }
 
-      function openDeclareOfficialModal(docId, fileName) {
-          document.getElementById('declareDocId').value = docId;
-          document.getElementById('declareDocName').value = fileName;
-          document.getElementById('declareSignatureConfirmed').checked = false;
-          new bootstrap.Modal(document.getElementById('declareOfficialModal')).show();
-      }
 
       // ==========================================
       // LIGTAS NA G-DRIVE 3-DOTS MENU (NO TABLE CRASH)
@@ -4780,6 +4749,6 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
           }
       });
   </script>
-  <script src="assets/js/physical-record-profile.js?v=vc4b2-1"></script>
+  <script src="assets/js/physical-record-profile.js?v=<?php echo filemtime(__DIR__ . '/assets/js/physical-record-profile.js'); ?>"></script>
 </body>
   </html>

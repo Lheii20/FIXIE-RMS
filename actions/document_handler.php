@@ -1,8 +1,9 @@
 <?php
-session_start();
+if (session_status() !== PHP_SESSION_ACTIVE) session_start();
 require '../config/db_connect.php';
 require '../config/functions.php';
 require_once '../config/upload_policy.php';
+require_once '../config/official_declarations.php';
 
 if (!isset($_SESSION['user_id'])) { die("Unauthorized access."); }
 
@@ -463,6 +464,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         // The destination must be explicit. HTTP_REFERER is optional and can be
         // forged, so it must never decide whether a record is already official.
         $record_intake = trim($_POST['record_intake'] ?? 'working');
+        if ($record_intake === 'official') {
+            header('Location: ../official_declarations.php?error=' . rawurlencode('Upload the signed file to Company Files, then submit a declaration request.'));
+            exit();
+        }
         $signature_confirmed = ($_POST['official_signature_confirmed'] ?? '') === '1';
         $is_official_intake = $record_intake === 'official' && $signature_confirmed;
         $record_phase = $is_official_intake ? 'Official' : 'Working';
@@ -630,7 +635,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
         }
 
-        if (move_uploaded_file($validated_upload['tmp_name'], $dest_path)) {
+        if (drms_storage_move_uploaded_file($validated_upload['tmp_name'], $dest_path)) {
             $status = 'Active';
 
             // Official intake records the declaration actor/date and snapshots
@@ -681,17 +686,25 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     // DECLARE AS OFFICIAL RECORD (ENTERPRISE WORKFLOW)
     // ==========================================
     if ($action == 'declare_official') {
-        if (!has_permission($conn, $_SESSION['user_id'], 'can_manage_folders') && !in_array($_SESSION['role'], ['Admin', 'GM', 'President'])) {
-            die("Access Denied");
-        }
-
         $doc_id = intval($_POST['doc_id']);
-        $redirectUrl = $_POST['return_url'] ?? '../general_docs.php';
+        $request_id = (int) ($_POST['request_id'] ?? 0);
+        $redirectUrl = '../official_declarations.php' . ($request_id > 0 ? '?request_id=' . $request_id : '');
 
         $official_copy_absolute = null;
         $transaction_committed = false;
 
         try {
+            if ($request_id < 1 || !drms_signature_tables_ready($conn)) {
+                throw new DomainException('Submit a declaration request before filing this document.');
+            }
+            $e_signature = drms_esign_prepare(
+                $conn,
+                (int) $user_id,
+                'General Document',
+                'Official Declaration',
+                $_POST
+            );
+            $verification_remarks = drms_declaration_text($_POST['remarks'] ?? '', 2000);
             $conn->begin_transaction();
 
             // 1. Fetch the original working document
@@ -701,14 +714,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $orig = $stmt->get_result()->fetch_assoc();
 
             if (!$orig) throw new Exception("Document not found.");
+            $declaration_request = drms_declaration_locked_request($conn, $request_id, $doc_id);
+            drms_declaration_assert_reviewer($declaration_request, drms_declaration_user($conn, (int) $user_id));
+            if ((int) ($e_signature['user']['user_id'] ?? 0) !== (int) $user_id) {
+                throw new DomainException('The electronic-signature account does not match the active session.');
+            }
+            if ($declaration_request['declaration_basis'] !== 'External Signed Copy') {
+                throw new DomainException('This action requires a document that already contains its required signatures.');
+            }
+            $verified_source_hash = drms_declaration_assert_unchanged($orig, $declaration_request);
             if (!in_array($orig['record_phase'], ['Working', 'For Review'], true)) {
                 throw new Exception("Only a Working or For Review document can be declared as an Official Record.");
             }
 
-            if (($_POST['official_signature_confirmed'] ?? '') !== '1') {
-                throw new Exception("Confirm that the document contains the required signature before declaring it official.");
-            }
-            
             // Validate Enterprise Physical Synchronization
             $physical_check = $conn->prepare("SELECT id FROM virt_document_locations WHERE document_id = ? FOR UPDATE");
             $physical_check->bind_param('i', $doc_id);
@@ -722,6 +740,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             // organization-wide per year; the prefix identifies the folder.
             $cat = !empty($orig['category']) ? $orig['category'] : $orig['doc_type'];
             $folder_profile = drms_get_official_folder_profile($conn, $cat);
+            drms_declaration_working($orig, $folder_profile);
             if ((int) $folder_profile['is_system_folder'] === 1) {
                 throw new Exception(
                     'Protected workflow folders are filed automatically from their related PO approval step.'
@@ -791,10 +810,23 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
             @chmod($official_copy_absolute, 0640);
 
+            // Verify the new official binary against the actual current source
+            // file. The stored database hash can be stale after a file update,
+            // so it must not block a valid declaration.
+            $source_file_hash = hash_file('sha256', $source_absolute);
             $official_copy_hash = hash_file('sha256', $official_copy_absolute);
-            if ($official_copy_hash === false || !hash_equals(strtolower($file_hash), strtolower($official_copy_hash))) {
-                throw new Exception('Official Record copy verification failed. The source file was not changed.');
+            if ($source_file_hash === false || $official_copy_hash === false) {
+                throw new Exception('Official Record copy verification failed because a file hash could not be calculated.');
             }
+            if (!hash_equals(strtolower($source_file_hash), strtolower($official_copy_hash))) {
+                throw new Exception('Official Record copy verification failed because the protected copy does not match the source file.');
+            }
+            if (!hash_equals($verified_source_hash, $official_copy_hash)) {
+                throw new DomainException('The source file changed during verification. Submit the latest signed copy.');
+            }
+
+            // Store the current, verified checksum on the Official Record.
+            $file_hash = $source_file_hash;
 
             $file_path = $storage['database_directory'] . '/' . $file_name;
 
@@ -811,9 +843,125 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $insert->execute();
             $official_doc_id = $insert->insert_id;
 
-            // 4. Update Original to 'Converted' (Preserves Working Copy, locks editing)
-            $update = $conn->prepare("UPDATE documents SET record_phase = 'Converted', official_doc_id = ?, is_locked = 1 WHERE doc_id = ?");
-            $update->bind_param("ii", $official_doc_id, $doc_id);
+            // 4. Preserve the complete Company File lineage in the new
+            // Official Record. The converted source is hidden from Company
+            // Files, while its earlier versions remain available here.
+            $copy_history_stmt = $conn->prepare(
+                "INSERT INTO document_versions (
+                    doc_id,
+                    version_number,
+                    file_name,
+                    file_path,
+                    uploaded_by,
+                    uploaded_at,
+                    remarks
+                 )
+                 SELECT
+                    ?,
+                    source_version.version_number,
+                    source_version.file_name,
+                    source_version.file_path,
+                    source_version.uploaded_by,
+                    source_version.uploaded_at,
+                    CONCAT(
+                        '[Pre-official working version] ',
+                        COALESCE(
+                            NULLIF(source_version.remarks, ''),
+                            'No remarks provided.'
+                        )
+                    )
+                 FROM document_versions source_version
+                 WHERE source_version.doc_id = ?
+                 ORDER BY
+                    CAST(source_version.version_number AS DECIMAL(10,1)) ASC,
+                    source_version.uploaded_at ASC,
+                    source_version.version_id ASC"
+            );
+            $copy_history_stmt->bind_param('ii', $official_doc_id, $doc_id);
+            $copy_history_stmt->execute();
+            $copy_history_stmt->close();
+
+            // Some Company Files have never had a separate version entry.
+            // Preserve their current working copy before hiding the source.
+            $source_file_name = (string) $orig['file_name'];
+            $source_file_path = (string) $orig['file_path'];
+            $source_version_exists_stmt = $conn->prepare(
+                "SELECT 1
+                 FROM document_versions
+                 WHERE doc_id = ?
+                   AND version_number = ?
+                   AND file_path = ?
+                 LIMIT 1"
+            );
+            $source_version_exists_stmt->bind_param(
+                'iss',
+                $doc_id,
+                $current_version,
+                $source_file_path
+            );
+            $source_version_exists_stmt->execute();
+            $source_version_exists = (bool) $source_version_exists_stmt
+                ->get_result()
+                ->fetch_row();
+            $source_version_exists_stmt->close();
+
+            if (!$source_version_exists) {
+                $source_snapshot_remarks =
+                    '[Pre-official working version] Current working copy at declaration.';
+                $source_snapshot_stmt = $conn->prepare(
+                    "INSERT INTO document_versions (
+                        doc_id,
+                        version_number,
+                        file_name,
+                        file_path,
+                        uploaded_by,
+                        uploaded_at,
+                        remarks
+                     ) VALUES (?, ?, ?, ?, ?, ?, ?)"
+                );
+                $source_snapshot_stmt->bind_param(
+                    'isssiss',
+                    $official_doc_id,
+                    $current_version,
+                    $source_file_name,
+                    $source_file_path,
+                    $uploaded_by,
+                    $uploaded_at,
+                    $source_snapshot_remarks
+                );
+                $source_snapshot_stmt->execute();
+                $source_snapshot_stmt->close();
+            }
+
+            // Record the new protected copy as the latest item in the
+            // consolidated timeline. Its path is inside uploads/official/.
+            $official_snapshot_remarks =
+                'Official declaration — immutable signed copy.';
+            $official_snapshot_stmt = $conn->prepare(
+                "INSERT INTO document_versions (
+                    doc_id,
+                    version_number,
+                    file_name,
+                    file_path,
+                    uploaded_by,
+                    remarks
+                 ) VALUES (?, ?, ?, ?, ?, ?)"
+            );
+            $official_snapshot_stmt->bind_param(
+                'isssis',
+                $official_doc_id,
+                $current_version,
+                $file_name,
+                $file_path,
+                $user_id,
+                $official_snapshot_remarks
+            );
+            $official_snapshot_stmt->execute();
+            $official_snapshot_stmt->close();
+
+            // 5. Update Original to 'Converted' (Preserves Working Copy, locks editing)
+            $update = $conn->prepare("UPDATE documents SET record_phase = 'Converted', official_doc_id = ?, is_locked = 1, file_hash = ? WHERE doc_id = ?");
+            $update->bind_param("isi", $official_doc_id, $file_hash, $doc_id);
             $update->execute();
 
             // ==========================================================
@@ -834,6 +982,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $transfer_m_logs->execute();
             // ==========================================================
 
+            drms_declaration_finish($conn, $declaration_request, $e_signature, $official_doc_id, $file_hash, $verification_remarks);
             $conn->commit();
             $transaction_committed = true;
 
@@ -855,7 +1004,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
             error_log("Declare Official Error: " . $e->getMessage());
             // FIX: Ipinasa ang totoong $e->getMessage() para malaman ng user kung bakit na-block
-            header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "error=" . urlencode($e->getMessage()));
+            $public_error = $e instanceof mysqli_sql_exception
+                ? 'The verification could not be saved. No Official Record was created. Please try again.'
+                : $e->getMessage();
+            header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "error=" . urlencode($public_error));
         }
         exit();
     }

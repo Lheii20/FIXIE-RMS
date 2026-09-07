@@ -3,6 +3,7 @@
 if (!class_exists('DrmsPrfPdfBuilder')) {
     require_once __DIR__ . '/official_prf_snapshot.php';
 }
+require_once __DIR__ . '/storage_security.php';
 
 function drms_po_pdf_date(?string $value, string $format = 'M d, Y'): string
 {
@@ -302,6 +303,7 @@ function drms_load_authorized_po_snapshot_data(
 
     $approval_stmt = $conn->prepare(
         "SELECT
+            approval.approval_cycle,
             approval.approval_stage,
             approval.required_role,
             approval.stage_sequence,
@@ -363,6 +365,55 @@ function drms_load_authorized_po_snapshot_data(
         );
     }
 
+    // A new Internal PO inherits the final authorization from the approved
+    // PRF. Load that immutable e-signature evidence for its generated PDF.
+    $signatureEvents = [];
+    $signatureCycle = (int) ($approvals['GM Review']['approval_cycle'] ?? 0);
+    if ($signatureCycle > 0) {
+        $signatureVersion = 'approval-cycle-' . $signatureCycle;
+        $signatureStmt = $conn->prepare(
+            "SELECT signature_stage, signer_name, signer_role, verification_code, signed_at,
+                    signature_image_path, signature_image_hash
+             FROM document_signature_events
+             WHERE record_module = 'PRF'
+               AND record_id = ?
+               AND signed_version = ?
+               AND signature_type = 'Electronic Approval'
+               AND signature_status = 'Valid'
+             ORDER BY signature_id DESC"
+        );
+        $signatureStmt->bind_param('is', $pr_id, $signatureVersion);
+        $signatureStmt->execute();
+        $signatureResult = $signatureStmt->get_result();
+        while ($signature = $signatureResult->fetch_assoc()) {
+            $stage = (string) $signature['signature_stage'];
+            if (!isset($signatureEvents[$stage])) {
+                $signatureEvents[$stage] = $signature;
+            }
+        }
+        $signatureStmt->close();
+    }
+
+    foreach ($signatureEvents as $stage => $signature) {
+        $storedPath = trim((string) ($signature['signature_image_path'] ?? ''));
+        $expectedHash = strtolower(trim((string) ($signature['signature_image_hash'] ?? '')));
+        $signatureEvents[$stage]['verified_signature_image_path'] = null;
+        if ($storedPath === '' || !preg_match('/^[a-f0-9]{64}$/', $expectedHash)) {
+            continue;
+        }
+        try {
+            $absolutePath = drms_storage_resolve_existing_file($storedPath);
+            $actualHash = hash_file('sha256', $absolutePath);
+            $imageInfo = @getimagesize($absolutePath);
+            if ($actualHash !== false && hash_equals($expectedHash, $actualHash) &&
+                is_array($imageInfo) && ($imageInfo['mime'] ?? '') === 'image/png') {
+                $signatureEvents[$stage]['verified_signature_image_path'] = $absolutePath;
+            }
+        } catch (Throwable $error) {
+            error_log('Official PO signature image verification skipped: ' . $error->getMessage());
+        }
+    }
+
     $history_stmt = $conn->prepare(
         "SELECT
             history.status_from,
@@ -399,6 +450,7 @@ function drms_load_authorized_po_snapshot_data(
         'po' => $po,
         'items' => $items,
         'approvals' => $approvals,
+        'signature_events' => $signatureEvents,
         'creation_history' => $creation_history,
     ];
 }
@@ -410,6 +462,7 @@ function drms_render_official_po_pdf(
     $po = $snapshot['po'];
     $items = $snapshot['items'];
     $approvals = $snapshot['approvals'];
+    $signatureEvents = $snapshot['signature_events'] ?? [];
     $creation = $snapshot['creation_history'];
 
     $pdf = new DrmsPrfPdfBuilder(
@@ -609,7 +662,7 @@ function drms_render_official_po_pdf(
     }
     $y += 148;
 
-    if ($y + 135 > 790) {
+    if ($y + 155 > 790) {
         $y = $new_page($pdf, true);
     }
     $y = $section_title(
@@ -619,35 +672,65 @@ function drms_render_official_po_pdf(
         'Preparation and inherited authorization record'
     );
 
+    $electronicSignatureLine = static function (string $stage, string $fallback) use ($signatureEvents): string {
+        $event = $signatureEvents[$stage] ?? null;
+        if (!is_array($event) || empty($event['verification_code'])) {
+            return $fallback;
+        }
+        return 'E-SIGN ' . strtoupper(substr((string) $event['verification_code'], 0, 12));
+    };
+    $electronicSignatureImage = static function (string $stage) use ($signatureEvents): ?string {
+        $event = $signatureEvents[$stage] ?? null;
+        $path = is_array($event) ? ($event['verified_signature_image_path'] ?? null) : null;
+        return is_string($path) && $path !== '' ? $path : null;
+    };
+
     $signatories = [
         [
             'Prepared by Procurement',
             (string) $creation['created_by_name'],
             'PO CREATED',
             drms_po_pdf_date($creation['created_at'], 'M d, Y h:i A'),
+            null,
+            false,
         ],
         [
             'Reviewed by General Manager',
             (string) $approvals['GM Review']['acted_by_name'],
             'APPROVED IN PRF',
-            drms_po_pdf_date($approvals['GM Review']['acted_at'], 'M d, Y h:i A'),
+            $electronicSignatureLine(
+                'GM Review',
+                drms_po_pdf_date($approvals['GM Review']['acted_at'], 'M d, Y h:i A')
+            ),
+            $electronicSignatureImage('GM Review'),
+            true,
         ],
         [
             'Checked by Finance',
             (string) $approvals['Finance Review']['acted_by_name'],
             'APPROVED IN PRF',
-            drms_po_pdf_date($approvals['Finance Review']['acted_at'], 'M d, Y h:i A'),
+            $electronicSignatureLine(
+                'Finance Review',
+                drms_po_pdf_date($approvals['Finance Review']['acted_at'], 'M d, Y h:i A')
+            ),
+            $electronicSignatureImage('Finance Review'),
+            true,
         ],
         [
             'Approved by Owner / President',
             (string) $approvals['Owner Approval']['acted_by_name'],
             'FINAL PRF APPROVAL',
-            drms_po_pdf_date($approvals['Owner Approval']['acted_at'], 'M d, Y h:i A'),
+            $electronicSignatureLine(
+                'Owner Approval',
+                drms_po_pdf_date($approvals['Owner Approval']['acted_at'], 'M d, Y h:i A')
+            ),
+            $electronicSignatureImage('Owner Approval'),
+            true,
         ],
     ];
     foreach ($signatories as $index => $signatory) {
         $x = 40 + ($index * 130);
-        $pdf->rectangle($x, $y, 125, 82, [255, 255, 255], $border);
+        $pdf->rectangle($x, $y, 125, 103, [255, 255, 255], $border);
         $pdf->wrappedText(
             $x + 9,
             $y + 8,
@@ -661,7 +744,7 @@ function drms_render_official_po_pdf(
         );
         $pdf->wrappedText(
             $x + 9,
-            $y + 30,
+            $y + 55,
             $signatory[1],
             107,
             8.8,
@@ -670,9 +753,15 @@ function drms_render_official_po_pdf(
             10,
             2
         );
-        $pdf->line($x + 9, $y + 53, $x + 116, $y + 53, $border, 0.7);
-        $pdf->text($x + 9, $y + 59, $signatory[2], 6.2, true, $green);
-        $pdf->text($x + 9, $y + 70, $signatory[3], 6.3, false, $muted);
+        $signatureImageDrawn = !empty($signatory[4]) &&
+            method_exists($pdf, 'transparentPng') &&
+            $pdf->transparentPng((string) $signatory[4], $x + 9, $y + 27, 107, 24);
+        if (!$signatureImageDrawn && !empty($signatory[5])) {
+            $pdf->text($x + 9, $y + 40, '/s/ ' . $signatory[1], 8.2, true, $blue, 'center', 107);
+        }
+        $pdf->line($x + 9, $y + 76, $x + 116, $y + 76, $border, 0.7);
+        $pdf->text($x + 9, $y + 82, $signatory[2], 6.2, true, $green);
+        $pdf->text($x + 9, $y + 93, $signatory[3], 6.3, false, $muted);
     }
 
     $page_count = $pdf->pageCount();

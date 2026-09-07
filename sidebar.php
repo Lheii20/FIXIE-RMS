@@ -59,6 +59,13 @@ $user_id = $_SESSION['user_id'] ?? 0;
     rel="stylesheet"
 >
 
+<link
+    href="assets/css/system-feedback.css?v=<?php echo file_exists(__DIR__ . '/assets/css/system-feedback.css') ? filemtime(__DIR__ . '/assets/css/system-feedback.css') : '1'; ?>"
+    rel="stylesheet"
+>
+
+<script src="assets/js/system-feedback.js?v=<?php echo file_exists(__DIR__ . '/assets/js/system-feedback.js') ? filemtime(__DIR__ . '/assets/js/system-feedback.js') : '1'; ?>"></script>
+
 <nav class="saas-navbar shadow-sm d-print-none">
     <div class="saas-nav-container">
         <!-- Mobile Menu Toggle Button (Hamburger Icon) -->
@@ -182,7 +189,16 @@ $user_id = $_SESSION['user_id'] ?? 0;
                         <small class="text-muted fs-08rem text-uppercase"><?php echo htmlspecialchars($_SESSION['role'] ?? 'Role'); ?></small>
                     </div>
                     <a href="settings.php"><i class="fas fa-cog"></i> Account Settings</a>
-                    <form action="actions/auth.php" method="POST" class="saas-logout-form">
+                    <form
+                        action="actions/auth.php"
+                        method="POST"
+                        class="saas-logout-form"
+                        data-drms-confirm="Your current session will end. Any unsaved changes on this page will not be saved."
+                        data-drms-confirm-title="Sign out of Fixie DRMS?"
+                        data-drms-confirm-button="Yes, sign out"
+                        data-drms-cancel-button="Stay signed in"
+                        data-drms-confirm-tone="warning"
+                    >
                         <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) ($_SESSION['csrf_token'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
                         <button type="submit" name="logout" value="1" class="saas-logout-button text-danger"><i class="fas fa-sign-out-alt" aria-hidden="true"></i><span>Logout</span></button>
                     </form>
@@ -247,7 +263,16 @@ $user_id = $_SESSION['user_id'] ?? 0;
     
     <div class="mobile-side-nav__footer">
         <a href="settings.php" class="mobile-side-nav__link"><i class="fas fa-cog"></i>Account Settings</a>
-        <form action="actions/auth.php" method="POST" class="mobile-side-nav__logout-form">
+        <form
+            action="actions/auth.php"
+            method="POST"
+            class="mobile-side-nav__logout-form"
+            data-drms-confirm="Your current session will end. Any unsaved changes on this page will not be saved."
+            data-drms-confirm-title="Sign out of Fixie DRMS?"
+            data-drms-confirm-button="Yes, sign out"
+            data-drms-cancel-button="Stay signed in"
+            data-drms-confirm-tone="warning"
+        >
             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) ($_SESSION['csrf_token'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
             <button type="submit" name="logout" value="1" class="mobile-side-nav__link mobile-side-nav__link--danger mobile-side-nav__logout-button"><i class="fas fa-sign-out-alt" aria-hidden="true"></i><span>Logout</span></button>
         </form>

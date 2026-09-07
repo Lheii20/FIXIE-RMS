@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/runtime.php';
+require_once __DIR__ . '/storage_security.php';
+
 final class DrmsUploadValidationException extends RuntimeException
 {
     private string $validationCode;
@@ -18,9 +21,68 @@ final class DrmsUploadValidationException extends RuntimeException
     }
 }
 
-function drms_upload_allowed_document_limits_mb(): array
+function drms_upload_document_setting_options_mb(): array
 {
     return [2, 5, 10, 25];
+}
+
+function drms_upload_ini_bytes(string $value): ?int
+{
+    $value = trim($value);
+    if ($value === '' || $value === '-1' || $value === '0') {
+        return null;
+    }
+
+    if (!preg_match('/^(\d+(?:\.\d+)?)\s*([KMG])?B?$/i', $value, $matches)) {
+        return null;
+    }
+
+    $bytes = (float) $matches[1];
+    switch (strtoupper((string) ($matches[2] ?? ''))) {
+        case 'G':
+            $bytes *= 1024;
+            // no break
+        case 'M':
+            $bytes *= 1024;
+            // no break
+        case 'K':
+            $bytes *= 1024;
+            break;
+    }
+
+    return (int) floor($bytes);
+}
+
+function drms_upload_php_limit_bytes(): ?int
+{
+    $limits = [];
+    foreach (['upload_max_filesize', 'post_max_size'] as $setting) {
+        $bytes = drms_upload_ini_bytes((string) ini_get($setting));
+        if ($bytes !== null && $bytes > 0) {
+            $limits[] = $bytes;
+        }
+    }
+
+    return $limits === [] ? null : min($limits);
+}
+
+function drms_upload_server_limit_mb(): int
+{
+    $limitMb = drms_runtime_host_upload_limit_mb();
+    $phpLimitBytes = drms_upload_php_limit_bytes();
+    if ($phpLimitBytes !== null) {
+        $limitMb = min($limitMb, max(1, (int) floor($phpLimitBytes / 1024 / 1024)));
+    }
+    return $limitMb;
+}
+
+function drms_upload_allowed_document_limits_mb(): array
+{
+    $serverLimitMb = drms_upload_server_limit_mb();
+    return array_values(array_filter(
+        drms_upload_document_setting_options_mb(),
+        static fn(int $limit): bool => $limit <= $serverLimitMb
+    ));
 }
 
 function drms_upload_document_limit_mb(mysqli $conn): int
@@ -49,7 +111,7 @@ function drms_upload_document_limit_mb(mysqli $conn): int
         );
         if (
             $configured !== false &&
-            in_array((int) $configured, drms_upload_allowed_document_limits_mb(), true)
+            in_array((int) $configured, drms_upload_document_setting_options_mb(), true)
         ) {
             $limit = (int) $configured;
         }
@@ -57,6 +119,7 @@ function drms_upload_document_limit_mb(mysqli $conn): int
         error_log('Upload policy setting lookup failed: ' . $error->getMessage());
     }
 
+    $limit = min($limit, drms_upload_server_limit_mb());
     $cache[$connectionId] = $limit;
     return $limit;
 }
@@ -67,11 +130,11 @@ function drms_upload_policy_limit_mb(mysqli $conn, string $policy): int
         case 'document':
             return drms_upload_document_limit_mb($conn);
         case 'proof':
-            return 10;
+            return min(10, drms_upload_server_limit_mb());
         case 'workflow_document':
-            return 10;
+            return min(10, drms_upload_server_limit_mb());
         case 'profile':
-            return 5;
+            return min(5, drms_upload_server_limit_mb());
         default:
             throw new InvalidArgumentException('Unknown upload policy: ' . $policy);
     }
@@ -275,6 +338,23 @@ function drms_upload_validate(
     bool $requireHttpUpload = true
 ): array {
     $maxMb = drms_upload_policy_limit_mb($conn, $policy);
+
+    $phpRequestLimit = drms_upload_ini_bytes((string) ini_get('post_max_size'));
+    $requestLength = filter_var(
+        $_SERVER['CONTENT_LENGTH'] ?? null,
+        FILTER_VALIDATE_INT,
+        ['options' => ['min_range' => 1]]
+    );
+    if (
+        $phpRequestLimit !== null &&
+        $requestLength !== false &&
+        (int) $requestLength > $phpRequestLimit
+    ) {
+        drms_upload_fail(
+            'RequestSizeExceeded',
+            "The upload request exceeds the server's allowed $maxMb MB file limit."
+        );
+    }
 
     if ($file === null) {
         drms_upload_fail('NoFile', 'Select a file to upload.');

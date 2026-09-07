@@ -434,9 +434,34 @@
     }
 
     .po-print-signature-line {
-        height: 9mm;
+        height: 11mm;
         margin-bottom: 1.5mm;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
         border-bottom: 1px solid #64748b;
+    }
+
+    .po-print-electronic-signature {
+        display: block;
+        width: 100%;
+        height: 10mm;
+        object-fit: contain;
+        object-position: center bottom;
+    }
+
+    .po-print-electronic-signature-text {
+        display: block;
+        max-width: 100%;
+        padding-bottom: 1.1mm;
+        overflow: hidden;
+        color: #1d4ed8;
+        font-family: "Segoe Script", "Brush Script MT", cursive;
+        font-size: 9pt;
+        font-weight: 700;
+        line-height: 1;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .po-print-signature-grid strong,

@@ -17,6 +17,7 @@ function drms_backup_redirect(string $kind, string $code): void
     $allowed_kinds = ['success', 'error'];
     $allowed_codes = [
         'BackupCreated',
+        'BackupUnavailable',
         'SecurityTokenMismatch',
         'BackupBusy',
         'BackupFailed',
@@ -153,10 +154,23 @@ if (
     drms_backup_redirect('error', 'SecurityTokenMismatch');
 }
 
+if (in_array($action, ['create_backup', 'restore_backup'], true)) {
+    $capability = drms_backup_capability_report();
+    if ($capability['available'] !== true) {
+        error_log(
+            'Blocked unavailable backup operation: ' .
+            implode(' ', $capability['reasons'])
+        );
+        drms_backup_redirect('error', 'BackupUnavailable');
+    }
+}
+
 if ($action === 'create_backup') {
     $operation_lock = null;
     try {
-        set_time_limit(0);
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(0);
+        }
         $operation_lock = drms_backup_acquire_operation_lock();
         $package = drms_backup_create_package('manual');
         log_audit_action(
@@ -215,7 +229,9 @@ if ($action === 'restore_backup') {
     $operation_lock = null;
     $restore_marker_active = false;
     try {
-        set_time_limit(0);
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(0);
+        }
         $operation_lock = drms_backup_acquire_operation_lock();
         $archive_path = drms_backup_resolve_archive($filename);
 

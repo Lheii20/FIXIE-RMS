@@ -403,7 +403,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $absolute_avatar_path = $avatar_directory . DIRECTORY_SEPARATOR . $avatar_filename;
             $stored_avatar_path = 'uploads/avatars/' . $avatar_filename;
 
-            if (!move_uploaded_file($validated_avatar['tmp_name'], $absolute_avatar_path)) {
+            if (!drms_storage_move_uploaded_file($validated_avatar['tmp_name'], $absolute_avatar_path)) {
                 drms_user_settings_redirect('error', 'AvatarUploadFailed');
             }
 
@@ -566,14 +566,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             drms_admin_users_redirect('error', 'DuplicateEmail');
         }
 
-        $setup_token = bin2hex(random_bytes(32));
-        $setup_token_hash = hash('sha256', $setup_token);
         $dummy_hash = password_hash(bin2hex(random_bytes(20)), PASSWORD_DEFAULT);
 
         $conn->begin_transaction();
         try {
-            $stmt = $conn->prepare("INSERT INTO users (full_name, username, email, password_hash, role, status, require_pass_change, setup_token, setup_token_purpose, setup_token_sent_at, setup_token_expire) VALUES (?, ?, ?, ?, ?, 'Active', 0, ?, 'Account Setup', NOW(), DATE_ADD(NOW(), INTERVAL 24 HOUR))");
-            $stmt->bind_param("ssssss", $fullname, $username, $email, $dummy_hash, $role, $setup_token_hash);
+            $stmt = $conn->prepare("INSERT INTO users (full_name, username, email, password_hash, role, status, require_pass_change, setup_token, setup_token_purpose, setup_token_sent_at, setup_token_expire) VALUES (?, ?, ?, ?, ?, 'Active', 1, NULL, NULL, NULL, NULL)");
+            $stmt->bind_param("sssss", $fullname, $username, $email, $dummy_hash, $role);
             $stmt->execute();
             $new_user_id = $stmt->insert_id;
             
@@ -610,23 +608,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             drms_admin_users_redirect('error', 'CreateFailed');
         }
 
-            $protocol = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? "https" : "http";
-            $host = preg_replace('/[^A-Za-z0-9.\-:\[\]]/', '', (string) ($_SERVER['HTTP_HOST'] ?? 'localhost'));
-            if ($host === '') {
-                $host = 'localhost';
-            }
-            $script = dirname($_SERVER['SCRIPT_NAME']);
-            $base_dir = rtrim(str_replace('/actions', '', $script), '/');
-            $setup_link = $protocol . "://" . $host . $base_dir . "/setup_password.php?token=" . rawurlencode($setup_token) . "&email=" . rawurlencode($email);
             $email_fullname = htmlspecialchars($fullname, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             $email_username = htmlspecialchars($username, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-            $email_setup_link = htmlspecialchars($setup_link, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             
             $mail = new PHPMailer(true);
             try {
                 drms_configure_mailer($mail, ['from_name' => 'Fixie DRMS Security']);
                 $mail->addAddress($email, $fullname);
-                $mail->Subject = 'Welcome to Fixie DRMS - Secure Account Setup Required';
+                $mail->Subject = 'Welcome to Fixie DRMS - Activate Through Email OTP';
                 $mail->isHTML(true);
                 $mail->Body = "
                 <div style='font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;'>
@@ -635,11 +624,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     </div>
                     <div style='padding: 25px; line-height: 1.6;'>
                         <p>An administrator has provisioned an enterprise account for you with the username: <b>{$email_username}</b>.</p>
-                        <p>To securely activate your account and define your own password, please click the secure link below:</p>
-                        <div style='margin: 25px 0;'>
-                            <a href='{$email_setup_link}' style='background-color: #2a617b; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;'>Set Up My Password</a>
-                        </div>
-                        <p style='color: #dc2626; font-size: 13px;'><strong>Security Notice:</strong> This link will automatically expire in 24 hours. If it expires, contact the system administrator.</p>
+                        <p>To activate your account and create your password:</p>
+                        <ol style='padding-left: 20px;'>
+                            <li>Open the Fixie DRMS login page.</li>
+                            <li>Select <strong>Log in via Email OTP</strong>.</li>
+                            <li>Enter this registered email address and request a six-digit code.</li>
+                            <li>Verify the code, then create your permanent password.</li>
+                        </ol>
+                        <p style='color: #475569; font-size: 13px;'><strong>Security Notice:</strong> Fixie DRMS will never ask you to send your password or verification code to another person.</p>
                     </div>
                     <div style='background-color: #f4f4f4; padding: 15px; text-align: center; font-size: 12px; color: #777;'>
                         &copy; " . date('Y') . " Fixie DRMS. All rights reserved.
@@ -647,10 +639,10 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 </div>";
                 
                 $mail->send();
-                if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'CREATE_USER', "Created new user: $username and sent setup link.");
+                if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'CREATE_USER', "Created new user: $username and sent email-OTP activation instructions.");
                 drms_admin_users_redirect('success', 'UserCreated');
-            } catch (Exception $e) {
-                error_log("PHPMailer Error: " . $mail->ErrorInfo);
+            } catch (Throwable $e) {
+                error_log('New-user activation email failed: ' . $e->getMessage());
                 if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'CREATE_USER', "Created new user: $username (Email Failed)");
                 drms_admin_users_redirect('success', 'UserCreatedButEmailFailed');
             }

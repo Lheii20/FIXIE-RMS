@@ -995,7 +995,12 @@
 
             document.getElementById('applyFilterBtn').addEventListener('click', function() { 
                 if (selectedPeriod === 'custom' && (!startDateStr || !endDateStr)) { 
-                    alert('Please select a complete Start and End Date from the calendar.'); 
+                    window.DRMSFeedback.alert({
+                        title: 'Complete the date range',
+                        message: 'Select both a Start Date and an End Date from the calendar before applying the custom filter.',
+                        confirmText: 'Select dates',
+                        tone: 'warning'
+                    }); 
                     return; 
                 } 
                 let currentUrl = new URL(window.location.href); 

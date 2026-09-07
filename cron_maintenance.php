@@ -7,6 +7,17 @@ if (PHP_SAPI !== 'cli') {
     exit('Not found.');
 }
 
+require_once __DIR__ . '/config/runtime.php';
+
+if (!drms_runtime_feature_enabled('scheduled_maintenance')) {
+    fwrite(
+        STDERR,
+        "Scheduled maintenance is disabled for the current hosting profile. " .
+        "Run maintenance from a supported local or paid-host environment.\n"
+    );
+    exit(2);
+}
+
 require_once __DIR__ . '/config/maintenance_db.php';
 require_once __DIR__ . '/config/functions.php';
 require_once __DIR__ . '/config/maintenance_engine.php';

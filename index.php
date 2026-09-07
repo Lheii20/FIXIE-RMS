@@ -35,6 +35,7 @@ if(isset($_GET['success'])) {
     <link href="assets/css/style.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <link rel="stylesheet" href="assets/css/system-feedback.css?v=<?php echo file_exists(__DIR__ . '/assets/css/system-feedback.css') ? filemtime(__DIR__ . '/assets/css/system-feedback.css') : '1'; ?>">
     
 </head>
 <body class="auth-page">
@@ -154,6 +155,7 @@ if(isset($_GET['success'])) {
 
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="assets/js/system-feedback.js?v=<?php echo file_exists(__DIR__ . '/assets/js/system-feedback.js') ? filemtime(__DIR__ . '/assets/js/system-feedback.js') : '1'; ?>"></script>
     
     <!-- Backend Interaction Logic -->
     <script>

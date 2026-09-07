@@ -97,7 +97,7 @@
     const body=new FormData(); const type=el('EditType').value;
     Object.entries({action:deleting?'delete':editing?'update':'create',type,key:editing?.key || '',revision:editing?.revision || '',name:el('Name').value,parent:types[type].parents.length?el('Parent').value:'',code:el('Code').value,active:el('Active').value,reason:el('Reason').value,csrf_token:modal.dataset.token}).forEach(([key,value])=>body.append(key,value));
     setBusy(true); message();
-    try { const result=await request(body); changed=true; dirty=false; listMode(); el('Type').value=type; el('Search').value=''; page=1; message(result.message); await load(); }
+    try { const result=await request(body); changed=true; dirty=false; listMode(); el('Type').value=type; el('Search').value=''; page=1; message(); if(window.DRMSFeedback)window.DRMSFeedback.toast(result.message||'Storage location updated.','success',3000); await load(); }
     catch(error) { message(error.message,true); }
     finally { setBusy(false); render(); }
   });
@@ -106,8 +106,47 @@
   el('Search').addEventListener('input',()=>{page=1;render();}); el('Type').addEventListener('change',()=>{page=1;render();});
   el('Prev').addEventListener('click',()=>{page--;render();}); el('Next').addEventListener('click',()=>{page++;render();});
   el('Refresh').addEventListener('click',()=>{message();load();}); el('Add').addEventListener('click',()=>openEditor());
-  el('Cancel').addEventListener('click',()=>{if (!dirty || window.confirm('Discard your unsaved changes?')) {listMode();message();el('Add').focus();}});
+  let discardPromptOpen=false, allowModalHide=false;
+  async function confirmDiscardChanges() {
+    if (!dirty) return true;
+    if (window.DRMSFeedback) {
+      return window.DRMSFeedback.confirm({
+        title:'Discard unsaved changes?',
+        message:'The changes in this storage-location form have not been saved.',
+        confirmText:'Discard changes',
+        cancelText:'Continue editing',
+        tone:'danger'
+      });
+    }
+    if (window.Swal) {
+      const result=await window.Swal.fire({title:'Discard unsaved changes?',text:'The changes in this storage-location form have not been saved.',icon:'warning',showCancelButton:true,confirmButtonText:'Discard changes',cancelButtonText:'Continue editing'});
+      return result.isConfirmed;
+    }
+    message('Unable to open the confirmation. Save your changes or reload the page.',true);
+    return false;
+  }
+  el('Cancel').addEventListener('click',async()=>{
+    if (busy || discardPromptOpen) return;
+    discardPromptOpen=true;
+    const approved=await confirmDiscardChanges();
+    discardPromptOpen=false;
+    if (approved) {listMode();message();el('Add').focus();}
+  });
   modal.addEventListener('shown.bs.modal',()=>{listMode();message();load();});
-  modal.addEventListener('hide.bs.modal',event=>{if (busy || (dirty && !window.confirm('Discard your unsaved changes?'))) event.preventDefault();});
+  modal.addEventListener('hide.bs.modal',event=>{
+    if (allowModalHide) {allowModalHide=false;return;}
+    if (busy) {event.preventDefault();return;}
+    if (!dirty) return;
+    event.preventDefault();
+    if (discardPromptOpen) return;
+    discardPromptOpen=true;
+    confirmDiscardChanges().then(approved=>{
+      discardPromptOpen=false;
+      if (!approved) return;
+      dirty=false;allowModalHide=true;
+      const instance=bootstrap.Modal.getInstance(modal);
+      if (instance) instance.hide();
+    });
+  });
   modal.addEventListener('hidden.bs.modal',()=>{if(changed) window.location.reload();});
 })();

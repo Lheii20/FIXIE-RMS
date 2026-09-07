@@ -145,10 +145,7 @@ try {
 
         $mail = new PHPMailer(true);
         try {
-            drms_configure_mailer($mail, [
-                'from' => getenv('DRMS_MAIL_FROM') ?: 'no-reply@fixieventures.com',
-                'from_name' => 'Fixie DRMS Security'
-            ]);
+            drms_configure_mailer($mail, ['from_name' => 'Fixie DRMS Security']);
             $mail->addAddress($email);
             $mail->isHTML(false);
             $mail->Subject = 'Login Verification Code - Fixie DRMS';

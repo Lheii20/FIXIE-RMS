@@ -416,7 +416,7 @@ try {
 
     $proof_file_path = date('YmdHis') . '_collection_' .
         bin2hex(random_bytes(8)) . '.' . $proof_extension;
-    if (!move_uploaded_file(
+    if (!drms_storage_move_uploaded_file(
         $validated_proof['tmp_name'],
         $payment_directory . $proof_file_path
     )) {

@@ -6,6 +6,8 @@ final class DrmsPrfPdfBuilder
     private const PAGE_HEIGHT = 841.89;
 
     private array $pages = [];
+    /** @var array<string,array{width:int,height:int,rgb:string,alpha:string}> */
+    private array $pngImages = [];
     private int $currentPage = -1;
     private string $title;
     private string $author;
@@ -34,6 +36,142 @@ final class DrmsPrfPdfBuilder
     public function pageCount(): int
     {
         return count($this->pages);
+    }
+
+    /**
+     * Draws a protected PNG signature image without relying on server-side GD.
+     * PNG transparency is preserved through a PDF soft mask, so a signature
+     * stays clean on the printed document instead of rendering as a rectangle.
+     */
+    public function transparentPng(
+        string $path,
+        float $x,
+        float $top,
+        float $width,
+        float $height
+    ): bool {
+        try {
+            $name = $this->registerTransparentPng($path);
+            if ($name === null) {
+                return false;
+            }
+            $bottom = self::PAGE_HEIGHT - $top - $height;
+            $this->command(
+                'q ' . $this->number($width) . ' 0 0 ' . $this->number($height) . ' ' .
+                $this->number($x) . ' ' . $this->number($bottom) . ' cm /' . $name . ' Do Q'
+            );
+            return true;
+        } catch (Throwable $error) {
+            error_log('Official PRF signature image skipped: ' . $error->getMessage());
+            return false;
+        }
+    }
+
+    private function registerTransparentPng(string $path): ?string
+    {
+        if (!is_file($path) || is_link($path)) {
+            return null;
+        }
+        $bytes = file_get_contents($path);
+        if (!is_string($bytes) || $bytes === '') {
+            return null;
+        }
+        $key = hash('sha256', $bytes);
+        if (isset($this->pngImages[$key])) {
+            return 'Sig' . (array_search($key, array_keys($this->pngImages), true) + 1);
+        }
+        $decoded = $this->decodeRgbaPng($bytes);
+        if ($decoded === null) {
+            return null;
+        }
+        $this->pngImages[$key] = $decoded;
+        return 'Sig' . count($this->pngImages);
+    }
+
+    /**
+     * Supports the 8-bit non-interlaced RGBA PNG files accepted for signature
+     * profiles. Unsupported image variants safely fall back to text evidence.
+     */
+    private function decodeRgbaPng(string $bytes): ?array
+    {
+        if (substr($bytes, 0, 8) !== "\x89PNG\x0D\x0A\x1A\x0A") {
+            return null;
+        }
+        $offset = 8;
+        $width = 0;
+        $height = 0;
+        $idat = '';
+        $hasHeader = false;
+        $length = strlen($bytes);
+        while ($offset + 12 <= $length) {
+            $chunkLength = unpack('N', substr($bytes, $offset, 4))[1] ?? -1;
+            if ($chunkLength < 0 || $offset + 12 + $chunkLength > $length) {
+                return null;
+            }
+            $type = substr($bytes, $offset + 4, 4);
+            $data = substr($bytes, $offset + 8, $chunkLength);
+            $offset += 12 + $chunkLength;
+            if ($type === 'IHDR') {
+                if ($chunkLength !== 13) return null;
+                $width = unpack('N', substr($data, 0, 4))[1] ?? 0;
+                $height = unpack('N', substr($data, 4, 4))[1] ?? 0;
+                $bitDepth = ord($data[8]);
+                $colorType = ord($data[9]);
+                $compression = ord($data[10]);
+                $filter = ord($data[11]);
+                $interlace = ord($data[12]);
+                if ($width < 1 || $height < 1 || $width > 2400 || $height > 1200 ||
+                    $bitDepth !== 8 || $colorType !== 6 || $compression !== 0 || $filter !== 0 || $interlace !== 0) {
+                    return null;
+                }
+                $hasHeader = true;
+            } elseif ($type === 'IDAT') {
+                $idat .= $data;
+            } elseif ($type === 'IEND') {
+                break;
+            }
+        }
+        if (!$hasHeader || $idat === '') return null;
+        $raw = @gzuncompress($idat);
+        $stride = $width * 4;
+        if (!is_string($raw) || strlen($raw) !== ($stride + 1) * $height) return null;
+        $rgb = '';
+        $alpha = '';
+        $previous = array_fill(0, $stride, 0);
+        $rawOffset = 0;
+        for ($row = 0; $row < $height; $row++) {
+            $filterType = ord($raw[$rawOffset]);
+            $rawOffset++;
+            $scanline = array_values(unpack('C*', substr($raw, $rawOffset, $stride)) ?: []);
+            $rawOffset += $stride;
+            if (count($scanline) !== $stride || $filterType > 4) return null;
+            for ($index = 0; $index < $stride; $index++) {
+                $left = $index >= 4 ? $scanline[$index - 4] : 0;
+                $up = $previous[$index];
+                $upLeft = $index >= 4 ? $previous[$index - 4] : 0;
+                if ($filterType === 1) $scanline[$index] = ($scanline[$index] + $left) & 255;
+                elseif ($filterType === 2) $scanline[$index] = ($scanline[$index] + $up) & 255;
+                elseif ($filterType === 3) $scanline[$index] = ($scanline[$index] + intdiv($left + $up, 2)) & 255;
+                elseif ($filterType === 4) {
+                    $p = $left + $up - $upLeft;
+                    $pa = abs($p - $left); $pb = abs($p - $up); $pc = abs($p - $upLeft);
+                    $predictor = $pa <= $pb && $pa <= $pc ? $left : ($pb <= $pc ? $up : $upLeft);
+                    $scanline[$index] = ($scanline[$index] + $predictor) & 255;
+                }
+            }
+            for ($pixel = 0; $pixel < $width; $pixel++) {
+                $start = $pixel * 4;
+                $rgb .= chr($scanline[$start]) . chr($scanline[$start + 1]) . chr($scanline[$start + 2]);
+                $alpha .= chr($scanline[$start + 3]);
+            }
+            $previous = $scanline;
+        }
+        return [
+            'width' => $width,
+            'height' => $height,
+            'rgb' => gzcompress($rgb, 6),
+            'alpha' => gzcompress($alpha, 6),
+        ];
     }
 
     public function rectangle(
@@ -222,6 +360,14 @@ final class DrmsPrfPdfBuilder
             $pageObjectIds[] = $nextObjectId;
             $nextObjectId += 2;
         }
+        $imageObjectIds = [];
+        foreach ($this->pngImages as $key => $_image) {
+            $imageObjectIds[$key] = [
+                'image' => $nextObjectId,
+                'mask' => $nextObjectId + 1,
+            ];
+            $nextObjectId += 2;
+        }
         $infoObjectId = $nextObjectId;
 
         $objects[1] = '<< /Type /Catalog /Pages 2 0 R >>';
@@ -234,6 +380,13 @@ final class DrmsPrfPdfBuilder
         $objects[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
         $objects[4] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
 
+        $xObjects = '';
+        foreach ($imageObjectIds as $imageIndex => $objectIds) {
+            $imageName = 'Sig' . (array_search($imageIndex, array_keys($this->pngImages), true) + 1);
+            $xObjects .= ' /' . $imageName . ' ' . $objectIds['image'] . ' 0 R';
+        }
+        $xObjectResource = $xObjects === '' ? '' : ' /XObject <<' . $xObjects . ' >>';
+
         foreach ($this->pages as $index => $commands) {
             $pageObjectId = $pageObjectIds[$index];
             $contentObjectId = $pageObjectId + 1;
@@ -242,11 +395,28 @@ final class DrmsPrfPdfBuilder
                 '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' .
                 $this->number(self::PAGE_WIDTH) . ' ' .
                 $this->number(self::PAGE_HEIGHT) .
-                '] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> ' .
+                '] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>' . $xObjectResource . ' >> ' .
                 '/Contents ' . $contentObjectId . ' 0 R >>';
             $objects[$contentObjectId] =
                 '<< /Length ' . strlen($stream) . " >>\nstream\n" .
                 $stream . 'endstream';
+        }
+
+        foreach ($this->pngImages as $imageIndex => $image) {
+            $objectIds = $imageObjectIds[$imageIndex];
+            $alpha = (string) $image['alpha'];
+            $rgb = (string) $image['rgb'];
+            $objects[$objectIds['mask']] =
+                '<< /Type /XObject /Subtype /Image /Width ' . (int) $image['width'] .
+                ' /Height ' . (int) $image['height'] .
+                ' /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /Length ' .
+                strlen($alpha) . " >>\nstream\n" . $alpha . "\nendstream";
+            $objects[$objectIds['image']] =
+                '<< /Type /XObject /Subtype /Image /Width ' . (int) $image['width'] .
+                ' /Height ' . (int) $image['height'] .
+                ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /SMask ' .
+                $objectIds['mask'] . ' 0 R /Length ' . strlen($rgb) .
+                " >>\nstream\n" . $rgb . "\nendstream";
         }
 
         $objects[$infoObjectId] = '<< /Title (' .
@@ -486,6 +656,66 @@ function drms_load_approved_prf_snapshot_data(mysqli $conn, int $pr_id): array
         }
     }
 
+    // The decision rows prove that the route was completed. These additional
+    // events prove that each approving role re-authenticated and accepted the
+    // exact PRF data shown at that stage. Old PRFs remain printable even when
+    // they predate electronic signatures.
+    $cycle_stmt = $conn->prepare(
+        'SELECT MAX(approval_cycle) AS approval_cycle FROM pr_approval_records WHERE pr_id = ?'
+    );
+    $cycle_stmt->bind_param('i', $pr_id);
+    $cycle_stmt->execute();
+    $signature_cycle = (int) (($cycle_stmt->get_result()->fetch_assoc()['approval_cycle'] ?? 0));
+    $cycle_stmt->close();
+    if ($signature_cycle < 1) {
+        throw new RuntimeException('The PRF approval cycle is unavailable for signature verification.');
+    }
+    $signature_version = 'approval-cycle-' . $signature_cycle;
+
+    $signature_stmt = $conn->prepare(
+        "SELECT signature_stage, signer_name, signer_role, verification_code, signed_at,
+                signature_image_path, signature_image_hash
+         FROM document_signature_events
+         WHERE record_module = 'PRF'
+           AND record_id = ?
+           AND signed_version = ?
+           AND signature_type = 'Electronic Approval'
+           AND signature_status = 'Valid'
+         ORDER BY signature_id DESC"
+    );
+    $signature_stmt->bind_param('is', $pr_id, $signature_version);
+    $signature_stmt->execute();
+    $signature_result = $signature_stmt->get_result();
+    $signature_events = [];
+    while ($signature = $signature_result->fetch_assoc()) {
+        $stage = (string) $signature['signature_stage'];
+        if (!isset($signature_events[$stage])) {
+            $signature_events[$stage] = $signature;
+        }
+    }
+    $signature_stmt->close();
+
+    foreach ($signature_events as $stage => $signature) {
+        $imagePath = trim((string) ($signature['signature_image_path'] ?? ''));
+        $imageHash = strtolower(trim((string) ($signature['signature_image_hash'] ?? '')));
+        $signature_events[$stage]['verified_signature_image_path'] = null;
+        if ($imagePath === '' || !preg_match('/^[a-f0-9]{64}$/', $imageHash) ||
+            !function_exists('drms_storage_resolve_existing_file')) {
+            continue;
+        }
+        try {
+            $absolutePath = drms_storage_resolve_existing_file($imagePath);
+            $actualHash = hash_file('sha256', $absolutePath);
+            $imageInfo = @getimagesize($absolutePath);
+            if ($actualHash !== false && hash_equals($imageHash, $actualHash) &&
+                is_array($imageInfo) && ($imageInfo['mime'] ?? '') === 'image/png') {
+                $signature_events[$stage]['verified_signature_image_path'] = $absolutePath;
+            }
+        } catch (Throwable $error) {
+            error_log('Official PRF signature image verification skipped: ' . $error->getMessage());
+        }
+    }
+
     $owner = $approvals['Owner Approval'];
     if (
         (int) $owner['acted_by'] !== (int) $pr['final_approved_by'] ||
@@ -500,6 +730,7 @@ function drms_load_approved_prf_snapshot_data(mysqli $conn, int $pr_id): array
         'pr' => $pr,
         'items' => $items,
         'approvals' => $approvals,
+        'signature_events' => $signature_events,
     ];
 }
 
@@ -510,6 +741,7 @@ function drms_render_official_prf_pdf(
     $pr = $snapshot['pr'];
     $items = $snapshot['items'];
     $approvals = $snapshot['approvals'];
+    $signatureEvents = $snapshot['signature_events'] ?? [];
 
     $pdf = new DrmsPrfPdfBuilder(
         $record_number . ' - Purchase Requisition Form',
@@ -678,10 +910,23 @@ function drms_render_official_prf_pdf(
     }
     $y += 148;
 
-    if ($y + 135 > 790) {
+    if ($y + 155 > 790) {
         $y = $newPage($pdf, true);
     }
     $y = $sectionTitle($pdf, $y, 'Signatories', 'Authenticated preparation and approval record');
+
+    $electronicSignatureLine = static function (string $stage, string $fallback) use ($signatureEvents): string {
+        $event = $signatureEvents[$stage] ?? null;
+        if (!$event || empty($event['verification_code'])) {
+            return $fallback;
+        }
+        return 'E-SIGN ' . strtoupper(substr((string) $event['verification_code'], 0, 12));
+    };
+    $electronicSignatureImage = static function (string $stage) use ($signatureEvents): ?string {
+        $event = $signatureEvents[$stage] ?? null;
+        $path = is_array($event) ? ($event['verified_signature_image_path'] ?? null) : null;
+        return is_string($path) && $path !== '' ? $path : null;
+    };
 
     $signatories = [
         [
@@ -689,36 +934,60 @@ function drms_render_official_prf_pdf(
             (string) ($pr['creator_name'] ?: 'Not recorded'),
             'SUBMITTED',
             drms_prf_pdf_date($pr['submitted_for_approval_at'], 'M d, Y h:i A'),
+            null,
+            false,
         ],
         [
             'Reviewed by General Manager',
             (string) $approvals['GM Review']['acted_by_name'],
             'APPROVED',
-            drms_prf_pdf_date($approvals['GM Review']['acted_at'], 'M d, Y h:i A'),
+            $electronicSignatureLine(
+                'GM Review',
+                drms_prf_pdf_date($approvals['GM Review']['acted_at'], 'M d, Y h:i A')
+            ),
+            $electronicSignatureImage('GM Review'),
+            true,
         ],
         [
             'Checked by Finance',
             (string) $approvals['Finance Review']['acted_by_name'],
             'APPROVED',
-            drms_prf_pdf_date($approvals['Finance Review']['acted_at'], 'M d, Y h:i A'),
+            $electronicSignatureLine(
+                'Finance Review',
+                drms_prf_pdf_date($approvals['Finance Review']['acted_at'], 'M d, Y h:i A')
+            ),
+            $electronicSignatureImage('Finance Review'),
+            true,
         ],
         [
             'Approved by Owner / President',
             (string) $approvals['Owner Approval']['acted_by_name'],
             'FINAL APPROVAL',
-            drms_prf_pdf_date($approvals['Owner Approval']['acted_at'], 'M d, Y h:i A'),
+            $electronicSignatureLine(
+                'Owner Approval',
+                drms_prf_pdf_date($approvals['Owner Approval']['acted_at'], 'M d, Y h:i A')
+            ),
+            $electronicSignatureImage('Owner Approval'),
+            true,
         ],
     ];
 
     foreach ($signatories as $index => $signatory) {
         $x = 40 + ($index * 130);
         $top = $y;
-        $pdf->rectangle($x, $top, 125, 82, [255, 255, 255], $border);
+        $pdf->rectangle($x, $top, 125, 103, [255, 255, 255], $border);
         $pdf->wrappedText($x + 9, $top + 8, strtoupper($signatory[0]), 107, 6.7, true, $blue, 8, 2);
-        $pdf->wrappedText($x + 9, $top + 30, $signatory[1], 107, 8.8, true, $ink, 10, 2);
-        $pdf->line($x + 9, $top + 53, $x + 116, $top + 53, $border, 0.7);
-        $pdf->text($x + 9, $top + 59, $signatory[2], 6.5, true, $green);
-        $pdf->text($x + 9, $top + 70, $signatory[3], 6.3, false, $muted);
+        $signatureImageDrawn = !empty($signatory[4]) &&
+            $pdf->transparentPng((string) $signatory[4], $x + 9, $top + 27, 107, 24);
+        if (!$signatureImageDrawn && !empty($signatory[5])) {
+            $pdf->wrappedText($x + 9, $top + 31, '/s/ ' . $signatory[1], 107, 11, true, $blue, 12, 1);
+        } elseif (!$signatureImageDrawn) {
+            $pdf->wrappedText($x + 9, $top + 31, $signatory[1], 107, 8.8, true, $ink, 10, 2);
+        }
+        $pdf->wrappedText($x + 9, $top + 55, $signatory[1], 107, 8.2, true, $ink, 9, 1);
+        $pdf->line($x + 9, $top + 68, $x + 116, $top + 68, $border, 0.7);
+        $pdf->text($x + 9, $top + 74, $signatory[2], 6.5, true, $green);
+        $pdf->text($x + 9, $top + 86, $signatory[3], 6.3, false, $muted);
     }
 
     $pageCount = $pdf->pageCount();

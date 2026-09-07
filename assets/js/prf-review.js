@@ -91,6 +91,23 @@
             }
 
             actionInput.value = button.dataset.actionValue;
+
+            if (decision === 'approve') {
+                if (!window.DRMSESignature) {
+                    window.DRMSFeedback?.toast('The electronic-signature component is unavailable. Refresh the page and try again.', 'danger', 3000);
+                    return;
+                }
+                window.DRMSESignature.open({
+                    form: form,
+                    title: 'Sign PRF approval',
+                    subtitle: 'Your current password is required before this approval is recorded.',
+                    recordLabel: prNumber,
+                    stage: decisionStage,
+                    consent: 'I reviewed the displayed Purchase Requisition Form data and authorize this assigned approval stage through my electronic signature.'
+                });
+                return;
+            }
+
             lockDecisionForm(decision);
             form.submit();
         }
@@ -107,6 +124,23 @@
                     : prNumber + ' will pass ' + decisionStage + ' and continue through the approval route.')
                 : prNumber + ' will stop at ' + decisionStage + '. The Sales Staff will receive the recorded reason.';
 
+            if (window.DRMSFeedback) {
+                window.DRMSFeedback.confirm({
+                    title: title,
+                    message: message,
+                    confirmText: isFinalApproval
+                        ? 'Give final approval'
+                        : (isApproval ? 'Approve stage' : 'Reject PRF'),
+                    cancelText: 'Cancel',
+                    tone: isApproval ? 'info' : 'danger',
+                    focusConfirm: isApproval
+                }).then(function (approved) {
+                    if (approved) {
+                        submitDecision(button, decision);
+                    }
+                });
+                return;
+            }
             if (window.Swal) {
                 window.Swal.fire({
                     title: title,
@@ -132,9 +166,7 @@
                 return;
             }
 
-            if (window.confirm(title + '\n\n' + message)) {
-                submitDecision(button, decision);
-            }
+            console.error('A confirmation component is required before this decision can be submitted.');
         }
 
         if (remarksInput) {
@@ -167,9 +199,21 @@
         });
 
         form.addEventListener('submit', function (event) {
-            if (!submitting) {
-                event.preventDefault();
+            if (submitting) {
+                return;
             }
+
+            const electronicallySigned = actionInput &&
+                actionInput.value === 'approve_pr_stage' &&
+                form.elements.e_signature_client_confirmed &&
+                form.elements.e_signature_client_confirmed.value === '1';
+
+            if (electronicallySigned) {
+                lockDecisionForm('approve');
+                return;
+            }
+
+            event.preventDefault();
         });
     }
 

@@ -6,6 +6,7 @@ require_once '../config/workflow_feedback.php';
 require_once '../config/official_po_snapshot.php';
 require_once '../config/official_fund_release_filing.php';
 require_once '../config/upload_policy.php';
+require_once '../config/e_signature.php';
 
 if (!function_exists('po_handler_redirect')) {
     function po_handler_redirect(
@@ -19,6 +20,113 @@ if (!function_exists('po_handler_redirect')) {
             : drms_feedback_clean_text($message);
         drms_redirect_with_feedback($destination, $type, $public_message);
     }
+}
+
+/** PO approval actions that require the authorized user's e-signature. */
+function phase5_po_signature_stage_for_action(string $action): ?string
+{
+    return [
+        'approve_gm' => 'GM Review',
+        'approve_finance' => 'Finance Review',
+        'approve_president' => 'President Approval',
+    ][$action] ?? null;
+}
+
+/**
+ * Performs an early, read-only check so the signer is shown a clear error
+ * before the transactional workflow mutation starts. The same state is locked
+ * and verified again immediately before the approval event is stored.
+ */
+function phase5_po_prepare_e_signature(
+    mysqli $conn,
+    int $poId,
+    int $actorId,
+    string $sessionRole,
+    string $action,
+    array $input
+): array {
+    $stage = phase5_po_signature_stage_for_action($action);
+    if ($stage === null) {
+        return [];
+    }
+    if (!drms_signature_tables_ready($conn)) {
+        throw new RuntimeException('Electronic signatures are unavailable until the signature foundation is installed.');
+    }
+
+    $statement = $conn->prepare(
+        "SELECT po.status, rule.next_status, rule.required_role
+         FROM purchase_orders po
+         INNER JOIN workflow_rules rule
+           ON rule.current_status = po.status
+          AND rule.action_key = ?
+          AND rule.required_role = ?
+         WHERE po.po_id = ?
+         LIMIT 1"
+    );
+    $statement->bind_param('ssi', $action, $sessionRole, $poId);
+    $statement->execute();
+    $route = $statement->get_result()->fetch_assoc();
+    $statement->close();
+
+    if (!$route || (string) $route['required_role'] !== $sessionRole) {
+        throw new DomainException('This PO approval stage is no longer available. Refresh the page and try again.');
+    }
+
+    return [
+        'stage' => $stage,
+        'status_from' => (string) $route['status'],
+        'status_to' => (string) $route['next_status'],
+        'signature' => drms_esign_prepare($conn, $actorId, 'PO', $stage, $input),
+    ];
+}
+
+/** Stable data fingerprint for a manual PO approval event. */
+function phase5_po_signature_fingerprint(
+    mysqli $conn,
+    array $po,
+    string $action,
+    string $nextStatus,
+    string $actedAt
+): string {
+    $poId = (int) ($po['po_id'] ?? 0);
+    if ($poId < 1) {
+        throw new RuntimeException('The PO data could not be fingerprinted for electronic signing.');
+    }
+    $itemStatement = $conn->prepare(
+        "SELECT category, brand, item_name, specifications, quantity, unit_price,
+                unit_cost, total_price, total_cost, line_profit_amount
+         FROM po_items
+         WHERE po_id = ?
+         ORDER BY item_id"
+    );
+    $itemStatement->bind_param('i', $poId);
+    $itemStatement->execute();
+    $items = $itemStatement->get_result()->fetch_all(MYSQLI_ASSOC);
+    $itemStatement->close();
+
+    $payload = [
+        'po_id' => $poId,
+        'po_number' => (string) ($po['po_number'] ?? ''),
+        'pr_id' => (int) ($po['pr_id'] ?? 0),
+        'client_name' => (string) ($po['client_name'] ?? ''),
+        'amount' => (string) ($po['amount'] ?? ''),
+        'cost_of_goods_amount' => (string) ($po['cost_of_goods_amount'] ?? ''),
+        'other_expense_amount' => (string) ($po['other_expense_amount'] ?? ''),
+        'requested_fund_amount' => (string) ($po['requested_fund_amount'] ?? ''),
+        'gross_profit_amount' => (string) ($po['gross_profit_amount'] ?? ''),
+        'gross_margin_percent' => (string) ($po['gross_margin_percent'] ?? ''),
+        'status_from' => (string) ($po['status'] ?? ''),
+        'status_to' => $nextStatus,
+        'workflow_action' => $action,
+        'acted_at' => $actedAt,
+        'items' => $items,
+    ];
+    $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($encoded)) {
+        throw new RuntimeException('The PO approval data could not be fingerprinted.');
+    }
+
+    return hash('sha256', $encoded);
 }
 
 if (!isset($_SESSION['user_id'])) {
@@ -737,7 +845,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 $created_po_document_path =
                     $upload_directory . $stored_file_name;
 
-                if (!move_uploaded_file(
+                if (!drms_storage_move_uploaded_file(
                     $validated_po_document['tmp_name'],
                     $created_po_document_path
                 )) {
@@ -931,6 +1039,28 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         if ($po_id < 1) {
             header("Location: ../po_list.php?error=Invalid Purchase Order.");
             exit();
+        }
+
+        $po_signature_preflight = [];
+        if (phase5_po_signature_stage_for_action($action) !== null) {
+            try {
+                $po_signature_preflight = phase5_po_prepare_e_signature(
+                    $conn,
+                    $po_id,
+                    (int) $user_id,
+                    (string) $_SESSION['role'],
+                    $action,
+                    $_POST
+                );
+            } catch (Throwable $error) {
+                po_handler_redirect(
+                    '../view_po.php?id=' . $po_id,
+                    'error',
+                    $error instanceof DomainException
+                        ? $error->getMessage()
+                        : 'The PO electronic signature could not be prepared. No workflow changes were saved.'
+                );
+            }
         }
 
         // Supplier funding always requires the verified release record and proof.
@@ -1223,7 +1353,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         $funding_directory .
                         $stored_funding_file_name;
 
-                    if (!move_uploaded_file(
+                    if (!drms_storage_move_uploaded_file(
                         $validated_funding_proof['tmp_name'],
                         $stored_funding_absolute_path
                     )) {
@@ -1493,7 +1623,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         // Every approval/rejection must match a rule for both the current status and the logged-in role.
         try {
             $conn->begin_transaction();
-            $po_stmt = $conn->prepare("SELECT po_number, status FROM purchase_orders WHERE po_id = ? FOR UPDATE");
+            $po_stmt = $conn->prepare("SELECT * FROM purchase_orders WHERE po_id = ? FOR UPDATE");
             $po_stmt->bind_param("i", $po_id);
             $po_stmt->execute();
             $po = $po_stmt->get_result()->fetch_assoc();
@@ -1508,6 +1638,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             if (!$rule) {
                 throw new Exception('This action is not allowed for your role at the current PO status.');
             }
+            if (!empty($po_signature_preflight)) {
+                $expectedStage = phase5_po_signature_stage_for_action($action);
+                if (
+                    ($po_signature_preflight['stage'] ?? '') !== $expectedStage ||
+                    ($po_signature_preflight['status_from'] ?? '') !== $po['status'] ||
+                    ($po_signature_preflight['status_to'] ?? '') !== $rule['next_status']
+                ) {
+                    throw new RuntimeException('The PO approval stage changed before electronic signing. Refresh the page and try again.');
+                }
+            }
             enforce_po_task_ownership($conn, $po_id, $user_id, $_SESSION['role']);
 
             $location_map = [
@@ -1520,6 +1660,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $new_status = $rule['next_status'];
             $new_location = $location_map[$action] ?? $po['status'];
             $remarks = trim($_POST['remarks'] ?? '');
+            $decision_acted_at = date('Y-m-d H:i:s');
 
             if ($action === 'reject' && $remarks === '') {
                 throw new Exception('A rejection reason is required.');
@@ -1540,6 +1681,37 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $history_stmt = $conn->prepare("INSERT INTO po_history (po_id, changed_by, status_from, status_to, remarks) VALUES (?, ?, ?, ?, ?)");
             $history_stmt->bind_param("iisss", $po_id, $user_id, $po['status'], $new_status, $remarks);
             $history_stmt->execute();
+
+            if (!empty($po_signature_preflight)) {
+                $signatureFingerprint = phase5_po_signature_fingerprint(
+                    $conn,
+                    $po,
+                    $action,
+                    (string) $new_status,
+                    $decision_acted_at
+                );
+                $signatureVersion = 'po-' . substr(
+                    hash(
+                        'sha256',
+                        $po_id . '|' . $po['status'] . '|' . $new_status . '|' . $action
+                    ),
+                    0,
+                    16
+                );
+                drms_esign_record_event(
+                    $conn,
+                    $po_signature_preflight['signature'],
+                    [
+                        'record_module' => 'PO',
+                        'record_id' => $po_id,
+                        'signature_stage' => $po_signature_preflight['stage'],
+                        'signed_file_hash' => $signatureFingerprint,
+                        'signed_version' => $signatureVersion,
+                        'consent_text' => 'I reviewed the displayed Internal Purchase Order data and authorize this assigned approval stage through my electronic signature.',
+                        'remarks' => $remarks,
+                    ]
+                );
+            }
 
             if (!empty($rule['notify_target'])) {
                 $notification = "PO {$po['po_number']} is now $new_status.";
@@ -1739,7 +1911,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $targetPath = $uploadDir . $newFileName; 
         $dbPath = $dbDir . $newFileName;         
 
-        if (move_uploaded_file($validated_attachment['tmp_name'], $targetPath)) {
+        if (drms_storage_move_uploaded_file($validated_attachment['tmp_name'], $targetPath)) {
             if ($po_id === null) {
                 $stmt = $conn->prepare("INSERT INTO documents (po_id, doc_type, file_name, file_path, file_hash, uploaded_by, status) VALUES (NULL, ?, ?, ?, ?, ?, 'Active')");
                 $stmt->bind_param("ssssi", $doc_type, $newFileName, $dbPath, $fileHash, $user_id);

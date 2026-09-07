@@ -84,7 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_FILES['document'])) {
     $targetFilePath = $targetDir . $physicalFileName;
     $dbPath = "uploads/" . $physicalFileName;
 
-    if (move_uploaded_file($validated_upload['tmp_name'], $targetFilePath)) {
+    if (drms_storage_move_uploaded_file($validated_upload['tmp_name'], $targetFilePath)) {
         $stmt = $conn->prepare("INSERT INTO documents (po_id, file_name, file_path, file_hash, uploaded_by, category, tags, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
         $stmt->bind_param("isssisss", $po_id, $document_title, $dbPath, $fileHash, $_SESSION['user_id'], $category, $tags, $expiry_date);
         

@@ -6,6 +6,7 @@ require_once '../config/client_po_acknowledgement.php';
 require_once '../config/workflow_feedback.php';
 require_once '../config/official_prf_snapshot.php';
 require_once '../config/upload_policy.php';
+require_once '../config/e_signature.php';
 
 if (!isset($_SESSION['user_id'])) {
     header('Location: ../index.php');
@@ -104,7 +105,7 @@ function phase2_prf_upload_supplier_quote(mysqli $conn, ?array $file): ?array
         bin2hex(random_bytes(12)) . '.' . $validated_proof['extension'];
     $absolute_path = $upload_directory . DIRECTORY_SEPARATOR . $stored_name;
 
-    if (!move_uploaded_file($temporary_path, $absolute_path)) {
+    if (!drms_storage_move_uploaded_file($temporary_path, $absolute_path)) {
         throw new RuntimeException('The supplier quotation could not be saved.');
     }
 
@@ -171,6 +172,141 @@ function phase2_prf_notify_role(mysqli $conn, string $target_role, string $messa
     return $notification_id;
 }
 
+/**
+ * Validates the signable stage before the PRF transaction starts. The actual
+ * stage is locked and checked again inside the transaction, so a stale page
+ * can never turn a password verification into an approval of another stage.
+ */
+function phase4_prf_prepare_e_signature(
+    mysqli $conn,
+    int $prId,
+    int $actorId,
+    string $sessionRole,
+    array $input
+): array {
+    if (!drms_signature_tables_ready($conn)) {
+        throw new RuntimeException('Electronic signatures are unavailable until the signature foundation is installed.');
+    }
+
+    $statement = $conn->prepare(
+        "SELECT p.status, p.current_approval_stage, approval.approval_stage, approval.required_role, approval.decision
+         FROM purchase_requests p
+         INNER JOIN pr_approval_records approval
+           ON approval.pr_id = p.pr_id
+          AND approval.approval_cycle = (
+              SELECT MAX(latest.approval_cycle)
+              FROM pr_approval_records latest
+              WHERE latest.pr_id = p.pr_id
+          )
+          AND approval.approval_stage = p.current_approval_stage
+         WHERE p.pr_id = ?
+         LIMIT 1"
+    );
+    $statement->bind_param('i', $prId);
+    $statement->execute();
+    $stage = $statement->get_result()->fetch_assoc();
+    $statement->close();
+
+    if (!$stage || $stage['status'] !== 'Pending' || $stage['decision'] !== 'Pending') {
+        throw new DomainException('This PRF approval stage is no longer available. Refresh the page and try again.');
+    }
+    if ($sessionRole !== $stage['required_role']) {
+        throw new DomainException('This PRF is waiting for ' . $stage['required_role'] . ' review.');
+    }
+
+    return [
+        'stage' => (string) $stage['approval_stage'],
+        'signature' => drms_esign_prepare(
+            $conn,
+            $actorId,
+            'PRF',
+            (string) $stage['approval_stage'],
+            $input
+        ),
+    ];
+}
+
+/**
+ * A canonical, data-only fingerprint binds a GM or Finance approval to the
+ * exact PRF data that was displayed at that approval stage. The final stage
+ * is later linked to the generated Official PRF PDF as well.
+ */
+function phase4_prf_signature_fingerprint(
+    mysqli $conn,
+    int $prId,
+    int $approvalCycle,
+    string $approvalStage,
+    string $actedAt
+): string {
+    $request = $conn->prepare(
+        "SELECT pr_id, pr_number, quotation_id, client_approval_record_id, client_name,
+                amount, cost_of_goods_amount, other_expense_amount, requested_fund_amount,
+                gross_profit_amount, gross_margin_percent, remarks,
+                created_by, date_created, submitted_for_approval_at
+         FROM purchase_requests
+         WHERE pr_id = ?
+         LIMIT 1"
+    );
+    $request->bind_param('i', $prId);
+    $request->execute();
+    $pr = $request->get_result()->fetch_assoc();
+    $request->close();
+    if (!$pr) {
+        throw new RuntimeException('The PRF data could not be fingerprinted for electronic signing.');
+    }
+
+    $itemsStatement = $conn->prepare(
+        "SELECT category, brand, item_name, specifications, quantity, unit_price, unit_cost,
+                total_price, total_cost, line_profit_amount
+         FROM pr_items
+         WHERE pr_id = ?
+         ORDER BY item_id"
+    );
+    $itemsStatement->bind_param('i', $prId);
+    $itemsStatement->execute();
+    $items = [];
+    $itemsResult = $itemsStatement->get_result();
+    while ($item = $itemsResult->fetch_assoc()) {
+        $items[] = $item;
+    }
+    $itemsStatement->close();
+    if ($items === []) {
+        throw new RuntimeException('A PRF without item lines cannot be electronically signed.');
+    }
+
+    $supplierStatement = $conn->prepare(
+        "SELECT supplier_name, supplier_reference, supplier_quote_date, payment_method,
+                payment_terms, bank_name, bank_account_name, bank_account_number, check_payee,
+                remarks
+         FROM pr_supplier_details
+         WHERE pr_id = ? AND record_status = 'Active'
+         LIMIT 1"
+    );
+    $supplierStatement->bind_param('i', $prId);
+    $supplierStatement->execute();
+    $supplier = $supplierStatement->get_result()->fetch_assoc() ?: [];
+    $supplierStatement->close();
+
+    $payload = [
+        'schema' => 'Fixie-PRF-signature-v1',
+        'approval_cycle' => $approvalCycle,
+        'approval_stage' => $approvalStage,
+        'acted_at' => $actedAt,
+        'purchase_request' => $pr,
+        'supplier' => $supplier,
+        'items' => $items,
+    ];
+    $encoded = json_encode(
+        $payload,
+        JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION
+    );
+    if (!is_string($encoded)) {
+        throw new RuntimeException('The PRF signature fingerprint could not be generated.');
+    }
+
+    return hash('sha256', $encoded);
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $session_token = (string) ($_SESSION['csrf_token'] ?? '');
     $posted_token = (string) ($_POST['csrf_token'] ?? '');
@@ -197,6 +333,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $actor_id = (int) $_SESSION['user_id'];
         $actor_role = (string) ($_SESSION['role'] ?? '');
         $is_approval = $action === 'approve_pr_stage';
+        $e_signature = null;
         $transaction_started = false;
         $official_record_storage_path = null;
         $official_record_number = null;
@@ -214,6 +351,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 2000,
                 !$is_approval
             );
+
+            if ($is_approval) {
+                $preflight = phase4_prf_prepare_e_signature(
+                    $conn,
+                    $pr_id,
+                    $actor_id,
+                    $actor_role,
+                    $_POST
+                );
+                $e_signature = $preflight['signature'];
+            }
 
             if (!$conn->begin_transaction()) {
                 throw new RuntimeException('The approval transaction could not be started.');
@@ -324,6 +472,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $pr_number = (string) $pr['pr_number'];
             $approval_stage = (string) $current_stage['approval_stage'];
             $stage_sequence = (int) $current_stage['stage_sequence'];
+
+            if ($is_approval) {
+                if ($e_signature === null || ($preflight['stage'] ?? '') !== $approval_stage) {
+                    throw new RuntimeException('The PRF approval stage changed before electronic signing. Refresh the page and try again.');
+                }
+                $signature_fingerprint = phase4_prf_signature_fingerprint(
+                    $conn,
+                    $pr_id,
+                    $approval_cycle,
+                    $approval_stage,
+                    $decision_acted_at
+                );
+                $signature_event_id = drms_esign_record_event(
+                    $conn,
+                    $e_signature,
+                    [
+                        'record_module' => 'PRF',
+                        'record_id' => $pr_id,
+                        'signature_stage' => $approval_stage,
+                        'signed_file_hash' => $signature_fingerprint,
+                        'signed_version' => 'approval-cycle-' . $approval_cycle,
+                        'consent_text' => 'I reviewed the displayed Purchase Requisition Form data and authorize this assigned approval stage through my password-confirmed electronic signature.',
+                        'remarks' => $decision_remarks,
+                    ]
+                );
+            }
 
             if (!$is_approval) {
                 $closed_reason = 'Closed after rejection at ' . $approval_stage . '.';
@@ -513,6 +687,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $official_record_doc_id = (int) $official_record['doc_id'];
             $official_record_storage_path =
                 $official_record['storage_absolute_path'] ?? null;
+
+            if (!empty($signature_event_id) && $official_record_doc_id > 0) {
+                $link_signature = $conn->prepare(
+                    "UPDATE document_signature_events
+                     SET official_document_id = ?
+                     WHERE signature_id = ?
+                       AND record_module = 'PRF'
+                       AND record_id = ?
+                       AND signature_status = 'Valid'"
+                );
+                $link_signature->bind_param('iii', $official_record_doc_id, $signature_event_id, $pr_id);
+                $link_signature->execute();
+                if ($link_signature->affected_rows !== 1) {
+                    throw new RuntimeException('The final electronic signature could not be linked to the Official PRF.');
+                }
+                $link_signature->close();
+            }
 
             phase2_prf_notify_role(
                 $conn,

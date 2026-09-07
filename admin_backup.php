@@ -11,6 +11,7 @@ if (empty($_SESSION['user_id']) || (string) ($_SESSION['role'] ?? '') !== 'Admin
 
 $feedback_messages = [
     'BackupCreated' => ['type' => 'success', 'message' => 'Complete backup created and verified successfully.'],
+    'BackupUnavailable' => ['type' => 'warning', 'message' => 'Complete server backup and restore are unavailable on the current hosting environment. Use the manual hosting backup steps shown on this page.'],
     'SecurityTokenMismatch' => ['type' => 'error', 'message' => 'Your session validation expired. Refresh the page and try again.'],
     'BackupBusy' => ['type' => 'warning', 'message' => 'Another backup or restore operation is currently running.'],
     'BackupFailed' => ['type' => 'error', 'message' => 'The complete backup could not be created. Check the server error log.'],
@@ -32,13 +33,18 @@ foreach (['success', 'error'] as $feedback_kind) {
     }
 }
 
+$backup_capability = drms_backup_capability_report();
+$server_backup_available = $backup_capability['available'] === true;
+$hosting_profile = (string) $backup_capability['profile'];
 $backup_packages = [];
 $storage_error = '';
-try {
-    $backup_packages = drms_backup_list_packages();
-} catch (Throwable $error) {
-    error_log('Backup list failed: ' . $error->getMessage());
-    $storage_error = 'Protected backup storage is unavailable. Check folder permissions before creating a backup.';
+if ($server_backup_available) {
+    try {
+        $backup_packages = drms_backup_list_packages();
+    } catch (Throwable $error) {
+        error_log('Backup list failed: ' . $error->getMessage());
+        $storage_error = 'Protected backup storage is unavailable. Check folder permissions before creating a backup.';
+    }
 }
 $restorable_packages = array_values(array_filter(
     $backup_packages,
@@ -67,8 +73,9 @@ $restorable_packages = array_values(array_filter(
                 <h2 class="fw-bold text-slate-800 mb-1 tracking-tight">Backup & Restore</h2>
                 <p class="text-slate-500 mb-0 fs-md">Protect the database and uploaded company records as one recoverable package.</p>
             </div>
-            <span class="badge bg-success bg-opacity-10 text-success border border-success-subtle px-3 py-2 rounded-pill">
-                <i class="fas fa-shield-alt me-1" aria-hidden="true"></i> Protected server storage
+            <span class="badge <?php echo $server_backup_available ? 'bg-success text-success border-success-subtle' : 'bg-warning text-warning-emphasis border-warning-subtle'; ?> bg-opacity-10 border px-3 py-2 rounded-pill">
+                <i class="fas <?php echo $server_backup_available ? 'fa-shield-alt' : 'fa-server'; ?> me-1" aria-hidden="true"></i>
+                <?php echo $server_backup_available ? 'Server recovery available' : 'Manual host backup required'; ?>
             </span>
         </header>
 
@@ -81,13 +88,40 @@ $restorable_packages = array_values(array_filter(
 
         <section class="info-banner mb-4 d-flex align-items-start gap-3">
             <div class="bg-white text-primary rounded-circle d-flex justify-content-center align-items-center border box-40 flex-shrink-0">
-                <i class="fas fa-archive" aria-hidden="true"></i>
+                <i class="fas <?php echo $server_backup_available ? 'fa-archive' : 'fa-info-circle'; ?>" aria-hidden="true"></i>
             </div>
             <div class="min-w-0">
-                <h6 class="fw-bold text-slate-800 mb-1 fs-md">One complete recovery package</h6>
-                <p class="text-slate-500 mb-0 fs-sm">Each ZIP contains the database, uploaded records, and a SHA-256 integrity manifest. Restore uses a server-side package so it is not limited by the browser's upload size.</p>
+                <?php if ($server_backup_available): ?>
+                    <h6 class="fw-bold text-slate-800 mb-1 fs-md">One complete recovery package</h6>
+                    <p class="text-slate-500 mb-0 fs-sm">Each ZIP contains the database, uploaded records, and a SHA-256 integrity manifest. Restore uses a server-side package so it is not limited by the browser's upload size.</p>
+                <?php else: ?>
+                    <h6 class="fw-bold text-slate-800 mb-1 fs-md">Hosting-aware protection is active</h6>
+                    <p class="text-slate-500 mb-1 fs-sm">The <strong><?php echo e($hosting_profile); ?></strong> profile cannot safely run the complete server backup engine, so create and restore actions are disabled before they can fail or leave a partial package.</p>
+                    <?php foreach ($backup_capability['reasons'] as $capability_reason): ?>
+                        <p class="text-slate-500 mb-0 fs-sm"><i class="fas fa-info-circle me-1" aria-hidden="true"></i><?php echo e($capability_reason); ?></p>
+                    <?php endforeach; ?>
+                <?php endif; ?>
             </div>
         </section>
+
+        <?php if (!$server_backup_available): ?>
+            <section class="card border rounded-12 shadow-none mb-4" aria-labelledby="manualHostBackupTitle">
+                <div class="card-body p-3 p-md-4">
+                    <div class="d-flex align-items-start gap-3">
+                        <div class="panel-icon-wrapper bg-primary bg-opacity-10 text-primary mb-0 flex-shrink-0"><i class="fas fa-download" aria-hidden="true"></i></div>
+                        <div class="min-w-0">
+                            <h5 id="manualHostBackupTitle" class="fw-bold text-slate-800 mb-2">Safe manual hosting backup</h5>
+                            <ol class="text-slate-600 fs-sm mb-2 ps-3">
+                                <li class="mb-1">Export the assigned database from the hosting control panel or phpMyAdmin as SQL.</li>
+                                <li class="mb-1">Download the complete <code>uploads</code> directory through FTP.</li>
+                                <li>Keep the SQL export, uploaded files, and a protected copy of <code>runtime.local.php</code> together outside the public website.</li>
+                            </ol>
+                            <p class="text-muted small mb-0">For paid hosting, enable <code>server_backup</code> only after the host confirms PHP ZIP, process execution, writable private storage, and MySQL client tools.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        <?php endif; ?>
 
         <div class="row g-4 align-items-stretch mb-4">
             <div class="col-lg-5">
@@ -98,7 +132,7 @@ $restorable_packages = array_values(array_filter(
                     <form action="actions/backup_handler.php" method="POST" class="mt-auto m-0" id="createBackupForm">
                         <input type="hidden" name="csrf_token" value="<?php echo e($_SESSION['csrf_token']); ?>">
                         <input type="hidden" name="action" value="create_backup">
-                        <button type="button" class="btn btn-primary fw-semibold w-100 d-flex justify-content-center align-items-center gap-2 rounded-custom py-2" onclick="confirmBackupCreation()" <?php echo $storage_error !== '' ? 'disabled' : ''; ?>>
+                        <button type="button" class="btn btn-primary fw-semibold w-100 d-flex justify-content-center align-items-center gap-2 rounded-custom py-2" onclick="confirmBackupCreation()" <?php echo (!$server_backup_available || $storage_error !== '') ? 'disabled' : ''; ?>>
                             <i class="fas fa-plus" aria-hidden="true"></i> Generate complete backup
                         </button>
                     </form>
@@ -119,7 +153,7 @@ $restorable_packages = array_values(array_filter(
                         <div class="row g-2 mb-2">
                             <div class="col-12">
                                 <label for="restoreBackup" class="form-label fw-semibold small mb-1">Backup package</label>
-                                <select class="form-select sleek-input" name="backup" id="restoreBackup" required <?php echo empty($restorable_packages) ? 'disabled' : ''; ?>>
+                                <select class="form-select sleek-input" name="backup" id="restoreBackup" required <?php echo (!$server_backup_available || empty($restorable_packages)) ? 'disabled' : ''; ?>>
                                     <option value="">Select a protected backup</option>
                                     <?php foreach ($restorable_packages as $package): ?>
                                         <option value="<?php echo e($package['filename']); ?>"><?php echo e($package['filename']); ?> — <?php echo e(drms_backup_human_bytes($package['size'])); ?></option>
@@ -128,14 +162,14 @@ $restorable_packages = array_values(array_filter(
                             </div>
                             <div class="col-md-6">
                                 <label for="restorePassword" class="form-label fw-semibold small mb-1">Current Admin password</label>
-                                <input type="password" class="form-control sleek-input" name="current_password" id="restorePassword" autocomplete="current-password" required <?php echo empty($restorable_packages) ? 'disabled' : ''; ?>>
+                                <input type="password" class="form-control sleek-input" name="current_password" id="restorePassword" autocomplete="current-password" required <?php echo (!$server_backup_available || empty($restorable_packages)) ? 'disabled' : ''; ?>>
                             </div>
                             <div class="col-md-6">
                                 <label for="restoreConfirmation" class="form-label fw-semibold small mb-1">Type RESTORE</label>
-                                <input type="text" class="form-control sleek-input text-uppercase" name="confirmation" id="restoreConfirmation" autocomplete="off" spellcheck="false" required <?php echo empty($restorable_packages) ? 'disabled' : ''; ?>>
+                                <input type="text" class="form-control sleek-input text-uppercase" name="confirmation" id="restoreConfirmation" autocomplete="off" spellcheck="false" required <?php echo (!$server_backup_available || empty($restorable_packages)) ? 'disabled' : ''; ?>>
                             </div>
                         </div>
-                        <button type="button" class="btn btn-light border border-danger-subtle text-danger fw-semibold w-100 d-flex justify-content-center align-items-center gap-2 rounded-custom py-2" onclick="confirmSystemRestore()" <?php echo empty($restorable_packages) ? 'disabled' : ''; ?>>
+                        <button type="button" class="btn btn-light border border-danger-subtle text-danger fw-semibold w-100 d-flex justify-content-center align-items-center gap-2 rounded-custom py-2" onclick="confirmSystemRestore()" <?php echo (!$server_backup_available || empty($restorable_packages)) ? 'disabled' : ''; ?>>
                             <i class="fas fa-exclamation-triangle" aria-hidden="true"></i> Verify and restore selected backup
                         </button>
                     </form>
@@ -213,54 +247,58 @@ if (toastMessage && window.Swal) {
     window.history.replaceState(null, '', window.location.pathname);
 }
 
-function confirmBackupCreation() {
-    if (!window.Swal) {
-        if (window.confirm('Create a complete database and uploaded-record backup now?')) {
-            document.getElementById('createBackupForm').submit();
-        }
-        return;
-    }
-    Swal.fire({
+async function confirmBackupCreation() {
+    const approved = await window.DRMSFeedback.confirm({
         title: 'Create complete backup?',
-        html: '<span class="text-muted fs-sm">The database and every uploaded record will be packaged and verified.</span>',
-        icon: 'question', showCancelButton: true, confirmButtonText: 'Create backup', cancelButtonText: 'Cancel', confirmButtonColor: '#2563eb', customClass: { popup: 'sleek-popup' }
-    }).then((result) => {
-        if (!result.isConfirmed) return;
-        Swal.fire({ title: 'Creating complete backup', html: '<span class="text-muted fs-sm">Please keep this tab open while the package is verified.</span>', allowOutsideClick: false, showConfirmButton: false, didOpen: () => Swal.showLoading(), customClass: { popup: 'sleek-popup' } });
-        document.getElementById('createBackupForm').submit();
+        message: 'The database and every uploaded record will be packaged and verified before the backup is made available.',
+        confirmText: 'Create backup',
+        cancelText: 'Cancel',
+        tone: 'info',
+        focusConfirm: true,
+        allowOutsideClick: false
     });
+
+    if (!approved) return;
+    window.DRMSFeedback.toast('Creating and verifying the complete backup. Keep this tab open.', 'info', 5000);
+    document.getElementById('createBackupForm').submit();
 }
 
-function confirmSystemRestore() {
+async function confirmSystemRestore() {
     const form = document.getElementById('restoreBackupForm');
     const backup = document.getElementById('restoreBackup');
     const password = document.getElementById('restorePassword');
     const confirmation = document.getElementById('restoreConfirmation');
+
     if (!backup.value || !password.value || confirmation.value.trim().toUpperCase() !== 'RESTORE') {
-        if (!window.Swal) {
-            window.alert('Select a backup, enter your current Admin password, and type RESTORE exactly.');
-            return;
+        await window.DRMSFeedback.alert({
+            title: 'Complete the restore fields',
+            message: 'Select a backup, enter your current Admin password, and type RESTORE exactly.',
+            confirmText: 'Review fields',
+            tone: 'warning'
+        });
+        if (!backup.value) {
+            backup.focus();
+        } else if (!password.value) {
+            password.focus();
+        } else {
+            confirmation.focus();
         }
-        Swal.fire({ icon: 'warning', title: 'Complete the restore confirmation', text: 'Select a backup, enter your current Admin password, and type RESTORE exactly.', confirmButtonColor: '#2563eb', customClass: { popup: 'sleek-popup' } });
         return;
     }
-    if (!window.Swal) {
-        if (window.confirm('Restore the selected complete backup? A pre-restore safety package will be created first.')) {
-            confirmation.value = 'RESTORE';
-            form.submit();
-        }
-        return;
-    }
-    Swal.fire({
+
+    const approved = await window.DRMSFeedback.confirm({
         title: 'Restore this complete backup?',
-        html: '<span class="text-muted fs-sm">Current database records and uploaded files will be replaced together. A verified pre-restore rollback package will be created automatically.</span>',
-        icon: 'warning', showCancelButton: true, confirmButtonText: 'Yes, start protected restore', cancelButtonText: 'Cancel', confirmButtonColor: '#dc2626', customClass: { popup: 'sleek-popup' }
-    }).then((result) => {
-        if (!result.isConfirmed) return;
-        confirmation.value = 'RESTORE';
-        Swal.fire({ title: 'Restoring system state', html: '<span class="text-muted fs-sm">Do not close this tab or stop Apache and MySQL.</span>', allowOutsideClick: false, showConfirmButton: false, didOpen: () => Swal.showLoading(), customClass: { popup: 'sleek-popup' } });
-        form.submit();
+        message: 'Current database records and uploaded files will be replaced together. A verified pre-restore rollback package will be created automatically.',
+        confirmText: 'Start protected restore',
+        cancelText: 'Cancel',
+        tone: 'danger',
+        allowOutsideClick: false
     });
+
+    if (!approved) return;
+    confirmation.value = 'RESTORE';
+    window.DRMSFeedback.toast('Restoring system state. Do not close this tab or stop Apache and MySQL.', 'warning', 6000);
+    form.submit();
 }
 </script>
 </body>

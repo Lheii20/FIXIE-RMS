@@ -768,7 +768,12 @@ $hasActiveFilters = $filterState['search'] !== '' ||
             })
             .then(data => {
                 if (!Array.isArray(data.records) || data.records.length === 0) {
-                    alert('No records were found for the selected export scope.');
+                    window.DRMSFeedback.alert({
+                        title: 'No records to export',
+                        message: 'No records were found for the selected export scope.',
+                        confirmText: 'Okay',
+                        tone: 'info'
+                    });
                     return;
                 }
 
@@ -791,7 +796,12 @@ $hasActiveFilters = $filterState['search'] !== '' ||
             })
             .catch(error => {
                 console.error('Audit export error:', error);
-                alert(error.message || 'The audit export could not be generated.');
+                window.DRMSFeedback.alert({
+                    title: 'Export could not be completed',
+                    message: error.message || 'The audit export could not be generated.',
+                    confirmText: 'Okay',
+                    tone: 'danger'
+                });
             })
             .finally(() => {
                 btn.html(originalContent).prop('disabled', false);

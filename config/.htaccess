@@ -1,6 +1,6 @@
 Options -Indexes
 
-# Configuration and helper files are server-side dependencies only.
+# Runtime settings and database/SMTP credentials are server-side only.
 <IfModule mod_authz_core.c>
     Require all denied
 </IfModule>

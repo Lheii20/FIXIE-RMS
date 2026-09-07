@@ -1,28 +1,45 @@
 <?php
 // Shared session policy for authentication and protected application requests.
+require_once __DIR__ . '/runtime.php';
+
+error_reporting(E_ALL);
+ini_set('log_errors', '1');
+ini_set('display_errors', '0');
+ini_set('display_startup_errors', '0');
+
+try {
+    $drms_runtime = drms_runtime_config();
+} catch (Throwable $runtime_error) {
+    error_log('Fixie DRMS runtime configuration error: ' . $runtime_error->getMessage());
+    if (PHP_SAPI === 'cli') {
+        throw $runtime_error;
+    }
+    http_response_code(503);
+    exit('System Maintenance: The server configuration is incomplete.');
+}
+
 if (PHP_SAPI === 'cli') {
+    unset($drms_runtime);
     return;
 }
 
 // Production-safe error policy. Detailed errors are written to the configured
 // PHP error log instead of being exposed in the browser. Developers can opt in
 // to browser diagnostics locally by setting APP_ENV=development.
-$drms_environment = strtolower(trim((string) (getenv('APP_ENV') ?: 'production')));
+$drms_environment = (string) $drms_runtime['app']['environment'];
 $drms_show_browser_errors = in_array(
     $drms_environment,
     ['development', 'local', 'testing'],
     true
 );
 
-error_reporting(E_ALL);
-ini_set('log_errors', '1');
 ini_set('display_errors', $drms_show_browser_errors ? '1' : '0');
 ini_set('display_startup_errors', $drms_show_browser_errors ? '1' : '0');
 
-unset($drms_environment, $drms_show_browser_errors);
+unset($drms_runtime, $drms_environment, $drms_show_browser_errors);
 
 $sessionWasAlreadyActive = session_status() === PHP_SESSION_ACTIVE;
-$sessionCookieSecure = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+$sessionCookieSecure = drms_runtime_request_is_https();
 $sessionCookieParams = [
     'lifetime' => 0,
     'path' => '/',

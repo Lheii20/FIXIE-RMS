@@ -23,6 +23,7 @@ $notice = trim($_GET['notice'] ?? '');
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="assets/css/style.css" rel="stylesheet">
+    <link rel="stylesheet" href="assets/css/system-feedback.css?v=<?php echo file_exists(__DIR__ . '/assets/css/system-feedback.css') ? filemtime(__DIR__ . '/assets/css/system-feedback.css') : '1'; ?>">
 </head>
 <body class="page-forgot-password">
     <div class="auth-wrapper">
@@ -148,6 +149,8 @@ $notice = trim($_GET['notice'] ?? '');
             </div>
         </main>
     </div>
+
+    <script src="assets/js/system-feedback.js?v=<?php echo file_exists(__DIR__ . '/assets/js/system-feedback.js') ? filemtime(__DIR__ . '/assets/js/system-feedback.js') : '1'; ?>"></script>
 
     <script>
     (() => {

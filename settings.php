@@ -29,6 +29,7 @@ $user = $user_result->fetch_assoc();
     <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/mobile-settings-admin.css?v=<?php echo filemtime(__DIR__ . '/assets/css/mobile-settings-admin.css'); ?>" rel="stylesheet">
+    <link href="assets/css/e-signature.css?v=<?php echo file_exists(__DIR__ . '/assets/css/e-signature.css') ? filemtime(__DIR__ . '/assets/css/e-signature.css') : '1'; ?>" rel="stylesheet">
 </head>
 <body class="page-settings">
 
@@ -123,6 +124,22 @@ $user = $user_result->fetch_assoc();
                         </div>
                     </div>
                 </div>
+
+                <?php if(in_array($role, ['GM', 'Finance', 'President'], true)): ?>
+                <section class="drms-esign-card mb-4">
+                    <div class="drms-esign-card__head">
+                        <span class="drms-esign-card__icon"><i class="fas fa-signature"></i></span>
+                        <div>
+                            <span class="drms-esign-card__eyebrow">Approval security</span>
+                            <h1>Electronic signature</h1>
+                        </div>
+                    </div>
+                    <div class="drms-esign-card__body">
+                        <p class="drms-esign-help mb-3">Set the protected name and title that will be recorded when you sign your assigned approval stages. Your current password will still be required for every signature.</p>
+                        <a href="signature_profile.php" class="btn btn-outline-primary btn-sm fw-bold"><i class="fas fa-pen-nib me-1"></i> Set up electronic signature</a>
+                    </div>
+                </section>
+                <?php endif; ?>
 
                 <div class="card border-0 shadow-sm mb-4">
                     <div class="card-header bg-white pt-4 border-0">

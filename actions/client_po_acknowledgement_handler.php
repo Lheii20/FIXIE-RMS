@@ -6,6 +6,7 @@ require '../config/functions.php';
 require_once '../config/workflow_access.php';
 require_once '../config/client_po_acknowledgement.php';
 require_once '../config/workflow_feedback.php';
+require_once '../config/e_signature.php';
 
 date_default_timezone_set('Asia/Manila');
 
@@ -21,6 +22,32 @@ function phase6b2_redirect(int $quotation_id, string $type, string $message): vo
         )
         : drms_feedback_clean_text($message);
     drms_redirect_with_feedback($target, $type, $public_message);
+}
+
+/** Fingerprint the exact Client PO evidence reviewed by the GM. */
+function phase6_client_po_acknowledgement_fingerprint(
+    array $quotation,
+    array $officialPo,
+    string $actedAt
+): string {
+    $payload = [
+        'quotation_id' => (int) ($quotation['quotation_id'] ?? 0),
+        'quotation_number' => (string) ($quotation['quotation_number'] ?? ''),
+        'client_name' => (string) ($quotation['client_name'] ?? ''),
+        'approval_record_id' => (int) ($officialPo['approval_record_id'] ?? 0),
+        'internal_reference' => (string) ($officialPo['internal_reference'] ?? ''),
+        'actual_client_po_number' => (string) ($officialPo['actual_client_po_number'] ?? ''),
+        'client_po_date' => (string) ($officialPo['client_po_date'] ?? ''),
+        'client_final_approval_date' => (string) ($officialPo['final_approval_date'] ?? ''),
+        'proof_file_path' => (string) ($officialPo['proof_file_path'] ?? ''),
+        'proof_file_hash' => (string) ($officialPo['proof_file_hash'] ?? ''),
+        'acknowledged_at' => $actedAt,
+    ];
+    $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($encoded)) {
+        throw new RuntimeException('The Client PO evidence could not be fingerprinted for electronic signing.');
+    }
+    return hash('sha256', $encoded);
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -59,20 +86,36 @@ if (strlen($remarks) > 1000) {
     phase6b2_redirect($quotation_id, 'error', 'Remarks must not exceed 1,000 characters.');
 }
 
-if ($decision === 'Acknowledged' && (string) ($_POST['confirmation'] ?? '') !== '1') {
-    phase6b2_redirect(
-        $quotation_id,
-        'error',
-        'Confirm that you reviewed the official Client PO before signing.'
-    );
-}
-
 if ($decision === 'Returned' && strlen($remarks) < 10) {
     phase6b2_redirect(
         $quotation_id,
         'error',
         'Enter a clear return reason with at least 10 characters.'
     );
+}
+
+$e_signature = null;
+if ($decision === 'Acknowledged') {
+    try {
+        if (!drms_signature_tables_ready($conn)) {
+            throw new RuntimeException('Electronic signatures are unavailable until the signature foundation is installed.');
+        }
+        $e_signature = drms_esign_prepare(
+            $conn,
+            (int) $_SESSION['user_id'],
+            'Client PO',
+            'GM Acknowledgement',
+            $_POST
+        );
+    } catch (Throwable $error) {
+        phase6b2_redirect(
+            $quotation_id,
+            'error',
+            $error instanceof DomainException
+                ? $error->getMessage()
+                : 'The Client PO electronic signature could not be prepared. No workflow changes were saved.'
+        );
+    }
 }
 
 if (!phase6b2_is_installed($conn)) {
@@ -216,11 +259,17 @@ try {
     if (!$gm) {
         throw new RuntimeException('Your active General Manager account could not be verified.');
     }
+    if (
+        $decision === 'Acknowledged' &&
+        (int) ($e_signature['user']['user_id'] ?? 0) !== $gm_id
+    ) {
+        throw new RuntimeException('The electronic-signature account does not match the active General Manager session.');
+    }
 
     $signatory_name = (string) $gm['full_name'];
     $signatory_role = 'GM';
     $method = $decision === 'Acknowledged'
-        ? 'Authenticated Digital Sign-off'
+        ? 'Active session-confirmed electronic signature'
         : 'Authenticated Review';
     $stored_remarks = $remarks !== '' ? $remarks : null;
     $acted_at = date('Y-m-d H:i:s');
@@ -293,6 +342,35 @@ try {
         $official_record_doc_id = (int) $official_record['doc_id'];
         $official_record_storage_path =
             $official_record['storage_absolute_path'] ?? null;
+
+        $signature_fingerprint = phase6_client_po_acknowledgement_fingerprint(
+            $quotation,
+            $official_po,
+            $acted_at
+        );
+        $signature_version = 'cpo-' . substr(
+            hash(
+                'sha256',
+                $approval_record_id . '|' . $official_po['proof_file_hash'] . '|' . $acted_at
+            ),
+            0,
+            16
+        );
+        $signature_event_id = drms_esign_record_event(
+            $conn,
+            $e_signature,
+            [
+                'record_module' => 'Client PO',
+                'record_id' => $approval_record_id,
+                'document_id' => $official_record_doc_id,
+                'official_document_id' => $official_record_doc_id,
+                'signature_stage' => 'GM Acknowledgement',
+                'signed_file_hash' => $signature_fingerprint,
+                'signed_version' => $signature_version,
+                'consent_text' => 'I reviewed the attached official Client Purchase Order and acknowledge its internal receipt and authorization for PRF preparation through my electronic signature.',
+                'remarks' => $stored_remarks,
+            ]
+        );
 
         $sales_message = sprintf(
             'GM acknowledged Client PO %s for %s. Official Record %s was filed and the PRF can now be prepared.',
@@ -394,6 +472,7 @@ try {
             'remarks' => $stored_remarks,
             'official_record_doc_id' => $official_record_doc_id,
             'official_record_number' => $official_record_number,
+            'signature_event_id' => $signature_event_id ?? null,
         ]
     );
 
