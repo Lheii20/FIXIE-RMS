@@ -1,0 +1,176 @@
+.delivery-esign-summary {
+    display: grid;
+    grid-template-columns: 78px minmax(220px, 1fr) auto minmax(210px, auto);
+    gap: 12px;
+    align-items: center;
+    margin: -6px 0 16px;
+    padding: 10px 12px;
+    border: 1px solid #b9c8dc;
+    border-left: 3px solid #168466;
+    border-radius: 10px;
+    background: #fff;
+}
+
+.delivery-esign-mark {
+    display: flex;
+    width: 78px;
+    height: 38px;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border: 1px solid #b7d9ce;
+    border-radius: 8px;
+    background: #f0faf6;
+}
+
+.delivery-esign-mark img {
+    display: block;
+    max-width: 68px;
+    max-height: 30px;
+    object-fit: contain;
+}
+
+.delivery-esign-mark span {
+    color: #08765a;
+    font-size: 16px;
+    font-style: italic;
+    font-weight: 750;
+}
+
+.delivery-esign-identity,
+.delivery-esign-meta,
+.delivery-esign-reference {
+    min-width: 0;
+}
+
+.delivery-esign-identity > span,
+.delivery-esign-identity > strong,
+.delivery-esign-identity > small,
+.delivery-esign-meta > span,
+.delivery-esign-meta > strong,
+.delivery-esign-reference > span,
+.delivery-esign-reference > code {
+    display: block;
+}
+
+.delivery-esign-eyebrow,
+.delivery-esign-meta > span,
+.delivery-esign-reference > span {
+    margin-bottom: 2px;
+    color: #64748b;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: .035em;
+    text-transform: uppercase;
+}
+
+.delivery-esign-eyebrow i {
+    margin-right: 4px;
+    color: #168466;
+}
+
+.delivery-esign-identity > strong,
+.delivery-esign-meta > strong {
+    overflow: hidden;
+    color: #172033;
+    font-size: 12px;
+    font-weight: 750;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.delivery-esign-identity > small {
+    margin-top: 2px;
+    color: #64748b;
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.delivery-esign-reference code {
+    overflow: hidden;
+    max-width: 240px;
+    padding: 5px 7px;
+    color: #234b78;
+    font-size: 10.5px;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border: 1px solid #b9c8dc;
+    border-radius: 6px;
+    background: #f6f9fd;
+}
+
+.delivery-esign-state-icon {
+    display: inline-flex;
+    width: 38px;
+    height: 38px;
+    align-items: center;
+    justify-content: center;
+    color: #7c5b16;
+    border: 1px solid #dfc98e;
+    border-radius: 9px;
+    background: #fff9e8;
+}
+
+.delivery-esign-summary--legacy,
+.delivery-esign-summary--invalid {
+    grid-template-columns: auto minmax(0, 1fr);
+    border-left-color: #b7791f;
+    background: #fffdf7;
+}
+
+.delivery-esign-summary--invalid {
+    border-left-color: #c24141;
+    background: #fffafa;
+}
+
+.delivery-esign-summary--invalid .delivery-esign-state-icon {
+    color: #b42318;
+    border-color: #e5b8b3;
+    background: #fff1f0;
+}
+
+.delivery-plan-card .delivery-esign-summary {
+    margin: 12px 0 14px;
+}
+
+@media (max-width: 991.98px) {
+    .delivery-esign-summary {
+        grid-template-columns: 78px minmax(0, 1fr) auto;
+    }
+
+    .delivery-esign-reference {
+        grid-column: 2 / -1;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .delivery-esign-summary {
+        grid-template-columns: 64px minmax(0, 1fr);
+        gap: 9px;
+        margin-top: -5px;
+        padding: 9px 10px;
+    }
+
+    .delivery-esign-mark {
+        width: 64px;
+        height: 36px;
+    }
+
+    .delivery-esign-mark img {
+        max-width: 56px;
+        max-height: 28px;
+    }
+
+    .delivery-esign-meta,
+    .delivery-esign-reference {
+        grid-column: 1 / -1;
+        padding-top: 7px;
+        border-top: 1px solid #d6dfeb;
+    }
+
+    .delivery-esign-reference code {
+        max-width: 100%;
+    }
+}
+

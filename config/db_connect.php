@@ -1,4 +1,7 @@
 <?php
+
+declare(strict_types=1);
+
 require_once __DIR__ . '/session_bootstrap.php';
 
 $database_config = drms_runtime_section('database');
@@ -16,25 +19,6 @@ try {
     drms_runtime_database_timezone($conn);
     unset($database_config, $host, $port, $user, $pass, $db);
 
-    // =========================================================================
-    // 1. AUTO-SETUP SESSION MANAGEMENT (Para sa Force Logout at Active Status)
-    // =========================================================================
-    $check_col_session = $conn->query("SHOW COLUMNS FROM users LIKE 'session_token'");
-    if ($check_col_session && $check_col_session->num_rows == 0) {
-        $conn->query("ALTER TABLE users ADD COLUMN session_token VARCHAR(255) NULL");
-        $conn->query("ALTER TABLE users ADD COLUMN last_active DATETIME NULL");
-    }
-
-    // =========================================================================
-    // 2. AUTO-SETUP DB RATE LIMITING (Brute-Force Protection)
-    // =========================================================================
-    $conn->query("CREATE TABLE IF NOT EXISTS login_attempts (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        ip_address VARCHAR(45) NOT NULL,
-        username VARCHAR(100) NOT NULL,
-        attempt_time DATETIME DEFAULT CURRENT_TIMESTAMP
-    )");
-    
 } catch (mysqli_sql_exception $e) {
     error_log("Database Connection Error: " . $e->getMessage());
     die("System Maintenance: Unable to connect to the database. Please try again later.");
@@ -113,31 +97,41 @@ if (isset($_SESSION['user_id'])) {
     $res_check = $stmt_check->get_result();
     
     $sessionUser = $res_check->fetch_assoc();
+    $stmt_check->close();
     if (!$sessionUser || $current_token === '' || !hash_equals((string) ($sessionUser['session_token'] ?? ''), $current_token) || $sessionUser['status'] !== 'Active') {
         // Do not clear the database token here: it may belong to a newer session.
         drms_end_session($conn, $uid, $current_token, 'force_logout', 'ForceLoggedOutByAdmin');
     }
 
-    $conn->query(
-        "CREATE TABLE IF NOT EXISTS system_settings (
-            setting_key VARCHAR(50) PRIMARY KEY,
-            setting_value VARCHAR(255) NOT NULL
-        )"
-    );
-    $conn->query(
-        "INSERT IGNORE INTO system_settings (setting_key, setting_value)
-         VALUES ('session_timeout', '30')"
-    );
-
     $timeoutMinutes = 30;
-    $timeoutStmt = $conn->prepare(
-        "SELECT setting_value FROM system_settings WHERE setting_key = 'session_timeout' LIMIT 1"
+    $timeoutCacheAge = time() - (int) (
+        $_SESSION['drms_session_timeout_cached_at'] ?? 0
     );
-    $timeoutStmt->execute();
-    $timeoutRow = $timeoutStmt->get_result()->fetch_assoc();
-    $configuredTimeout = (int) ($timeoutRow['setting_value'] ?? 30);
-    if (in_array($configuredTimeout, [15, 30, 60, 120], true)) {
-        $timeoutMinutes = $configuredTimeout;
+    $cachedTimeout = (int) (
+        $_SESSION['drms_session_timeout_minutes'] ?? 0
+    );
+    if (
+        $timeoutCacheAge >= 0 &&
+        $timeoutCacheAge < 60 &&
+        in_array($cachedTimeout, [15, 30, 60, 120], true)
+    ) {
+        $timeoutMinutes = $cachedTimeout;
+    } else {
+        $timeoutStmt = $conn->prepare(
+            "SELECT setting_value
+             FROM system_settings
+             WHERE setting_key = 'session_timeout'
+             LIMIT 1"
+        );
+        $timeoutStmt->execute();
+        $timeoutRow = $timeoutStmt->get_result()->fetch_assoc();
+        $timeoutStmt->close();
+        $configuredTimeout = (int) ($timeoutRow['setting_value'] ?? 30);
+        if (in_array($configuredTimeout, [15, 30, 60, 120], true)) {
+            $timeoutMinutes = $configuredTimeout;
+        }
+        $_SESSION['drms_session_timeout_minutes'] = $timeoutMinutes;
+        $_SESSION['drms_session_timeout_cached_at'] = time();
     }
 
     $now = time();
@@ -152,15 +146,24 @@ if (isset($_SESSION['user_id'])) {
 
     if ($isMeaningfulActivity) {
         $_SESSION['last_activity'] = $now;
-
-        $lastActiveStmt = $conn->prepare(
-            "UPDATE users
-             SET last_active = NOW()
-             WHERE user_id = ?
-               AND (last_active IS NULL OR last_active < NOW() - INTERVAL 1 MINUTE)"
+        $lastActiveSyncAt = (int) (
+            $_SESSION['drms_last_active_synced_at'] ?? 0
         );
-        $lastActiveStmt->bind_param('i', $uid);
-        $lastActiveStmt->execute();
+        if (($now - $lastActiveSyncAt) >= 60) {
+            $lastActiveStmt = $conn->prepare(
+                "UPDATE users
+                 SET last_active = NOW()
+                 WHERE user_id = ?
+                   AND (
+                        last_active IS NULL
+                        OR last_active < NOW() - INTERVAL 1 MINUTE
+                   )"
+            );
+            $lastActiveStmt->bind_param('i', $uid);
+            $lastActiveStmt->execute();
+            $lastActiveStmt->close();
+            $_SESSION['drms_last_active_synced_at'] = $now;
+        }
     }
 }
 

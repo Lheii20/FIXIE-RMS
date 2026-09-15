@@ -44,8 +44,8 @@
             let message = '';
 
             if (action === 'submit') {
-                if (!value('external_name') || !['GM', 'President'].includes(value('signer_role'))) {
-                    message = 'Enter the signatory name and select a reviewer.';
+                if (!value('external_name') || value('signer_role') !== 'GM') {
+                    message = 'Enter the signatory name. Official Record requests are reviewed by the General Manager.';
                 } else if (!form.elements.signed_copy_confirmed?.checked) {
                     message = 'Confirm that the uploaded copy already contains the required signatures.';
                 } else if (value('external_date') && !form.elements.external_date.validity.valid) {

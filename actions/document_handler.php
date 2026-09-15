@@ -4,6 +4,8 @@ require '../config/db_connect.php';
 require '../config/functions.php';
 require_once '../config/upload_policy.php';
 require_once '../config/official_declarations.php';
+require_once '../config/storage_security.php';
+require_once '../config/folder_action_security.php';
 
 if (!isset($_SESSION['user_id'])) { die("Unauthorized access."); }
 
@@ -58,10 +60,138 @@ function isWorkflowManagedOfficialFolder($conn, $category) {
     return $stmt->get_result()->num_rows > 0;
 }
 
+function drmsDocumentMutationAccess(
+    mysqli $conn,
+    int $docId,
+    int $userId,
+    string $role
+): ?array {
+    // System Administrators maintain accounts and application settings; they
+    // are deliberately excluded from the contents of company records.
+    if ($docId < 1 || $userId < 1 || $role === 'Admin') {
+        return null;
+    }
+
+    $stmt = $conn->prepare(
+        "SELECT doc_id, official_doc_id, file_name, file_path, category,
+                status, record_phase, disposition_status, is_legal_hold,
+                uploaded_by, access_type, file_permissions
+         FROM documents
+         WHERE doc_id = ?
+         LIMIT 1"
+    );
+    $stmt->bind_param('i', $docId);
+    $stmt->execute();
+    $document = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    if (!$document) {
+        return null;
+    }
+
+    if (
+        in_array($role, ['GM', 'President'], true) ||
+        has_permission($conn, $userId, 'can_view_all_folders')
+    ) {
+        $document['mutation_access'] = 'Management';
+        return $document;
+    }
+
+    if ((int) ($document['uploaded_by'] ?? 0) === $userId) {
+        $document['mutation_access'] = 'Owner';
+        return $document;
+    }
+
+    $permissions = json_decode(
+        (string) ($document['file_permissions'] ?? ''),
+        true
+    );
+    if (
+        is_array($permissions) &&
+        ($permissions['user_' . $userId] ?? '') === 'Editor'
+    ) {
+        $document['mutation_access'] = 'Editor';
+        return $document;
+    }
+
+    if (
+        ($document['access_type'] ?? 'Folder Default') === 'Folder Default' &&
+        userCanUseOfficialFolder(
+            $conn,
+            (string) ($document['category'] ?? ''),
+            $role
+        )
+    ) {
+        $document['mutation_access'] = 'Folder Editor';
+        return $document;
+    }
+
+    return null;
+}
+
+function drmsDocumentMutationRedirect(
+    string $url,
+    string $type,
+    string $message
+): void {
+    $fallback = '../general_docs.php';
+    if (preg_match('/[\r\n]/', $url)) {
+        $url = $fallback;
+    }
+    $parts = parse_url($url);
+    if (
+        $parts === false ||
+        isset($parts['scheme']) ||
+        isset($parts['host']) ||
+        isset($parts['user']) ||
+        isset($parts['pass'])
+    ) {
+        $url = $fallback;
+    } else {
+        $path = (string) ($parts['path'] ?? '');
+        $page = basename(str_replace('\\', '/', $path));
+        $allowed_pages = [
+            'general_docs.php',
+            'documents.php',
+            'view_po.php',
+            'dashboard.php',
+            'official_declarations.php',
+        ];
+        if (!in_array($page, $allowed_pages, true)) {
+            $url = $fallback;
+        } else {
+            if (str_starts_with($path, '/')) {
+                $safe_path = $path;
+            } elseif (str_starts_with($path, '../')) {
+                $safe_path = '../' . $page;
+            } else {
+                $safe_path = '../' . $page;
+            }
+            $url = $safe_path .
+                (isset($parts['query']) ? '?' . $parts['query'] : '');
+        }
+    }
+
+    $separator = strpos($url, '?') !== false ? '&' : '?';
+    header('Location: ' . $url . $separator . $type . '=' . rawurlencode($message));
+    exit();
+}
+
+function drmsDocumentLifecycleMutable(array $document): bool
+{
+    return
+        ($document['record_phase'] ?? '') !== 'Converted' &&
+        ($document['disposition_status'] ?? '') !== 'Destroyed' &&
+        ($document['disposition_status'] ?? '') !== 'Permanently Archived';
+}
+
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     
     // Strict CSRF Enforcement 
-    if (!isset($_POST['csrf_token']) || !isset($_SESSION['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+    if (
+        !is_string($_POST['csrf_token'] ?? null) ||
+        empty($_SESSION['csrf_token']) ||
+        !hash_equals((string) $_SESSION['csrf_token'], $_POST['csrf_token'])
+    ) {
         die("Security Error: Invalid CSRF Token");
     }
 
@@ -73,69 +203,109 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     // AJAX FETCH PARA SA EXISTING KEYWORDS
     // ==========================================
     if ($action === 'get_keywords') {
-        header('Content-Type: application/json');
-        if (ob_get_length()) ob_clean(); 
-        
-        $cat = trim($_POST['category'] ?? '');
-        
-        $stmt = $conn->prepare("SELECT classification_keywords FROM document_categories WHERE sub_category = ? LIMIT 1");
-        $stmt->bind_param("s", $cat);
-        $stmt->execute();
-        $res = $stmt->get_result();
-        
-        $db_keywords = "";
-        if ($row = $res->fetch_assoc()) {
-            $db_keywords = $row['classification_keywords'];
+        try {
+            drms_folder_action_require_manager(
+                $conn,
+                (int) $user_id,
+                (string) $_SESSION['role']
+            );
+            $category = drms_folder_action_normalize_name(
+                $_POST['category'] ?? null,
+                'Folder name'
+            );
+            $folder = drms_folder_action_find_by_sub($conn, $category);
+            if (!$folder) {
+                throw new DomainException(
+                    'The selected record folder no longer exists.'
+                );
+            }
+            drms_folder_action_require_access(
+                $conn,
+                (int) $user_id,
+                (string) $_SESSION['role'],
+                (string) $folder['parent_category'],
+                (string) $folder['sub_category']
+            );
+            drms_folder_action_json([
+                'status' => 'success',
+                'keywords' => (string) ($folder['classification_keywords'] ?? ''),
+            ]);
+        } catch (DomainException $error) {
+            drms_folder_action_json([
+                'status' => 'error',
+                'message' => $error->getMessage(),
+            ], 403);
+        } catch (Throwable $error) {
+            error_log('Keyword fetch failed: ' . $error->getMessage());
+            drms_folder_action_json([
+                'status' => 'error',
+                'message' => 'Folder keywords could not be loaded.',
+            ], 500);
         }
-        
-        $combined = [];
-        if (!empty($db_keywords)) {
-            $combined = array_map('trim', explode(',', $db_keywords));
-        }
-        
-        $clean_combined = array_unique(array_filter($combined));
-        $final_string = implode(', ', $clean_combined);
-        
-        echo json_encode(['status' => 'success', 'keywords' => $final_string]);
-        exit();
     }
 
     // ==========================================
     // DAGDAG: REAL-TIME KEYWORD CONFLICT CHECKER (AJAX)
     // ==========================================
     if ($action === 'check_keyword_conflicts') {
-        header('Content-Type: application/json');
-        if (ob_get_length()) ob_clean(); 
-        
-        $cat_name = trim($_POST['category'] ?? '');
-        $keywords = trim($_POST['keywords'] ?? '');
-        
-        $input_keys = array_filter(array_map('trim', array_map('strtolower', explode(',', $keywords))));
-        $conflicts = [];
-
-        if (!empty($input_keys)) {
-            // PURE DATABASE CHECK ONLY. Wala nang naka-hardcode na system defaults.
-            $chk_query = $conn->prepare("SELECT sub_category, classification_keywords FROM document_categories WHERE sub_category != ? AND classification_keywords IS NOT NULL AND classification_keywords != ''");
-            $chk_query->bind_param("s", $cat_name);
-            $chk_query->execute();
-            $chk_res = $chk_query->get_result();
-
-            while ($row = $chk_res->fetch_assoc()) {
-                $db_keys = array_filter(array_map('trim', array_map('strtolower', explode(',', $row['classification_keywords']))));
-                foreach ($input_keys as $ik) {
-                    if (in_array($ik, $db_keys)) {
-                        $conflicts[] = "<b>'" . strtoupper($ik) . "'</b> is already used in <b>" . $row['sub_category'] . "</b>";
-                    }
-                }
+        try {
+            drms_folder_action_require_manager(
+                $conn,
+                (int) $user_id,
+                (string) $_SESSION['role']
+            );
+            $category = drms_folder_action_normalize_name(
+                $_POST['category'] ?? null,
+                'Folder name'
+            );
+            $folder = drms_folder_action_find_by_sub($conn, $category);
+            if (!$folder) {
+                throw new DomainException(
+                    'The selected record folder no longer exists.'
+                );
             }
+            drms_folder_action_require_access(
+                $conn,
+                (int) $user_id,
+                (string) $_SESSION['role'],
+                (string) $folder['parent_category'],
+                (string) $folder['sub_category']
+            );
+            drms_folder_action_require_mutable($folder);
+            $keywords = drms_folder_action_normalize_keywords(
+                $_POST['keywords'] ?? ''
+            );
+            $conflicts = drms_folder_action_keyword_conflicts(
+                $conn,
+                $category,
+                $keywords
+            );
+            $messages = [];
+            foreach ($conflicts as $conflict) {
+                $messages[] = htmlspecialchars(
+                    "'" . strtoupper((string) $conflict['keyword'])
+                    . "' is already used in '"
+                    . (string) $conflict['folder'] . "'",
+                    ENT_QUOTES | ENT_SUBSTITUTE,
+                    'UTF-8'
+                );
+            }
+            drms_folder_action_json($messages
+                ? ['status' => 'conflict', 'messages' => $messages]
+                : ['status' => 'clear', 'messages' => []]
+            );
+        } catch (DomainException $error) {
+            drms_folder_action_json([
+                'status' => 'error',
+                'message' => $error->getMessage(),
+            ], 403);
+        } catch (Throwable $error) {
+            error_log('Keyword conflict check failed: ' . $error->getMessage());
+            drms_folder_action_json([
+                'status' => 'error',
+                'message' => 'Keyword validation could not be completed.',
+            ], 500);
         }
-
-        if (!empty($conflicts)) {
-            echo json_encode(['status' => 'conflict', 'messages' => array_unique($conflicts)]);
-        } else {
-            echo json_encode(['status' => 'clear']);
-        }
-        exit();
     }
 
     // START: Rule-Based Automatic Document Classification (PRODUCTION VERSION)
@@ -317,10 +487,35 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $redirectUrl = getRedirectUrl($conn, $doc_id, null, $source);
 
         try {
-            $stmt = $conn->prepare("UPDATE documents SET status = 'Archived' WHERE doc_id = ?");
+            $document = drmsDocumentMutationAccess(
+                $conn,
+                $doc_id,
+                (int) $user_id,
+                (string) ($_SESSION['role'] ?? '')
+            );
+            if (!$document) {
+                throw new DomainException(
+                    'Record not found or you do not have permission to archive it.'
+                );
+            }
+            if (!drmsDocumentLifecycleMutable($document)) {
+                throw new DomainException(
+                    'Converted, destroyed, and permanently archived records cannot be archived through this action.'
+                );
+            }
+            if ((int) ($document['is_legal_hold'] ?? 0) === 1) {
+                throw new DomainException(
+                    'This record is under Legal Hold and cannot be archived.'
+                );
+            }
+            if (($document['status'] ?? '') !== 'Active') {
+                throw new DomainException('Only an active record can be archived.');
+            }
+
+            $stmt = $conn->prepare("UPDATE documents SET status = 'Archived' WHERE doc_id = ? AND status = 'Active'");
             $stmt->bind_param("i", $doc_id);
-            
-            if ($stmt->execute()) {
+            $stmt->execute();
+            if ($stmt->affected_rows === 1) {
                 if (function_exists('log_document_action')) {
                     log_document_action($conn, $user_id, 'ARCHIVE_FILE', $doc_id, "Archived Document ID: $doc_id", $redirectUrl);
                 } else {
@@ -328,11 +523,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 }
                 header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "success=Archived");
             } else {
-                throw new Exception("Execute failed");
+                throw new DomainException('The record changed before it could be archived. Refresh the page and try again.');
             }
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             error_log("Archive Error: " . $e->getMessage());
-            header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "error=DatabaseError");
+            drmsDocumentMutationRedirect(
+                $redirectUrl,
+                'error',
+                $e instanceof DomainException
+                    ? $e->getMessage()
+                    : 'The record could not be archived. Please try again.'
+            );
         }
         exit();
     }
@@ -344,10 +545,33 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $redirectUrl = getRedirectUrl($conn, $doc_id, null, $source);
 
         try {
-            $stmt = $conn->prepare("UPDATE documents SET status = 'Active', disposition_status = 'Archived' WHERE doc_id = ?");
+            $document = drmsDocumentMutationAccess(
+                $conn,
+                $doc_id,
+                (int) $user_id,
+                (string) ($_SESSION['role'] ?? '')
+            );
+            if (!$document) {
+                throw new DomainException(
+                    'Record not found or you do not have permission to restore it.'
+                );
+            }
+            if (!drmsDocumentLifecycleMutable($document)) {
+                throw new DomainException(
+                    'Converted, destroyed, and permanently archived records cannot be restored through this action.'
+                );
+            }
+            if (($document['status'] ?? '') !== 'Archived') {
+                throw new DomainException('Only an archived record can be restored.');
+            }
+
+            // status and disposition_status are separate lifecycles. Restoring
+            // an archive must not write the invalid legacy value "Archived"
+            // into the disposition_status enum.
+            $stmt = $conn->prepare("UPDATE documents SET status = 'Active' WHERE doc_id = ? AND status = 'Archived'");
             $stmt->bind_param("i", $doc_id);
-            
-            if ($stmt->execute()) {
+            $stmt->execute();
+            if ($stmt->affected_rows === 1) {
                 if (function_exists('log_document_action')) {
                     log_document_action($conn, $user_id, 'RESTORE_FILE', $doc_id, "Restored Document ID: $doc_id", $redirectUrl);
                 } else {
@@ -355,11 +579,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 }
                 header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "success=Restored");
             } else {
-                throw new Exception("Execute failed");
+                throw new DomainException('The record changed before it could be restored. Refresh the page and try again.');
             }
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             error_log("Restore Error: " . $e->getMessage());
-            header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "error=DatabaseError");
+            drmsDocumentMutationRedirect(
+                $redirectUrl,
+                'error',
+                $e instanceof DomainException
+                    ? $e->getMessage()
+                    : 'The archived record could not be restored. Please try again.'
+            );
         }
         exit();
     }
@@ -373,33 +603,79 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $doc_id = intval($_POST['doc_id']);
         $redirectUrl = $_POST['return_url'] ?? getRedirectUrl($conn, $doc_id, null, $source);
 
-        $stmt = $conn->prepare("SELECT file_name, record_phase FROM documents WHERE doc_id = ?");
-        $stmt->bind_param("i", $doc_id);
-        $stmt->execute();
-        $res = $stmt->get_result();
-        
-        if($row = $res->fetch_assoc()) {
-            if ($row['record_phase'] === 'Official') {
-                header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "error=Official Records must go through the disposition workflow.");
-                exit();
-            }
-
-            // SOFT DELETE: Move to Recycle Bin instead of unlinking
-            $soft_del = $conn->prepare("UPDATE documents SET status = 'Recycled', deleted_at = NOW() WHERE doc_id = ?");
-            $soft_del->bind_param("i", $doc_id);
-            
-            if ($soft_del->execute()) {
-                if (function_exists('log_document_action')) {
-                    log_document_action($conn, $user_id, 'SOFT_DELETE_FILE', $doc_id, "Moved working document to Recycle Bin: " . $row['file_name'], $redirectUrl);
-                } else {
-                    log_audit_action($conn, $user_id, 'SOFT_DELETE_FILE', "Moved working document to Recycle Bin: " . $row['file_name']);
-                }
-                header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "success=Moved to Recycle Bin.");
-            } else {
-                header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "error=DeleteFailed");
-            }
+        $row = drmsDocumentMutationAccess(
+            $conn,
+            $doc_id,
+            (int) $user_id,
+            (string) ($_SESSION['role'] ?? '')
+        );
+        if (!$row) {
+            drmsDocumentMutationRedirect(
+                $redirectUrl,
+                'error',
+                'Record not found or you do not have permission to delete it.'
+            );
         }
-        exit();
+        if (
+            in_array(($row['record_phase'] ?? ''), ['Official', 'Converted'], true) ||
+            !empty($row['official_doc_id'])
+        ) {
+            drmsDocumentMutationRedirect(
+                $redirectUrl,
+                'error',
+                'Official Records and their protected Company File history cannot be moved to the Recycle Bin.'
+            );
+        }
+        if ((int) ($row['is_legal_hold'] ?? 0) === 1) {
+            drmsDocumentMutationRedirect(
+                $redirectUrl,
+                'error',
+                'This record is under Legal Hold and cannot be deleted.'
+            );
+        }
+        if (!in_array(($row['record_phase'] ?? ''), ['Working', 'For Review'], true)) {
+            drmsDocumentMutationRedirect(
+                $redirectUrl,
+                'error',
+                'Only a working Company File can be moved to the Recycle Bin.'
+            );
+        }
+        if (($row['status'] ?? '') === 'Recycled') {
+            drmsDocumentMutationRedirect(
+                $redirectUrl,
+                'error',
+                'This record is already in the Recycle Bin.'
+            );
+        }
+
+        // SOFT DELETE: Move to Recycle Bin instead of unlinking.
+        $soft_del = $conn->prepare(
+            "UPDATE documents
+             SET status = 'Recycled', deleted_at = NOW()
+             WHERE doc_id = ?
+               AND status <> 'Recycled'
+               AND record_phase IN ('Working', 'For Review')
+               AND official_doc_id IS NULL"
+        );
+        $soft_del->bind_param("i", $doc_id);
+        $soft_del->execute();
+        if ($soft_del->affected_rows === 1) {
+            if (function_exists('log_document_action')) {
+                log_document_action($conn, $user_id, 'SOFT_DELETE_FILE', $doc_id, "Moved working document to Recycle Bin: " . $row['file_name'], $redirectUrl);
+            } else {
+                log_audit_action($conn, $user_id, 'SOFT_DELETE_FILE', "Moved working document to Recycle Bin: " . $row['file_name']);
+            }
+            drmsDocumentMutationRedirect(
+                $redirectUrl,
+                'success',
+                'Moved to Recycle Bin.'
+            );
+        }
+        drmsDocumentMutationRedirect(
+            $redirectUrl,
+            'error',
+            'The record changed before it could be moved. Refresh the page and try again.'
+        );
     }
 
     // ==========================================
@@ -411,43 +687,179 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $doc_id = intval($_POST['doc_id']);
         $redirectUrl = $_POST['return_url'] ?? '../general_docs.php';
 
-        $res_stmt = $conn->prepare("UPDATE documents SET status = 'Active', deleted_at = NULL WHERE doc_id = ?");
-        $res_stmt->bind_param("i", $doc_id);
-        if ($res_stmt->execute()) {
-            log_audit_action($conn, $user_id, 'RESTORE_FILE', "Restored document ID $doc_id from Recycle Bin.");
-            header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "success=Document Restored Successfully.");
+        $document = drmsDocumentMutationAccess(
+            $conn,
+            $doc_id,
+            (int) $user_id,
+            (string) ($_SESSION['role'] ?? '')
+        );
+        if (
+            !$document ||
+            !in_array(($document['record_phase'] ?? ''), ['Working', 'For Review'], true) ||
+            !empty($document['official_doc_id']) ||
+            ($document['status'] ?? '') !== 'Recycled'
+        ) {
+            drmsDocumentMutationRedirect(
+                $redirectUrl,
+                'error',
+                'This working record is unavailable or cannot be restored by your account.'
+            );
         }
-        exit();
+
+        $res_stmt = $conn->prepare(
+            "UPDATE documents
+             SET status = 'Active', deleted_at = NULL
+             WHERE doc_id = ?
+               AND status = 'Recycled'
+               AND record_phase IN ('Working', 'For Review')
+               AND official_doc_id IS NULL"
+        );
+        $res_stmt->bind_param("i", $doc_id);
+        $res_stmt->execute();
+        if ($res_stmt->affected_rows === 1) {
+            log_audit_action($conn, $user_id, 'RESTORE_FILE', "Restored document ID $doc_id from Recycle Bin.");
+            drmsDocumentMutationRedirect(
+                $redirectUrl,
+                'success',
+                'Document restored successfully.'
+            );
+        }
+        drmsDocumentMutationRedirect(
+            $redirectUrl,
+            'error',
+            'The record changed before it could be restored. Refresh the page and try again.'
+        );
     }
 
     // ==========================================
     // PERMANENT DELETE (AUTHORIZED ONLY)
     // ==========================================
     if ($action == 'permanent_delete') {
-        if (!in_array($_SESSION['role'], ['Admin', 'President', 'GM'])) die("Unauthorized Action.");
+        if (!in_array($_SESSION['role'], ['President', 'GM'], true)) die("Unauthorized Action.");
 
         $doc_id = intval($_POST['doc_id']);
         $redirectUrl = $_POST['return_url'] ?? '../general_docs.php';
 
-        $stmt = $conn->prepare("SELECT file_path, file_name FROM documents WHERE doc_id = ? AND status = 'Recycled'");
-        $stmt->bind_param("i", $doc_id);
-        $stmt->execute();
-        $res = $stmt->get_result();
-        
-        if($row = $res->fetch_assoc()) {
-            $path = '../' . $row['file_path'];
-            if(file_exists($path) && is_file($path)) {
-                unlink($path); 
-            }
-            
-            $del_stmt = $conn->prepare("DELETE FROM documents WHERE doc_id = ?");
-            $del_stmt->bind_param("i", $doc_id);
-            if ($del_stmt->execute()) {
-                log_audit_action($conn, $user_id, 'PERMANENT_DELETE', "Permanently wiped document: " . $row['file_name']);
-                header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "success=Permanently Deleted.");
+        $row = drmsDocumentMutationAccess(
+            $conn,
+            $doc_id,
+            (int) $user_id,
+            (string) ($_SESSION['role'] ?? '')
+        );
+        if (
+            !$row ||
+            ($row['status'] ?? '') !== 'Recycled' ||
+            !in_array(($row['record_phase'] ?? ''), ['Working', 'For Review'], true) ||
+            !empty($row['official_doc_id']) ||
+            (int) ($row['is_legal_hold'] ?? 0) === 1
+        ) {
+            drmsDocumentMutationRedirect(
+                $redirectUrl,
+                'error',
+                'Only an eligible recycled Company File can be permanently deleted by management.'
+            );
+        }
+
+        $stored_paths = [(string) $row['file_path']];
+        $version_stmt = $conn->prepare(
+            'SELECT file_path FROM document_versions WHERE doc_id = ?'
+        );
+        $version_stmt->bind_param('i', $doc_id);
+        $version_stmt->execute();
+        $version_result = $version_stmt->get_result();
+        while ($version = $version_result->fetch_assoc()) {
+            $stored_paths[] = (string) ($version['file_path'] ?? '');
+        }
+        $version_stmt->close();
+
+        $safe_files = [];
+        foreach (array_unique(array_filter($stored_paths)) as $stored_path) {
+            try {
+                $safe_files[] = drms_storage_resolve_existing_file($stored_path);
+            } catch (RuntimeException $storage_error) {
+                // A missing file does not justify retaining a recycled database
+                // row forever. Invalid/outside paths are never unlinked.
+                error_log(
+                    'Permanent-delete storage entry skipped for document ' .
+                    $doc_id . ': ' . $storage_error->getMessage()
+                );
             }
         }
-        exit();
+
+        $conn->begin_transaction();
+        try {
+            $lock_stmt = $conn->prepare(
+                "SELECT file_name
+                 FROM documents
+                 WHERE doc_id = ?
+                   AND status = 'Recycled'
+                   AND record_phase IN ('Working', 'For Review')
+                   AND official_doc_id IS NULL
+                   AND is_legal_hold = 0
+                 FOR UPDATE"
+            );
+            $lock_stmt->bind_param('i', $doc_id);
+            $lock_stmt->execute();
+            $locked = $lock_stmt->get_result()->fetch_assoc();
+            $lock_stmt->close();
+            if (!$locked) {
+                throw new DomainException(
+                    'The recycled record changed before permanent deletion. Refresh and try again.'
+                );
+            }
+
+            log_audit_action(
+                $conn,
+                $user_id,
+                'PERMANENT_DELETE',
+                'Permanently deleted recycled Company File: ' . $locked['file_name']
+            );
+            $del_stmt = $conn->prepare(
+                "DELETE FROM documents
+                 WHERE doc_id = ?
+                   AND status = 'Recycled'
+                   AND record_phase IN ('Working', 'For Review')
+                   AND official_doc_id IS NULL
+                   AND is_legal_hold = 0"
+            );
+            $del_stmt->bind_param("i", $doc_id);
+            $del_stmt->execute();
+            if ($del_stmt->affected_rows !== 1) {
+                throw new RuntimeException(
+                    'The recycled record could not be removed from the database.'
+                );
+            }
+            $conn->commit();
+        } catch (Throwable $error) {
+            $conn->rollback();
+            error_log('Permanent document deletion failed: ' . $error->getMessage());
+            drmsDocumentMutationRedirect(
+                $redirectUrl,
+                'error',
+                $error instanceof DomainException
+                    ? $error->getMessage()
+                    : 'The recycled record could not be permanently deleted.'
+            );
+        }
+
+        $cleanup_failed = false;
+        foreach (array_unique($safe_files) as $safe_file) {
+            if (is_file($safe_file) && !@unlink($safe_file)) {
+                $cleanup_failed = true;
+                error_log(
+                    'Unable to remove recycled document binary after database deletion: ' .
+                    $safe_file
+                );
+            }
+        }
+
+        drmsDocumentMutationRedirect(
+            $redirectUrl,
+            $cleanup_failed ? 'error' : 'success',
+            $cleanup_failed
+                ? 'The recycled record was removed, but a storage file needs administrator cleanup. Check the server log.'
+                : 'Permanently deleted the recycled Company File and its stored versions.'
+        );
     }
 
     if ($action == 'upload') {
@@ -465,7 +877,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         // forged, so it must never decide whether a record is already official.
         $record_intake = trim($_POST['record_intake'] ?? 'working');
         if ($record_intake === 'official') {
-            header('Location: ../official_declarations.php?error=' . rawurlencode('Upload the signed file to Company Files, then submit a declaration request.'));
+            header('Location: ../general_docs.php?type=' . rawurlencode($doc_category) . '&error=' . rawurlencode('Upload the signed file to Company Files, then submit a declaration request to the General Manager.'));
             exit();
         }
         $signature_confirmed = ($_POST['official_signature_confirmed'] ?? '') === '1';
@@ -766,7 +1178,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             );
             $status = $orig['status'];
             $uploaded_by = $orig['uploaded_by'];
-            $uploaded_at = $orig['uploaded_at'];
+            // The Official Record is a new controlled record. Keep the source
+            // upload date in the Company File and copied version history, but
+            // give the Official Record its own filing timestamp.
+            $source_uploaded_at = $orig['uploaded_at'];
+            $uploaded_at = date('Y-m-d H:i:s');
             $file_hash = $orig['file_hash'];
             $current_version = $orig['current_version'];
             $access_type = $orig['access_type'];
@@ -852,6 +1268,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     version_number,
                     file_name,
                     file_path,
+                    file_hash,
                     uploaded_by,
                     uploaded_at,
                     remarks
@@ -861,6 +1278,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     source_version.version_number,
                     source_version.file_name,
                     source_version.file_path,
+                    source_version.file_hash,
                     source_version.uploaded_by,
                     source_version.uploaded_at,
                     CONCAT(
@@ -914,19 +1332,21 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         version_number,
                         file_name,
                         file_path,
+                        file_hash,
                         uploaded_by,
                         uploaded_at,
                         remarks
-                     ) VALUES (?, ?, ?, ?, ?, ?, ?)"
+                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
                 );
                 $source_snapshot_stmt->bind_param(
-                    'isssiss',
+                    'issssiss',
                     $official_doc_id,
                     $current_version,
                     $source_file_name,
                     $source_file_path,
+                    $source_file_hash,
                     $uploaded_by,
-                    $uploaded_at,
+                    $source_uploaded_at,
                     $source_snapshot_remarks
                 );
                 $source_snapshot_stmt->execute();
@@ -943,16 +1363,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     version_number,
                     file_name,
                     file_path,
+                    file_hash,
                     uploaded_by,
                     remarks
-                 ) VALUES (?, ?, ?, ?, ?, ?)"
+                 ) VALUES (?, ?, ?, ?, ?, ?, ?)"
             );
             $official_snapshot_stmt->bind_param(
-                'isssis',
+                'issssis',
                 $official_doc_id,
                 $current_version,
                 $file_name,
                 $file_path,
+                $file_hash,
                 $user_id,
                 $official_snapshot_remarks
             );

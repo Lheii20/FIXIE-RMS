@@ -84,10 +84,54 @@ if (!function_exists('drms_signature_authorized_roles')) {
             return [];
         }
 
-        // Manually uploaded general records may be verified and filed by
-        // either designated top-management role.
+        if (
+            strpos($module, 'delivery receipt') !== false ||
+            $module === 'client delivery receipt'
+        ) {
+            if (
+                $stage === 'delivery completion' ||
+                $stage === 'client handover certification'
+            ) {
+                return ['Supply Chain'];
+            }
+
+            return [];
+        }
+
+        if (
+            strpos($module, 'client payment confirmation') !== false ||
+            $module === 'payment confirmation'
+        ) {
+            if (
+                $stage === 'finance verification' ||
+                $stage === 'payment verification'
+            ) {
+                return ['Finance'];
+            }
+
+            return [];
+        }
+
+        if (
+            strpos($module, 'delivery request') !== false ||
+            strpos($module, 'logistics plan') !== false ||
+            $module === 'delivery and logistics'
+        ) {
+            if (
+                $stage === 'supply chain approval' ||
+                $stage === 'logistics approval'
+            ) {
+                return ['Supply Chain'];
+            }
+
+            return [];
+        }
+
+        // Manually uploaded general records are routed through the single
+        // General Manager declaration queue. Keeping this rule here matches
+        // the page and transaction-level reviewer guard.
         if ($module === 'general document' || $module === 'document') {
-            return ['GM', 'President'];
+            return ['GM'];
         }
 
         return [];

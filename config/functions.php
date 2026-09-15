@@ -2,72 +2,52 @@
 require_once __DIR__ . '/audit_bootstrap.php';
 
 // ===============================================
-// RBAC AUTO-SETUP & PERMISSION HELPERS
+// RBAC SETUP & PERMISSION HELPERS
 // ===============================================
 function ensure_rbac_tables_exist($conn) {
-    $conn->query("CREATE TABLE IF NOT EXISTS permissions (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        permission_name VARCHAR(50) NOT NULL UNIQUE,
-        description VARCHAR(255) DEFAULT NULL
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
-
-    $conn->query("CREATE TABLE IF NOT EXISTS user_permissions (
-        user_id INT NOT NULL,
-        permission_name VARCHAR(50) NOT NULL,
-        PRIMARY KEY (user_id, permission_name),
-        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
-        FOREIGN KEY (permission_name) REFERENCES permissions(permission_name) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
-
-    $default_perms = [
-        ['can_upload_documents', 'Allow uploading of files and documents'],
-        ['can_archive_documents', 'Allow archiving of active documents'],
-        ['can_delete_documents', 'Allow permanent deletion of documents'],
-        ['can_manage_folders', 'Allow creating and deleting system folders'],
-        ['can_edit_policies', 'Allow editing of retention policies'],
-        ['can_view_audit_logs', 'Allow viewing of the system audit trail and logs'],
-        ['can_view_all_folders', 'Allow viewing of all folders regardless of department'],
-        ['can_view_disposition', 'Allow viewing of documents ready for disposition']
-    ];
-    
-    $stmt = $conn->prepare("INSERT IGNORE INTO permissions (permission_name, description) VALUES (?, ?)");
-    foreach ($default_perms as $dp) {
-        $stmt->bind_param("ss", $dp[0], $dp[1]);
-        $stmt->execute();
-    }
-    
-    $admin_q = $conn->query("SELECT user_id FROM users WHERE role = 'Admin'");
-    while ($admin_user = $admin_q->fetch_assoc()) {
-        $admin_id = $admin_user['user_id'];
-        foreach ($default_perms as $dp) {
-            $conn->query("INSERT IGNORE INTO user_permissions (user_id, permission_name) VALUES ($admin_id, '{$dp[0]}')");
-        }
-    }
+    // Compatibility shim for existing call sites. RBAC schema installation and
+    // default permission seeding now belong exclusively to deployment/migration
+    // tooling, never to an ordinary page or user-management request.
+    return true;
 }
 
 function has_permission($conn, $user_id, $permission_name) {
-    static $user_perms = null;
-    static $tables_checked = false;
-    
-    if (!$tables_checked) {
-        ensure_rbac_tables_exist($conn);
-        $tables_checked = true;
+    static $permissions_by_user = [];
+
+    $user_id = (int) $user_id;
+    $permission_name = trim((string) $permission_name);
+    if ($user_id <= 0 || $permission_name === '') {
+        return false;
     }
-    
-    if ($user_perms === null) {
-        $user_perms = [];
-        $stmt = $conn->prepare("SELECT user_id, permission_name FROM user_permissions");
-        if ($stmt) {
-            $stmt->execute();
-            $res = $stmt->get_result();
-            while ($row = $res->fetch_assoc()) {
-                $uid = $row['user_id'];
-                if (!isset($user_perms[$uid])) $user_perms[$uid] = [];
-                $user_perms[$uid][] = $row['permission_name'];
+
+    // Schema installation belongs to migrations/admin setup, not to every
+    // authorization check. Load only this user's permissions and reuse them
+    // for the rest of the current request.
+    if (!array_key_exists($user_id, $permissions_by_user)) {
+        $permissions_by_user[$user_id] = [];
+        $stmt = $conn->prepare(
+            "SELECT permission_name
+             FROM user_permissions
+             WHERE user_id = ?"
+        );
+
+        if (!$stmt) {
+            return false;
+        }
+
+        $stmt->bind_param('i', $user_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        while ($row = $result->fetch_assoc()) {
+            $name = trim((string) ($row['permission_name'] ?? ''));
+            if ($name !== '') {
+                $permissions_by_user[$user_id][$name] = true;
             }
         }
+        $stmt->close();
     }
-    return isset($user_perms[$user_id]) && in_array($permission_name, $user_perms[$user_id]);
+
+    return isset($permissions_by_user[$user_id][$permission_name]);
 }
 
 // ===============================================
@@ -153,93 +133,32 @@ function delete_user($conn, $user_id) {
 // Notifications remain visible to everyone in a role, but each recipient owns
 // their own read, pin, and delete state in notification_user_states.
 function ensure_collaboration_tables_exist($conn) {
-    static $checked = false;
-    if ($checked) return;
-
-    // Avoid running DDL in normal requests. In particular, notification creation
-    // may happen inside a PO transaction and MySQL DDL would implicitly commit it.
-    $notification_states_exists = $conn->query("SHOW TABLES LIKE 'notification_user_states'");
-    if (!$notification_states_exists || $notification_states_exists->num_rows === 0) {
-        $conn->query("CREATE TABLE IF NOT EXISTS notification_user_states (
-        notif_id INT NOT NULL,
-        user_id INT NOT NULL,
-        is_read TINYINT(1) NOT NULL DEFAULT 0,
-        is_pinned TINYINT(1) NOT NULL DEFAULT 0,
-        is_deleted TINYINT(1) NOT NULL DEFAULT 0,
-        read_at DATETIME DEFAULT NULL,
-        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (notif_id, user_id),
-        INDEX idx_notification_user_inbox (user_id, is_deleted, is_read),
-        CONSTRAINT fk_notification_state_notification FOREIGN KEY (notif_id) REFERENCES notifications(notif_id) ON DELETE CASCADE,
-        CONSTRAINT fk_notification_state_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
-    }
-
-    $task_assignments_exists = $conn->query("SHOW TABLES LIKE 'purchase_order_task_assignments'");
-    if (!$task_assignments_exists || $task_assignments_exists->num_rows === 0) {
-        $conn->query("CREATE TABLE IF NOT EXISTS purchase_order_task_assignments (
-        assignment_id INT NOT NULL AUTO_INCREMENT,
-        po_id INT NOT NULL,
-        assigned_to INT NOT NULL,
-        assigned_by INT NOT NULL,
-        assigned_role VARCHAR(50) NOT NULL,
-        assignment_status ENUM('Active','Released','Completed') NOT NULL DEFAULT 'Active',
-        assigned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        released_at DATETIME DEFAULT NULL,
-        release_reason VARCHAR(255) DEFAULT NULL,
-        PRIMARY KEY (assignment_id),
-        INDEX idx_po_assignment_active (po_id, assignment_status),
-        INDEX idx_user_assignment_active (assigned_to, assignment_status),
-        CONSTRAINT fk_po_assignment_po FOREIGN KEY (po_id) REFERENCES purchase_orders(po_id) ON DELETE CASCADE,
-        CONSTRAINT fk_po_assignment_user FOREIGN KEY (assigned_to) REFERENCES users(user_id) ON DELETE CASCADE,
-        CONSTRAINT fk_po_assignment_assigner FOREIGN KEY (assigned_by) REFERENCES users(user_id) ON DELETE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
-    }
-
-    $checked = true;
+    // Compatibility shim for existing workflow helpers. Collaboration tables
+    // are a deployment prerequisite and must not be discovered or created from
+    // a normal request, especially while a PO transaction is active.
+    return true;
 }
 
 function ensure_user_notification_states($conn, $user_id, $role) {
     ensure_collaboration_tables_exist($conn);
     // The deployment migration marks historic notifications as read. This fallback
     // only creates state rows for role notifications created after the user account.
-    static $supports_personal_recipient = null;
-    if ($supports_personal_recipient === null) {
-        $recipient_column = $conn->query(
-            "SHOW COLUMNS FROM notifications LIKE 'recipient_user_id'"
-        );
-        $supports_personal_recipient = $recipient_column &&
-            $recipient_column->num_rows > 0;
-    }
-
-    if ($supports_personal_recipient) {
-        $stmt = $conn->prepare("INSERT IGNORE INTO notification_user_states (notif_id, user_id, is_read, is_pinned, is_deleted)
-            SELECT n.notif_id, ?, 0, 0, 0
-            FROM notifications n
-            INNER JOIN users u ON u.user_id = ?
-            WHERE n.target_role = ?
-              AND n.created_at >= u.created_at
-              AND (n.recipient_user_id IS NULL OR n.recipient_user_id = ?)");
-    } else {
-        $stmt = $conn->prepare("INSERT IGNORE INTO notification_user_states (notif_id, user_id, is_read, is_pinned, is_deleted)
-            SELECT n.notif_id, ?, 0, 0, 0
-            FROM notifications n
-            INNER JOIN users u ON u.user_id = ?
-            WHERE n.target_role = ? AND n.created_at >= u.created_at");
-    }
+    $stmt = $conn->prepare("INSERT IGNORE INTO notification_user_states (notif_id, user_id, is_read, is_pinned, is_deleted)
+        SELECT n.notif_id, ?, 0, 0, 0
+        FROM notifications n
+        INNER JOIN users u ON u.user_id = ?
+        WHERE n.target_role = ?
+          AND n.created_at >= u.created_at
+          AND (n.recipient_user_id IS NULL OR n.recipient_user_id = ?)");
 
     if ($stmt) {
-        if ($supports_personal_recipient) {
-            $stmt->bind_param(
-                "iisi",
-                $user_id,
-                $user_id,
-                $role,
-                $user_id
-            );
-        } else {
-            $stmt->bind_param("iis", $user_id, $user_id, $role);
-        }
+        $stmt->bind_param(
+            "iisi",
+            $user_id,
+            $user_id,
+            $role,
+            $user_id
+        );
         $stmt->execute();
         $stmt->close();
     }
@@ -268,16 +187,38 @@ function create_role_notification($conn, $target_role, $message) {
     return $notif_id;
 }
 
-function get_unread_notification_count($conn, $user_id, $role) {
-    ensure_user_notification_states($conn, $user_id, $role);
+function get_unread_notification_count($conn, $user_id, $role, $refresh = false) {
+    static $unread_counts_by_user_role = [];
+
+    $user_id = (int)$user_id;
+    $role = trim((string)$role);
+    if ($user_id <= 0 || $role === '') {
+        return 0;
+    }
+
+    $cache_key = $user_id . '|' . $role;
+    if (!$refresh && array_key_exists($cache_key, $unread_counts_by_user_role)) {
+        return $unread_counts_by_user_role[$cache_key];
+    }
+
     $stmt = $conn->prepare("SELECT COUNT(*) AS unread_count
-        FROM notification_user_states nus
-        INNER JOIN notifications n ON n.notif_id = nus.notif_id
-        WHERE nus.user_id = ? AND n.target_role = ? AND nus.is_deleted = 0 AND nus.is_read = 0");
-    $stmt->bind_param("is", $user_id, $role);
+        FROM notifications n
+        INNER JOIN users u ON u.user_id = ?
+        LEFT JOIN notification_user_states nus
+          ON nus.notif_id = n.notif_id
+         AND nus.user_id = ?
+        WHERE n.target_role = ?
+          AND n.created_at >= u.created_at
+          AND (n.recipient_user_id IS NULL OR n.recipient_user_id = ?)
+          AND (
+                nus.notif_id IS NULL
+                OR (nus.is_deleted = 0 AND nus.is_read = 0)
+          )");
+    $stmt->bind_param("iisi", $user_id, $user_id, $role, $user_id);
     $stmt->execute();
     $count = (int)($stmt->get_result()->fetch_assoc()['unread_count'] ?? 0);
     $stmt->close();
+    $unread_counts_by_user_role[$cache_key] = $count;
     return $count;
 }
 

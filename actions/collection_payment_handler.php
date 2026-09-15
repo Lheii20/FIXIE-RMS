@@ -6,6 +6,7 @@ require '../config/functions.php';
 require_once '../config/workflow_feedback.php';
 require_once '../config/official_payment_confirmation_filing.php';
 require_once '../config/upload_policy.php';
+require_once '../config/payment_signature.php';
 
 date_default_timezone_set('Asia/Manila');
 
@@ -203,6 +204,24 @@ try {
 $proof_extension = $validated_proof['extension'];
 
 $user_id = (int) $_SESSION['user_id'];
+
+try {
+    $finance_signature = drms_esign_prepare(
+        $conn,
+        $user_id,
+        'Client Payment Confirmation',
+        'Finance Verification',
+        $_POST
+    );
+} catch (DomainException $signature_error) {
+    phase5d_payment_redirect(
+        $po_id,
+        $return_to,
+        'error',
+        $signature_error->getMessage()
+    );
+}
+
 $payment_directory = __DIR__ . '/../uploads/payments/';
 $proof_file_path = null;
 $proof_file_hash = '';
@@ -492,6 +511,31 @@ try {
         );
     }
 
+    $payment_signature_fingerprint = drms_payment_signature_fingerprint(
+        $conn,
+        $payment_id,
+        $user_id
+    );
+    $payment_signature_version = drms_payment_signature_version(
+        $payment_id,
+        $po_id
+    );
+    $payment_signature_event_id = drms_esign_record_event(
+        $conn,
+        $finance_signature,
+        [
+            'record_module' => 'Client Payment Confirmation',
+            'record_id' => $payment_id,
+            'signature_stage' => 'Finance Verification',
+            'signed_file_hash' => $payment_signature_fingerprint,
+            'signed_version' => $payment_signature_version,
+            'consent_text' => 'I verified the client payment amount, date, method, reference, classification, and attached proof and authorize this Finance payment confirmation through my electronic signature.',
+            'remarks' => 'Finance verified ' . $classification .
+                ' reference ' . $reference_number . ' for PO ' .
+                $po['po_number'] . '.',
+        ]
+    );
+
     $official_payment_record =
         drms_file_client_payment_as_official_record(
             $conn,
@@ -503,6 +547,37 @@ try {
     $payment_record_doc_id = (int) $official_payment_record['doc_id'];
     $official_record_storage_path =
         $official_payment_record['storage_absolute_path'] ?? null;
+
+    $payment_signature_remarks =
+        'Finance electronically verified payment reference ' .
+        $reference_number . '. Official Record: ' .
+        $payment_record_number . '.';
+    $payment_signature_link_stmt = $conn->prepare(
+        "UPDATE document_signature_events
+         SET document_id = ?,
+             official_document_id = ?,
+             remarks = ?
+         WHERE signature_id = ?
+           AND record_module = 'Client Payment Confirmation'
+           AND record_id = ?
+           AND signature_stage = 'Finance Verification'
+           AND signature_status = 'Valid'"
+    );
+    $payment_signature_link_stmt->bind_param(
+        'iisii',
+        $payment_record_doc_id,
+        $payment_record_doc_id,
+        $payment_signature_remarks,
+        $payment_signature_event_id,
+        $payment_id
+    );
+    $payment_signature_link_stmt->execute();
+    if ($payment_signature_link_stmt->affected_rows !== 1) {
+        throw new RuntimeException(
+            'The Finance payment signature could not be linked to the Official Record.'
+        );
+    }
+    $payment_signature_link_stmt->close();
 
     // Only the financial collection position changes. The operational PO status,
     // location, and currently assigned delivery/procurement task stay untouched.
@@ -620,6 +695,7 @@ try {
         ],
         [
             'payment_id' => $payment_id,
+            'signature_event_id' => $payment_signature_event_id,
             'operational_status' => $po['status'],
             'collection_status' => $new_collection_status,
             'balance' => $balance_after,

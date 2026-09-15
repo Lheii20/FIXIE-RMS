@@ -2,6 +2,8 @@
 require 'config/db_connect.php'; 
 require 'config/functions.php';
 require_once __DIR__ . '/config/physical_records.php';
+require_once __DIR__ . '/config/record_action_security.php';
+require_once __DIR__ . '/config/folder_action_controller.php';
 $vc3PhysicalPathSql = drms_copy_path_sql(); 
 
 if(!isset($_SESSION['user_id'])) {
@@ -79,6 +81,23 @@ function subFolderExists($conn, $parent, $sub) {
     return $stmt->get_result()->num_rows > 0;
 }
 
+function recordPrefixExists($conn, $recordPrefix) {
+    $stmt = $conn->prepare("SELECT id FROM document_categories WHERE record_prefix = ? LIMIT 1");
+    $stmt->bind_param("s", $recordPrefix);
+    $stmt->execute();
+    return $stmt->get_result()->num_rows > 0;
+}
+
+function protectedSystemParentExists($conn, $parent) {
+    $stmt = $conn->prepare(
+        "SELECT id FROM document_categories
+         WHERE parent_category = ? AND is_system_folder = 1 LIMIT 1"
+    );
+    $stmt->bind_param("s", $parent);
+    $stmt->execute();
+    return $stmt->get_result()->num_rows > 0;
+}
+
 function redirectDocumentsWithMessage($type, $message, $parent = '') {
     $url = "general_docs.php?" . $type . "=" . urlencode($message);
     if ($parent !== '') {
@@ -116,9 +135,21 @@ if ($u_query) {
 // FORM HANDLER: GDRIVE SHARING, CHECK-IN/OUT, FOLDERS, LEGAL HOLD
 // ==========================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+    if (
+        !is_string($_POST['csrf_token'] ?? null) ||
+        empty($_SESSION['csrf_token']) ||
+        !hash_equals((string) $_SESSION['csrf_token'], $_POST['csrf_token'])
+    ) {
         die("Security Validation Failed.");
     }
+
+    drms_folder_action_handle(
+        $conn,
+        'general_docs.php',
+        true,
+        (int) $_SESSION['user_id'],
+        (string) $role
+    );
 
     if ($_POST['action'] === 'toggle_legal_hold') {
         if ($role === 'Admin') redirectDocumentsWithMessage("error", "System Administrators cannot modify documents.");
@@ -127,48 +158,71 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             redirectDocumentsWithMessage("error", "You do not have permission to manage Legal Holds.");
         }
         $doc_id = intval($_POST['doc_id']);
-        $current_state = intval($_POST['current_state']);
-        $return_url = $_POST['return_url'] ?? 'general_docs.php';
-        
-        $stmt = $conn->prepare("SELECT file_name, rename_history FROM documents WHERE doc_id = ?");
-        $stmt->bind_param("i", $doc_id);
-        $stmt->execute();
-        $doc_info = $stmt->get_result()->fetch_assoc();
+        $return_url = drms_record_action_safe_return(
+            $_POST['return_url'] ?? null,
+            'general_docs.php'
+        );
+        try {
+            $doc_info = drms_record_action_require_editor(
+                $conn,
+                $doc_id,
+                (int) $_SESSION['user_id'],
+                (string) $role
+            );
+        } catch (DomainException $error) {
+            drms_record_action_feedback(
+                $return_url,
+                'error',
+                $error->getMessage()
+            );
+        }
 
-        // Kunin ang pangalan ng nag-a-action para sa Activity History
-        $u_stmt = $conn->query("SELECT full_name FROM users WHERE user_id = ".$_SESSION['user_id']);
-        $actor = $u_stmt->fetch_assoc()['full_name'] ?? 'System';
-        $history = json_decode($doc_info['rename_history'] ?? '[]', true) ?: [];
+        $current_state = (int) ($doc_info['is_legal_hold'] ?? 0);
+        $actor = drms_record_action_actor_name(
+            $conn,
+            (int) $_SESSION['user_id']
+        );
+        $history = drms_record_action_history($doc_info['rename_history'] ?? null);
 
         if ($current_state == 0) {
-            $reason = trim($_POST['legal_hold_reason']);
-            if (empty($reason)) redirectDocumentsWithMessage("error", "Reason is required for Legal Hold.");
+            $reason = trim((string) ($_POST['legal_hold_reason'] ?? ''));
+            if ($reason === '' || mb_strlen($reason) > 1000) {
+                drms_record_action_feedback(
+                    $return_url,
+                    'error',
+                    'Enter a Legal Hold reason of up to 1,000 characters.'
+                );
+            }
             
             // I-record ang "Apply Hold" sa JSON
             array_unshift($history, ['type' => 'hold_apply', 'reason' => $reason, 'date' => date('Y-m-d H:i:s'), 'by' => $actor]);
-            $history_json = json_encode($history);
+            $history_json = json_encode($history, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 
             $uid = $_SESSION['user_id'];
-            $upd = $conn->prepare("UPDATE documents SET is_legal_hold = 1, legal_hold_reason = ?, legal_hold_by = ?, legal_hold_at = NOW(), rename_history = ? WHERE doc_id = ?");
+            $upd = $conn->prepare("UPDATE documents SET is_legal_hold = 1, legal_hold_reason = ?, legal_hold_by = ?, legal_hold_at = NOW(), rename_history = ? WHERE doc_id = ? AND is_legal_hold = 0");
             $upd->bind_param("sisi", $reason, $uid, $history_json, $doc_id);
             $upd->execute();
+            if ($upd->affected_rows !== 1) {
+                drms_record_action_feedback($return_url, 'error', 'The Legal Hold state changed. Refresh the page and try again.');
+            }
             
             if (function_exists('log_audit_action')) log_audit_action($conn, $uid, 'APPLY_LEGAL_HOLD', "Applied Legal Hold on Document: " . $doc_info['file_name'] . " (Reason: $reason)");
-            header("Location: " . $return_url . (strpos($return_url, '?') ? '&' : '?') . "success=" . urlencode("Legal Hold applied successfully. Standard retention policies are now overridden."));
-            exit();
+            drms_record_action_feedback($return_url, 'success', 'Legal Hold applied successfully. Standard retention policies are now suspended.');
         } else {
             // I-record ang "Remove Hold" sa JSON
             array_unshift($history, ['type' => 'hold_remove', 'date' => date('Y-m-d H:i:s'), 'by' => $actor]);
-            $history_json = json_encode($history);
+            $history_json = json_encode($history, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 
             $uid = $_SESSION['user_id'];
-            $upd = $conn->prepare("UPDATE documents SET is_legal_hold = 0, legal_hold_reason = NULL, legal_hold_by = NULL, legal_hold_at = NULL, rename_history = ? WHERE doc_id = ?");
+            $upd = $conn->prepare("UPDATE documents SET is_legal_hold = 0, legal_hold_reason = NULL, legal_hold_by = NULL, legal_hold_at = NULL, rename_history = ? WHERE doc_id = ? AND is_legal_hold = 1");
             $upd->bind_param("si", $history_json, $doc_id);
             $upd->execute();
+            if ($upd->affected_rows !== 1) {
+                drms_record_action_feedback($return_url, 'error', 'The Legal Hold state changed. Refresh the page and try again.');
+            }
             
             if (function_exists('log_audit_action')) log_audit_action($conn, $uid, 'REMOVE_LEGAL_HOLD', "Removed Legal Hold from Document: " . $doc_info['file_name']);
-            header("Location: " . $return_url . (strpos($return_url, '?') ? '&' : '?') . "success=" . urlencode("Legal Hold removed successfully. Auto-deletion/archiving logic restored."));
-            exit();
+            drms_record_action_feedback($return_url, 'success', 'Legal Hold removed successfully. Standard retention rules have resumed.');
         }
     }
     
@@ -177,8 +231,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         if ($role === 'Admin') redirectDocumentsWithMessage("error", "System Administrators cannot share documents.");
         
         $doc_id = intval($_POST['doc_id']);
-        $access_type = ($_POST['access_type'] === 'Restricted') ? 'Restricted' : 'Folder Default';
-        $return_url = $_POST['return_url'] ?? 'general_docs.php';
+        $access_type = (($_POST['access_type'] ?? '') === 'Restricted') ? 'Restricted' : 'Folder Default';
+        $return_url = drms_record_action_safe_return(
+            $_POST['return_url'] ?? null,
+            'general_docs.php'
+        );
+        try {
+            $d_chk = drms_record_action_require_owner(
+                $conn,
+                $doc_id,
+                (int) $_SESSION['user_id'],
+                (string) $role
+            );
+        } catch (DomainException $error) {
+            drms_record_action_feedback($return_url, 'error', $error->getMessage());
+        }
+        if (($d_chk['record_phase'] ?? '') === 'Converted') {
+            drms_record_action_feedback(
+                $return_url,
+                'error',
+                'The protected Company File history of an Official Record cannot be shared separately.'
+            );
+        }
         
         $perms = [];
         if (isset($_POST['user_roles']) && is_array($_POST['user_roles'])) {
@@ -188,16 +262,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
             }
         }
-        $perms_json = json_encode($perms);
-
-        $stmt_chk = $conn->prepare("SELECT uploaded_by, file_name FROM documents WHERE doc_id = ?");
-        $stmt_chk->bind_param("i", $doc_id);
-        $stmt_chk->execute();
-        $d_chk = $stmt_chk->get_result()->fetch_assoc();
-        
-        if ($d_chk['uploaded_by'] != $_SESSION['user_id'] && !$is_top_mgmt) {
-            redirectDocumentsWithMessage("error", "Only the Owner or Management can change sharing settings.");
-        }
+        $perms_json = json_encode($perms, JSON_THROW_ON_ERROR);
 
         $stmt_upd = $conn->prepare("UPDATE documents SET access_type = ?, file_permissions = ? WHERE doc_id = ?");
         $stmt_upd->bind_param("ssi", $access_type, $perms_json, $doc_id);
@@ -207,110 +272,150 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             log_audit_action($conn, $_SESSION['user_id'], 'UPDATE_DOCUMENT', "Updated sharing settings for Document: " . $d_chk['file_name']);
         }
         
-        $sep = strpos($return_url, '?') !== false ? '&' : '?';
-        header("Location: " . $return_url . $sep . "success=" . urlencode("Share settings updated successfully."));
-        exit();
+        drms_record_action_feedback($return_url, 'success', 'Share settings updated successfully.');
     }
 
     if ($_POST['action'] === 'rename_file') {
         if ($role === 'Admin') redirectDocumentsWithMessage("error", "System Administrators cannot modify documents.");
         
         $doc_id = intval($_POST['doc_id']);
-        $new_name = trim($_POST['new_name']);
-        $return_url = $_POST['return_url'] ?? 'general_docs.php';
+        $new_name = trim((string) ($_POST['new_name'] ?? ''));
+        $return_url = drms_record_action_safe_return(
+            $_POST['return_url'] ?? null,
+            'general_docs.php'
+        );
         
-        if(empty($new_name)) {
-            header("Location: " . $return_url . (strpos($return_url, '?') ? '&' : '?') . "error=" . urlencode("Filename cannot be empty."));
-            exit();
+        if (
+            $new_name === '' ||
+            mb_strlen($new_name) > 255 ||
+            preg_match('/[\\\/\x00-\x1F\x7F]/u', $new_name)
+        ) {
+            drms_record_action_feedback(
+                $return_url,
+                'error',
+                'Enter a valid file name of up to 255 characters without slashes or control characters.'
+            );
         }
 
-        // 1. Kunin ang lumang pangalan
-        $stmt = $conn->prepare("SELECT file_name, rename_history FROM documents WHERE doc_id = ?");
-        $stmt->bind_param("i", $doc_id);
-        $stmt->execute();
-        $doc_info = $stmt->get_result()->fetch_assoc();
+        try {
+            $doc_info = drms_record_action_require_editor(
+                $conn,
+                $doc_id,
+                (int) $_SESSION['user_id'],
+                (string) $role
+            );
+        } catch (DomainException $error) {
+            drms_record_action_feedback($return_url, 'error', $error->getMessage());
+        }
+        if (!in_array(($doc_info['record_phase'] ?? ''), ['Working', 'For Review'], true)) {
+            drms_record_action_feedback(
+                $return_url,
+                'error',
+                'Official Records and their protected Company File history cannot be renamed.'
+            );
+        }
         
         if ($doc_info['file_name'] !== $new_name) {
-            // 2. Kunin ang pangalan ng nag-rename
-            $u_stmt = $conn->query("SELECT full_name FROM users WHERE user_id = ".$_SESSION['user_id']);
-            $renamer = $u_stmt->fetch_assoc()['full_name'] ?? 'System';
+            $renamer = drms_record_action_actor_name(
+                $conn,
+                (int) $_SESSION['user_id']
+            );
 
-            // 3. I-update ang JSON history
-            $history = json_decode($doc_info['rename_history'] ?? '[]', true) ?: [];
+            $history = drms_record_action_history($doc_info['rename_history'] ?? null);
             array_unshift($history, [
+                'type' => 'rename',
                 'old_name' => $doc_info['file_name'],
                 'new_name' => $new_name,
                 'date' => date('Y-m-d H:i:s'),
                 'by' => $renamer
             ]);
-            $history_json = json_encode($history);
+            $history_json = json_encode($history, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 
-            // 4. I-save sa database
-            $upd = $conn->prepare("UPDATE documents SET file_name = ?, rename_history = ? WHERE doc_id = ?");
-            $upd->bind_param("ssi", $new_name, $history_json, $doc_id);
+            $upd = $conn->prepare("UPDATE documents SET file_name = ?, rename_history = ? WHERE doc_id = ? AND file_name = ? AND record_phase IN ('Working', 'For Review')");
+            $upd->bind_param("ssis", $new_name, $history_json, $doc_id, $doc_info['file_name']);
             $upd->execute();
+            if ($upd->affected_rows !== 1) {
+                drms_record_action_feedback($return_url, 'error', 'The file changed before it could be renamed. Refresh and try again.');
+            }
             
             if (function_exists('log_audit_action')) {
                 log_audit_action($conn, $_SESSION['user_id'], 'RENAME_DOCUMENT', "Renamed file from " . $doc_info['file_name'] . " to " . $new_name);
             }
         }
         
-        header("Location: " . $return_url . (strpos($return_url, '?') ? '&' : '?') . "success=" . urlencode("File renamed successfully."));
-        exit();
+        drms_record_action_feedback($return_url, 'success', 'File renamed successfully.');
     }
 
     if ($_POST['action'] === 'toggle_lock') {
         if ($role === 'Admin') redirectDocumentsWithMessage("error", "System Administrators cannot lock/unlock documents.");
         
         $doc_id = intval($_POST['doc_id']);
-        $current_state = intval($_POST['current_state']); 
-        $target_state = $current_state ? 0 : 1;
-        $return_url = $_POST['return_url'] ?? 'general_docs.php';
+        $return_url = drms_record_action_safe_return(
+            $_POST['return_url'] ?? null,
+            'general_docs.php'
+        );
+        try {
+            $doc_info = drms_record_action_require_editor(
+                $conn,
+                $doc_id,
+                (int) $_SESSION['user_id'],
+                (string) $role
+            );
+        } catch (DomainException $error) {
+            drms_record_action_feedback($return_url, 'error', $error->getMessage());
+        }
+        if (!in_array(($doc_info['record_phase'] ?? ''), ['Working', 'For Review'], true)) {
+            drms_record_action_feedback(
+                $return_url,
+                'error',
+                'Official Records and their protected Company File history cannot be locked or unlocked.'
+            );
+        }
+        $target_state = (int) ($doc_info['is_locked'] ?? 0) === 1 ? 0 : 1;
         
-        $stmt = $conn->prepare("SELECT is_locked, locked_by, file_name, rename_history FROM documents WHERE doc_id = ?");
-        $stmt->bind_param("i", $doc_id);
-        $stmt->execute();
-        $doc_info = $stmt->get_result()->fetch_assoc();
-        
-        // Kunin ang pangalan ng nag-a-action
-        $u_stmt = $conn->query("SELECT full_name FROM users WHERE user_id = ".$_SESSION['user_id']);
-        $actor = $u_stmt->fetch_assoc()['full_name'] ?? 'System';
-        $history = json_decode($doc_info['rename_history'] ?? '[]', true) ?: [];
+        $actor = drms_record_action_actor_name(
+            $conn,
+            (int) $_SESSION['user_id']
+        );
+        $history = drms_record_action_history($doc_info['rename_history'] ?? null);
 
         if ($target_state == 1) {
-            if ($doc_info['is_locked']) {
-                redirectDocumentsWithMessage("error", "File is already locked by someone else.");
-            }
-            
-            // I-record ang "Lock"
             array_unshift($history, ['type' => 'lock', 'date' => date('Y-m-d H:i:s'), 'by' => $actor]);
-            $history_json = json_encode($history);
+            $history_json = json_encode($history, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 
             $uid = $_SESSION['user_id'];
-            $upd = $conn->prepare("UPDATE documents SET is_locked = 1, locked_by = ?, locked_at = NOW(), rename_history = ? WHERE doc_id = ?");
+            $upd = $conn->prepare("UPDATE documents SET is_locked = 1, locked_by = ?, locked_at = NOW(), rename_history = ? WHERE doc_id = ? AND is_locked = 0 AND record_phase IN ('Working', 'For Review')");
             $upd->bind_param("isi", $uid, $history_json, $doc_id);
             $upd->execute();
+            if ($upd->affected_rows !== 1) {
+                drms_record_action_feedback($return_url, 'error', 'The file was checked out by another action. Refresh and try again.');
+            }
             
             if (function_exists('log_audit_action')) log_audit_action($conn, $uid, 'CHECK_OUT', "Checked out (Locked) Document: " . $doc_info['file_name']);
-            header("Location: " . $return_url);
-            exit();
+            drms_record_action_feedback($return_url, 'success', 'File checked out successfully.');
         } else {
             $uid = $_SESSION['user_id'];
             if ($doc_info['locked_by'] != $uid && !$is_top_mgmt) { 
-                redirectDocumentsWithMessage("error", "Only the user who locked the file or Management can unlock it.");
+                drms_record_action_feedback($return_url, 'error', 'Only the user who locked the file or Management can unlock it.');
             }
 
-            // I-record ang "Unlock"
             array_unshift($history, ['type' => 'unlock', 'date' => date('Y-m-d H:i:s'), 'by' => $actor]);
-            $history_json = json_encode($history);
+            $history_json = json_encode($history, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 
-            $upd = $conn->prepare("UPDATE documents SET is_locked = 0, locked_by = NULL, locked_at = NULL, rename_history = ? WHERE doc_id = ?");
-            $upd->bind_param("si", $history_json, $doc_id);
+            $upd = $conn->prepare("UPDATE documents SET is_locked = 0, locked_by = NULL, locked_at = NULL, rename_history = ? WHERE doc_id = ? AND is_locked = 1 AND locked_by = ? AND record_phase IN ('Working', 'For Review')");
+            if ($is_top_mgmt && (int) $doc_info['locked_by'] !== (int) $uid) {
+                $upd = $conn->prepare("UPDATE documents SET is_locked = 0, locked_by = NULL, locked_at = NULL, rename_history = ? WHERE doc_id = ? AND is_locked = 1 AND record_phase IN ('Working', 'For Review')");
+                $upd->bind_param("si", $history_json, $doc_id);
+            } else {
+                $upd->bind_param("sii", $history_json, $doc_id, $uid);
+            }
             $upd->execute();
+            if ($upd->affected_rows !== 1) {
+                drms_record_action_feedback($return_url, 'error', 'The file lock changed before it could be released. Refresh and try again.');
+            }
             
             if (function_exists('log_audit_action')) log_audit_action($conn, $uid, 'CHECK_IN', "Checked in (Unlocked) Document: " . $doc_info['file_name']);
-            header("Location: " . $return_url);
-            exit();
+            drms_record_action_feedback($return_url, 'success', 'File checked in successfully.');
         }
     }
 
@@ -320,12 +425,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             exit();
         }
         $policy_id = intval($_POST['policy_id']);
-        $policy_name = trim($_POST['policy_name']);
-        $act_years = intval($_POST['active_years']);
-        $act_months = intval($_POST['active_months']);
-        $arch_years = intval($_POST['archive_years']);
-        $arch_months = intval($_POST['archive_months']);
-        $action_after = 'Review for permanent deletion';
+        $policy_name = trim((string) ($_POST['policy_name'] ?? ''));
+        $act_years = intval($_POST['active_years'] ?? 0);
+        $act_months = intval($_POST['active_months'] ?? 0);
+        $arch_years = intval($_POST['archive_years'] ?? 0);
+        $arch_months = intval($_POST['archive_months'] ?? 0);
+        $action_after = trim((string) ($_POST['action_after_retention'] ?? 'Destroy'));
+        $allowed_retention_actions = ['Destroy', 'Permanent Archive'];
+
+        if ($policy_name === '' || mb_strlen($policy_name) > 100) {
+            header("Location: general_docs.php?error=" . urlencode("Enter a policy name of up to 100 characters."));
+            exit();
+        }
+        if (!in_array($action_after, $allowed_retention_actions, true)) {
+            header("Location: general_docs.php?error=" . urlencode("Select a valid action after retention."));
+            exit();
+        }
+        if ($act_years < 0 || $arch_years < 0 || $act_months < 0 || $act_months > 11 || $arch_months < 0 || $arch_months > 11) {
+            header("Location: general_docs.php?error=" . urlencode("Retention years must be zero or greater, and months must be from 0 to 11."));
+            exit();
+        }
         
         if (($act_years + $arch_years + $act_months + $arch_months) < 1) {
             header("Location: general_docs.php?error=" . urlencode("Total retention period must be at least 1 month."));
@@ -335,7 +454,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $stmt_edit = $conn->prepare("UPDATE retention_policies SET policy_name=?, active_years=?, active_months=?, archive_years=?, archive_months=?, action_after_retention=? WHERE policy_id=?");
         $stmt_edit->bind_param("siiiisi", $policy_name, $act_years, $act_months, $arch_years, $arch_months, $action_after, $policy_id);
         if ($stmt_edit->execute()) {
-            if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'UPDATE_POLICY', "Updated Policy ID: $policy_id to $years Years ($action_after).");
+            if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'UPDATE_POLICY', "Updated Policy ID: $policy_id; active {$act_years}Y {$act_months}M, archive {$arch_years}Y {$arch_months}M, action: $action_after.");
             header("Location: general_docs.php?success=" . urlencode("Retention Policy updated successfully."));
             exit();
         } else {
@@ -355,14 +474,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $act_months = intval($_POST['active_months'] ?? 0);
         $arch_years = intval($_POST['archive_years'] ?? 0);
         $arch_months = intval($_POST['archive_months'] ?? 0);
-        $action_after = 'Review for permanent deletion';
+        $action_after = trim((string) ($_POST['action_after_retention'] ?? 'Destroy'));
+        $allowed_retention_actions = ['Destroy', 'Permanent Archive'];
 
-        if ($policy_name === '') {
-            header("Location: general_docs.php?error=" . urlencode("Policy name is required."));
+        if ($policy_name === '' || mb_strlen($policy_name) > 100) {
+            header("Location: general_docs.php?error=" . urlencode("Enter a policy name of up to 100 characters."));
             exit();
         }
-        if ($act_years < 0 || $act_months < 0 || $arch_years < 0 || $arch_months < 0) {
-            header("Location: general_docs.php?error=" . urlencode("Retention values must be zero or greater."));
+        if (!in_array($action_after, $allowed_retention_actions, true)) {
+            header("Location: general_docs.php?error=" . urlencode("Select a valid action after retention."));
+            exit();
+        }
+        if ($act_years < 0 || $arch_years < 0 || $act_months < 0 || $act_months > 11 || $arch_months < 0 || $arch_months > 11) {
+            header("Location: general_docs.php?error=" . urlencode("Retention years must be zero or greater, and months must be from 0 to 11."));
+            exit();
+        }
+        if (($act_years + $arch_years + $act_months + $arch_months) < 1) {
+            header("Location: general_docs.php?error=" . urlencode("Total retention period must be at least 1 month."));
             exit();
         }
 
@@ -370,7 +498,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $stmt_create_policy->bind_param("siiiis", $policy_name, $act_years, $act_months, $arch_years, $arch_months, $action_after);
 
         if ($stmt_create_policy->execute()) {
-            if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'CREATE_POLICY', "Created Policy: $policy_name ($years Yrs, $months Mos).");
+            if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'CREATE_POLICY', "Created Policy: $policy_name; active {$act_years}Y {$act_months}M, archive {$arch_years}Y {$arch_months}M, action: $action_after.");
             header("Location: general_docs.php?success=" . urlencode("Retention Policy created successfully."));
             exit();
         } else {
@@ -499,6 +627,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $folder_policy = !empty($_POST['folder_policy']) ? intval($_POST['folder_policy']) : null;
         $is_new_parent = ($parent === 'NEW_PARENT_FOLDER');
         $keywords = trim($_POST['classification_keywords'] ?? ''); // Kukunin ang keywords mula sa UI
+        $record_prefix = strtoupper(trim($_POST['record_prefix'] ?? ''));
         
         $roles_to_assign = [];
 
@@ -515,12 +644,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
 
             $sub = '';
+            $record_prefix = null;
             $folder_policy = null;
         } else {
             if ($parent === '') redirectDocumentsWithMessage("error", "Please select a Parent Folder.");
             if (!parentFolderExists($conn, $parent)) redirectDocumentsWithMessage("error", "Selected Parent Folder does not exist.");
             if ($sub === '') redirectDocumentsWithMessage("error", "Sub-folder name is required.", $parent);
             if (subFolderExists($conn, $parent, $sub)) redirectDocumentsWithMessage("error", "Sub-folder already exists in this Parent Folder.", $parent);
+            if (protectedSystemParentExists($conn, $parent)) redirectDocumentsWithMessage("error", "Protected workflow folders cannot accept manually created sub-folders.", $parent);
+            if (!preg_match('/^[A-Z][A-Z0-9]{1,9}$/', $record_prefix)) {
+                redirectDocumentsWithMessage("error", "Record Code must contain 2-10 uppercase letters or numbers and must begin with a letter.", $parent);
+            }
+            if (recordPrefixExists($conn, $record_prefix)) {
+                redirectDocumentsWithMessage("error", "Record Code $record_prefix is already assigned to another folder.", $parent);
+            }
             
             if (!$is_top_mgmt) {
                 $assigned_parents = getAssignedParentFoldersForRole($conn, $role);
@@ -539,8 +676,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
 
         $drawer_id = null; // VC3: digital classification does not assign physical storage.
-        $stmt_create = $conn->prepare("INSERT INTO document_categories (parent_category, sub_category, policy_id, classification_keywords, drawer_id) VALUES (?, ?, ?, ?, ?)");
-        $stmt_create->bind_param("ssisi", $parent, $sub, $folder_policy, $keywords, $drawer_id);
+        $roles_to_assign = array_values(array_unique(array_filter($roles_to_assign)));
+        $assigned_to_role = !empty($roles_to_assign) ? implode(', ', $roles_to_assign) : null;
+        // Company Files and Official Records intentionally share this one
+        // category record. Once created here, the folder is visible in both
+        // workspaces; the record code is ready for future Official Records.
+        $stmt_create = $conn->prepare("INSERT INTO document_categories (parent_category, sub_category, policy_id, classification_keywords, assigned_to_role, record_prefix, drawer_id) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $stmt_create->bind_param("ssisssi", $parent, $sub, $folder_policy, $keywords, $assigned_to_role, $record_prefix, $drawer_id);
         
         if ($stmt_create->execute()) {
             $new_category_id = $stmt_create->insert_id;
@@ -675,13 +817,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 $parent_folders = [];
 $role_assigned_folders = [];
 $role_assigned_parents = [];
+$parent_system_flags = [];
+$folder_metadata = [];
 
 $cat_query = $conn->query("
-    SELECT dc.id, TRIM(dc.parent_category) as p_cat, TRIM(dc.sub_category) as s_cat, GROUP_CONCAT(cra.role_name) as roles
+    SELECT dc.id, TRIM(dc.parent_category) as p_cat,
+           TRIM(dc.sub_category) as s_cat,
+           MAX(dc.record_prefix) as record_prefix,
+           MAX(dc.system_folder_key) as system_folder_key,
+           MAX(dc.is_system_folder) as is_system_folder,
+           MAX(dc.system_sort_order) as system_sort_order,
+           GROUP_CONCAT(cra.role_name) as roles
     FROM document_categories dc
     LEFT JOIN category_role_access cra ON dc.id = cra.category_id
     GROUP BY dc.id
-    ORDER BY dc.parent_category ASC, dc.id ASC
+    ORDER BY MAX(dc.is_system_folder) DESC, dc.parent_category ASC,
+             COALESCE(MAX(dc.system_sort_order), 32767) ASC, dc.id ASC
 ");
 
 if ($cat_query) {
@@ -697,6 +848,12 @@ if ($cat_query) {
         }
 
         if(!isset($parent_folders[$p_key])) { $parent_folders[$p_key] = []; }
+        if (!isset($parent_system_flags[$p_key])) {
+            $parent_system_flags[$p_key] = false;
+        }
+        if ((int) $row['is_system_folder'] === 1) {
+            $parent_system_flags[$p_key] = true;
+        }
         
         if ($s_cat !== '') {
             $s_exists = false;
@@ -704,6 +861,15 @@ if ($cat_query) {
                 if(strcasecmp($ext_s, $s_cat) == 0) { $s_exists = true; break; }
             }
             if(!$s_exists) { $parent_folders[$p_key][] = $s_cat; }
+            if (!isset($folder_metadata[$p_key])) {
+                $folder_metadata[$p_key] = [];
+            }
+            $folder_metadata[$p_key][$s_cat] = [
+                'record_prefix' => trim((string) $row['record_prefix']),
+                'system_folder_key' => trim((string) $row['system_folder_key']),
+                'is_system_folder' => (int) $row['is_system_folder'] === 1,
+                'system_sort_order' => $row['system_sort_order'],
+            ];
         }
 
         if (!empty($row['roles'])) {
@@ -1085,8 +1251,8 @@ if(isset($_GET['success'])) {
     <link href="assets/css/style.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/mobile-drive-lists.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+    <link rel="stylesheet" href="assets/vendor/sweetalert2/11.26.25/sweetalert2.min.css">
+    <link rel="stylesheet" href="assets/vendor/datatables/1.13.6/dataTables.bootstrap5.min.css">
     
     
 <link rel="stylesheet" href="assets/css/physical-records.css?v=<?php echo filemtime(__DIR__ . '/assets/css/physical-records.css'); ?>">
@@ -1117,7 +1283,7 @@ if(isset($_GET['success'])) {
             
             <div class="d-flex gap-2 align-items-center">
                 
-                <?php if ($role !== 'Admin'): ?>
+                <?php if ($role === 'GM'): ?>
                     <a class="btn btn-outline-primary d-inline-flex align-items-center gap-2" href="official_declarations.php"><i class="fas fa-file-signature" aria-hidden="true"></i> Declaration requests</a>
                 <?php endif; ?>
                 <!-- GLOBAL UPLOAD BUTTON (Sleek, Prominent, Pill-shaped) -->
@@ -1294,6 +1460,7 @@ if(isset($_GET['success'])) {
                         if (!$can_view_this) continue;
                         $visible_parents++;
                         $fileCount = getParentFolderCount($p, $parent_folders, $db_counts);
+                        $is_system_parent = !empty($parent_system_flags[$p]);
                     ?>
                     <div class="col-md-4 col-sm-6">
                         <div class="folder-card p-3 h-100 position-relative" onclick="window.location='general_docs.php?parent=<?php echo urlencode($p); ?>'">
@@ -1303,12 +1470,12 @@ if(isset($_GET['success'])) {
                                 </div>
                                 <div class="ms-3 flex-grow-1">
                                     <h6 class="mb-1 fw-bold text-dark text-truncate" style="max-width: 180px;"><?php echo htmlspecialchars($p); ?></h6>
-                                    <p class="text-muted small mb-0"><i class="fas fa-file-alt me-1"></i><?php echo $role === 'Admin' ? 'Restricted' : $fileCount . ' active files'; ?></p>
+                                    <p class="text-muted small mb-0"><?php if ($is_system_parent): ?><i class="fas fa-lock me-1"></i>Protected workflow folders<?php else: ?><i class="fas fa-file-alt me-1"></i><?php echo $role === 'Admin' ? 'Restricted' : $fileCount . ' active files'; ?><?php endif; ?></p>
                                 </div>
                             </div>
-                            <?php if($can_manage): ?>
+                            <?php if($can_manage && !$is_system_parent): ?>
                             <div class="action-dropdown dropdown position-absolute top-0 end-0 m-2 mt-3 me-3">
-                                <button class="btn-dots dropdown-toggle border-0 bg-transparent shadow-none" type="button" data-bs-toggle="dropdown" data-bs-boundary="body" onclick="event.stopPropagation();"><i class="fas fa-ellipsis-v"></i></button>
+                                <button class="btn-dots dropdown-toggle border-0 bg-transparent shadow-none" type="button" data-bs-toggle="dropdown" data-bs-boundary="body" aria-label="More actions for folder <?php echo htmlspecialchars($p, ENT_QUOTES, 'UTF-8'); ?>" aria-haspopup="menu" aria-expanded="false" onclick="event.stopPropagation();"><i class="fas fa-ellipsis-v" aria-hidden="true"></i></button>
                                 <ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 rounded-3 mt-1" onclick="event.stopPropagation();">
                                     <li>
                                         <form action="general_docs.php" method="POST" class="m-0">
@@ -1347,6 +1514,9 @@ if(isset($_GET['success'])) {
                         if (!$is_top_mgmt && !in_array($s, $user_categories)) continue;
                         $visible_subs++;
                         $fileCount = getSubFolderCount($s, $db_counts);
+                        $folder_meta = $folder_metadata[$parent_filter][$s] ?? [];
+                        $is_system_subfolder = !empty($folder_meta['is_system_folder']);
+                        $folder_record_prefix = trim((string) ($folder_meta['record_prefix'] ?? ''));
                         
                         // Kukunin natin ang kasalukuyang policy ng folder na ito
                         $current_pol_name = "No Policy Assigned";
@@ -1365,11 +1535,16 @@ if(isset($_GET['success'])) {
                                 <h6 class="mb-0 fw-bold text-dark text-truncate flex-grow-1" style="font-size: 0.95rem;"><?php echo htmlspecialchars($s); ?></h6>
                             </div>
                             <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top border-light">
-                                <span class="text-muted small fw-medium"><?php echo $role === 'Admin' ? 'Restricted' : $fileCount . ' items'; ?></span>
-                                <i class="fas fa-chevron-right text-primary opacity-50 small"></i>
+                                <div class="d-flex align-items-center gap-2 min-w-0">
+                                    <?php if ($folder_record_prefix !== ''): ?>
+                                        <span class="badge bg-light text-primary border fw-semibold"><?php echo htmlspecialchars($folder_record_prefix); ?></span>
+                                    <?php endif; ?>
+                                    <span class="text-muted small fw-medium text-truncate"><?php echo $role === 'Admin' ? 'Restricted' : $fileCount . ' items'; ?></span>
+                                </div>
+                                <i class="fas <?php echo $is_system_subfolder ? 'fa-lock' : 'fa-chevron-right'; ?> text-primary opacity-50 small"></i>
                             </div>
                             
-                            <?php if($can_manage): ?>
+                            <?php if($can_manage && !$is_system_subfolder): ?>
                             <div class="action-dropdown dropdown position-absolute top-0 end-0 m-2 mt-3 me-2">
                                 <button class="btn-dots bg-transparent border-0 shadow-none dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-boundary="body" onclick="event.stopPropagation();"><i class="fas fa-ellipsis-v small"></i></button>
                                 <ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 rounded-3 mt-1" style="min-width: 200px;" onclick="event.stopPropagation();">
@@ -2468,7 +2643,7 @@ if(isset($_GET['success'])) {
                     
                     <div class="mb-4">
                         <label class="form-label fw-bold small text-muted text-uppercase letter-spacing-tight">Main Folder Name <span class="text-danger">*</span></label>
-                        <input type="text" name="new_parent_category" class="form-control shadow-none border-light bg-light" placeholder="e.g. Human Resources, Finance Dept" required>
+                        <input type="text" name="new_parent_category" class="form-control shadow-none border-light bg-light" maxlength="100" placeholder="e.g. Human Resources, Finance Dept" required>
                     </div>
 
                     <?php if($is_top_mgmt): ?>
@@ -2476,18 +2651,16 @@ if(isset($_GET['success'])) {
                         <label class="form-label fw-bold small text-muted text-uppercase letter-spacing-tight mb-2">Assign System Roles <span class="text-danger">*</span></label>
                         <div class="border rounded-3 p-3 bg-light" style="max-height: 200px; overflow-y: auto;">
                             <?php 
-                            $roles_query = $conn->query("SELECT DISTINCT role FROM users WHERE role NOT IN ('Admin', 'President', 'GM') ORDER BY role ASC");
-                            if($roles_query) {
-                                while($r = $roles_query->fetch_assoc()) {
+                            foreach (drms_folder_action_allowed_roles() as $folderRole) {
+                                $safeFolderRole = htmlspecialchars($folderRole);
                                     echo '<div class="form-check mb-2">
-                                            <input class="form-check-input shadow-none" type="checkbox" name="assigned_roles[]" value="'.htmlspecialchars($r['role']).'" id="role_'.htmlspecialchars($r['role']).'">
-                                            <label class="form-check-label text-dark fw-medium" for="role_'.htmlspecialchars($r['role']).'">'.htmlspecialchars($r['role']).'</label>
+                                            <input class="form-check-input shadow-none" type="checkbox" name="assigned_roles[]" value="'.$safeFolderRole.'" id="role_'.$safeFolderRole.'">
+                                            <label class="form-check-label text-dark fw-medium" for="role_'.$safeFolderRole.'">'.$safeFolderRole.'</label>
                                           </div>';
-                                }
                             }
                             ?>
                         </div>
-                        <div class="form-text fs-xs mt-1"><i class="fas fa-info-circle me-1 text-primary"></i>Admins and Executives automatically have access.</div>
+                        <div class="form-text fs-xs mt-1"><i class="fas fa-info-circle me-1 text-primary"></i>Select every role that should see this folder, including GM or President when needed.</div>
                     </div>
                     <?php endif; ?>
 
@@ -2523,7 +2696,13 @@ if(isset($_GET['success'])) {
 
                     <div class="mb-3">
                         <label class="form-label fw-bold small text-muted text-uppercase letter-spacing-tight">Sub-folder Name <span class="text-danger">*</span></label>
-                        <input type="text" name="new_folder_name" class="form-control shadow-none" placeholder="e.g. Employee Contracts, Q1 Reports" required>
+                        <input type="text" name="new_folder_name" class="form-control shadow-none" maxlength="100" placeholder="e.g. Employee Contracts, Q1 Reports" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small text-muted text-uppercase letter-spacing-tight">Record Code <span class="text-danger">*</span></label>
+                        <input type="text" name="record_prefix" class="form-control shadow-none text-uppercase" maxlength="10" pattern="[A-Za-z][A-Za-z0-9]{1,9}" placeholder="e.g. CON, INV, HR" required>
+                        <div class="form-text fs-xs mt-1"><i class="fas fa-barcode text-primary me-1"></i>Used when a file is finalized, for example <strong>CON-2026-0001.pdf</strong>. This code must be unique.</div>
                     </div>
 
                     <p class="form-text">This is a digital classification folder. Assign paper copies separately through their Physical Record profile.</p>
@@ -2540,9 +2719,24 @@ if(isset($_GET['success'])) {
                         </select>
                     </div>
 
+                    <?php if($is_top_mgmt): ?>
+                    <div class="mb-4">
+                        <label class="form-label fw-bold small text-muted text-uppercase letter-spacing-tight mb-2">Folder access <span class="text-danger">*</span></label>
+                        <div class="border rounded-3 p-3 bg-light" style="max-height: 180px; overflow-y: auto;">
+                            <?php
+                            foreach (drms_folder_action_allowed_roles() as $folderRole) {
+                                    $folder_role = htmlspecialchars($folderRole);
+                                    echo '<div class="form-check mb-2"><input class="form-check-input shadow-none" type="checkbox" name="assigned_roles[]" value="'.$folder_role.'" id="sub_role_'.$folder_role.'"><label class="form-check-label text-dark fw-medium" for="sub_role_'.$folder_role.'">'.$folder_role.'</label></div>';
+                            }
+                            ?>
+                        </div>
+                        <div class="form-text fs-xs mt-1">The same access applies in Company Files and Official Records.</div>
+                    </div>
+                    <?php endif; ?>
+
                     <div class="mb-4">
                         <label class="form-label fw-bold small text-muted text-uppercase letter-spacing-tight">Auto-Classification Keywords <span class="text-muted fw-normal fs-xs">(Optional)</span></label>
-                        <textarea name="classification_keywords" class="form-control shadow-none bg-light fs-sm" rows="2" placeholder="e.g. invoice, billing, receipt (comma separated)"></textarea>
+                        <textarea name="classification_keywords" class="form-control shadow-none bg-light fs-sm" rows="2" maxlength="1500" placeholder="e.g. invoice, billing, receipt (comma separated)"></textarea>
                         <div class="form-text fs-xs mt-1"><i class="fas fa-magic text-primary me-1"></i> Files containing these words will be auto-suggested to this folder during upload.</div>
                     </div>
 
@@ -2621,7 +2815,7 @@ if(isset($_GET['success'])) {
                     <div class="mb-4">
                         <label class="form-label fw-bold small text-muted text-uppercase letter-spacing-tight">Auto-Classification Keywords</label>
                         <div class="position-relative">
-                            <textarea name="classification_keywords" id="ekKeywordsInput" class="form-control shadow-none bg-white fs-sm" rows="3" placeholder="e.g. invoice, billing, receipt (comma separated)" disabled></textarea>
+                            <textarea name="classification_keywords" id="ekKeywordsInput" class="form-control shadow-none bg-white fs-sm" rows="3" maxlength="1500" placeholder="e.g. invoice, billing, receipt (comma separated)" disabled></textarea>
                             <div class="spinner-border spinner-border-sm text-primary position-absolute" id="ekLoader" style="top: 15px; right: 15px; display: none;" role="status"></div>
                         </div>
                         
@@ -2642,15 +2836,15 @@ if(isset($_GET['success'])) {
 </div>
 
 
-<script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-<script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
-<!-- OpenCV.js for Smart Document Edge Detection & Auto-Crop -->
-<script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="console.log('OpenCV Engine Loaded');"></script>
+<script src="assets/vendor/jquery/3.7.0/jquery.min.js"></script>
+<script src="assets/vendor/bootstrap/5.3.0/bootstrap.bundle.min.js"></script>
+<script src="assets/vendor/datatables/1.13.6/jquery.dataTables.min.js"></script>
+<script src="assets/vendor/datatables/1.13.6/dataTables.bootstrap5.min.js"></script>
+<script src="assets/vendor/sweetalert2/11.26.25/sweetalert2.all.min.js"></script>
+<script src="assets/vendor/tesseract/5.1.1/tesseract.min.js"></script>
+<script src="assets/js/local-ocr.js"></script>
+<script src="assets/vendor/pdfjs/2.16.105/pdf.min.js"></script>
+<script src="assets/js/local-opencv-loader.js"></script>
 <script src="assets/js/mobile-document-viewer.js"></script>
 
 <script>
@@ -2825,6 +3019,12 @@ if(isset($_GET['success'])) {
         const { fileInput, cameraVideo } = uploadModalElements();
         if (!cameraVideo) return;
 
+        // OpenCV is intentionally loaded only when the camera is used. The
+        // ordinary portrait crop remains available while it loads or fails.
+        if (window.FixieOpenCV) {
+            window.FixieOpenCV.preload();
+        }
+
         const camModalEl = document.getElementById('cameraModal');
         if (!camModalEl.classList.contains('show')) {
             const upModal = bootstrap.Modal.getInstance(document.getElementById('uploadModal'));
@@ -2879,7 +3079,7 @@ if(isset($_GET['success'])) {
         setUploadStatus('Live camera ready. Capture a photo when you are ready.');
     }
 
-    function captureUploadPhoto() {
+    async function captureUploadPhoto() {
         const { cameraVideo, cameraPreviewImage, cameraCanvas, capturePhotoBtn, retakePhotoBtn, usePhotoBtn } = uploadModalElements();
         if (!cameraVideo || !cameraCanvas || !cameraPreviewImage) return;
 
@@ -2920,6 +3120,19 @@ if(isset($_GET['success'])) {
             0, 0, cameraCanvas.width, cameraCanvas.height
         );
 
+        // Give the locally hosted smart-crop engine only a short time to
+        // become ready. A slow or unavailable engine must never prevent a
+        // user from capturing and uploading the normal portrait crop.
+        let cvEngine = window.FixieOpenCV ? window.FixieOpenCV.getIfReady() : null;
+        if (!cvEngine && window.FixieOpenCV) {
+            try {
+                await window.FixieOpenCV.load({ timeoutMs: 2500 });
+                cvEngine = window.FixieOpenCV.getIfReady();
+            } catch (error) {
+                console.warn('Smart document crop is unavailable; using the normal portrait crop.', error);
+            }
+        }
+
         // ========================================================
         // SMART OPENCV DOCUMENT EDGE DETECTION & PERSPECTIVE WARP
         // ========================================================
@@ -2927,7 +3140,8 @@ if(isset($_GET['success'])) {
         let srcCoords = null, dstCoords = null, M = null, warped = null, approx = null;
 
         try {
-            if (typeof cv !== 'undefined' && cv.Mat) {
+            if (cvEngine && cvEngine.Mat) {
+                const cv = cvEngine;
                 src = cv.imread(cameraCanvas);
                 dst = new cv.Mat();
                 
@@ -3174,19 +3388,21 @@ if(isset($_GET['success'])) {
                     img.src = URL.createObjectURL(file);
                 });
 
-                const worker = await Tesseract.createWorker("eng", 1, {
-                    logger: function(m) {
+                if (!window.FixieLocalOCR || !window.FixieLocalOCR.isAvailable()) {
+                    throw new Error('LOCAL_OCR_UNAVAILABLE');
+                }
+
+                clientSideText = await window.FixieLocalOCR.recognize(safeImage, {
+                    onProgress: function(m) {
                         if (m.status === 'recognizing text') nameDisplay.innerText = "Scanning Image: " + Math.round(m.progress * 100) + "%";
                         else nameDisplay.innerText = "OCR: " + m.status + "...";
                     }
                 });
-                
-                nameDisplay.innerText = "Extracting text from image...";
-                const ret = await worker.recognize(safeImage);
-                clientSideText = ret.data.text;
-                await worker.terminate();
             } catch (error) {
-                nameDisplay.innerText = error === "UNSUPPORTED_FORMAT" ? "Unsupported Format. Please use a real JPG or PNG." : "Image Scan Failed. (Check Console)";
+                console.warn('Local OCR was unavailable; continuing with server-side file analysis.', error);
+                nameDisplay.innerText = error === "UNSUPPORTED_FORMAT"
+                    ? "Unsupported Format. Please use a real JPG or PNG."
+                    : "OCR unavailable. Continuing with file analysis...";
             }
         }
         else if (file.type === 'application/pdf') {
@@ -3194,7 +3410,7 @@ if(isset($_GET['success'])) {
             try {
                 const arrayBuffer = await file.arrayBuffer();
                 const pdfjsLib = window['pdfjs-dist/build/pdf'];
-                pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+                pdfjsLib.GlobalWorkerOptions.workerSrc = 'assets/vendor/pdfjs/2.16.105/pdf.worker.min.js';
 
                 const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
                 const maxPages = Math.min(pdf.numPages, 3);
@@ -3820,8 +4036,12 @@ if(isset($_GET['success'])) {
             },
             error: function(xhr) {
                 loader.style.display = 'none';
-                input.disabled = false;
-                console.error("AJAX Error: Server blocked the request or failed.", xhr.responseText);
+                input.disabled = true;
+                const message = xhr.responseJSON && xhr.responseJSON.message
+                    ? xhr.responseJSON.message
+                    : 'Folder keywords could not be loaded.';
+                $('#ekConflictWarning').text(message).removeClass('d-none');
+                $('#ekSaveBtn').prop('disabled', true);
             }
         });
         
@@ -3869,15 +4089,22 @@ if(isset($_GET['success'])) {
                         // Magpakita ng pulang warning at panatilihing naka-disable ang button
                         warningBox.html('<i class="fas fa-exclamation-triangle me-1"></i> <strong>Conflict Detected:</strong><br>' + response.messages.join('<br>')).removeClass('d-none');
                         saveBtn.prop('disabled', true); 
+                    } else if (response.status === 'error') {
+                        warningBox.text(response.message || 'Keyword validation could not be completed.').removeClass('d-none');
+                        saveBtn.prop('disabled', true);
                     } else {
                         // Clear ang error, at i-enable ulit ang Save
                         warningBox.addClass('d-none');
                         saveBtn.prop('disabled', false); 
                     }
                 },
-                error: function() {
+                error: function(xhr) {
                     loader.hide();
-                    saveBtn.prop('disabled', false);
+                    const message = xhr.responseJSON && xhr.responseJSON.message
+                        ? xhr.responseJSON.message
+                        : 'Keyword validation could not be completed.';
+                    warningBox.text(message).removeClass('d-none');
+                    saveBtn.prop('disabled', true);
                 }
             });
         }, 500); // 500ms typing delay

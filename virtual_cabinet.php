@@ -20,8 +20,6 @@ $shared_user_pattern = '%"user_' . $current_user_id . '"%';
 if ($can_manage_physical && empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
-$unread_count = get_unread_notification_count($conn, (int)$_SESSION['user_id'], $role);
-
 $can_view_audit = false;
 if (isset($_SESSION['user_id'])) {
     $can_view_audit = has_permission($conn, $_SESSION['user_id'], 'can_view_audit_logs');

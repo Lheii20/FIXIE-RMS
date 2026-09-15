@@ -82,11 +82,11 @@ $user_id = $_SESSION['user_id'] ?? 0;
         </a>
 
         <!-- Search Trigger (Desktop Only) -->
-        <div class="saas-search-trigger" onclick="openCommandPalette()" role="button" tabindex="0">
-            <i class="fas fa-search"></i>
+        <button type="button" id="commandPaletteTrigger" class="saas-search-trigger" onclick="openCommandPalette()" aria-label="Search or jump to a page" aria-haspopup="dialog" aria-controls="commandPaletteOverlay" aria-expanded="false" aria-keyshortcuts="Control+K">
+            <i class="fas fa-search" aria-hidden="true"></i>
             <span class="d-none d-sm-inline">Search or jump to...</span>
             <kbd class="d-none d-md-inline-block">Ctrl K</kbd>
-        </div>
+        </button>
 
         <!-- Desktop Navigation Menu -->
         <div class="saas-nav-menu">
@@ -280,12 +280,12 @@ $user_id = $_SESSION['user_id'] ?? 0;
 </aside>
 
 <!-- Command Palette Modal -->
-<div id="commandPaletteOverlay" class="cp-overlay init-hidden">
+<div id="commandPaletteOverlay" class="cp-overlay init-hidden" role="dialog" aria-modal="true" aria-label="Search and navigation" aria-hidden="true">
     <div class="cp-modal fade-in">
         <div class="cp-header">
-            <i class="fas fa-search cp-icon"></i>
-            <input type="text" id="cpInput" placeholder="Type a command or search..." autocomplete="off">
-            <kbd class="cp-esc" onclick="closeCommandPalette()">ESC</kbd>
+            <i class="fas fa-search cp-icon" aria-hidden="true"></i>
+            <input type="text" id="cpInput" aria-label="Search commands and pages" placeholder="Type a command or search..." autocomplete="off">
+            <button type="button" class="cp-esc" onclick="closeCommandPalette()" aria-label="Close search and navigation">ESC</button>
         </div>
         <div class="cp-body">
             <ul id="cpList" class="cp-list">
@@ -495,6 +495,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
 // Command Palette Functionality
 const cpOverlay = document.getElementById('commandPaletteOverlay');
+const cpTrigger = document.getElementById('commandPaletteTrigger');
 const cpInput = document.getElementById('cpInput');
 const cpList = document.getElementById('cpList');
 const cpItems = cpList.querySelectorAll('li');
@@ -503,13 +504,20 @@ let currentFocus = -1;
 
 function openCommandPalette() {
     cpOverlay.style.display = 'flex';
+    cpOverlay.classList.add('show');
+    cpOverlay.setAttribute('aria-hidden', 'false');
+    cpTrigger.setAttribute('aria-expanded', 'true');
     cpInput.value = '';
     filterItems('');
     setTimeout(() => cpInput.focus(), 50);
 }
 
 function closeCommandPalette() {
+    cpOverlay.classList.remove('show');
     cpOverlay.style.display = 'none';
+    cpOverlay.setAttribute('aria-hidden', 'true');
+    cpTrigger.setAttribute('aria-expanded', 'false');
+    cpTrigger.focus();
 }
 
 function filterItems(query) {

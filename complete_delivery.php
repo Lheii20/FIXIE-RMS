@@ -2,6 +2,7 @@
 require 'config/db_connect.php';
 require 'config/functions.php';
 require_once 'config/workflow_feedback.php';
+require_once 'config/delivery_signature.php';
 
 date_default_timezone_set('Asia/Manila');
 
@@ -24,6 +25,8 @@ function phase4d_datetime_label(
 $po_id = isset($_GET['po_id']) ? (int) $_GET['po_id'] : 0;
 $current_user_id = (int) $_SESSION['user_id'];
 $record = null;
+$delivery_signature = null;
+$delivery_signature_state = 'none';
 $active_assignment = null;
 $existing_receipt = null;
 $eligibility_error = '';
@@ -51,6 +54,8 @@ if ($po_id > 0) {
                 delivery_request.package_count,
                 plan.delivery_plan_id,
                 plan.logistics_status,
+                plan.reviewed_by,
+                plan.reviewed_at,
                 plan.provider_type,
                 plan.provider_name,
                 plan.planned_pickup_at,
@@ -97,6 +102,33 @@ if ($po_id > 0) {
         $record = $record_stmt->get_result()->fetch_assoc();
 
         if ($record) {
+            if (
+                !empty($record['reviewed_by']) &&
+                !empty($record['reviewed_at']) &&
+                $record['request_status'] === 'Scheduled' &&
+                $record['logistics_status'] === 'Scheduled'
+            ) {
+                try {
+                    $delivery_signature = drms_load_delivery_signature_event(
+                        $conn,
+                        (int) $record['delivery_request_id'],
+                        (int) $record['delivery_plan_id'],
+                        (int) $record['reviewed_by'],
+                        (string) $record['request_number'],
+                        (string) $record['reviewed_at']
+                    );
+                    $delivery_signature_state = $delivery_signature
+                        ? 'verified'
+                        : 'legacy';
+                } catch (Throwable $signature_error) {
+                    drms_log_workflow_failure(
+                        'Delivery completion signature verification for PO ' . $po_id,
+                        $signature_error
+                    );
+                    $delivery_signature_state = 'invalid';
+                }
+            }
+
             $active_assignment = get_active_po_task_assignment(
                 $conn,
                 $po_id
@@ -130,6 +162,9 @@ if ($po_id > 0) {
             ) {
                 $eligibility_error =
                     'The Approved Logistics Plan Official Record is missing. Complete the Supply Chain schedule approval before recording delivery.';
+            } elseif ($delivery_signature_state === 'invalid') {
+                $eligibility_error =
+                    'The Supply Chain electronic signature does not match the approved Logistics Plan. Delivery completion is blocked until the record is reviewed.';
             } elseif ($existing_receipt) {
                 $eligibility_error =
                     'An active client delivery receipt already exists.';
@@ -173,10 +208,12 @@ $initial_due_date = (new DateTimeImmutable('now'))
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/prf-form.css?v=<?php echo filemtime(__DIR__ . '/assets/css/prf-form.css'); ?>" rel="stylesheet">
     <link href="assets/css/delivery-completion.css?v=<?php echo filemtime(__DIR__ . '/assets/css/delivery-completion.css'); ?>" rel="stylesheet">
+    <link href="assets/css/delivery-signature.css?v=<?php echo filemtime(__DIR__ . '/assets/css/delivery-signature.css'); ?>" rel="stylesheet">
     <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
 <body class="prf-page delivery-completion-page workflow-ui">
     <?php include 'sidebar.php'; ?>
+    <?php include 'includes/e_signature_modal.php'; ?>
 
     <main class="main-content fade-in">
         <div class="container-fluid prf-shell delivery-completion-shell">
@@ -308,6 +345,8 @@ $initial_due_date = (new DateTimeImmutable('now'))
                         enctype="multipart/form-data"
                         id="deliveryCompletionForm"
                         data-collection-term-days="<?php echo $collection_term_days; ?>"
+                        data-po-number="<?php echo htmlspecialchars((string) $record['po_number'], ENT_QUOTES); ?>"
+                        data-request-number="<?php echo htmlspecialchars((string) $record['request_number'], ENT_QUOTES); ?>"
                         novalidate
                     >
                         <input type="hidden" name="action" value="complete_client_delivery">
@@ -351,6 +390,40 @@ $initial_due_date = (new DateTimeImmutable('now'))
                                             <strong><?php echo htmlspecialchars((string) ($record['reviewed_by_name'] ?? 'Supply Chain')); ?></strong>
                                         </div>
                                     </div>
+
+                                    <?php if ($delivery_signature_state === 'verified' && $delivery_signature): ?>
+                                        <section class="delivery-esign-summary delivery-esign-summary--verified" aria-label="Verified Supply Chain electronic signature">
+                                            <div class="delivery-esign-mark" aria-hidden="true">
+                                                <?php if (!empty($delivery_signature['verified_signature_image_path'])): ?>
+                                                    <img src="signature_print_image.php?id=<?php echo (int) $delivery_signature['signature_id']; ?>" alt="">
+                                                <?php else: ?>
+                                                    <span>/s/</span>
+                                                <?php endif; ?>
+                                            </div>
+                                            <div class="delivery-esign-identity">
+                                                <span class="delivery-esign-eyebrow"><i class="fas fa-check-circle"></i>Verified Supply Chain e-signature</span>
+                                                <strong><?php echo htmlspecialchars((string) $delivery_signature['signer_name']); ?></strong>
+                                                <small>This is the approved plan authorized for delivery execution.</small>
+                                            </div>
+                                            <div class="delivery-esign-meta">
+                                                <span>Signed</span>
+                                                <strong><?php echo date('M d, Y · h:i A', strtotime((string) $delivery_signature['signed_at'])); ?></strong>
+                                            </div>
+                                            <div class="delivery-esign-reference">
+                                                <span>Verification code</span>
+                                                <code title="<?php echo htmlspecialchars((string) $delivery_signature['verification_code'], ENT_QUOTES); ?>"><?php echo htmlspecialchars((string) $delivery_signature['verification_code']); ?></code>
+                                            </div>
+                                        </section>
+                                    <?php elseif ($delivery_signature_state === 'legacy'): ?>
+                                        <section class="delivery-esign-summary delivery-esign-summary--legacy" aria-label="Pre-electronic-signature logistics approval">
+                                            <div class="delivery-esign-state-icon" aria-hidden="true"><i class="fas fa-history"></i></div>
+                                            <div class="delivery-esign-identity">
+                                                <span class="delivery-esign-eyebrow">Pre-electronic-signature approval</span>
+                                                <strong><?php echo htmlspecialchars((string) ($record['reviewed_by_name'] ?? 'Supply Chain')); ?></strong>
+                                                <small>The logistics approval predates the current Phase 9A signature control.</small>
+                                            </div>
+                                        </section>
+                                    <?php endif; ?>
 
                                     <div class="delivery-destination">
                                         <i class="fas fa-map-marker-alt"></i>
@@ -572,8 +645,8 @@ $initial_due_date = (new DateTimeImmutable('now'))
                                 </label>
 
                                 <button type="submit" class="prf-submit-button delivery-completion-submit" data-delivery-completion-submit>
-                                    <span>Record Client Receipt</span>
-                                    <i class="fas fa-check-circle"></i>
+                                    <span>Sign &amp; Record Receipt</span>
+                                    <i class="fas fa-signature"></i>
                                 </button>
                             </aside>
                         </div>

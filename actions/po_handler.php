@@ -1654,7 +1654,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 'approve_gm' => 'Finance Dept.',
                 'approve_finance' => 'Office of the President',
                 'approve_president' => 'Finance Dept.',
-                'mark_funded' => 'Supply Chain Dept.',
+                'mark_funded' => 'Procurement Dept.',
                 'reject' => 'Voided'
             ];
             $new_status = $rule['next_status'];

@@ -26,24 +26,25 @@ if (!in_array($filter, $valid_filters, true)) {
 
 $sql = "
     SELECT
-        q.*,
-        (
-            SELECT car.record_type
-            FROM client_approval_records car
-            WHERE car.quotation_id = q.quotation_id
-              AND car.record_status = 'Active'
-            ORDER BY car.recorded_at DESC, car.approval_record_id DESC
-            LIMIT 1
-        ) AS latest_approval_record_type,
-        (
-            SELECT car.internal_reference
-            FROM client_approval_records car
-            WHERE car.quotation_id = q.quotation_id
-              AND car.record_status = 'Active'
-            ORDER BY car.recorded_at DESC, car.approval_record_id DESC
-            LIMIT 1
-        ) AS latest_approval_reference
+        q.quotation_id,
+        q.quotation_number,
+        q.client_name,
+        q.amount,
+        q.status,
+        q.client_po_number,
+        q.created_at,
+        latest_approval.record_type AS latest_approval_record_type,
+        latest_approval.internal_reference AS latest_approval_reference
     FROM quotations q
+    LEFT JOIN client_approval_records latest_approval
+      ON latest_approval.approval_record_id = (
+            SELECT car.approval_record_id
+            FROM client_approval_records car
+            WHERE car.quotation_id = q.quotation_id
+              AND car.record_status = 'Active'
+            ORDER BY car.recorded_at DESC, car.approval_record_id DESC
+            LIMIT 1
+      )
     WHERE 1 = 1
 ";
 
@@ -92,6 +93,7 @@ if (!empty($params)) {
 
 $stmt->execute();
 $result = $stmt->get_result();
+$stmt->close();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -106,7 +108,6 @@ $result = $stmt->get_result();
     <link href="assets/css/client-approval.css?v=<?php echo filemtime(__DIR__ . '/assets/css/client-approval.css'); ?>" rel="stylesheet">
     <link href="assets/css/client-po-acknowledgement.css?v=<?php echo filemtime(__DIR__ . '/assets/css/client-po-acknowledgement.css'); ?>" rel="stylesheet">
     <?= drms_frontend_style_tags(['datatables-bs5-css', 'sweetalert2-css']) ?>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
     <link href="assets/css/transaction-lists.css?v=<?php echo filemtime(__DIR__ . '/assets/css/transaction-lists.css'); ?>" rel="stylesheet">
 </head>
@@ -172,7 +173,7 @@ $result = $stmt->get_result();
                     >
                 </div>
 
-                <select name="filter" class="sleek-select" onchange="this.form.submit()">
+                <select name="filter" class="sleek-select" aria-label="Filter quotations by status" onchange="this.form.submit()">
                     <option value="all" <?php echo $filter === 'all' ? 'selected' : ''; ?>>All Records</option>
                     <option value="Pending Approval" <?php echo $filter === 'Pending Approval' ? 'selected' : ''; ?>>Waiting for Official PO</option>
                     <option value="For GM Acknowledgement" <?php echo $filter === 'For GM Acknowledgement' ? 'selected' : ''; ?>>For GM Acknowledgement</option>
@@ -374,6 +375,11 @@ $result = $stmt->get_result();
                                 <?php endwhile; ?>
                             <?php endif; ?>
                         </tbody>
+                        <?php
+                        if ($result instanceof mysqli_result) {
+                            $result->free();
+                        }
+                        ?>
                     </table>
                 </div>
             </div>

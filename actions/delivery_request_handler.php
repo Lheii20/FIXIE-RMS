@@ -6,6 +6,8 @@ require '../config/functions.php';
 require_once '../config/workflow_feedback.php';
 require_once '../config/official_delivery_request_snapshot.php';
 require_once '../config/official_logistics_plan_snapshot.php';
+require_once '../config/e_signature.php';
+require_once '../config/delivery_signature.php';
 
 date_default_timezone_set('Asia/Manila');
 
@@ -206,6 +208,8 @@ if (in_array(
     $official_logistics_plan_storage_path = null;
     $official_logistics_plan_number = '';
     $official_logistics_plan_doc_id = null;
+    $e_signature = null;
+    $signature_event_id = 0;
 
     $provider_type = trim((string) ($_POST['provider_type'] ?? ''));
     $provider_name = trim((string) ($_POST['provider_name'] ?? ''));
@@ -349,6 +353,29 @@ if (in_array(
             throw new DomainException(
                 'The selected logistics workflow action is unavailable.'
             );
+        }
+
+        if ($is_approval) {
+            if (!drms_signature_tables_ready($conn)) {
+                throw new RuntimeException(
+                    'Electronic signatures are unavailable until the signature foundation is installed.'
+                );
+            }
+            $e_signature = drms_esign_prepare(
+                $conn,
+                $user_id,
+                'Delivery Request',
+                'Supply Chain Approval',
+                $_POST
+            );
+            if (
+                (int) ($e_signature['user']['user_id'] ?? 0) !== $user_id ||
+                (string) ($e_signature['user']['role'] ?? '') !== 'Supply Chain'
+            ) {
+                throw new DomainException(
+                    'The active Supply Chain account does not match the assigned signatory.'
+                );
+            }
         }
 
         $delivery_request_id = (int) $review['delivery_request_id'];
@@ -520,6 +547,38 @@ if (in_array(
             );
             $request_update_stmt->bind_param('i', $delivery_request_id);
             $request_update_stmt->execute();
+            if ($request_update_stmt->affected_rows !== 1) {
+                throw new DomainException(
+                    'The delivery request changed before the approval signature could be saved.'
+                );
+            }
+
+            $signature_fingerprint =
+                drms_delivery_signature_fingerprint(
+                    $conn,
+                    $delivery_request_id,
+                    $delivery_plan_id,
+                    $user_id
+                );
+            $signature_version = drms_delivery_signature_version(
+                $delivery_request_id,
+                $delivery_plan_id,
+                (string) $review['request_number']
+            );
+            $signature_event_id = drms_esign_record_event(
+                $conn,
+                $e_signature,
+                [
+                    'record_module' => 'Delivery Request',
+                    'record_id' => $delivery_request_id,
+                    'signature_stage' => 'Supply Chain Approval',
+                    'signed_file_hash' => $signature_fingerprint,
+                    'signed_version' => $signature_version,
+                    'consent_text' => 'I reviewed the Delivery Request and final Logistics Plan and authorize the provider, schedule, and execution details through my electronic signature.',
+                    'remarks' => 'Approved provider: ' . $provider_name .
+                        ' (' . $provider_type . ').',
+                ]
+            );
 
             $history_remarks = 'Delivery request ' .
                 $review['request_number'] . ' approved and scheduled through ' .
@@ -617,6 +676,37 @@ if (in_array(
             $official_logistics_plan_storage_path =
                 $official_logistics_plan['storage_absolute_path'] ?? null;
 
+            $signature_link_remarks =
+                'Supply Chain electronically approved the Delivery Request and Logistics Plan. Official Records: ' .
+                $official_delivery_request_number . ' and ' .
+                $official_logistics_plan_number . '.';
+            $link_signature_stmt = $conn->prepare(
+                "UPDATE document_signature_events
+                 SET document_id = ?,
+                     official_document_id = ?,
+                     remarks = ?
+                 WHERE signature_id = ?
+                   AND record_module = 'Delivery Request'
+                   AND record_id = ?
+                   AND signature_stage = 'Supply Chain Approval'
+                   AND signature_status = 'Valid'"
+            );
+            $link_signature_stmt->bind_param(
+                'iisii',
+                $official_delivery_request_doc_id,
+                $official_delivery_request_doc_id,
+                $signature_link_remarks,
+                $signature_event_id,
+                $delivery_request_id
+            );
+            $link_signature_stmt->execute();
+            if ($link_signature_stmt->affected_rows !== 1) {
+                throw new RuntimeException(
+                    'The Supply Chain signature could not be linked to the generated Official Records.'
+                );
+            }
+            $link_signature_stmt->close();
+
             $history_remarks .= ' Official Records: ' .
                 $official_delivery_request_number . ' and ' .
                 $official_logistics_plan_number . '.';
@@ -700,6 +790,7 @@ if (in_array(
                 $official_logistics_plan_doc_id;
             $after_state['logistics_plan_record_number'] =
                 $official_logistics_plan_number;
+            $after_state['signature_event_id'] = $signature_event_id;
         }
         log_audit_action(
             $conn,

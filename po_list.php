@@ -13,8 +13,6 @@ drms_require_workflow_roles([
 ]);
 
 $current_user_id = (int)$_SESSION['user_id'];
-$current_role = $_SESSION['role'];
-ensure_collaboration_tables_exist($conn);
 $search = substr(trim((string) ($_GET['search'] ?? '')), 0, 100);
 $valid_filters = [
     'all',
@@ -34,7 +32,18 @@ $valid_filters = [
 ];
 $filter = (isset($_GET['filter']) && in_array($_GET['filter'], $valid_filters)) ? $_GET['filter'] : 'all';
 
-$sql = "SELECT p.*, a.assignment_id, a.assigned_to, a.assigned_role, u.full_name AS assignee_name
+$sql = "SELECT
+            p.po_id,
+            p.po_number,
+            p.client_name,
+            p.amount,
+            p.status,
+            p.current_location,
+            p.date_created,
+            a.assignment_id,
+            a.assigned_to,
+            a.assigned_role,
+            u.full_name AS assignee_name
         FROM purchase_orders p
         LEFT JOIN purchase_order_task_assignments a ON a.po_id = p.po_id AND a.assignment_status = 'Active'
         LEFT JOIN users u ON u.user_id = a.assigned_to
@@ -73,15 +82,7 @@ if (!empty($params)) {
 }
 $stmt->execute();
 $result = $stmt->get_result();
-
-// Fetch workflow rules once
-$wf_rules_array = [];
-$wf_query = $conn->query("SELECT * FROM workflow_rules");
-if ($wf_query) {
-    while ($rule = $wf_query->fetch_assoc()) {
-        $wf_rules_array[$rule['required_role']][$rule['current_status']][] = $rule;
-    }
-}
+$stmt->close();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -94,7 +95,6 @@ if ($wf_query) {
     <link href="assets/css/compact-mobile-lists.css" rel="stylesheet">
     <link href="assets/css/mobile-drive-lists.css?v=<?php echo filemtime(__DIR__ . '/assets/css/mobile-drive-lists.css'); ?>" rel="stylesheet">
     <?= drms_frontend_style_tags(['datatables-bs5-css', 'sweetalert2-css']) ?>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
     <link href="assets/css/transaction-lists.css?v=<?php echo filemtime(__DIR__ . '/assets/css/transaction-lists.css'); ?>" rel="stylesheet">
 </head>
@@ -124,7 +124,7 @@ if ($wf_query) {
                     <input type="text" name="search" class="sleek-search-input" placeholder="Search reference or client..." value="<?php echo htmlspecialchars($search); ?>">
                 </div>
                 
-                <select name="filter" class="sleek-select" onchange="this.form.submit()">
+                <select name="filter" class="sleek-select" aria-label="Filter purchase orders by status" onchange="this.form.submit()">
                     <option value="all" <?php echo ($filter == 'all') ? 'selected' : ''; ?>>All Records</option>
                     <option value="In_Progress" <?php echo ($filter == 'In_Progress') ? 'selected' : ''; ?>>All Approval Stages</option>
                     <option value="Pending" <?php echo ($filter == 'Pending') ? 'selected' : ''; ?>>Awaiting GM Approval</option>
@@ -239,26 +239,6 @@ if ($wf_query) {
                                     </td>
                                     <td data-label="Actions" class="text-end pe-4">
                                         <div class="action-flex">
-                                            <?php
-                                            $role = $_SESSION['role'];
-                                            $is_approver = false;
-                                            $approve_action = '';
-                                            $can_reject = false;
-
-                                            if (isset($wf_rules_array[$role][$row['status']])) {
-                                                $is_approver = true;
-                                                foreach ($wf_rules_array[$role][$row['status']] as $rule) {
-                                                    if ($rule['action_key'] === 'reject') {
-                                                        $can_reject = true;
-                                                    } else {
-                                                        $approve_action = $rule['action_key'];
-                                                    }
-                                                }
-                                            }
-
-                                            $assigned_to_another = !empty($row['assigned_to']) && (int)$row['assigned_to'] !== $current_user_id;
-                                            $claim_required = $is_approver && empty($row['assigned_to']) && role_requires_task_claim($conn, $role);
-                                            ?>
                                             <a href="view_po.php?id=<?php echo $row['po_id']; ?>" class="btn-view-icon" title="View Details">
                                                 <i class="fas fa-chevron-right"></i>
                                             </a>
@@ -268,6 +248,11 @@ if ($wf_query) {
                                 <?php endwhile; ?>
                             <?php endif; ?>
                         </tbody>
+                        <?php
+                        if ($result instanceof mysqli_result) {
+                            $result->free();
+                        }
+                        ?>
                     </table>
                 </div>
             </div>

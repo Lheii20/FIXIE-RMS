@@ -44,7 +44,7 @@ if(isset($_GET['success'])) {
     <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/mobile-settings-admin.css?v=<?php echo filemtime(__DIR__ . '/assets/css/mobile-settings-admin.css'); ?>" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <link rel="stylesheet" href="assets/vendor/sweetalert2/11.26.25/sweetalert2.min.css">
 </head>
 <body class="page-admin-settings">
     <?php include 'sidebar.php'; ?>
@@ -108,9 +108,9 @@ if(isset($_GET['success'])) {
         </div>
     </div>
 
-    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="assets/vendor/jquery/3.7.0/jquery.min.js"></script>
+    <script src="assets/vendor/bootstrap/5.3.0/bootstrap.bundle.min.js"></script>
+    <script src="assets/vendor/sweetalert2/11.26.25/sweetalert2.all.min.js"></script>
     
     <script>
         const Toast = Swal.mixin({ toast: true, position: 'bottom-end', showConfirmButton: false, timer: 3000, timerProgressBar: true, customClass: { popup: 'small-toast' } });
@@ -119,3 +119,4 @@ if(isset($_GET['success'])) {
     </script>
 </body>
 </html>
+

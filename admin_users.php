@@ -29,8 +29,8 @@ $all_perms_json = json_encode($all_permissions, JSON_HEX_TAG | JSON_HEX_AMP | JS
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
     <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <link rel="stylesheet" href="assets/vendor/datatables/1.13.6/dataTables.bootstrap5.min.css">
+    <link rel="stylesheet" href="assets/vendor/sweetalert2/11.26.25/sweetalert2.min.css">
 </head>
 <body class="page-admin-users">
 <?php include 'sidebar.php'; ?>
@@ -209,11 +209,11 @@ $all_perms_json = json_encode($all_permissions, JSON_HEX_TAG | JSON_HEX_AMP | JS
     <input type="hidden" name="user_id" id="reset_code_user_id">
 </form>
 
-<script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-<script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="assets/vendor/jquery/3.7.0/jquery.min.js"></script>
+<script src="assets/vendor/bootstrap/5.3.0/bootstrap.bundle.min.js"></script>
+<script src="assets/vendor/datatables/1.13.6/jquery.dataTables.min.js"></script>
+<script src="assets/vendor/datatables/1.13.6/dataTables.bootstrap5.min.js"></script>
+<script src="assets/vendor/sweetalert2/11.26.25/sweetalert2.all.min.js"></script>
 <script>
 $(document).ready(function() {
     let table = $('#usersTable').DataTable({
@@ -279,3 +279,4 @@ function confirmForceLogout(id) { Swal.fire({ title: 'Force Logout?', text: "The
 </script>
 </body>
 </html>
+

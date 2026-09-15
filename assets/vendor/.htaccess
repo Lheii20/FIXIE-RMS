@@ -1,0 +1,27 @@
+# These assets are pinned inside version-numbered directories. They can be
+# cached for a long time without making editable application CSS/JS stale.
+<IfModule mod_mime.c>
+    AddType application/javascript .js
+    AddType text/css .css
+    AddType application/wasm .wasm
+    AddType application/gzip .gz
+    AddType font/woff2 .woff2
+</IfModule>
+
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresDefault "access plus 1 year"
+</IfModule>
+
+<IfModule mod_headers.c>
+    <FilesMatch "\.(?:css|js|woff2|wasm|gz)$">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+        Header set X-Content-Type-Options "nosniff"
+    </FilesMatch>
+</IfModule>
+
+# Compress text runtimes such as OpenCV, Chart.js, and CSS. WASM, WOFF2, and
+# traineddata.gz are already compressed and are intentionally excluded.
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE application/javascript text/javascript text/css
+</IfModule>

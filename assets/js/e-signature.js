@@ -51,6 +51,13 @@
         modal.querySelector('#drmsEsignSubtitle').textContent = options.subtitle || 'Confirm your assigned approval before it is recorded.';
         modal.querySelector('#drmsEsignContext').innerHTML = '<strong>' + escapeHtml(options.recordLabel || 'Approval record') + '</strong><br>' + escapeHtml(options.stage || 'Approval stage');
         modal.querySelector('#drmsEsignConsentText').textContent = options.consent || 'I confirm that I reviewed this record and authorize this approval under my assigned organizational role.';
+        const submitButton = modal.querySelector('[data-esign-submit]');
+        submitButton.innerHTML = '';
+        const submitIcon = document.createElement('i');
+        submitIcon.className = 'fas fa-signature me-1';
+        const submitText = document.createElement('span');
+        submitText.textContent = options.submitText || 'Sign approval';
+        submitButton.append(submitIcon, submitText);
         modal.querySelector('#drmsEsignConsent').checked = false;
         error('');
         modal.hidden = false;

@@ -50,23 +50,31 @@ $message = trim((string) ($_GET[$messageTone] ?? ''));
     <?php if (!$isSignatory): ?>
         <section class="drms-esign-card">
             <div class="drms-esign-card__head"><span class="drms-esign-card__icon"><i class="fas fa-shield-alt"></i></span><div><span class="drms-esign-card__eyebrow">Role-controlled access</span><h1>Electronic signatures are not assigned to this account</h1></div></div>
-            <div class="drms-esign-card__body"><p class="drms-esign-help mb-0">Only the GM, Finance, and President roles can set up a signature because they are the authorized signatories for the corresponding approval stages. This restriction does not affect your existing account settings.</p></div>
+            <div class="drms-esign-card__body"><p class="drms-esign-help mb-0">Only GM, Finance, President, and Supply Chain roles assigned to controlled approval stages can set up an electronic signature. This restriction does not affect your existing account settings.</p></div>
         </section>
     <?php else: ?>
         <section class="drms-esign-card">
             <div class="drms-esign-card__head"><span class="drms-esign-card__icon"><i class="fas fa-signature"></i></span><div><span class="drms-esign-card__eyebrow">Controlled signatory identity</span><h1>Set up your signing profile</h1></div></div>
             <div class="drms-esign-card__body">
-                <p class="drms-esign-help">Your password will still be requested every time you sign. The profile records a stable display name and title; the optional signature image is only a visual representation and never replaces password verification.</p>
+                <p class="drms-esign-help">Your profile records a stable display name and title. The optional image is the visual representation saved with future signature events; every approval still requires your active signed-in account and explicit consent.</p>
                 <div class="drms-esign-facts">
                     <div class="drms-esign-fact"><small>Account role</small><strong><?php echo htmlspecialchars((string) $profileUser['role'], ENT_QUOTES, 'UTF-8'); ?></strong></div>
-                    <div class="drms-esign-fact"><small>Assigned use</small><strong><?php echo $profileUser['role'] === 'GM' ? 'GM review' : ($profileUser['role'] === 'Finance' ? 'Finance review' : 'Final approval'); ?></strong></div>
+                    <div class="drms-esign-fact"><small>Assigned use</small><strong><?php
+                        echo match ((string) $profileUser['role']) {
+                            'GM' => 'GM review',
+                            'Finance' => 'Finance review',
+                            'President' => 'Final approval',
+                            'Supply Chain' => 'Logistics approval',
+                            default => 'Assigned approval',
+                        };
+                    ?></strong></div>
                     <div class="drms-esign-fact"><small>Profile status</small><strong><?php echo $profile ? htmlspecialchars((string) $profile['profile_status'], ENT_QUOTES, 'UTF-8') : 'Not configured'; ?></strong></div>
                 </div>
                 <form action="actions/signature_profile_handler.php" method="post" enctype="multipart/form-data" data-esign-profile-form novalidate>
                     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) $_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8'); ?>">
                     <div class="row g-3">
                         <div class="col-md-6"><label class="form-label">Signature display name</label><input class="form-control" name="display_name" maxlength="150" required value="<?php echo htmlspecialchars((string) ($profile['display_name'] ?? $profileUser['full_name']), ENT_QUOTES, 'UTF-8'); ?>"><div class="form-text">Shown in the electronic-signature audit record.</div></div>
-                        <div class="col-md-6"><label class="form-label">Signatory title</label><input class="form-control" name="signatory_title" maxlength="100" required value="<?php echo htmlspecialchars((string) ($profile['signatory_title'] ?? $profileUser['role']), ENT_QUOTES, 'UTF-8'); ?>"><div class="form-text">Example: General Manager, Finance Head, or President.</div></div>
+                        <div class="col-md-6"><label class="form-label">Signatory title</label><input class="form-control" name="signatory_title" maxlength="100" required value="<?php echo htmlspecialchars((string) ($profile['signatory_title'] ?? $profileUser['role']), ENT_QUOTES, 'UTF-8'); ?>"><div class="form-text">Example: General Manager, Finance Head, President, or Supply Chain Reviewer.</div></div>
                         <div class="col-md-7"><label class="form-label">Signature image <span class="text-muted fw-normal">(optional)</span></label><input class="form-control" type="file" name="signature_image" accept="image/jpeg,image/png,image/webp"><div class="form-text">JPG, PNG, or WebP only; maximum 2 MB. It is stored in protected system storage.</div><?php if (!empty($profile['signature_image_path'])): ?><label class="drms-esign-choice mt-3"><input type="checkbox" name="remove_signature_image" value="1"><span>Remove the current visual signature image. Password verification is still required to save this change.</span></label><?php endif; ?></div>
                         <div class="col-md-5"><label class="form-label">Current visual signature</label><div class="drms-esign-image"><?php if (!empty($profile['signature_image_path'])): ?><img src="signature_image.php" alt="Current electronic signature image"><?php else: ?><span class="drms-esign-image__empty"><i class="far fa-image me-1"></i>No image uploaded</span><?php endif; ?></div></div>
                         <div class="col-12"><label class="form-label">Current account password</label><input class="form-control" type="password" name="current_password" maxlength="128" autocomplete="current-password" required placeholder="Required to save your signature profile"><div class="form-text">This confirms that the profile is being maintained by the authorized account holder.</div></div>

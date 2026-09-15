@@ -2,6 +2,7 @@
 require 'config/db_connect.php';
 require_once 'config/functions.php';
 require_once 'config/storage_security.php';
+require_once 'config/file_integrity.php';
 
 if (empty($_SESSION['user_id'])) {
     http_response_code(403);
@@ -16,6 +17,7 @@ $record_id = ctype_digit($record_id_input) ? (int) $record_id_input : 0;
 $stored_path = '';
 $download_name = '';
 $audit_document_id = null;
+$expected_file_hash = null;
 
 function drms_download_error(int $status, string $message): void
 {
@@ -26,6 +28,73 @@ function drms_download_error(int $status, string $message): void
 function drms_download_role_allowed(string $role, array $roles): bool
 {
     return in_array($role, $roles, true);
+}
+
+function drms_download_audit_event(
+    mysqli $conn,
+    int $userId,
+    string $type,
+    int $recordId,
+    ?int $documentId,
+    string $outcome,
+    string $safeName = ''
+): void {
+    $blocked = $outcome === 'integrity_blocked';
+
+    try {
+        if ($documentId !== null) {
+            $action = $blocked
+                ? 'FILE_INTEGRITY_BLOCKED'
+                : 'DOWNLOAD_DOC';
+            $description = $blocked
+                ? 'Blocked a document open because its protected file failed integrity verification.'
+                : 'Opened document: ' . $safeName;
+            log_document_action(
+                $conn,
+                $userId,
+                $action,
+                $documentId,
+                $description,
+                $_SERVER['REQUEST_URI'] ?? null
+            );
+            return;
+        }
+
+        $labels = [
+            'client_approval' => 'client approval proof',
+            'supplier_quote' => 'supplier quotation',
+            'fund_release' => 'fund-release proof',
+            'payment_proof' => 'payment proof',
+        ];
+        if (!isset($labels[$type])) {
+            return;
+        }
+
+        $action = $blocked
+            ? 'FILE_INTEGRITY_BLOCKED'
+            : 'DOWNLOAD_EVIDENCE';
+        $description = $blocked
+            ? 'Blocked protected ' . $labels[$type]
+                . ' because its stored file failed integrity verification.'
+            : 'Opened protected ' . $labels[$type] . '.';
+        log_audit_action(
+            $conn,
+            $userId,
+            $action,
+            $description,
+            null,
+            [
+                'evidence_type' => $type,
+                'evidence_id' => $recordId,
+                'outcome' => $outcome,
+            ]
+        );
+    } catch (Throwable $auditError) {
+        error_log(
+            'Protected file audit event could not be recorded: '
+            . $auditError->getMessage()
+        );
+    }
 }
 
 function drms_document_is_accessible(
@@ -186,7 +255,11 @@ try {
         }
 
         $stmt = $conn->prepare(
-            "SELECT proof_original_name, proof_file_path, recorded_by
+            "SELECT
+                proof_original_name,
+                proof_file_path,
+                proof_file_hash,
+                recorded_by
              FROM client_approval_records
              WHERE approval_record_id = ?
              LIMIT 1"
@@ -206,6 +279,7 @@ try {
 
         $stored_path = 'uploads/pos/' . basename($record['proof_file_path']);
         $download_name = (string) $record['proof_original_name'];
+        $expected_file_hash = $record['proof_file_hash'] ?? null;
     } elseif ($type === 'supplier_quote') {
         if ($record_id < 1) {
             drms_download_error(400, 'Invalid supplier quotation record.');
@@ -215,6 +289,7 @@ try {
             "SELECT
                 supplier_quote_original_name,
                 supplier_quote_file_path,
+                supplier_quote_file_hash,
                 created_by
              FROM pr_supplier_details
              WHERE supplier_detail_id = ?
@@ -237,13 +312,18 @@ try {
         $stored_path = 'uploads/supplier_quotes/' .
             basename($record['supplier_quote_file_path']);
         $download_name = (string) ($record['supplier_quote_original_name'] ?? '');
+        $expected_file_hash = $record['supplier_quote_file_hash'] ?? null;
     } elseif ($type === 'fund_release') {
         if ($record_id < 1) {
             drms_download_error(400, 'Invalid fund release record.');
         }
 
         $stmt = $conn->prepare(
-            "SELECT proof_original_name, proof_file_path, released_by
+            "SELECT
+                proof_original_name,
+                proof_file_path,
+                proof_file_hash,
+                released_by
              FROM po_supplier_fund_releases
              WHERE fund_release_id = ?
                AND record_status = 'Active'
@@ -265,13 +345,19 @@ try {
         $stored_path = 'uploads/fund_releases/' .
             basename($record['proof_file_path']);
         $download_name = (string) $record['proof_original_name'];
+        $expected_file_hash = $record['proof_file_hash'] ?? null;
     } elseif ($type === 'payment_proof') {
         if ($record_id < 1) {
             drms_download_error(400, 'Invalid payment record.');
         }
 
         $stmt = $conn->prepare(
-            "SELECT payment_id, proof_file_path, recorded_by
+            "SELECT
+                payment_id,
+                proof_file_path,
+                proof_original_name,
+                proof_file_hash,
+                recorded_by
              FROM payments
              WHERE payment_id = ?
              LIMIT 1"
@@ -291,7 +377,11 @@ try {
 
         $stored_path = 'uploads/payments/' .
             basename($record['proof_file_path']);
-        $download_name = basename($record['proof_file_path']);
+        $download_name = trim((string) ($record['proof_original_name'] ?? ''));
+        if ($download_name === '') {
+            $download_name = basename($record['proof_file_path']);
+        }
+        $expected_file_hash = $record['proof_file_hash'] ?? null;
     } elseif ($type === 'document_version') {
         if ($record_id < 1) {
             drms_download_error(400, 'Invalid document version record.');
@@ -303,6 +393,7 @@ try {
                 dv.version_number,
                 dv.file_name AS version_file_name,
                 dv.file_path AS version_file_path,
+                dv.file_hash AS version_file_hash,
                 d.doc_id,
                 d.po_id,
                 d.doc_type,
@@ -342,6 +433,7 @@ try {
             ? $version_name
             : (string) $record['file_name'];
         $audit_document_id = (int) $record['doc_id'];
+        $expected_file_hash = $record['version_file_hash'] ?? null;
     } elseif ($type === 'document') {
         if ($record_id < 1) {
             drms_download_error(400, 'Invalid document record.');
@@ -354,6 +446,7 @@ try {
                 doc_type,
                 file_name,
                 file_path,
+                file_hash,
                 category,
                 uploaded_by,
                 status,
@@ -389,6 +482,7 @@ try {
         $stored_path = (string) $record['file_path'];
         $download_name = (string) $record['file_name'];
         $audit_document_id = (int) $record['doc_id'];
+        $expected_file_hash = $record['file_hash'] ?? null;
     } else {
         drms_download_error(400, 'Invalid file type.');
     }
@@ -398,20 +492,44 @@ try {
 }
 
 $absolute_path = drms_resolve_upload_path($stored_path);
+$is_integrity_protected_file = in_array(
+    $type,
+    [
+        'client_approval',
+        'supplier_quote',
+        'fund_release',
+        'payment_proof',
+        'document',
+        'document_version',
+    ],
+    true
+);
+if ($is_integrity_protected_file) {
+    try {
+        drms_file_integrity_verify($absolute_path, $expected_file_hash);
+    } catch (DrmsFileIntegrityException $integrityError) {
+        error_log(
+            'Protected file integrity check failed for '
+            . $type . ' ID ' . $record_id . ': '
+            . $integrityError->getMessage()
+        );
+        drms_download_audit_event(
+            $conn,
+            $user_id,
+            $type,
+            $record_id,
+            $audit_document_id,
+            'integrity_blocked'
+        );
+        drms_download_error(
+            409,
+            'File integrity verification failed. The protected file was not opened.'
+        );
+    }
+}
 $safe_name = trim(str_replace(["\r", "\n", '"'], '', $download_name));
 if ($safe_name === '') {
     $safe_name = basename($absolute_path);
-}
-
-if ($audit_document_id !== null) {
-    log_document_action(
-        $conn,
-        $user_id,
-        'DOWNLOAD_DOC',
-        $audit_document_id,
-        'Opened document: ' . $safe_name,
-        $_SERVER['REQUEST_URI'] ?? null
-    );
 }
 
 $file_info = new finfo(FILEINFO_MIME_TYPE);
@@ -431,6 +549,21 @@ if ($fallback_name === '' || $fallback_name === null) {
     $fallback_name = 'document';
 }
 
+$stream = fopen($absolute_path, 'rb');
+if ($stream === false) {
+    drms_download_error(500, 'The file could not be opened right now.');
+}
+
+drms_download_audit_event(
+    $conn,
+    $user_id,
+    $type,
+    $record_id,
+    $audit_document_id,
+    'opened',
+    $safe_name
+);
+
 header('Content-Type: ' . $mime_type);
 header('Content-Length: ' . filesize($absolute_path));
 header('Content-Disposition: ' . $disposition . '; filename="' .
@@ -442,11 +575,6 @@ header('Expires: 0');
 
 while (ob_get_level() > 0) {
     ob_end_clean();
-}
-
-$stream = fopen($absolute_path, 'rb');
-if ($stream === false) {
-    drms_download_error(500, 'The file could not be opened right now.');
 }
 
 fpassthru($stream);

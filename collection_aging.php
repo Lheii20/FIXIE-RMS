@@ -329,7 +329,6 @@ $showing_end = min($page_start + $per_page, $total_results);
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/collection-aging.css?v=<?php echo filemtime(__DIR__ . '/assets/css/collection-aging.css'); ?>" rel="stylesheet">
     <link href="assets/css/collection-navigation.css?v=<?php echo filemtime(__DIR__ . '/assets/css/collection-navigation.css'); ?>" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
 <body class="aging-page workflow-ui">
@@ -556,6 +555,7 @@ $showing_end = min($page_start + $per_page, $total_results);
         </div>
     </main>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="assets/vendor/bootstrap/5.3.0/bootstrap.bundle.min.js"></script>
 </body>
 </html>
+

@@ -20,6 +20,7 @@ if (empty($_SESSION['user_id']) || !drms_user_has_workflow_role([
     'GM',
     'President',
     'Finance',
+    'Supply Chain',
 ])) {
     http_response_code(403);
     header('Content-Type: text/plain; charset=UTF-8');
@@ -36,7 +37,7 @@ try {
         "SELECT signature_image_path, signature_image_hash
          FROM document_signature_events
          WHERE signature_id = ?
-           AND record_module IN ('PRF', 'PO', 'Client PO', 'General Document')
+           AND record_module IN ('PRF', 'PO', 'Client PO', 'General Document', 'Delivery Request', 'Delivery Receipt', 'Client Payment Confirmation')
            AND signature_type = 'Electronic Approval'
            AND signature_status = 'Valid'
          LIMIT 1"

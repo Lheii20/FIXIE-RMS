@@ -218,7 +218,7 @@ $statement_number = $record
     <title>Collection Statement<?php echo $record ? ' - ' . htmlspecialchars($record['po_number']) : ''; ?></title>
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/collection-statement.css?v=<?php echo filemtime(__DIR__ . '/assets/css/collection-statement.css'); ?>" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="assets/vendor/fonts/5.3.0/fixie-fonts.css" rel="stylesheet">
     <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
 <body class="statement-page workflow-ui">

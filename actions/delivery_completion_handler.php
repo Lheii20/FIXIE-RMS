@@ -6,6 +6,8 @@ require '../config/functions.php';
 require_once '../config/workflow_feedback.php';
 require_once '../config/official_delivery_receipt_filing.php';
 require_once '../config/upload_policy.php';
+require_once '../config/delivery_signature.php';
+require_once '../config/delivery_receipt_signature.php';
 
 date_default_timezone_set('Asia/Manila');
 
@@ -290,6 +292,18 @@ $official_record_storage_path = null;
 $user_id = (int) $_SESSION['user_id'];
 
 try {
+    $completion_signature = drms_esign_prepare(
+        $conn,
+        $user_id,
+        'Delivery Receipt',
+        'Delivery Completion',
+        $_POST
+    );
+} catch (DomainException $signature_error) {
+    phase4d_redirect($po_id, 'error', $signature_error->getMessage());
+}
+
+try {
     if (
         !is_dir($upload_directory) &&
         !mkdir($upload_directory, 0755, true) &&
@@ -323,6 +337,7 @@ try {
             delivery_request.submitted_at,
             plan.delivery_plan_id,
             plan.logistics_status,
+            plan.reviewed_by,
             plan.reviewed_at,
             plan.provider_type,
             plan.provider_name,
@@ -374,6 +389,25 @@ try {
         );
     } catch (Throwable $ownership_error) {
         throw new DomainException($ownership_error->getMessage());
+    }
+
+    try {
+        // Phase 9A approvals are cryptographically rechecked on the server.
+        // A missing event is allowed only for a legacy pre-Phase-9A record;
+        // a found but mismatched event always blocks completion.
+        drms_load_delivery_signature_event(
+            $conn,
+            (int) $delivery['delivery_request_id'],
+            (int) $delivery['delivery_plan_id'],
+            (int) $delivery['reviewed_by'],
+            (string) $delivery['request_number'],
+            (string) $delivery['reviewed_at'],
+            true
+        );
+    } catch (Throwable $approval_signature_error) {
+        throw new DomainException(
+            'The approved delivery signature could not be verified. No client receipt was recorded.'
+        );
     }
 
     $rule_stmt = $conn->prepare(
@@ -548,6 +582,34 @@ try {
         str_pad((string) $po_id, 4, '0', STR_PAD_LEFT) . '-' .
         str_pad((string) $receipt_cycle, 2, '0', STR_PAD_LEFT);
 
+    $completion_signature_fingerprint =
+        drms_delivery_receipt_signature_fingerprint(
+            $conn,
+            $delivery_receipt_id,
+            $user_id
+        );
+    $completion_signature_version =
+        drms_delivery_receipt_signature_version(
+            $delivery_receipt_id,
+            $po_id,
+            $receipt_cycle
+        );
+    $completion_signature_event_id = drms_esign_record_event(
+        $conn,
+        $completion_signature,
+        [
+            'record_module' => 'Delivery Receipt',
+            'record_id' => $delivery_receipt_id,
+            'signature_stage' => 'Delivery Completion',
+            'signed_file_hash' => $completion_signature_fingerprint,
+            'signed_version' => $completion_signature_version,
+            'consent_text' => 'I certify that the complete PO quantity was handed over to the named client representative and that the attached acknowledgement evidence is authentic.',
+            'remarks' => 'Supply Chain certified ' .
+                $delivery_receipt_reference . ' for PO ' .
+                $delivery['po_number'] . '.',
+        ]
+    );
+
     $official_record =
         drms_file_client_delivery_receipt_as_official_record(
             $conn,
@@ -558,6 +620,36 @@ try {
     $document_id = (int) $official_record['doc_id'];
     $official_record_storage_path =
         $official_record['storage_absolute_path'] ?? null;
+
+    $signature_link_remarks =
+        'Supply Chain certified client delivery ' .
+        $delivery_receipt_reference . '. Official Record: ' .
+        $document_record_number . '.';
+    $signature_link_stmt = $conn->prepare(
+        "UPDATE document_signature_events
+         SET document_id = ?,
+             official_document_id = ?,
+             remarks = ?
+         WHERE signature_id = ?
+           AND record_module = 'Delivery Receipt'
+           AND record_id = ?
+           AND signature_stage = 'Delivery Completion'
+           AND signature_status = 'Valid'"
+    );
+    $signature_link_stmt->bind_param(
+        'iisii',
+        $document_id,
+        $document_id,
+        $signature_link_remarks,
+        $completion_signature_event_id,
+        $delivery_receipt_id
+    );
+    $signature_link_stmt->execute();
+    if ($signature_link_stmt->affected_rows !== 1) {
+        throw new RuntimeException(
+            'The delivery-completion signature could not be linked to the Official Record.'
+        );
+    }
 
     $plan_stmt = $conn->prepare(
         "UPDATE po_delivery_plans
@@ -706,6 +798,7 @@ try {
             'status' => 'Delivered',
             'logistics_status' => 'Completed',
             'delivery_receipt_id' => $delivery_receipt_id,
+            'signature_event_id' => $completion_signature_event_id,
             'document_id' => $document_id,
             'record_number' => $document_record_number,
             'delivery_receipt_reference' => $delivery_receipt_reference,

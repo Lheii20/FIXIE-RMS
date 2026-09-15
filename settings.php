@@ -125,7 +125,7 @@ $user = $user_result->fetch_assoc();
                     </div>
                 </div>
 
-                <?php if(in_array($role, ['GM', 'Finance', 'President'], true)): ?>
+                <?php if(in_array($role, ['GM', 'Finance', 'President', 'Supply Chain'], true)): ?>
                 <section class="drms-esign-card mb-4">
                     <div class="drms-esign-card__head">
                         <span class="drms-esign-card__icon"><i class="fas fa-signature"></i></span>
@@ -135,7 +135,7 @@ $user = $user_result->fetch_assoc();
                         </div>
                     </div>
                     <div class="drms-esign-card__body">
-                        <p class="drms-esign-help mb-3">Set the protected name and title that will be recorded when you sign your assigned approval stages. Your current password will still be required for every signature.</p>
+                        <p class="drms-esign-help mb-3">Set the protected name, title, and optional signature image recorded with your assigned approvals. Each signature uses your active signed-in account and explicit consent.</p>
                         <a href="signature_profile.php" class="btn btn-outline-primary btn-sm fw-bold"><i class="fas fa-pen-nib me-1"></i> Set up electronic signature</a>
                     </div>
                 </section>
@@ -154,7 +154,8 @@ $user = $user_result->fetch_assoc();
                                 <form action="actions/user_handler.php" method="POST" class="d-flex gap-2">
                                     <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                                     <input type="hidden" name="action" value="verify_email_code">
-                                    <input type="text" name="verification_code" class="form-control form-control-sm text-center fw-bold" placeholder="000000" minlength="6" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" required style="letter-spacing: 5px;">
+                                    <label class="visually-hidden" for="settingsVerificationCode">Email verification code</label>
+                                    <input type="text" name="verification_code" id="settingsVerificationCode" class="form-control form-control-sm text-center fw-bold" placeholder="000000" minlength="6" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" required style="letter-spacing: 5px;">
                                     <button type="submit" class="btn btn-sm btn-success fw-bold px-3">Verify</button>
                                 </form>
                                 <form action="actions/user_handler.php" method="POST" class="mt-2">
@@ -170,18 +171,18 @@ $user = $user_result->fetch_assoc();
                             <input type="hidden" name="action" value="update_basic_info">
                             
                             <div class="mb-3">
-                                <label class="form-label small fw-bold">Full Name</label>
+                                <label class="form-label small fw-bold" for="profileFullName">Full Name</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light"><i class="fas fa-user text-muted"></i></span>
-                                    <input type="text" name="full_name" class="form-control" value="<?php echo htmlspecialchars($user['full_name']); ?>" maxlength="100" autocomplete="name" required>
+                                    <input type="text" name="full_name" id="profileFullName" class="form-control" value="<?php echo htmlspecialchars($user['full_name']); ?>" maxlength="100" autocomplete="name" required>
                                 </div>
                             </div>
 
                             <div class="mb-4">
-                                <label class="form-label small fw-bold">Email Address</label>
+                                <label class="form-label small fw-bold" for="profileEmail">Email Address</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light"><i class="fas fa-envelope text-muted"></i></span>
-                                    <input type="email" name="email" class="form-control" value="<?php echo htmlspecialchars($user['email'] ?? ''); ?>" placeholder="Enter email to enable recovery" maxlength="100" autocomplete="email" inputmode="email" spellcheck="false" required>
+                                    <input type="email" name="email" id="profileEmail" class="form-control" value="<?php echo htmlspecialchars($user['email'] ?? ''); ?>" placeholder="Enter email to enable recovery" maxlength="100" autocomplete="email" inputmode="email" spellcheck="false" required>
                                 </div>
                                 <?php if(empty($user['email'])): ?>
                                     <small class="text-danger mt-1 d-block"><i class="fas fa-exclamation-triangle"></i> Set and verify your email to enable password recovery.</small>
@@ -207,34 +208,34 @@ $user = $user_result->fetch_assoc();
                             <input type="hidden" name="action" value="change_password_direct">
 
                             <div class="mb-3">
-                                <label class="form-label small fw-bold">Current Password</label>
+                                <label class="form-label small fw-bold" for="currPass">Current Password</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light"><i class="fas fa-key text-muted"></i></span>
                                     <input type="password" name="current_password" id="currPass" class="form-control border-end-0" maxlength="128" autocomplete="current-password" required>
-                                    <button class="btn border border-start-0 text-secondary" type="button" onclick="togglePass('currPass', 'iconCurr')">
-                                        <i class="fas fa-eye" id="iconCurr"></i>
+                                    <button class="btn border border-start-0 text-secondary" type="button" data-field-label="current password" aria-label="Show current password" aria-controls="currPass" aria-pressed="false" onclick="togglePass('currPass', 'iconCurr', this)">
+                                        <i class="fas fa-eye" id="iconCurr" aria-hidden="true"></i>
                                     </button>
                                 </div>
                             </div>
 
                             <div class="mb-3">
-                                <label class="form-label small fw-bold">New Password</label>
+                                <label class="form-label small fw-bold" for="newPass">New Password</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light"><i class="fas fa-shield-alt text-muted"></i></span>
                                     <input type="password" name="new_password" id="newPass" class="form-control border-end-0" minlength="8" maxlength="128" autocomplete="new-password" required>
-                                    <button class="btn border border-start-0 text-secondary" type="button" onclick="togglePass('newPass', 'iconNew')">
-                                        <i class="fas fa-eye" id="iconNew"></i>
+                                    <button class="btn border border-start-0 text-secondary" type="button" data-field-label="new password" aria-label="Show new password" aria-controls="newPass" aria-pressed="false" onclick="togglePass('newPass', 'iconNew', this)">
+                                        <i class="fas fa-eye" id="iconNew" aria-hidden="true"></i>
                                     </button>
                                 </div>
                             </div>
 
                             <div class="mb-3">
-                                <label class="form-label small fw-bold">Confirm New Password</label>
+                                <label class="form-label small fw-bold" for="confirmNewPass">Confirm New Password</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light"><i class="fas fa-check text-muted"></i></span>
                                     <input type="password" name="confirm_password" id="confirmNewPass" class="form-control border-end-0" minlength="8" maxlength="128" autocomplete="new-password" required>
-                                    <button class="btn border border-start-0 text-secondary" type="button" onclick="togglePass('confirmNewPass', 'iconConfirm')">
-                                        <i class="fas fa-eye" id="iconConfirm"></i>
+                                    <button class="btn border border-start-0 text-secondary" type="button" data-field-label="password confirmation" aria-label="Show password confirmation" aria-controls="confirmNewPass" aria-pressed="false" onclick="togglePass('confirmNewPass', 'iconConfirm', this)">
+                                        <i class="fas fa-eye" id="iconConfirm" aria-hidden="true"></i>
                                     </button>
                                 </div>
                             </div>
@@ -271,29 +272,29 @@ $user = $user_result->fetch_assoc();
                             <input type="hidden" name="request_type" value="Change Username">
 
                             <div class="mb-3">
-                                <label class="form-label small fw-bold">Desired New Username</label>
+                                <label class="form-label small fw-bold" for="desiredUsername">Desired New Username</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light"><i class="fas fa-at text-muted"></i></span>
-                                    <input type="text" name="new_value" class="form-control" required minlength="3" maxlength="50" pattern="[a-z0-9]+([._-][a-z0-9]+)*" autocomplete="username" autocapitalize="none" spellcheck="false" oninput="this.value = this.value.toLowerCase()" placeholder="e.g. juan.delacruz">
+                                    <input type="text" name="new_value" id="desiredUsername" class="form-control" required minlength="3" maxlength="50" pattern="[a-z0-9]+([._-][a-z0-9]+)*" autocomplete="username" autocapitalize="none" spellcheck="false" oninput="this.value = this.value.toLowerCase()" placeholder="e.g. juan.delacruz">
                                 </div>
                                 <small class="text-muted d-block mt-1">Use 3–50 lowercase letters or numbers. Period, underscore, and hyphen are allowed only as separators.</small>
                             </div>
 
                             <div class="mb-3">
-                                <label class="form-label small fw-bold">Reason for Change</label>
+                                <label class="form-label small fw-bold" for="usernameChangeReason">Reason for Change</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light"><i class="fas fa-comment-dots text-muted"></i></span>
-                                    <input type="text" name="reason" class="form-control" required minlength="3" maxlength="500" placeholder="Brief reason (e.g. Spelling correction)">
+                                    <input type="text" name="reason" id="usernameChangeReason" class="form-control" required minlength="3" maxlength="500" placeholder="Brief reason (e.g. Spelling correction)">
                                 </div>
                             </div>
 
                             <div class="mb-4">
-                                <label class="form-label small fw-bold text-danger">Verify Current Password</label>
+                                <label class="form-label small fw-bold text-danger" for="reqCurrPass">Verify Current Password</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light"><i class="fas fa-lock text-muted"></i></span>
                                     <input type="password" name="current_password" id="reqCurrPass" class="form-control border-end-0" maxlength="255" autocomplete="current-password" required placeholder="Required for security">
-                                    <button class="btn border border-start-0 text-secondary" type="button" onclick="togglePass('reqCurrPass', 'iconReqCurr')">
-                                        <i class="fas fa-eye" id="iconReqCurr"></i>
+                                    <button class="btn border border-start-0 text-secondary" type="button" data-field-label="current password" aria-label="Show current password" aria-controls="reqCurrPass" aria-pressed="false" onclick="togglePass('reqCurrPass', 'iconReqCurr', this)">
+                                        <i class="fas fa-eye" id="iconReqCurr" aria-hidden="true"></i>
                                     </button>
                                 </div>
                             </div>
@@ -309,10 +310,10 @@ $user = $user_result->fetch_assoc();
         </div>
     </div>
 
-    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="assets/vendor/jquery/3.7.0/jquery.min.js"></script>
+    <script src="assets/vendor/bootstrap/5.3.0/bootstrap.bundle.min.js"></script>
     <script>
-        function togglePass(inputId, iconId) {
+        function togglePass(inputId, iconId, toggleButton) {
             const input = document.getElementById(inputId);
             const icon = document.getElementById(iconId);
             if (input.type === "password") {
@@ -323,6 +324,13 @@ $user = $user_result->fetch_assoc();
                 input.type = "password";
                 icon.classList.remove("fa-eye-slash");
                 icon.classList.add("fa-eye");
+            }
+
+            const isVisible = input.type === "text";
+            if (toggleButton) {
+                const fieldLabel = toggleButton.dataset.fieldLabel || "password";
+                toggleButton.setAttribute("aria-pressed", isVisible ? "true" : "false");
+                toggleButton.setAttribute("aria-label", (isVisible ? "Hide " : "Show ") + fieldLabel);
             }
         }
         
@@ -366,3 +374,4 @@ $user = $user_result->fetch_assoc();
     </script>
 </body>
 </html>
+

@@ -200,9 +200,54 @@
         }
 
         showMessage([]);
-        submitButton.disabled = true;
-        submitButton.innerHTML =
-            '<span>Saving schedule…</span><i class="fas fa-spinner fa-spin"></i>';
+        const signatureConfirmed = form.elements.e_signature_client_confirmed &&
+            form.elements.e_signature_client_confirmed.value === '1';
+
+        if (signatureConfirmed) {
+            submitButton.disabled = true;
+            submitButton.innerHTML =
+                '<span>Signing &amp; scheduling…</span><i class="fas fa-spinner fa-spin"></i>';
+            return;
+        }
+
+        event.preventDefault();
+        if (!window.DRMSESignature) {
+            window.DRMSFeedback?.toast(
+                'The electronic-signature component is unavailable. Refresh the page and try again.',
+                'danger',
+                3000
+            );
+            return;
+        }
+
+        const openSignature = function () {
+            window.DRMSESignature.open({
+                form: form,
+                title: 'Sign logistics approval',
+                subtitle: 'Confirm the final provider and schedule before the delivery workflow is updated.',
+                recordLabel: request.requestNumber || request.poNumber || 'Delivery Request',
+                stage: 'Supply Chain Approval',
+                consent: 'I reviewed the Delivery Request and final Logistics Plan and authorize the provider, schedule, and execution details through my electronic signature.'
+            });
+        };
+
+        if (window.DRMSFeedback) {
+            window.DRMSFeedback.confirm({
+                title: 'Approve and schedule delivery?',
+                message: 'The Delivery Request and final Logistics Plan will be electronically signed and filed as Official Records.',
+                confirmText: 'Continue to signature',
+                cancelText: 'Review details',
+                tone: 'info',
+                focusConfirm: true
+            }).then(function (approved) {
+                if (approved) {
+                    openSignature();
+                }
+            });
+            return;
+        }
+
+        openSignature();
     });
 
     returnOpen.addEventListener('click', openReturnDialog);

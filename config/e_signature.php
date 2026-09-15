@@ -15,7 +15,7 @@ require_once __DIR__ . '/signature_workflow.php';
 if (!function_exists('drms_esign_signatory_roles')) {
     function drms_esign_signatory_roles(): array
     {
-        return ['GM', 'Finance', 'President'];
+        return ['GM', 'Finance', 'President', 'Supply Chain'];
     }
 }
 
@@ -68,7 +68,7 @@ if (!function_exists('drms_esign_assert_profile_owner')) {
     function drms_esign_assert_profile_owner(array $user): void
     {
         if (!drms_esign_profile_role_allowed((string) ($user['role'] ?? ''))) {
-            throw new DomainException('Only the GM, Finance, or President account can maintain an electronic-signature profile.');
+            throw new DomainException('Only GM, Finance, President, or Supply Chain accounts assigned to controlled approval stages can maintain an electronic-signature profile.');
         }
         if ((int) ($user['require_pass_change'] ?? 0) === 1) {
             throw new DomainException('Change your temporary password before setting up an electronic signature.');

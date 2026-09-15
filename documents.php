@@ -1,7 +1,9 @@
   <?php 
   require 'config/db_connect.php'; 
-  require 'config/functions.php';
+require 'config/functions.php';
 require_once __DIR__ . '/config/physical_records.php';
+require_once __DIR__ . '/config/record_action_security.php';
+require_once __DIR__ . '/config/folder_action_controller.php';
 $vc3PhysicalPathSql = drms_copy_path_sql(); 
 
   if(!isset($_SESSION['user_id'])) {
@@ -146,8 +148,26 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
   // FORM HANDLER: GDRIVE SHARING, CHECK-IN/OUT, FOLDERS, LEGAL HOLD
   // ==========================================
   if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-      if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+      if (
+          !is_string($_POST['csrf_token'] ?? null) ||
+          empty($_SESSION['csrf_token']) ||
+          !hash_equals((string) $_SESSION['csrf_token'], $_POST['csrf_token'])
+      ) {
           die("Security Validation Failed.");
+      }
+
+      drms_folder_action_handle(
+          $conn,
+          'documents.php',
+          false,
+          (int) $_SESSION['user_id'],
+          (string) $role
+      );
+
+      // Folder structure has one source of truth: Company Files. This guard
+      // also blocks forged POST requests that bypass the hidden UI controls.
+      if ($_POST['action'] === 'create_folder') {
+          redirectDocumentsWithMessage("error", "Create folders from Company Files. New folders automatically appear in Official Records.", $_POST['parent_category'] ?? '');
       }
 
       if ($_POST['action'] === 'toggle_legal_hold') {
@@ -157,48 +177,60 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
               redirectDocumentsWithMessage("error", "You do not have permission to manage Legal Holds.");
           }
           $doc_id = intval($_POST['doc_id']);
-          $current_state = intval($_POST['current_state']);
-          $return_url = $_POST['return_url'] ?? 'documents.php';
-        
-          $stmt = $conn->prepare("SELECT file_name, rename_history FROM documents WHERE doc_id = ?");
-          $stmt->bind_param("i", $doc_id);
-          $stmt->execute();
-          $doc_info = $stmt->get_result()->fetch_assoc();
+          $return_url = drms_record_action_safe_return(
+              $_POST['return_url'] ?? null,
+              'documents.php'
+          );
+          try {
+              $doc_info = drms_record_action_require_editor(
+                  $conn,
+                  $doc_id,
+                  (int) $_SESSION['user_id'],
+                  (string) $role
+              );
+          } catch (DomainException $error) {
+              drms_record_action_feedback($return_url, 'error', $error->getMessage());
+          }
 
-          // Kunin ang pangalan ng nag-a-action para sa Activity History
-          $u_stmt = $conn->query("SELECT full_name FROM users WHERE user_id = ".$_SESSION['user_id']);
-          $actor = $u_stmt->fetch_assoc()['full_name'] ?? 'System';
-          $history = json_decode($doc_info['rename_history'] ?? '[]', true) ?: [];
+          $current_state = (int) ($doc_info['is_legal_hold'] ?? 0);
+          $actor = drms_record_action_actor_name($conn, (int) $_SESSION['user_id']);
+          $history = drms_record_action_history($doc_info['rename_history'] ?? null);
 
           if ($current_state == 0) {
-              $reason = trim($_POST['legal_hold_reason']);
-              if (empty($reason)) redirectDocumentsWithMessage("error", "Reason is required for Legal Hold.");
+              $reason = trim((string) ($_POST['legal_hold_reason'] ?? ''));
+              if ($reason === '' || mb_strlen($reason) > 1000) {
+                  drms_record_action_feedback($return_url, 'error', 'Enter a Legal Hold reason of up to 1,000 characters.');
+              }
             
               // I-record ang "Apply Hold" sa JSON
               array_unshift($history, ['type' => 'hold_apply', 'reason' => $reason, 'date' => date('Y-m-d H:i:s'), 'by' => $actor]);
-              $history_json = json_encode($history);
+              $history_json = json_encode($history, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 
               $uid = $_SESSION['user_id'];
-              $upd = $conn->prepare("UPDATE documents SET is_legal_hold = 1, legal_hold_reason = ?, legal_hold_by = ?, legal_hold_at = NOW(), rename_history = ? WHERE doc_id = ?");
+              $upd = $conn->prepare("UPDATE documents SET is_legal_hold = 1, legal_hold_reason = ?, legal_hold_by = ?, legal_hold_at = NOW(), rename_history = ? WHERE doc_id = ? AND is_legal_hold = 0");
               $upd->bind_param("sisi", $reason, $uid, $history_json, $doc_id);
               $upd->execute();
+              if ($upd->affected_rows !== 1) {
+                  drms_record_action_feedback($return_url, 'error', 'The Legal Hold state changed. Refresh the page and try again.');
+              }
             
               if (function_exists('log_audit_action')) log_audit_action($conn, $uid, 'APPLY_LEGAL_HOLD', "Applied Legal Hold on Document: " . $doc_info['file_name'] . " (Reason: $reason)");
-              header("Location: " . $return_url . (strpos($return_url, '?') ? '&' : '?') . "success=" . urlencode("Legal Hold applied successfully. Standard retention policies are now overridden."));
-              exit();
+              drms_record_action_feedback($return_url, 'success', 'Legal Hold applied successfully. Standard retention policies are now suspended.');
           } else {
               // I-record ang "Remove Hold" sa JSON
               array_unshift($history, ['type' => 'hold_remove', 'date' => date('Y-m-d H:i:s'), 'by' => $actor]);
-              $history_json = json_encode($history);
+              $history_json = json_encode($history, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 
               $uid = $_SESSION['user_id'];
-              $upd = $conn->prepare("UPDATE documents SET is_legal_hold = 0, legal_hold_reason = NULL, legal_hold_by = NULL, legal_hold_at = NULL, rename_history = ? WHERE doc_id = ?");
+              $upd = $conn->prepare("UPDATE documents SET is_legal_hold = 0, legal_hold_reason = NULL, legal_hold_by = NULL, legal_hold_at = NULL, rename_history = ? WHERE doc_id = ? AND is_legal_hold = 1");
               $upd->bind_param("si", $history_json, $doc_id);
               $upd->execute();
+              if ($upd->affected_rows !== 1) {
+                  drms_record_action_feedback($return_url, 'error', 'The Legal Hold state changed. Refresh the page and try again.');
+              }
             
               if (function_exists('log_audit_action')) log_audit_action($conn, $uid, 'REMOVE_LEGAL_HOLD', "Removed Legal Hold from Document: " . $doc_info['file_name']);
-              header("Location: " . $return_url . (strpos($return_url, '?') ? '&' : '?') . "success=" . urlencode("Legal Hold removed successfully. Auto-deletion/archiving logic restored."));
-              exit();
+              drms_record_action_feedback($return_url, 'success', 'Legal Hold removed successfully. Standard retention rules have resumed.');
           }
       }
     
@@ -207,8 +239,24 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
           if ($role === 'Admin') redirectDocumentsWithMessage("error", "System Administrators cannot share documents.");
         
           $doc_id = intval($_POST['doc_id']);
-          $access_type = ($_POST['access_type'] === 'Restricted') ? 'Restricted' : 'Folder Default';
-          $return_url = $_POST['return_url'] ?? 'documents.php';
+          $access_type = (($_POST['access_type'] ?? '') === 'Restricted') ? 'Restricted' : 'Folder Default';
+          $return_url = drms_record_action_safe_return(
+              $_POST['return_url'] ?? null,
+              'documents.php'
+          );
+          try {
+              $d_chk = drms_record_action_require_owner(
+                  $conn,
+                  $doc_id,
+                  (int) $_SESSION['user_id'],
+                  (string) $role
+              );
+          } catch (DomainException $error) {
+              drms_record_action_feedback($return_url, 'error', $error->getMessage());
+          }
+          if (($d_chk['record_phase'] ?? '') === 'Converted') {
+              drms_record_action_feedback($return_url, 'error', 'The protected Company File history of an Official Record cannot be shared separately.');
+          }
         
           $perms = [];
           if (isset($_POST['user_roles']) && is_array($_POST['user_roles'])) {
@@ -218,16 +266,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                   }
               }
           }
-          $perms_json = json_encode($perms);
-
-          $stmt_chk = $conn->prepare("SELECT uploaded_by, file_name FROM documents WHERE doc_id = ?");
-          $stmt_chk->bind_param("i", $doc_id);
-          $stmt_chk->execute();
-          $d_chk = $stmt_chk->get_result()->fetch_assoc();
-        
-          if ($d_chk['uploaded_by'] != $_SESSION['user_id'] && !$is_top_mgmt) {
-              redirectDocumentsWithMessage("error", "Only the Owner or Management can change sharing settings.");
-          }
+          $perms_json = json_encode($perms, JSON_THROW_ON_ERROR);
 
           $stmt_upd = $conn->prepare("UPDATE documents SET access_type = ?, file_permissions = ? WHERE doc_id = ?");
           $stmt_upd->bind_param("ssi", $access_type, $perms_json, $doc_id);
@@ -237,110 +276,131 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
               log_audit_action($conn, $_SESSION['user_id'], 'UPDATE_DOCUMENT', "Updated sharing settings for Document: " . $d_chk['file_name']);
           }
         
-          $sep = strpos($return_url, '?') !== false ? '&' : '?';
-          header("Location: " . $return_url . $sep . "success=" . urlencode("Share settings updated successfully."));
-          exit();
+          drms_record_action_feedback($return_url, 'success', 'Share settings updated successfully.');
       }
 
       if ($_POST['action'] === 'rename_file') {
           if ($role === 'Admin') redirectDocumentsWithMessage("error", "System Administrators cannot modify documents.");
         
           $doc_id = intval($_POST['doc_id']);
-          $new_name = trim($_POST['new_name']);
-          $return_url = $_POST['return_url'] ?? 'documents.php';
+          $new_name = trim((string) ($_POST['new_name'] ?? ''));
+          $return_url = drms_record_action_safe_return(
+              $_POST['return_url'] ?? null,
+              'documents.php'
+          );
         
-          if(empty($new_name)) {
-              header("Location: " . $return_url . (strpos($return_url, '?') ? '&' : '?') . "error=" . urlencode("Filename cannot be empty."));
-              exit();
+          if (
+              $new_name === '' ||
+              mb_strlen($new_name) > 255 ||
+              preg_match('/[\\\/\x00-\x1F\x7F]/u', $new_name)
+          ) {
+              drms_record_action_feedback($return_url, 'error', 'Enter a valid file name of up to 255 characters without slashes or control characters.');
           }
 
-          // 1. Kunin ang lumang pangalan
-          $stmt = $conn->prepare("SELECT file_name, rename_history FROM documents WHERE doc_id = ?");
-          $stmt->bind_param("i", $doc_id);
-          $stmt->execute();
-          $doc_info = $stmt->get_result()->fetch_assoc();
+          try {
+              $doc_info = drms_record_action_require_editor(
+                  $conn,
+                  $doc_id,
+                  (int) $_SESSION['user_id'],
+                  (string) $role
+              );
+          } catch (DomainException $error) {
+              drms_record_action_feedback($return_url, 'error', $error->getMessage());
+          }
+          if (!in_array(($doc_info['record_phase'] ?? ''), ['Working', 'For Review'], true)) {
+              drms_record_action_feedback($return_url, 'error', 'Official Records and their protected Company File history cannot be renamed.');
+          }
         
           if ($doc_info['file_name'] !== $new_name) {
-              // 2. Kunin ang pangalan ng nag-rename
-              $u_stmt = $conn->query("SELECT full_name FROM users WHERE user_id = ".$_SESSION['user_id']);
-              $renamer = $u_stmt->fetch_assoc()['full_name'] ?? 'System';
+              $renamer = drms_record_action_actor_name($conn, (int) $_SESSION['user_id']);
 
-              // 3. I-update ang JSON history
-              $history = json_decode($doc_info['rename_history'] ?? '[]', true) ?: [];
+              $history = drms_record_action_history($doc_info['rename_history'] ?? null);
               array_unshift($history, [
                   'old_name' => $doc_info['file_name'],
                   'new_name' => $new_name,
                   'date' => date('Y-m-d H:i:s'),
                   'by' => $renamer
               ]);
-              $history_json = json_encode($history);
+              $history_json = json_encode($history, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 
-              // 4. I-save sa database
-              $upd = $conn->prepare("UPDATE documents SET file_name = ?, rename_history = ? WHERE doc_id = ?");
-              $upd->bind_param("ssi", $new_name, $history_json, $doc_id);
+              $upd = $conn->prepare("UPDATE documents SET file_name = ?, rename_history = ? WHERE doc_id = ? AND file_name = ? AND record_phase IN ('Working', 'For Review')");
+              $upd->bind_param("ssis", $new_name, $history_json, $doc_id, $doc_info['file_name']);
               $upd->execute();
+              if ($upd->affected_rows !== 1) {
+                  drms_record_action_feedback($return_url, 'error', 'The file changed before it could be renamed. Refresh and try again.');
+              }
             
               if (function_exists('log_audit_action')) {
                   log_audit_action($conn, $_SESSION['user_id'], 'RENAME_DOCUMENT', "Renamed file from " . $doc_info['file_name'] . " to " . $new_name);
               }
           }
         
-          header("Location: " . $return_url . (strpos($return_url, '?') ? '&' : '?') . "success=" . urlencode("File renamed successfully."));
-          exit();
+          drms_record_action_feedback($return_url, 'success', 'File renamed successfully.');
       }
 
       if ($_POST['action'] === 'toggle_lock') {
           if ($role === 'Admin') redirectDocumentsWithMessage("error", "System Administrators cannot lock/unlock documents.");
         
           $doc_id = intval($_POST['doc_id']);
-          $current_state = intval($_POST['current_state']); 
-          $target_state = $current_state ? 0 : 1;
-          $return_url = $_POST['return_url'] ?? 'documents.php';
+          $return_url = drms_record_action_safe_return(
+              $_POST['return_url'] ?? null,
+              'documents.php'
+          );
+          try {
+              $doc_info = drms_record_action_require_editor(
+                  $conn,
+                  $doc_id,
+                  (int) $_SESSION['user_id'],
+                  (string) $role
+              );
+          } catch (DomainException $error) {
+              drms_record_action_feedback($return_url, 'error', $error->getMessage());
+          }
+          if (!in_array(($doc_info['record_phase'] ?? ''), ['Working', 'For Review'], true)) {
+              drms_record_action_feedback($return_url, 'error', 'Official Records and their protected Company File history cannot be locked or unlocked.');
+          }
+          $target_state = (int) ($doc_info['is_locked'] ?? 0) === 1 ? 0 : 1;
         
-          $stmt = $conn->prepare("SELECT is_locked, locked_by, file_name, rename_history FROM documents WHERE doc_id = ?");
-          $stmt->bind_param("i", $doc_id);
-          $stmt->execute();
-          $doc_info = $stmt->get_result()->fetch_assoc();
-        
-          // Kunin ang pangalan ng nag-a-action
-          $u_stmt = $conn->query("SELECT full_name FROM users WHERE user_id = ".$_SESSION['user_id']);
-          $actor = $u_stmt->fetch_assoc()['full_name'] ?? 'System';
-          $history = json_decode($doc_info['rename_history'] ?? '[]', true) ?: [];
+          $actor = drms_record_action_actor_name($conn, (int) $_SESSION['user_id']);
+          $history = drms_record_action_history($doc_info['rename_history'] ?? null);
 
           if ($target_state == 1) {
-              if ($doc_info['is_locked']) {
-                  redirectDocumentsWithMessage("error", "File is already locked by someone else.");
-              }
-            
-              // I-record ang "Lock"
               array_unshift($history, ['type' => 'lock', 'date' => date('Y-m-d H:i:s'), 'by' => $actor]);
-              $history_json = json_encode($history);
+              $history_json = json_encode($history, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 
               $uid = $_SESSION['user_id'];
-              $upd = $conn->prepare("UPDATE documents SET is_locked = 1, locked_by = ?, locked_at = NOW(), rename_history = ? WHERE doc_id = ?");
+              $upd = $conn->prepare("UPDATE documents SET is_locked = 1, locked_by = ?, locked_at = NOW(), rename_history = ? WHERE doc_id = ? AND is_locked = 0 AND record_phase IN ('Working', 'For Review')");
               $upd->bind_param("isi", $uid, $history_json, $doc_id);
               $upd->execute();
+              if ($upd->affected_rows !== 1) {
+                  drms_record_action_feedback($return_url, 'error', 'The file was checked out by another action. Refresh and try again.');
+              }
             
               if (function_exists('log_audit_action')) log_audit_action($conn, $uid, 'CHECK_OUT', "Checked out (Locked) Document: " . $doc_info['file_name']);
-              header("Location: " . $return_url);
-              exit();
+              drms_record_action_feedback($return_url, 'success', 'File checked out successfully.');
           } else {
               $uid = $_SESSION['user_id'];
               if ($doc_info['locked_by'] != $uid && !$is_top_mgmt) { 
-                  redirectDocumentsWithMessage("error", "Only the user who locked the file or Management can unlock it.");
+                  drms_record_action_feedback($return_url, 'error', 'Only the user who locked the file or Management can unlock it.');
               }
 
-              // I-record ang "Unlock"
               array_unshift($history, ['type' => 'unlock', 'date' => date('Y-m-d H:i:s'), 'by' => $actor]);
-              $history_json = json_encode($history);
+              $history_json = json_encode($history, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 
-              $upd = $conn->prepare("UPDATE documents SET is_locked = 0, locked_by = NULL, locked_at = NULL, rename_history = ? WHERE doc_id = ?");
-              $upd->bind_param("si", $history_json, $doc_id);
+              $upd = $conn->prepare("UPDATE documents SET is_locked = 0, locked_by = NULL, locked_at = NULL, rename_history = ? WHERE doc_id = ? AND is_locked = 1 AND locked_by = ? AND record_phase IN ('Working', 'For Review')");
+              if ($is_top_mgmt && (int) $doc_info['locked_by'] !== (int) $uid) {
+                  $upd = $conn->prepare("UPDATE documents SET is_locked = 0, locked_by = NULL, locked_at = NULL, rename_history = ? WHERE doc_id = ? AND is_locked = 1 AND record_phase IN ('Working', 'For Review')");
+                  $upd->bind_param("si", $history_json, $doc_id);
+              } else {
+                  $upd->bind_param("sii", $history_json, $doc_id, $uid);
+              }
               $upd->execute();
+              if ($upd->affected_rows !== 1) {
+                  drms_record_action_feedback($return_url, 'error', 'The file lock changed before it could be released. Refresh and try again.');
+              }
             
               if (function_exists('log_audit_action')) log_audit_action($conn, $uid, 'CHECK_IN', "Checked in (Unlocked) Document: " . $doc_info['file_name']);
-              header("Location: " . $return_url);
-              exit();
+              drms_record_action_feedback($return_url, 'success', 'File checked in successfully.');
           }
       }
 
@@ -939,8 +999,8 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
   if ($view_archives || $view_disposition_section || $view_shared) $doc_status = '';
   $records_query_active = $search !== '' || $doc_status !== '' || $sort !== 'date_desc';
 
-  $order_by = "d.uploaded_at DESC";
-  if ($sort === 'date_asc') $order_by = "d.uploaded_at ASC";
+  $order_by = "COALESCE(d.declared_at, d.uploaded_at) DESC";
+  if ($sort === 'date_asc') $order_by = "COALESCE(d.declared_at, d.uploaded_at) ASC";
   elseif ($sort === 'name_asc') $order_by = "d.file_name ASC";
   elseif ($sort === 'name_desc') $order_by = "d.file_name DESC";
 
@@ -1225,13 +1285,13 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
 
   $whereClause = implode(' AND ', $where);
 
-  $query = "SELECT d.*, p.po_number, p.client_name, p.amount, p.status as po_status, u.full_name, locker.full_name AS locked_by_name,
+  $query = "SELECT d.*, COALESCE(d.declared_at, d.uploaded_at) AS official_filed_at,
+                   p.po_number, p.client_name, p.amount, p.status as po_status, u.full_name,
                    vdl.status AS physical_status, vdl.physical_folder_id, NULL AS drawer_id, vdl.physical_folder_id AS cat_id,
                    $vc3PhysicalPathSql as full_physical_path
             FROM documents d
             LEFT JOIN purchase_orders p ON d.po_id = p.po_id
             LEFT JOIN users u ON d.uploaded_by = u.user_id
-            LEFT JOIN users locker ON d.locked_by = locker.user_id
             LEFT JOIN virt_document_locations vdl ON d.doc_id = vdl.document_id
             LEFT JOIN document_categories dc ON d.category = dc.sub_category
 /* VC3 physical path is resolved by its independent folder ID. 1 */
@@ -1266,8 +1326,8 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
       <link href="assets/css/style.css" rel="stylesheet">
       <link rel="stylesheet" href="assets/css/all.min.css">
       <link href="assets/css/mobile-drive-lists.css" rel="stylesheet">
-      <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
-      <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+      <link rel="stylesheet" href="assets/vendor/sweetalert2/11.26.25/sweetalert2.min.css">
+      <link rel="stylesheet" href="assets/vendor/datatables/1.13.6/dataTables.bootstrap5.min.css">
     
     
   <link rel="stylesheet" href="assets/css/physical-records.css?v=<?php echo filemtime(__DIR__ . '/assets/css/physical-records.css'); ?>">
@@ -1308,26 +1368,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
               </div>
             
               <div class="d-flex gap-2 align-items-center">
-                  <?php if (
-                      $can_manage &&
-                      !$view_archives &&
-                      !$view_disposition_section &&
-                      !$view_shared &&
-                      !$records_query_active &&
-                      empty($type_filter)
-                  ): ?>
-                      <?php if (empty($parent_filter)): ?>
-                          <button type="button" class="btn btn-sm btn-primary px-3 fw-semibold" data-bs-toggle="modal" data-bs-target="#createParentFolderModal">
-                              <i class="fas fa-folder-plus me-1"></i> New folder
-                          </button>
-                      <?php elseif (!$current_parent_is_system): ?>
-                          <button type="button" class="btn btn-sm btn-primary px-3 fw-semibold" data-bs-toggle="modal" data-bs-target="#createSubFolderModal">
-                              <i class="fas fa-folder-plus me-1"></i> New sub-folder
-                          </button>
-                      <?php endif; ?>
-                  <?php endif; ?>
-
-                  <?php if ($role !== 'Admin'): ?>
+                  <?php if ($role === 'GM'): ?>
                       <a class="btn btn-outline-primary d-inline-flex align-items-center gap-2" href="official_declarations.php"><i class="fas fa-file-signature" aria-hidden="true"></i> Declaration requests</a>
                   <?php endif; ?>
                   <!-- 3-DOTS OPTIONS MENU -->
@@ -1584,7 +1625,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                                   <i class="fas <?php echo $is_system_subfolder ? 'fa-lock' : 'fa-chevron-right'; ?> text-primary opacity-50 small"></i>
                               </div>
                             
-                              <?php if($can_manage): ?>
+                              <?php if($can_manage && !$is_system_subfolder): ?>
                               <div class="action-dropdown dropdown position-absolute top-0 end-0 m-2 mt-3 me-2">
                                   <button class="btn-dots bg-transparent border-0 shadow-none dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-boundary="body" onclick="event.stopPropagation();"><i class="fas fa-ellipsis-v small"></i></button>
                                   <ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 rounded-3 mt-1" style="min-width: 200px;" onclick="event.stopPropagation();">
@@ -1596,19 +1637,17 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                                           </button>
                                       </li>
 
-                                      <?php if (!$is_system_subfolder): ?>
-                                          <li><hr class="dropdown-divider"></li>
-                                          <li>
-                                              <form action="documents.php" method="POST" class="m-0">
-                                                  <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                                                  <input type="hidden" name="action" value="delete_folder">
-                                                  <input type="hidden" name="delete_type" value="sub">
-                                                  <input type="hidden" name="parent_name" value="<?php echo htmlspecialchars($parent_filter); ?>">
-                                                  <input type="hidden" name="sub_name" value="<?php echo htmlspecialchars($s); ?>">
-                                                  <button type="button" class="dropdown-item fw-medium text-danger" onclick="confirmFolderDelete(this, 'sub')"><i class="fas fa-trash-alt me-2"></i> Delete empty folder</button>
-                                              </form>
-                                          </li>
-                                      <?php endif; ?>
+                                      <li><hr class="dropdown-divider"></li>
+                                      <li>
+                                          <form action="documents.php" method="POST" class="m-0">
+                                              <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                                              <input type="hidden" name="action" value="delete_folder">
+                                              <input type="hidden" name="delete_type" value="sub">
+                                              <input type="hidden" name="parent_name" value="<?php echo htmlspecialchars($parent_filter); ?>">
+                                              <input type="hidden" name="sub_name" value="<?php echo htmlspecialchars($s); ?>">
+                                              <button type="button" class="dropdown-item fw-medium text-danger" onclick="confirmFolderDelete(this, 'sub')"><i class="fas fa-trash-alt me-2"></i> Delete empty folder</button>
+                                          </form>
+                                      </li>
                                      
                                   </ul>
                               </div>
@@ -1856,7 +1895,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                                   <th class="ps-4">File Name</th>
                                   <th>Link / Reference</th>
                                   <th>Uploaded By</th>
-                                  <th>Date Added</th>
+                                  <th>Date Filed</th>
                                   <th class="text-end pe-4">Actions</th>
                               </tr>
                           </thead>
@@ -1864,18 +1903,12 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                               <?php if($documents && $documents->num_rows > 0): while($doc = $documents->fetch_assoc()): 
                                   $ext = strtolower(pathinfo($doc['file_name'], PATHINFO_EXTENSION));
                                   $is_img = in_array($ext, ['jpg','jpeg','png','gif']);
-                                
-                                  $is_locked = (bool)$doc['is_locked'];
-                                  $locked_by = $doc['locked_by'];
-                                  $locked_by_name = htmlspecialchars($doc['locked_by_name'] ?? '');
+                                  $display_file_name = pathinfo((string)$doc['file_name'], PATHINFO_FILENAME);
 
                                   $is_legal_hold = (bool)$doc['is_legal_hold'];
                                   $legal_hold_reason = htmlspecialchars($doc['legal_hold_reason'] ?? '');
                                 
                                   $is_mine = ($doc['uploaded_by'] == $_SESSION['user_id']);
-                                  $is_lock_owner = ($locked_by == $_SESSION['user_id']);
-                                  $can_override_lock = in_array($_SESSION['role'], ['Admin', 'GM', 'President']);
-                                  $is_locked_by_other = ($is_locked && !$is_lock_owner);
 
                                   $access_type = $doc['access_type'] ?? 'Folder Default';
                                   $file_permissions = json_decode($doc['file_permissions'] ?? '{}', true) ?: [];
@@ -1895,7 +1928,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                                   $can_edit_file = in_array($my_file_role, ['Editor']);
                                   $document_file_url = 'download.php?type=document&record_id=' . (int) $doc['doc_id'];
                               ?>
-                              <tr id="target-doc-<?php echo $doc['doc_id']; ?>" class="<?php echo $has_file_access ? 'cursor-pointer file-row-title' : ''; ?>" <?php if($has_file_access): ?>onclick="openDocumentViewer('<?php echo htmlspecialchars(addslashes($document_file_url), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['file_name']), ENT_QUOTES); ?>', <?php echo $is_img ? 'true' : 'false'; ?>)"<?php endif; ?>>
+                              <tr id="target-doc-<?php echo $doc['doc_id']; ?>" class="<?php echo $has_file_access ? 'cursor-pointer file-row-title' : ''; ?>" <?php if($has_file_access): ?>onclick="openDocumentViewer('<?php echo htmlspecialchars(addslashes($document_file_url), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($display_file_name), ENT_QUOTES); ?>', <?php echo $is_img ? 'true' : 'false'; ?>)"<?php endif; ?>>
                                   <td class="ps-4 py-3">
                                       <div class="d-flex align-items-center">
                                           <div class="file-icon-md bg-light text-primary me-3 border transition-all rounded-3 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
@@ -1911,43 +1944,22 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                                               <div>
                                               <div class="d-flex align-items-center">
                                                   <div class="d-inline-block" style="max-width: 420px;">
-                                                      <h6 class="mb-0 text-dark fw-bold text-truncate w-100" title="<?php echo htmlspecialchars($doc['file_name']); ?>">
-                                                          <?php echo htmlspecialchars($doc['file_name']); ?>
+                                                      <h6 class="mb-0 text-dark fw-bold text-truncate w-100" title="<?php echo htmlspecialchars($display_file_name); ?>">
+                                                          <?php echo htmlspecialchars($display_file_name); ?>
                                                       </h6>
-                                                      <?php if (!empty($doc['original_file_name']) && $doc['original_file_name'] !== $doc['file_name']): ?>
-                                                          <div class="text-muted fs-xs text-truncate" title="Original file name: <?php echo htmlspecialchars($doc['original_file_name']); ?>">Original: <?php echo htmlspecialchars($doc['original_file_name']); ?></div>
+                                                      <?php if (!empty($doc['original_file_name']) && $doc['original_file_name'] !== $doc['file_name']):
+                                                          $display_original_file_name = pathinfo((string)$doc['original_file_name'], PATHINFO_FILENAME);
+                                                      ?>
+                                                          <div class="text-muted fs-xs text-truncate mt-1" title="Original file: <?php echo htmlspecialchars($doc['original_file_name']); ?>">
+                                                              Original: <?php echo htmlspecialchars($display_original_file_name); ?>
+                                                          </div>
                                                       <?php endif; ?>
                                                   </div>
-                                                
-                                                  <?php if($is_locked): ?>
-                                                      <span class="badge bg-warning bg-opacity-10 text-warning border border-warning px-2 py-1 ms-2" style="font-size: 0.7rem; font-weight: 600;" title="Currently being worked on">
-                                                          <i class="fas fa-lock"></i> Locked by <?php echo $is_lock_owner ? 'You' : explode(' ', trim($locked_by_name))[0]; ?>
-                                                      </span>
-                                                  <?php endif; ?>
 
                                                   <?php if($is_legal_hold): ?>
                                                       <span class="badge bg-danger bg-opacity-10 text-danger border border-danger px-2 py-1 ms-2" style="font-size: 0.7rem; font-weight: 600;" title="Legal Hold: <?php echo $legal_hold_reason; ?>">
                                                           <i class="fas fa-balance-scale"></i> Legal Hold
                                                       </span>
-                                                  <?php endif; ?>
-                                                  <?php if($doc['record_phase'] === 'Converted'): ?>
-                                                      <span class="badge bg-secondary text-white px-2 py-1 ms-2" style="font-size: 0.7rem; font-weight: 600;">
-                                                          <i class="fas fa-lock"></i> Official Record Created
-                                                      </span>
-                                                  <?php endif; ?>
-                                              </div>
-                                              <div class="d-flex align-items-center mt-1">
-                                                  <?php if (!empty($doc['record_number'])): ?>
-                                                      <span class="text-primary small fw-semibold" title="Official Record ID"><i class="fas fa-barcode me-1"></i><?php echo htmlspecialchars($doc['record_number']); ?></span>
-                                                      <span class="text-muted opacity-50 mx-2">&bull;</span>
-                                                  <?php endif; ?>
-                                                <span class="text-muted small"><i class="fas fa-folder text-secondary me-1"></i> <?php echo htmlspecialchars($doc['category'] ?: $doc['doc_type']); ?></span>
-                                                <?php if (!empty($doc['business_reference'])): ?>
-                                                    <span class="text-muted opacity-50 mx-2">&bull;</span>
-                                                    <span class="text-muted small">Ref: <?php echo htmlspecialchars($doc['business_reference']); ?></span>
-                                                <?php endif; ?>
-                                                  <?php if ($doc['current_version'] > 1): ?>
-                                                      <span class="badge bg-light text-primary border ms-2" style="font-size: 0.7rem;">v<?php echo number_format($doc['current_version'], 1); ?></span>
                                                   <?php endif; ?>
                                               </div>
                                           </div>
@@ -1973,8 +1985,8 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                                       <div class="fw-medium text-dark"><?php echo htmlspecialchars($doc['full_name']); ?></div>
                                   </td>
                                   <td>
-                                      <div class="text-dark fw-medium"><?php echo date('M d, Y', strtotime($doc['uploaded_at'])); ?></div>
-                                      <div class="text-muted small"><?php echo date('h:i A', strtotime($doc['uploaded_at'])); ?></div>
+                                      <div class="text-dark fw-medium"><?php echo date('M d, Y', strtotime($doc['official_filed_at'])); ?></div>
+                                      <div class="text-muted small"><?php echo date('h:i A', strtotime($doc['official_filed_at'])); ?></div>
                                   </td>
                                   <td class="text-end pe-4 position-relative">
                                       <div class="action-dropdown dropdown">
@@ -1985,7 +1997,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                                               <?php if ($has_file_access): ?>
                                                   <li>
                                                       <button type="button" class="dropdown-item fw-medium text-dark" 
-                                                              onclick="viewFileDetails('<?php echo htmlspecialchars(addslashes($doc['file_name']), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['category'] ?: $doc['doc_type']), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($document_file_url), ENT_QUOTES); ?>', '<?php echo date('M d, Y h:i A', strtotime($doc['uploaded_at'])); ?>', '<?php echo htmlspecialchars(addslashes($doc['full_name']), ENT_QUOTES); ?>', '<?php echo base64_encode($doc['rename_history'] ?? '[]'); ?>')">
+                                                              onclick="viewFileDetails(<?php echo (int)$doc['doc_id']; ?>, '<?php echo htmlspecialchars(addslashes($doc['file_name']), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['category'] ?: $doc['doc_type']), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($document_file_url), ENT_QUOTES); ?>', '<?php echo date('M d, Y h:i A', strtotime($doc['official_filed_at'])); ?>', '<?php echo htmlspecialchars(addslashes($doc['full_name']), ENT_QUOTES); ?>', '<?php echo base64_encode($doc['rename_history'] ?? '[]'); ?>')">
                                                           <i class="fas fa-info-circle text-primary me-2"></i> View Details
                                                       </button>
                                                   </li>
@@ -2830,7 +2842,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
   <?php endif; ?>
 
   <!-- CREATE PARENT FOLDER MODAL -->
-  <?php if ($can_manage && empty($parent_filter) && empty($type_filter)): ?>
+  <?php if (false): ?>
   <div class="modal fade sleek-modal" id="createParentFolderModal" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-dialog-centered">
           <div class="modal-content shadow-lg border-0">
@@ -2881,7 +2893,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
   <?php endif; ?>
 
   <!-- CREATE SUB-FOLDER MODAL -->
-  <?php if (!empty($parent_filter) && empty($type_filter) && $can_manage && !$current_parent_is_system): ?>
+  <?php if (false): ?>
   <div class="modal fade sleek-modal" id="createSubFolderModal" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-dialog-centered">
           <div class="modal-content shadow-lg border-0">
@@ -3026,15 +3038,15 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
   </div>
 
 
-  <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-  <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
-  <!-- OpenCV.js for Smart Document Edge Detection & Auto-Crop -->
-  <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="console.log('OpenCV Engine Loaded');"></script>
+  <script src="assets/vendor/jquery/3.7.0/jquery.min.js"></script>
+  <script src="assets/vendor/bootstrap/5.3.0/bootstrap.bundle.min.js"></script>
+  <script src="assets/vendor/datatables/1.13.6/jquery.dataTables.min.js"></script>
+  <script src="assets/vendor/datatables/1.13.6/dataTables.bootstrap5.min.js"></script>
+  <script src="assets/vendor/sweetalert2/11.26.25/sweetalert2.all.min.js"></script>
+  <script src="assets/vendor/tesseract/5.1.1/tesseract.min.js"></script>
+  <script src="assets/js/local-ocr.js"></script>
+  <script src="assets/vendor/pdfjs/2.16.105/pdf.min.js"></script>
+  <script src="assets/js/local-opencv-loader.js"></script>
   <script src="assets/js/mobile-document-viewer.js"></script>
 
   <script>
@@ -3209,6 +3221,12 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
           const { fileInput, cameraVideo } = uploadModalElements();
           if (!cameraVideo) return;
 
+          // OpenCV is intentionally loaded only when the camera is used. The
+          // ordinary portrait crop remains available while it loads or fails.
+          if (window.FixieOpenCV) {
+              window.FixieOpenCV.preload();
+          }
+
           const camModalEl = document.getElementById('cameraModal');
           if (!camModalEl.classList.contains('show')) {
               const upModal = bootstrap.Modal.getInstance(document.getElementById('uploadModal'));
@@ -3263,7 +3281,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
           setUploadStatus('Live camera ready. Capture a photo when you are ready.');
       }
 
-      function captureUploadPhoto() {
+      async function captureUploadPhoto() {
           const { cameraVideo, cameraPreviewImage, cameraCanvas, capturePhotoBtn, retakePhotoBtn, usePhotoBtn } = uploadModalElements();
           if (!cameraVideo || !cameraCanvas || !cameraPreviewImage) return;
 
@@ -3304,6 +3322,19 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
               0, 0, cameraCanvas.width, cameraCanvas.height
           );
 
+          // Give the locally hosted smart-crop engine only a short time to
+          // become ready. A slow or unavailable engine must never prevent a
+          // user from capturing and uploading the normal portrait crop.
+          let cvEngine = window.FixieOpenCV ? window.FixieOpenCV.getIfReady() : null;
+          if (!cvEngine && window.FixieOpenCV) {
+              try {
+                  await window.FixieOpenCV.load({ timeoutMs: 2500 });
+                  cvEngine = window.FixieOpenCV.getIfReady();
+              } catch (error) {
+                  console.warn('Smart document crop is unavailable; using the normal portrait crop.', error);
+              }
+          }
+
           // ========================================================
           // SMART OPENCV DOCUMENT EDGE DETECTION & PERSPECTIVE WARP
           // ========================================================
@@ -3311,7 +3342,8 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
           let srcCoords = null, dstCoords = null, M = null, warped = null, approx = null;
 
           try {
-              if (typeof cv !== 'undefined' && cv.Mat) {
+              if (cvEngine && cvEngine.Mat) {
+                  const cv = cvEngine;
                   src = cv.imread(cameraCanvas);
                   dst = new cv.Mat();
                 
@@ -3558,19 +3590,21 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                       img.src = URL.createObjectURL(file);
                   });
 
-                  const worker = await Tesseract.createWorker("eng", 1, {
-                      logger: function(m) {
+                  if (!window.FixieLocalOCR || !window.FixieLocalOCR.isAvailable()) {
+                      throw new Error('LOCAL_OCR_UNAVAILABLE');
+                  }
+
+                  clientSideText = await window.FixieLocalOCR.recognize(safeImage, {
+                      onProgress: function(m) {
                           if (m.status === 'recognizing text') nameDisplay.innerText = "Scanning Image: " + Math.round(m.progress * 100) + "%";
                           else nameDisplay.innerText = "OCR: " + m.status + "...";
                       }
                   });
-                
-                  nameDisplay.innerText = "Extracting text from image...";
-                  const ret = await worker.recognize(safeImage);
-                  clientSideText = ret.data.text;
-                  await worker.terminate();
               } catch (error) {
-                  nameDisplay.innerText = error === "UNSUPPORTED_FORMAT" ? "Unsupported Format. Please use a real JPG or PNG." : "Image Scan Failed. (Check Console)";
+                  console.warn('Local OCR was unavailable; continuing with server-side file analysis.', error);
+                  nameDisplay.innerText = error === "UNSUPPORTED_FORMAT"
+                      ? "Unsupported Format. Please use a real JPG or PNG."
+                      : "OCR unavailable. Continuing with file analysis...";
               }
           }
           else if (file.type === 'application/pdf') {
@@ -3578,7 +3612,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
               try {
                   const arrayBuffer = await file.arrayBuffer();
                   const pdfjsLib = window['pdfjs-dist/build/pdf'];
-                  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+                  pdfjsLib.GlobalWorkerOptions.workerSrc = 'assets/vendor/pdfjs/2.16.105/pdf.worker.min.js';
 
                   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
                   const maxPages = Math.min(pdf.numPages, 3);
@@ -4316,8 +4350,12 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
               },
               error: function(xhr) {
                   loader.style.display = 'none';
-                  input.disabled = false;
-                  console.error("AJAX Error: Server blocked the request or failed.", xhr.responseText);
+                  input.disabled = true;
+                  const message = xhr.responseJSON && xhr.responseJSON.message
+                      ? xhr.responseJSON.message
+                      : 'Folder keywords could not be loaded.';
+                  $('#ekConflictWarning').text(message).removeClass('d-none');
+                  $('#ekSaveBtn').prop('disabled', true);
               }
           });
         
@@ -4365,15 +4403,22 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                           // Magpakita ng pulang warning at panatilihing naka-disable ang button
                           warningBox.html('<i class="fas fa-exclamation-triangle me-1"></i> <strong>Conflict Detected:</strong><br>' + response.messages.join('<br>')).removeClass('d-none');
                           saveBtn.prop('disabled', true); 
+                      } else if (response.status === 'error') {
+                          warningBox.text(response.message || 'Keyword validation could not be completed.').removeClass('d-none');
+                          saveBtn.prop('disabled', true);
                       } else {
                           // Clear ang error, at i-enable ulit ang Save
                           warningBox.addClass('d-none');
                           saveBtn.prop('disabled', false); 
                       }
                   },
-                  error: function() {
+                  error: function(xhr) {
                       loader.hide();
-                      saveBtn.prop('disabled', false);
+                      const message = xhr.responseJSON && xhr.responseJSON.message
+                          ? xhr.responseJSON.message
+                          : 'Keyword validation could not be completed.';
+                      warningBox.text(message).removeClass('d-none');
+                      saveBtn.prop('disabled', true);
                   }
               });
           }, 500); // 500ms typing delay
@@ -4404,7 +4449,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
       // ==========================================
       // VIEW DETAILS & ACTIVITY TIMELINE
       // ==========================================
-      function viewFileDetails(fileName, category, filePath, uploadedAt, uploadedBy, renameHistoryBase64) {
+      function viewFileDetails(docId, fileName, category, filePath, filedAt, uploadedBy, renameHistoryBase64) {
         
           // Ligtas na ide-decode ang Base64 pabalik sa JSON string!
           let renameHistoryJson = '[]';
@@ -4412,16 +4457,38 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
               renameHistoryJson = atob(renameHistoryBase64); 
           } catch(e) { console.error("History Decode Error:", e); }
 
-          fetch(filePath, { method: 'HEAD' }).then(response => {
+          const sizeRequest = fetch(filePath, { method: 'HEAD' }).then(response => {
               let bytes = response.headers.get('content-length');
               let sizeFormatted = 'Unknown Size';
               if (bytes) {
                   let kb = bytes / 1024;
                   sizeFormatted = kb >= 1024 ? (kb / 1024).toFixed(2) + ' MB' : kb.toFixed(2) + ' KB';
               }
-              renderDetailsModal(fileName, category, sizeFormatted, uploadedAt, uploadedBy, renameHistoryJson);
-          }).catch(() => {
-              renderDetailsModal(fileName, category, 'Unknown Size', uploadedAt, uploadedBy, renameHistoryJson);
+              return sizeFormatted;
+          }).catch(() => 'Unknown Size');
+
+          const activityRequest = fetch(`actions/version_handler.php?action=get_history&doc_id=${encodeURIComponent(docId)}`, {
+              method: 'GET',
+              headers: { 'Accept': 'application/json' }
+          }).then(response => {
+              if (!response.ok) throw new Error('Activity history is unavailable.');
+              return response.json();
+          }).then(payload => {
+              return payload && payload.success && Array.isArray(payload.activity)
+                  ? payload.activity
+                  : [];
+          }).catch(() => []);
+
+          Promise.all([sizeRequest, activityRequest]).then(([sizeFormatted, activityEvents]) => {
+              renderDetailsModal(
+                  fileName,
+                  category,
+                  sizeFormatted,
+                  filedAt,
+                  uploadedBy,
+                  renameHistoryJson,
+                  activityEvents
+              );
           });
       }
 
@@ -4473,9 +4540,16 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
           });
       }
 
-      function renderDetailsModal(fileName, category, sizeFormatted, uploadedAt, uploadedBy, renameHistoryJson) {
+      function renderDetailsModal(fileName, category, sizeFormatted, filedAt, uploadedBy, renameHistoryJson, activityEvents = []) {
           let historyArray = [];
           try { historyArray = JSON.parse(renameHistoryJson || '[]'); } catch(e) {}
+
+          const escapeActivityText = (value) => String(value ?? '')
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#039;');
 
           // DYNAMIC FILE TYPE & ICON LOGIC (GDrive Style)
           let ext = fileName.split('.').pop().toLowerCase();
@@ -4490,10 +4564,13 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
           else if (['zip', 'rar'].includes(ext)) { fileType = "Compressed Archive"; iconClass = "fas fa-file-archive text-secondary"; }
 
           // DETERMINE LAST MODIFIED DATE
-          let lastModified = uploadedAt;
+          let lastModified = filedAt;
           if (historyArray.length > 0) {
               let lastActDate = new Date(historyArray[0].date);
               lastModified = lastActDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+          }
+          if (Array.isArray(activityEvents) && activityEvents.length > 0) {
+              lastModified = activityEvents[0].date_formatted || filedAt;
           }
 
           // GDRIVE-STYLE ACTIVITY TIMELINE DYNAMIC RENDERER
@@ -4563,6 +4640,54 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
               });
           }
 
+          // The secured history endpoint combines the hidden Converted source
+          // record with the protected Official Record, so the Activity tab also
+          // shows everything that happened before official filing.
+          const hasConsolidatedActivity = Array.isArray(activityEvents) && activityEvents.length > 0;
+          if (hasConsolidatedActivity) {
+              const activityStyles = {
+                  upload:   { dot: 'bg-info',      icon: 'fas fa-cloud-upload-alt' },
+                  version:  { dot: 'bg-primary',   icon: 'fas fa-code-branch' },
+                  rename:   { dot: 'bg-primary',   icon: 'fas fa-pen' },
+                  lock:     { dot: 'bg-warning',   icon: 'fas fa-lock' },
+                  unlock:   { dot: 'bg-success',   icon: 'fas fa-unlock' },
+                  hold_apply:  { dot: 'bg-danger', icon: 'fas fa-balance-scale' },
+                  hold_remove: { dot: 'bg-secondary', icon: 'fas fa-balance-scale-left' },
+                  physical_replaced: { dot: 'bg-info', icon: 'fas fa-sync-alt' },
+                  official: { dot: 'bg-success',   icon: 'fas fa-certificate' }
+              };
+
+              timelineHTML = activityEvents.map((event) => {
+                  const style = activityStyles[event.type] || {
+                      dot: 'bg-secondary',
+                      icon: 'fas fa-history'
+                  };
+                  const detail = String(event.detail || '').trim();
+                  const isOfficial = event.type === 'official';
+
+                  return `
+                      <div class="position-relative ps-4 pb-4" style="border-left: 2px solid #cbd5e1; margin-left: 8px;">
+                          <div class="position-absolute ${style.dot} rounded-circle" style="width: 10px; height: 10px; left: -6px; top: 5px; outline: 3px solid #fff;"></div>
+                          <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+                              <span class="fs-sm fw-bold text-dark text-break">${escapeActivityText(event.actor || 'System')}</span>
+                              <span class="fs-xs text-muted text-nowrap">${escapeActivityText(event.date_formatted || '')}</span>
+                          </div>
+                          <div class="fs-sm fw-semibold ${isOfficial ? 'text-success' : 'text-dark'}">
+                              <i class="${style.icon} me-2"></i>${escapeActivityText(event.title || 'File activity recorded')}
+                          </div>
+                          ${detail ? `<div class="fs-xs text-muted mt-1 text-break">${escapeActivityText(detail)}</div>` : ''}
+                      </div>
+                  `;
+              }).join('');
+          }
+
+          const officialFiledFallback = hasConsolidatedActivity ? '' : `
+              <div class="position-relative ps-4 pb-1" style="border-left: 2px solid #cbd5e1; margin-left: 8px;">
+                  <div class="position-absolute bg-success rounded-circle" style="width: 10px; height: 10px; left: -6px; top: 5px; outline: 3px solid #fff;"></div>
+                  <div class="fs-sm fw-bold text-dark mb-1"><i class="fas fa-certificate text-success me-2"></i>Official Record filed</div>
+                  <div class="fs-xs text-muted">${escapeActivityText(filedAt)}</div>
+              </div>`;
+
           Swal.fire({
               html: `
                   <div class="text-start" style="margin-top: -10px;">
@@ -4628,19 +4753,15 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                                   <div class="fs-sm text-dark fw-medium flex-grow-1">${lastModified}</div>
                               </div>
                               <div class="d-flex mb-3">
-                                  <div class="fs-sm" style="width: 90px; color: #5f6368;">Created</div>
-                                  <div class="fs-sm text-dark fw-medium flex-grow-1">${uploadedAt}</div>
+                                  <div class="fs-sm" style="width: 90px; color: #5f6368;">Date filed</div>
+                                  <div class="fs-sm text-dark fw-medium flex-grow-1">${filedAt}</div>
                               </div>
                           </div>
 
                           <!-- ACTIVITY PANE -->
                           <div id="pane-activity" class="d-none px-2 pt-3">
                               ${timelineHTML}
-                              <div class="position-relative ps-4 pb-1" style="border-left: 2px solid #e8eaed; margin-left: 8px;">
-                                  <div class="position-absolute bg-secondary rounded-circle" style="width: 10px; height: 10px; left: -6px; top: 5px; outline: 3px solid #fff;"></div>
-                                  <div class="fs-sm fw-bold text-dark mb-1">Item uploaded</div>
-                                  <div class="fs-xs text-muted">${uploadedAt}</div>
-                              </div>
+                              ${officialFiledFallback}
                           </div>
 
                       </div>

@@ -3,16 +3,8 @@ require_once __DIR__ . '/../config/session_bootstrap.php';
 require '../config/db_connect.php';
 require '../config/functions.php';
 
-// AUTO-SETUP SECURITY COLUMNS
-$check_col = $conn->query("SHOW COLUMNS FROM users LIKE 'require_pass_change'");
-if ($check_col && $check_col->num_rows == 0) {
-    $conn->query("ALTER TABLE users ADD COLUMN require_pass_change TINYINT(1) DEFAULT 0");
-}
-$check_token_col = $conn->query("SHOW COLUMNS FROM users LIKE 'setup_token'");
-if ($check_token_col && $check_token_col->num_rows == 0) {
-    $conn->query("ALTER TABLE users ADD COLUMN setup_token VARCHAR(255) NULL");
-    $conn->query("ALTER TABLE users ADD COLUMN setup_token_expire DATETIME NULL");
-}
+// Authentication requests must never mutate the database schema. Required
+// security columns and indexes are installed and verified separately.
 
 $ip_address = $_SERVER['REMOTE_ADDR'] ?? 'Unknown';
 

@@ -15,3 +15,10 @@ Options -Indexes
     Header always set X-Frame-Options "SAMEORIGIN"
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
 </IfModule>
+
+# Dot-files contain environment markers or local tooling metadata and must
+# never be retrievable through Apache.
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+

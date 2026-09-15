@@ -2,6 +2,7 @@
 require '../config/db_connect.php';
 require '../config/functions.php';
 require_once '../config/upload_policy.php';
+require_once '../config/file_integrity.php';
 
 if (!isset($_SESSION['user_id'])) {
     http_response_code(403);
@@ -199,6 +200,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'upload_version') {
             throw new RuntimeException('Only active working documents can receive a new version.');
         }
 
+        $current_absolute_path = drms_storage_resolve_existing_file(
+            (string) $locked_document['file_path']
+        );
+        try {
+            drms_file_integrity_verify(
+                $current_absolute_path,
+                $locked_document['file_hash'] ?? null
+            );
+        } catch (DrmsFileIntegrityException $integrityError) {
+            throw new RuntimeException(
+                'The current file failed integrity verification. A new version was not accepted.'
+            );
+        }
+
         $version_stmt = $conn->prepare("
             SELECT COALESCE(MAX(CAST(version_number AS DECIMAL(10,1))), 0) AS highest_version,
                    COUNT(*) AS version_count
@@ -220,15 +235,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'upload_version') {
             $original_remarks = 'Original Document Upload';
             $original_stmt = $conn->prepare("
                 INSERT INTO document_versions
-                    (doc_id, version_number, file_name, file_path, uploaded_by, uploaded_at, remarks)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (doc_id, version_number, file_name, file_path, file_hash,
+                     uploaded_by, uploaded_at, remarks)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ");
             $original_stmt->bind_param(
-                'isssiss',
+                'issssiss',
                 $doc_id,
                 $original_version,
                 $locked_document['file_name'],
                 $locked_document['file_path'],
+                $locked_document['file_hash'],
                 $locked_document['uploaded_by'],
                 $locked_document['uploaded_at'],
                 $original_remarks
@@ -245,15 +262,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'upload_version') {
         $new_version = number_format($current_version + 1.0, 1, '.', '');
         $insert_stmt = $conn->prepare("
             INSERT INTO document_versions
-                (doc_id, version_number, file_name, file_path, remarks, uploaded_by)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (doc_id, version_number, file_name, file_path, file_hash,
+                 remarks, uploaded_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         ");
         $insert_stmt->bind_param(
-            'issssi',
+            'isssssi',
             $doc_id,
             $new_version,
             $display_name,
             $stored_database_path,
+            $new_file_hash,
             $remarks,
             $user_id
         );
@@ -290,7 +309,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'upload_version') {
         error_log('Document version upload failed: ' . $e->getMessage());
         $known_messages = [
             'Only active working documents can receive a new version.',
-            'Unable to store the uploaded version.'
+            'Unable to store the uploaded version.',
+            'The current file failed integrity verification. A new version was not accepted.'
         ];
         $message = in_array($e->getMessage(), $known_messages, true)
             ? $e->getMessage()
@@ -327,7 +347,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'get_history') {
     $result = $stmt->get_result();
 
     $versions = [];
+    $version_activity_rows = [];
     while ($row = $result->fetch_assoc()) {
+        $version_activity_rows[] = $row;
         $versions[] = [
             'version_number' => number_format((float) $row['version_number'], 1),
             'remarks' => htmlspecialchars((string) ($row['remarks'] ?? ''), ENT_QUOTES),
@@ -337,6 +359,194 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'get_history') {
         ];
     }
     $stmt->close();
+
+    // Build one consolidated, read-only activity stream. Official Records keep
+    // their own protected version snapshots, while the linked Converted row
+    // retains the actions that occurred when the file was still a Company File.
+    $lineage_stmt = $conn->prepare("
+        SELECT
+            current_document.doc_id,
+            current_document.file_name,
+            current_document.original_file_name,
+            current_document.record_phase,
+            current_document.record_number,
+            current_document.uploaded_at,
+            current_document.rename_history,
+            current_document.declared_at,
+            current_uploader.full_name AS current_uploader_name,
+            declarer.full_name AS declarer_name,
+            source_document.doc_id AS source_doc_id,
+            source_document.file_name AS source_file_name,
+            source_document.original_file_name AS source_original_file_name,
+            source_document.uploaded_at AS source_uploaded_at,
+            source_document.rename_history AS source_rename_history,
+            source_uploader.full_name AS source_uploader_name
+        FROM documents current_document
+        LEFT JOIN users current_uploader
+               ON current_uploader.user_id = current_document.uploaded_by
+        LEFT JOIN users declarer
+               ON declarer.user_id = current_document.declared_by
+        LEFT JOIN documents source_document
+               ON source_document.official_doc_id = current_document.doc_id
+        LEFT JOIN users source_uploader
+               ON source_uploader.user_id = source_document.uploaded_by
+        WHERE current_document.doc_id = ?
+        ORDER BY source_document.doc_id ASC
+        LIMIT 1
+    ");
+    $lineage_stmt->bind_param('i', $doc_id);
+    $lineage_stmt->execute();
+    $lineage = $lineage_stmt->get_result()->fetch_assoc() ?: [];
+    $lineage_stmt->close();
+
+    $activity = [];
+    $activity_keys = [];
+    $append_activity = static function (
+        string $type,
+        string $title,
+        string $detail,
+        string $actor,
+        ?string $date_value
+    ) use (&$activity, &$activity_keys): void {
+        $timestamp = $date_value ? strtotime($date_value) : false;
+        if ($timestamp === false) {
+            return;
+        }
+
+        $normalized_date = date('Y-m-d H:i:s', $timestamp);
+        $key = implode('|', [$type, $normalized_date, $title, $detail, $actor]);
+        if (isset($activity_keys[$key])) {
+            return;
+        }
+        $activity_keys[$key] = true;
+        $activity[] = [
+            'type' => $type,
+            'title' => $title,
+            'detail' => $detail,
+            'actor' => $actor !== '' ? $actor : 'System',
+            'date' => date(DATE_ATOM, $timestamp),
+            'date_formatted' => date('M d, Y h:i A', $timestamp),
+            '_timestamp' => $timestamp
+        ];
+    };
+
+    $has_source = !empty($lineage['source_doc_id']);
+    $origin_file_name = (string) (
+        $has_source
+            ? ($lineage['source_original_file_name'] ?: $lineage['source_file_name'])
+            : ($lineage['original_file_name'] ?: $lineage['file_name'] ?? '')
+    );
+    $origin_uploaded_at = (string) (
+        $has_source ? ($lineage['source_uploaded_at'] ?? '') : ($lineage['uploaded_at'] ?? '')
+    );
+    $origin_uploader = (string) (
+        $has_source
+            ? ($lineage['source_uploader_name'] ?? 'Original uploader')
+            : ($lineage['current_uploader_name'] ?? 'Original uploader')
+    );
+
+    $append_activity(
+        'upload',
+        $has_source ? 'Company File uploaded' : 'Record uploaded',
+        $origin_file_name !== '' ? 'Original file: ' . $origin_file_name : 'Initial file received by the system.',
+        $origin_uploader,
+        $origin_uploaded_at
+    );
+
+    $append_legacy_history = static function ($encoded_history) use ($append_activity): void {
+        $items = json_decode((string) ($encoded_history ?? ''), true);
+        if (!is_array($items)) {
+            return;
+        }
+
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $type = (string) ($item['type'] ?? 'rename');
+            $actor = (string) ($item['by'] ?? 'System');
+            $date_value = isset($item['date']) ? (string) $item['date'] : null;
+            $title = 'File activity recorded';
+            $detail = '';
+
+            if ($type === 'lock') {
+                $title = 'Checked out the file';
+                $detail = 'The file was locked for exclusive editing.';
+            } elseif ($type === 'unlock') {
+                $title = 'Checked in the file';
+                $detail = 'The file was returned and made available.';
+            } elseif ($type === 'hold_apply') {
+                $title = 'Legal hold applied';
+                $detail = trim((string) ($item['reason'] ?? ''));
+            } elseif ($type === 'hold_remove') {
+                $title = 'Legal hold removed';
+                $detail = 'Standard retention and disposition rules resumed.';
+            } elseif ($type === 'physical_replaced') {
+                $title = 'Physical copy synchronized';
+                $old_version = isset($item['old_version']) ? (string) $item['old_version'] : '';
+                $new_version = isset($item['new_version']) ? (string) $item['new_version'] : '';
+                $detail = ($old_version !== '' || $new_version !== '')
+                    ? 'Physical version ' . $old_version . ' was replaced by version ' . $new_version . '.'
+                    : 'The physical copy was synchronized with the digital record.';
+            } else {
+                $title = 'File renamed';
+                $old_name = trim((string) ($item['old_name'] ?? ''));
+                $new_name = trim((string) ($item['new_name'] ?? ''));
+                $detail = ($old_name !== '' || $new_name !== '')
+                    ? $old_name . ' to ' . $new_name
+                    : 'The file name was updated.';
+                $type = 'rename';
+            }
+
+            $append_activity($type, $title, $detail, $actor, $date_value);
+        }
+    };
+
+    if ($has_source) {
+        $append_legacy_history($lineage['source_rename_history'] ?? '[]');
+    }
+
+    foreach ($version_activity_rows as $version_row) {
+        $remarks = trim((string) ($version_row['remarks'] ?? ''));
+        if (stripos($remarks, 'Official declaration') !== false) {
+            continue;
+        }
+
+        $version_number = number_format((float) ($version_row['version_number'] ?? 1), 1);
+        $is_pre_official = stripos($remarks, '[Pre-official working version]') !== false;
+        $clean_remarks = trim(str_ireplace('[Pre-official working version]', '', $remarks));
+        $append_activity(
+            'version',
+            ($is_pre_official ? 'Working version ' : 'Version ') . 'v' . $version_number . ' recorded',
+            $clean_remarks !== '' ? $clean_remarks : 'No version remarks were provided.',
+            (string) ($version_row['uploader'] ?? 'Unknown'),
+            (string) ($version_row['uploaded_at'] ?? '')
+        );
+    }
+
+    $append_legacy_history($lineage['rename_history'] ?? '[]');
+
+    if (($lineage['record_phase'] ?? '') === 'Official' && !empty($lineage['declared_at'])) {
+        $record_number = trim((string) ($lineage['record_number'] ?? ''));
+        $append_activity(
+            'official',
+            'Official Record filed',
+            $record_number !== ''
+                ? 'Filed under record number ' . $record_number . '.'
+                : 'The signed file was declared and protected as an Official Record.',
+            (string) ($lineage['declarer_name'] ?? 'Authorized signatory'),
+            (string) $lineage['declared_at']
+        );
+    }
+
+    usort($activity, static function (array $left, array $right): int {
+        return ($right['_timestamp'] ?? 0) <=> ($left['_timestamp'] ?? 0);
+    });
+    foreach ($activity as &$activity_item) {
+        unset($activity_item['_timestamp']);
+    }
+    unset($activity_item);
 
     if (count($versions) === 0) {
         $document = $access['document'];
@@ -349,7 +559,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'get_history') {
         ];
     }
 
-    echo json_encode(['success' => true, 'data' => $versions]);
+    echo json_encode([
+        'success' => true,
+        'data' => $versions,
+        'activity' => $activity
+    ]);
     exit;
 }
 

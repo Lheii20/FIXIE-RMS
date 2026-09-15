@@ -2,6 +2,8 @@
 require 'config/db_connect.php';
 require 'config/functions.php';
 require_once 'config/workflow_feedback.php';
+require_once 'config/payment_signature.php';
+require_once 'config/payment_signature_ui.php';
 
 date_default_timezone_set('Asia/Manila');
 
@@ -189,6 +191,19 @@ if ($po_id > 0) {
     }
 }
 
+$recent_payment_signatures = [];
+try {
+    $recent_payment_signatures = drms_payment_signature_evidence_map(
+        $conn,
+        array_column($recent_payments, 'payment_id')
+    );
+} catch (Throwable $signature_error) {
+    drms_log_workflow_failure(
+        'Recent payment signature evidence load',
+        $signature_error
+    );
+}
+
 $balance = $record
     ? max(round((float) $record['amount'] - (float) $record['total_paid'], 2), 0)
     : 0;
@@ -250,11 +265,12 @@ $can_record = $record && $eligibility_error === '';
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/prf-form.css?v=<?php echo filemtime(__DIR__ . '/assets/css/prf-form.css'); ?>" rel="stylesheet">
     <link href="assets/css/collection-payment.css?v=<?php echo filemtime(__DIR__ . '/assets/css/collection-payment.css'); ?>" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="assets/css/payment-signature.css?v=<?php echo filemtime(__DIR__ . '/assets/css/payment-signature.css'); ?>" rel="stylesheet">
     <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
 <body class="prf-page payment-page workflow-ui">
     <?php include 'sidebar.php'; ?>
+    <?php include 'includes/e_signature_modal.php'; ?>
 
     <main class="main-content fade-in">
         <div class="container-fluid prf-shell payment-shell">
@@ -390,6 +406,7 @@ $can_record = $record && $eligibility_error === '';
                     data-po-created="<?php echo htmlspecialchars($po_created_input); ?>"
                     data-delivered="<?php echo htmlspecialchars($delivery_input); ?>"
                     data-now="<?php echo htmlspecialchars($current_datetime); ?>"
+                    data-po-number="<?php echo htmlspecialchars((string) $record['po_number'], ENT_QUOTES); ?>"
                     novalidate
                 >
                     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) ($_SESSION['csrf_token'] ?? '')); ?>">
@@ -517,7 +534,7 @@ $can_record = $record && $eligibility_error === '';
                                 <div class="payment-history-list">
                                     <?php foreach ($recent_payments as $payment): ?>
                                         <div class="payment-history-item">
-                                            <div><strong>₱<?php echo number_format((float) $payment['amount_paid'], 2); ?></strong><span><?php echo htmlspecialchars($payment['payment_method']); ?></span></div>
+                                            <div><strong>₱<?php echo number_format((float) $payment['amount_paid'], 2); ?></strong><span><?php echo htmlspecialchars($payment['payment_method']); ?></span><?php echo drms_payment_signature_chip($recent_payment_signatures[(int) $payment['payment_id']] ?? [], (int) $payment['payment_id']); ?></div>
                                             <small><?php echo htmlspecialchars(phase5d_page_datetime($payment['payment_date'])); ?><br><?php echo htmlspecialchars($payment['reference_number']); ?></small>
                                         </div>
                                     <?php endforeach; ?>
@@ -535,7 +552,7 @@ $can_record = $record && $eligibility_error === '';
                                 <span>I verified the client payment amount, reference number, date, and attached proof.</span>
                             </label>
                             <button type="submit" class="btn payment-submit-button" id="paymentSubmitButton" <?php echo $can_record ? '' : 'disabled'; ?>>
-                                <span>Record verified payment</span><i class="fas fa-arrow-right"></i>
+                                <span>Sign &amp; record payment</span><i class="fas fa-signature"></i>
                             </button>
                             <a href="<?php echo $pre_delivery_payment_window ? 'view_po.php?id=' . (int) $record['po_id'] : 'collection_monitoring.php?filter=mine'; ?>" class="payment-cancel-link">Cancel and return</a>
                         </section>
@@ -545,9 +562,10 @@ $can_record = $record && $eligibility_error === '';
         </div>
     </main>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="assets/vendor/bootstrap/5.3.0/bootstrap.bundle.min.js"></script>
     <?php if ($record): ?>
         <script src="assets/js/collection-payment.js?v=<?php echo filemtime(__DIR__ . '/assets/js/collection-payment.js'); ?>"></script>
     <?php endif; ?>
 </body>
 </html>
+

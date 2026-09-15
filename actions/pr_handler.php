@@ -493,7 +493,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         'signature_stage' => $approval_stage,
                         'signed_file_hash' => $signature_fingerprint,
                         'signed_version' => 'approval-cycle-' . $approval_cycle,
-                        'consent_text' => 'I reviewed the displayed Purchase Requisition Form data and authorize this assigned approval stage through my password-confirmed electronic signature.',
+                        'consent_text' => 'I reviewed the displayed Purchase Requisition Form data and authorize this assigned approval stage through my active-session electronic signature.',
                         'remarks' => $decision_remarks,
                     ]
                 );

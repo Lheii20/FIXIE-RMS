@@ -153,6 +153,7 @@ if ($record && $record['request_type'] === 'Delivery Only') {
 </head>
 <body class="prf-page logistics-review-page workflow-ui">
     <?php include 'sidebar.php'; ?>
+    <?php include 'includes/e_signature_modal.php'; ?>
 
     <main class="main-content fade-in">
         <div class="container-fluid prf-shell logistics-shell">
@@ -535,8 +536,8 @@ if ($record && $record['request_type'] === 'Delivery Only') {
                                 </label>
 
                                 <button type="submit" class="prf-submit-button logistics-approve-button" data-logistics-submit>
-                                    <span>Approve &amp; Schedule</span>
-                                    <i class="fas fa-calendar-check"></i>
+                                    <span>Approve, Sign &amp; Schedule</span>
+                                    <i class="fas fa-signature"></i>
                                 </button>
                                 <button type="button" class="logistics-return-button" data-return-open>
                                     <i class="fas fa-undo-alt"></i>
@@ -585,6 +586,8 @@ if ($record && $record['request_type'] === 'Delivery Only') {
                 'requestType' => $record['request_type'],
                 'supplierName' => $record['supplier_name_snapshot'],
                 'clientName' => $record['client_name'],
+                'requestNumber' => $record['request_number'],
+                'poNumber' => $record['po_number'],
             ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
         </script>
     <?php endif; ?>

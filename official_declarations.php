@@ -15,16 +15,20 @@ $page = max(1, min(1000000, (int) ($_GET['page'] ?? 1)));
 $docId = (int) ($_GET['doc_id'] ?? 0); $requestId = (int) ($_GET['request_id'] ?? 0);
 try {
     $actor = drms_declaration_user($conn, $uid);
+    $isGmReviewer = (string) $actor['role'] === 'GM';
     if (!drms_signature_tables_ready($conn)) throw new DomainException('Declaration requests are temporarily unavailable.');
     if ($requestId > 0) {
+        if (!$isGmReviewer) {
+            throw new DomainException('Only the General Manager can open Official Record declaration requests.');
+        }
         $s = $conn->prepare("SELECT r.*, d.file_name, d.file_path, d.status AS document_status,
             d.current_version, u.full_name AS requester_name, v.full_name AS reviewer_name,
             e.signature_id, e.verification_code, e.signer_name, e.signature_image_path
             FROM official_declaration_requests r JOIN documents d ON d.doc_id = r.document_id
             LEFT JOIN users u ON u.user_id = r.requested_by LEFT JOIN users v ON v.user_id = r.reviewed_by
             LEFT JOIN document_signature_events e ON e.request_id = r.request_id AND e.signature_status = 'Valid'
-            WHERE r.request_id = ? AND (r.requested_by = ? OR r.requested_signer_role = ?) LIMIT 1");
-        $s->bind_param('iis', $requestId, $uid, $actor['role']); $s->execute();
+            WHERE r.request_id = ? LIMIT 1");
+        $s->bind_param('i', $requestId); $s->execute();
         $request = $s->get_result()->fetch_assoc();
         if (!$request) throw new DomainException('This request is unavailable to your account.');
     } elseif ($docId > 0) {
@@ -36,15 +40,18 @@ try {
         $folder = drms_get_official_folder_profile($conn, (string) ($doc['category'] ?: $doc['doc_type']));
         drms_declaration_working($doc, $folder);
     } else {
-        $where = '(r.requested_by = ? OR r.requested_signer_role = ?)';
-        $params = [$uid, $actor['role']]; $types = 'is';
+        if (!$isGmReviewer) {
+            throw new DomainException('Official Record declaration requests are available only to the General Manager.');
+        }
+        $where = 'r.request_id > 0';
+        $params = []; $types = '';
         if ($status !== 'All') { $where .= ' AND r.request_status = ?'; $params[] = $status; $types .= 's'; }
         if ($search !== '') {
             $where .= ' AND (LOCATE(?, r.request_reference) > 0 OR LOCATE(?, d.file_name) > 0 OR LOCATE(?, u.full_name) > 0)';
             array_push($params, $search, $search, $search); $types .= 'sss';
         }
         $from = ' FROM official_declaration_requests r JOIN documents d ON d.doc_id = r.document_id LEFT JOIN users u ON u.user_id = r.requested_by WHERE ' . $where;
-        $s = $conn->prepare('SELECT COUNT(*)' . $from); $s->bind_param($types, ...$params); $s->execute();
+        $s = $conn->prepare('SELECT COUNT(*)' . $from); if ($types !== '') $s->bind_param($types, ...$params); $s->execute();
         $total = (int) $s->get_result()->fetch_row()[0]; $pages = max(1, (int) ceil($total / 15));
         $page = min($page, $pages); $offset = ($page - 1) * 15;
         $s = $conn->prepare('SELECT r.*, d.file_name, u.full_name AS requester_name' . $from . ' ORDER BY r.requested_at DESC, r.request_id DESC LIMIT 15 OFFSET ?');
@@ -71,16 +78,16 @@ $feedbackTone = ($error !== '' || isset($_GET['error'])) ? 'error' : 'success';
 <link rel="stylesheet" href="assets/css/official-declarations.css?v=<?php echo filemtime(__DIR__.'/assets/css/official-declarations.css'); ?>">
 <main class="main-content"><div class="dec-workspace">
 <header class="dec-header"><div><span class="dec-eyebrow">Records management</span>
-<h1><?php echo $doc ? 'Request official declaration' : 'Declaration requests'; ?></h1>
-<p><?php echo $doc ? 'Send the signed copy to management for verification and filing.' : 'Track submitted documents and management decisions.'; ?></p></div>
+<h1><?php echo $doc ? 'Request official declaration' : 'GM declaration queue'; ?></h1>
+<p><?php echo $doc ? 'Send the signed copy to the General Manager for verification and filing.' : 'Review and decide every submitted Official Record declaration request.'; ?></p></div>
 <nav class="dec-actions" aria-label="Records navigation"><a class="dec-btn" href="<?php echo dec_escape($returnUrl); ?>">Company Files</a><a class="dec-btn" href="documents.php">Official Records</a>
-<?php if ($doc || $request): ?><a class="dec-btn" href="official_declarations.php">All requests</a><?php endif; ?></nav></header>
+<?php if (($doc || $request) && $isGmReviewer): ?><a class="dec-btn" href="official_declarations.php">GM queue</a><?php endif; ?></nav></header>
 <?php if ($feedback !== ''): ?><div class="dec-feedback" data-declaration-feedback="<?php echo dec_escape($feedbackTone); ?>" role="status"><?php echo dec_escape($feedback); ?></div><?php endif; ?>
 <?php if ($doc): ?>
 <section class="dec-panel"><div class="dec-panel-heading"><div><h2><?php echo dec_escape($doc['file_name']); ?></h2><p>Version <?php echo dec_escape($doc['current_version']); ?> · <?php echo dec_escape($doc['category']); ?></p></div><a class="dec-btn" href="download.php?type=document&amp;record_id=<?php echo $docId; ?>" target="_blank" rel="noopener"><i class="fas fa-file-alt" aria-hidden="true"></i> View copy</a></div>
 <form action="actions/official_declaration_handler.php" method="post" class="dec-form" data-declaration-form novalidate>
 <input type="hidden" name="csrf_token" value="<?php echo dec_escape($csrf); ?>"><input type="hidden" name="action" value="submit"><input type="hidden" name="doc_id" value="<?php echo $docId; ?>">
-<div class="dec-grid"><label>Send to <select name="signer_role" required><option value="GM">General Manager</option><option value="President">President</option></select></label>
+<div class="dec-grid"><label>Send to <input value="General Manager" readonly aria-readonly="true"><input type="hidden" name="signer_role" value="GM"></label>
 <label>Name of signatory on the document <input name="external_name" maxlength="150" required placeholder="Name shown with the signature"></label>
 <label>Signatory role / organization <input name="external_role" maxlength="100" placeholder="Optional"></label>
 <label>Signature date <input name="external_date" type="date" max="<?php echo date('Y-m-d'); ?>"><small>Leave blank if the signed copy has no date.</small></label></div>
@@ -93,7 +100,7 @@ $feedbackTone = ($error !== '' || isset($_GET['error'])) ? 'error' : 'success';
 <?php if ($request['request_remarks']): ?><p class="dec-note"><?php echo nl2br(dec_escape($request['request_remarks'])); ?></p><?php endif; ?>
 <div class="dec-actions"><a class="dec-btn" href="download.php?type=document&amp;record_id=<?php echo (int) $request['document_id']; ?>" target="_blank" rel="noopener"><i class="fas fa-file-alt" aria-hidden="true"></i> View current copy</a>
 <?php if ($request['official_document_id']): ?><a class="dec-btn dec-primary" href="download.php?type=document&amp;record_id=<?php echo (int) $request['official_document_id']; ?>" target="_blank" rel="noopener">View Official Record</a><?php endif; ?></div>
-<?php if ($request['request_status'] === 'Pending' && $request['requested_signer_role'] === $actor['role']): ?>
+<?php if ($request['request_status'] === 'Pending' && $isGmReviewer): ?>
 <form id="declarationDecisionForm" action="actions/document_handler.php" method="post" class="dec-form dec-divider" data-declaration-form novalidate>
 <input type="hidden" name="csrf_token" value="<?php echo dec_escape($csrf); ?>"><input type="hidden" name="doc_id" value="<?php echo (int) $request['document_id']; ?>"><input type="hidden" name="request_id" value="<?php echo $requestId; ?>"><input type="hidden" name="action" id="declarationDecisionAction" value="">
 <h3>Verify the signed copy</h3><p>Review the document before filing. If the file changed after submission, return it so the requester can submit the latest signed copy.</p>

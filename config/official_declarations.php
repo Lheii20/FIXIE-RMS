@@ -59,8 +59,14 @@ function drms_declaration_text($value, int $max, bool $required = false): string
 
 function drms_declaration_notify(mysqli $conn, array $request, string $role, ?int $userId, string $message, string $suffix): void
 {
+    // A requester no longer opens the management-only queue from a
+    // notification. Their notification sends them back to Company Files;
+    // the GM continues to receive the direct queue link.
+    $link = $userId === null
+        ? 'official_declarations.php?request_id=' . (int) $request['request_id']
+        : 'general_docs.php';
     phase6b2_create_notification($conn, $role, $message,
-        'official_declarations.php?request_id=' . (int) $request['request_id'],
+        $link,
         'declaration:' . (int) $request['request_id'] . ':' . $suffix, $userId);
 }
 
@@ -71,8 +77,11 @@ function drms_declaration_submit(mysqli $conn, array $doc, array $user, array $i
     }
     $folder = drms_get_official_folder_profile($conn, (string) ($doc['category'] ?: $doc['doc_type']));
     drms_declaration_working($doc, $folder);
+    // Official-record declaration is a single-accountability control: every
+    // request is routed to the General Manager. This avoids parallel queues
+    // where the same document may be approved by different management roles.
     $role = drms_declaration_text($input['signer_role'] ?? '', 30, true);
-    if (!in_array($role, ['GM', 'President'], true)) throw new DomainException('Select GM or President.');
+    if ($role !== 'GM') throw new DomainException('Official Record declaration requests must be sent to the General Manager.');
     $s = $conn->prepare("SELECT user_id FROM users WHERE role = ? AND status = 'Active' AND account_status = 'Active' LIMIT 1");
     $s->bind_param('s', $role); $s->execute();
     if (!$s->get_result()->fetch_row()) throw new DomainException('No active reviewer is available for that role.');
@@ -91,7 +100,7 @@ function drms_declaration_submit(mysqli $conn, array $doc, array $user, array $i
     $id = (int) $doc['doc_id'];
     $s = $conn->prepare("SELECT request_id FROM official_declaration_requests WHERE document_id = ? AND request_status = 'Pending' FOR UPDATE");
     $s->bind_param('i', $id); $s->execute();
-    if ($s->get_result()->fetch_row()) throw new DomainException('A request is already pending for this document. Open Declaration requests to track it.');
+    if ($s->get_result()->fetch_row()) throw new DomainException('A declaration request is already pending for this document. The General Manager will review it.');
     $hash = drms_declaration_fingerprint($doc);
     $version = drms_declaration_text((string) $doc['current_version'], 20, true);
     $ref = 'DEC-' . date('Ymd') . '-' . strtoupper(bin2hex(random_bytes(8)));
@@ -119,8 +128,11 @@ function drms_declaration_locked_request(mysqli $conn, int $requestId, int $docI
 
 function drms_declaration_assert_reviewer(array $request, array $user): void
 {
-    if (!in_array($user['role'], ['GM', 'President'], true) || $request['requested_signer_role'] !== $user['role']) {
-        throw new DomainException('Only the requested management role can decide this request.');
+    // The GM is the exclusive declaration reviewer. The request role is not
+    // trusted here so legacy requests previously routed to another role can
+    // still be safely completed by the GM instead of becoming stranded.
+    if ($user['role'] !== 'GM') {
+        throw new DomainException('Only the General Manager can review and approve Official Record declaration requests.');
     }
 }
 

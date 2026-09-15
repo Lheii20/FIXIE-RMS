@@ -9,8 +9,8 @@
     <link href="assets/css/dashboard.css?v=<?php echo filemtime(__DIR__ . '/assets/css/dashboard.css'); ?>" rel="stylesheet">
     <link href="assets/css/client-po-acknowledgement.css?v=<?php echo filemtime(__DIR__ . '/assets/css/client-po-acknowledgement.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="assets/vendor/flatpickr/4.6.13/flatpickr.min.css">
+    <script src="assets/vendor/chartjs/4.4.7/chart.umd.js"></script>
 </head>
 <body class="dashboard-page">
     <?php include 'sidebar.php'; ?>
@@ -848,6 +848,12 @@
                                             <?php endif; ?>
                                         </tr>
                                     <?php endwhile; endif; ?>
+                                    <?php
+                                    if ($my_recent instanceof mysqli_result) {
+                                        $my_recent->free();
+                                        $my_recent = null;
+                                    }
+                                    ?>
                                 </tbody>
                             </table>
                         </div>
@@ -872,6 +878,12 @@
                                                 <td class="text-end pe-4 text-muted"><small><?php echo date('M d, H:i', strtotime($doc['uploaded_at'])); ?></small></td>
                                             </tr>
                                         <?php endwhile; endif; ?>
+                                    <?php
+                                    if ($recent_dashboard_files instanceof mysqli_result) {
+                                        $recent_dashboard_files->free();
+                                        $recent_dashboard_files = null;
+                                    }
+                                    ?>
                                 </tbody>
                             </table>
                         </div>
@@ -893,9 +905,9 @@
     <?php if (isset($sc_charts) && !empty($sc_charts)): ?><script>const scData = <?php echo json_encode($sc_charts); ?>;</script><?php endif; ?>
     <?php if (isset($sales_charts) && !empty($sales_charts)): ?><script>const salesData = <?php echo json_encode($sales_charts); ?>;</script><?php endif; ?>
 
-    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="assets/vendor/jquery/3.7.0/jquery.min.js"></script>
+    <script src="assets/vendor/bootstrap/5.3.0/bootstrap.bundle.min.js"></script>
+    <script src="assets/vendor/flatpickr/4.6.13/flatpickr.min.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             if (typeof scData === 'undefined' || typeof Chart === 'undefined') return;

@@ -5,6 +5,10 @@ require_once __DIR__ . '/config/navigation_context.php';
 require_once 'config/workflow_access.php';
 require_once 'config/po_record_timeline.php';
 require_once 'config/workflow_feedback.php';
+require_once 'config/delivery_signature.php';
+require_once 'config/delivery_receipt_signature.php';
+require_once 'config/payment_signature.php';
+require_once 'config/payment_signature_ui.php';
 
 date_default_timezone_set('Asia/Manila');
 
@@ -461,6 +465,18 @@ while($p = $payment_query->fetch_assoc()){
     $total_paid += $p['amount_paid'];
     $payments[] = $p;
 }
+$payment_signature_map = [];
+try {
+    $payment_signature_map = drms_payment_signature_evidence_map(
+        $conn,
+        array_column($payments, 'payment_id')
+    );
+} catch (Throwable $payment_signature_error) {
+    drms_log_workflow_failure(
+        'View PO payment signature evidence load',
+        $payment_signature_error
+    );
+}
 $balance = $po['amount'] - $total_paid;
 
 $fund_release = null;
@@ -499,6 +515,8 @@ $delivery_request_stmt = $conn->prepare(
             delivery_request.*,
             plan.delivery_plan_id,
             plan.logistics_status,
+            plan.reviewed_by,
+            plan.reviewed_at,
             plan.provider_type,
             plan.provider_name,
             plan.planned_pickup_at,
@@ -543,6 +561,44 @@ $delivery_request_stmt->execute();
 $delivery_request =
     $delivery_request_stmt->get_result()->fetch_assoc();
 
+$delivery_signature = null;
+$delivery_signature_state = 'none';
+if (
+    $delivery_request &&
+    !empty($delivery_request['reviewed_by']) &&
+    !empty($delivery_request['reviewed_at']) &&
+    in_array(
+        (string) ($delivery_request['request_status'] ?? ''),
+        ['Scheduled', 'Completed'],
+        true
+    ) &&
+    in_array(
+        (string) ($delivery_request['logistics_status'] ?? ''),
+        ['Scheduled', 'Dispatched', 'Completed'],
+        true
+    )
+) {
+    try {
+        $delivery_signature = drms_load_delivery_signature_event(
+            $conn,
+            (int) $delivery_request['delivery_request_id'],
+            (int) $delivery_request['delivery_plan_id'],
+            (int) $delivery_request['reviewed_by'],
+            (string) $delivery_request['request_number'],
+            (string) $delivery_request['reviewed_at']
+        );
+        $delivery_signature_state = $delivery_signature
+            ? 'verified'
+            : 'legacy';
+    } catch (Throwable $signature_error) {
+        drms_log_workflow_failure(
+            'Delivery signature verification for PO ' . $po_id,
+            $signature_error
+        );
+        $delivery_signature_state = 'invalid';
+    }
+}
+
 $delivery_receipt_stmt = $conn->prepare(
         "SELECT
             receipt.*,
@@ -567,6 +623,31 @@ $delivery_receipt_stmt->bind_param('i', $po_id);
 $delivery_receipt_stmt->execute();
 $delivery_receipt =
     $delivery_receipt_stmt->get_result()->fetch_assoc();
+
+$delivery_receipt_signature = null;
+$delivery_receipt_signature_state = 'none';
+if ($delivery_receipt) {
+    try {
+        $delivery_receipt_signature =
+            drms_load_delivery_receipt_signature_event(
+                $conn,
+                (int) $delivery_receipt['delivery_receipt_id'],
+                (int) $delivery_receipt['po_id'],
+                (int) $delivery_receipt['receipt_cycle'],
+                (int) $delivery_receipt['recorded_by'],
+                (string) $delivery_receipt['created_at']
+            );
+        $delivery_receipt_signature_state = $delivery_receipt_signature
+            ? 'verified'
+            : 'legacy';
+    } catch (Throwable $receipt_signature_error) {
+        drms_log_workflow_failure(
+            'Delivery receipt signature verification for PO ' . $po_id,
+            $receipt_signature_error
+        );
+        $delivery_receipt_signature_state = 'invalid';
+    }
+}
 
 $timeline_empty_message = 'No recorded events are available yet.';
 try {
@@ -597,10 +678,11 @@ $can_upload_files = ($role == 'Procurement');
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/funding-release.css?v=<?php echo filemtime(__DIR__ . '/assets/css/funding-release.css'); ?>" rel="stylesheet">
     <link href="assets/css/delivery-request.css?v=<?php echo filemtime(__DIR__ . '/assets/css/delivery-request.css'); ?>" rel="stylesheet">
+    <link href="assets/css/delivery-signature.css?v=<?php echo filemtime(__DIR__ . '/assets/css/delivery-signature.css'); ?>" rel="stylesheet">
+    <link href="assets/css/payment-signature.css?v=<?php echo filemtime(__DIR__ . '/assets/css/payment-signature.css'); ?>" rel="stylesheet">
     <link href="assets/css/delivery-completion.css?v=<?php echo filemtime(__DIR__ . '/assets/css/delivery-completion.css'); ?>" rel="stylesheet">
     <link href="assets/css/po-record-timeline.css?v=<?php echo filemtime(__DIR__ . '/assets/css/po-record-timeline.css'); ?>" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="assets/vendor/sweetalert2/11.26.25/sweetalert2.min.css">
     <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
     <link href="assets/css/e-signature.css?v=<?php echo (string) (@filemtime(__DIR__ . '/assets/css/e-signature.css') ?: 1); ?>" rel="stylesheet">
     <link href="assets/css/po-print.css?v=<?php echo (string) (@filemtime(__DIR__ . '/assets/css/po-print.css') ?: 1); ?>" rel="stylesheet">
@@ -875,6 +957,61 @@ $can_upload_files = ($role == 'Procurement');
                     </span>
                 <?php endif; ?>
             </section>
+            <?php if ($delivery_signature_state !== 'none'): ?>
+                <section
+                    class="delivery-esign-summary no-print delivery-esign-summary--<?php echo htmlspecialchars($delivery_signature_state, ENT_QUOTES); ?>"
+                    aria-label="Supply Chain electronic-signature evidence"
+                >
+                    <?php if ($delivery_signature_state === 'verified' && $delivery_signature): ?>
+                        <div class="delivery-esign-mark" aria-hidden="true">
+                            <?php if (!empty($delivery_signature['verified_signature_image_path'])): ?>
+                                <img
+                                    src="signature_print_image.php?id=<?php echo (int) $delivery_signature['signature_id']; ?>"
+                                    alt=""
+                                >
+                            <?php else: ?>
+                                <span>/s/</span>
+                            <?php endif; ?>
+                        </div>
+                        <div class="delivery-esign-identity">
+                            <span class="delivery-esign-eyebrow">
+                                <i class="fas fa-check-circle"></i>
+                                Verified Supply Chain e-signature
+                            </span>
+                            <strong><?php echo htmlspecialchars((string) $delivery_signature['signer_name']); ?></strong>
+                            <small>
+                                Covers the approved Delivery Request and final Logistics Plan
+                            </small>
+                        </div>
+                        <div class="delivery-esign-meta">
+                            <span>Signed</span>
+                            <strong><?php echo date('M d, Y · h:i A', strtotime((string) $delivery_signature['signed_at'])); ?></strong>
+                        </div>
+                        <div class="delivery-esign-reference">
+                            <span>Verification code</span>
+                            <code title="<?php echo htmlspecialchars((string) $delivery_signature['verification_code'], ENT_QUOTES); ?>"><?php echo htmlspecialchars((string) $delivery_signature['verification_code']); ?></code>
+                        </div>
+                    <?php elseif ($delivery_signature_state === 'legacy'): ?>
+                        <div class="delivery-esign-state-icon" aria-hidden="true">
+                            <i class="fas fa-history"></i>
+                        </div>
+                        <div class="delivery-esign-identity">
+                            <span class="delivery-esign-eyebrow">Pre-electronic-signature approval</span>
+                            <strong><?php echo htmlspecialchars((string) ($delivery_request['reviewed_by_name'] ?? 'Supply Chain')); ?></strong>
+                            <small>This record remains readable, but no Phase 9A signature event exists.</small>
+                        </div>
+                    <?php else: ?>
+                        <div class="delivery-esign-state-icon" aria-hidden="true">
+                            <i class="fas fa-exclamation-triangle"></i>
+                        </div>
+                        <div class="delivery-esign-identity">
+                            <span class="delivery-esign-eyebrow">Signature verification unavailable</span>
+                            <strong>Do not treat this approval as electronically verified</strong>
+                            <small>The stored evidence did not match the approved delivery data. Ask an authorized administrator to review the server log.</small>
+                        </div>
+                    <?php endif; ?>
+                </section>
+            <?php endif; ?>
             <?php if ($delivery_request['logistics_status'] === 'Returned' && !empty($delivery_request['return_reason'])): ?>
                 <section class="delivery-return-notice no-print" role="alert">
                     <i class="fas fa-undo-alt"></i>
@@ -931,6 +1068,58 @@ $can_upload_files = ($role == 'Procurement');
                         <i class="fas fa-paperclip"></i>
                         <?php echo htmlspecialchars((string) $delivery_receipt['receipt_record_number']); ?>
                     </a>
+                <?php endif; ?>
+            </section>
+
+            <section
+                class="delivery-esign-summary no-print delivery-esign-summary--<?php echo htmlspecialchars($delivery_receipt_signature_state, ENT_QUOTES); ?>"
+                aria-label="Supply Chain delivery-completion certification"
+            >
+                <?php if ($delivery_receipt_signature_state === 'verified' && $delivery_receipt_signature): ?>
+                    <div class="delivery-esign-mark" aria-hidden="true">
+                        <?php if (!empty($delivery_receipt_signature['verified_signature_image_path'])): ?>
+                            <img
+                                src="signature_print_image.php?id=<?php echo (int) $delivery_receipt_signature['signature_id']; ?>"
+                                alt=""
+                            >
+                        <?php else: ?>
+                            <span>/s/</span>
+                        <?php endif; ?>
+                    </div>
+                    <div class="delivery-esign-identity">
+                        <span class="delivery-esign-eyebrow">
+                            <i class="fas fa-check-circle"></i>
+                            Delivery completion certified
+                        </span>
+                        <strong><?php echo htmlspecialchars((string) $delivery_receipt_signature['signer_name']); ?></strong>
+                        <small>Supply Chain certification is bound to the client handover details and acknowledgement-file hash.</small>
+                    </div>
+                    <div class="delivery-esign-meta">
+                        <span>Signed</span>
+                        <strong><?php echo date('M d, Y · h:i A', strtotime((string) $delivery_receipt_signature['signed_at'])); ?></strong>
+                    </div>
+                    <div class="delivery-esign-reference">
+                        <span>Verification code</span>
+                        <code title="<?php echo htmlspecialchars((string) $delivery_receipt_signature['verification_code'], ENT_QUOTES); ?>"><?php echo htmlspecialchars((string) $delivery_receipt_signature['verification_code']); ?></code>
+                    </div>
+                <?php elseif ($delivery_receipt_signature_state === 'legacy'): ?>
+                    <div class="delivery-esign-state-icon" aria-hidden="true">
+                        <i class="fas fa-history"></i>
+                    </div>
+                    <div class="delivery-esign-identity">
+                        <span class="delivery-esign-eyebrow">Pre-Phase-9C delivery receipt</span>
+                        <strong><?php echo htmlspecialchars((string) ($delivery_receipt['recorded_by_name'] ?? 'Supply Chain')); ?></strong>
+                        <small>The receipt remains readable, but it predates delivery-completion electronic certification.</small>
+                    </div>
+                <?php else: ?>
+                    <div class="delivery-esign-state-icon" aria-hidden="true">
+                        <i class="fas fa-exclamation-triangle"></i>
+                    </div>
+                    <div class="delivery-esign-identity">
+                        <span class="delivery-esign-eyebrow">Completion signature verification failed</span>
+                        <strong>Do not treat the delivery certification as electronically verified</strong>
+                        <small>The signed receipt data or acknowledgement evidence no longer matches the stored signature fingerprint.</small>
+                    </div>
                 <?php endif; ?>
             </section>
         <?php endif; ?>
@@ -1097,6 +1286,7 @@ $can_upload_files = ($role == 'Procurement');
                                                 <span class="badge bg-warning bg-opacity-10 text-dark border border-warning me-1 px-2 py-1">Partial Payment</span>
                                             <?php endif; ?>
                                             <div class="small text-muted mt-1"><?php echo htmlspecialchars($pay['payment_method'] ?? '--'); ?><?php if(!empty($pay['recorded_by_name'])): ?> · Recorded by <?php echo htmlspecialchars($pay['recorded_by_name']); ?><?php endif; ?></div>
+                                            <?php echo drms_payment_signature_chip($payment_signature_map[(int) $pay['payment_id']] ?? [], (int) $pay['payment_id']); ?>
                                         </td>
                                         <td class="py-3 align-middle">
                                             <div class="small fw-bold text-dark text-break"><?php echo htmlspecialchars($pay['reference_number'] ?? '--'); ?></div>
@@ -1572,9 +1762,9 @@ $can_upload_files = ($role == 'Procurement');
         <input type="hidden" name="remarks" id="dynamicRemarks">
     </form>
     
-    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="assets/vendor/jquery/3.7.0/jquery.min.js"></script>
+    <script src="assets/vendor/bootstrap/5.3.0/bootstrap.bundle.min.js"></script>
+    <script src="assets/vendor/sweetalert2/11.26.25/sweetalert2.all.min.js"></script>
     <script src="assets/js/e-signature.js?v=<?php echo (string) (@filemtime(__DIR__ . '/assets/js/e-signature.js') ?: 1); ?>"></script>
     
     <script>
@@ -1769,3 +1959,4 @@ $can_upload_files = ($role == 'Procurement');
     </script>
 </body>
 </html>
+

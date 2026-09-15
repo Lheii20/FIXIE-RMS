@@ -201,8 +201,53 @@
             return;
         }
 
-        submitButton.disabled = true;
-        submitButton.innerHTML = '<span>Recording receipt...</span><i class="fas fa-spinner fa-spin"></i>';
+        const signatureConfirmed = form.elements.e_signature_client_confirmed &&
+            form.elements.e_signature_client_confirmed.value === '1';
+        if (signatureConfirmed) {
+            submitButton.disabled = true;
+            submitButton.innerHTML = '<span>Signing &amp; recording...</span><i class="fas fa-spinner fa-spin"></i>';
+            return;
+        }
+
+        event.preventDefault();
+        if (!window.DRMSESignature) {
+            window.DRMSFeedback?.toast(
+                'The electronic-signature component is unavailable. Refresh the page and try again.',
+                'danger',
+                3000
+            );
+            return;
+        }
+
+        const openSignature = function () {
+            window.DRMSESignature.open({
+                form: form,
+                title: 'Sign delivery completion',
+                subtitle: 'Certify the client handover and acknowledgement evidence before the Official Record is filed.',
+                recordLabel: form.dataset.poNumber || form.dataset.requestNumber || 'Client delivery receipt',
+                stage: 'Delivery Completion',
+                consent: 'I certify that the complete PO quantity was handed over to the named client representative and that the attached acknowledgement evidence is authentic.',
+                submitText: 'Sign & record receipt'
+            });
+        };
+
+        if (window.DRMSFeedback) {
+            window.DRMSFeedback.confirm({
+                title: 'Finalize client delivery?',
+                message: 'Your electronic signature will certify the handover evidence, file the receipt as an Official Record, and start Finance collection when a balance remains.',
+                confirmText: 'Continue to signature',
+                cancelText: 'Review details',
+                tone: 'info',
+                focusConfirm: true
+            }).then(function (approved) {
+                if (approved) {
+                    openSignature();
+                }
+            });
+            return;
+        }
+
+        openSignature();
     });
 
     form.addEventListener('input', function (event) {

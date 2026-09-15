@@ -5,7 +5,7 @@ require_once '../config/official_declarations.php';
 require_once '../config/workflow_feedback.php';
 
 if (empty($_SESSION['user_id'])) { header('Location: ../index.php'); exit; }
-$target = '../official_declarations.php';
+$target = '../general_docs.php';
 $started = false;
 try {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !is_string($_POST['csrf_token'] ?? null) ||
@@ -18,7 +18,7 @@ try {
     $action = (string) ($_POST['action'] ?? '');
     $docId = (int) ($_POST['doc_id'] ?? 0);
     $requestId = (int) ($_POST['request_id'] ?? 0);
-    if ($requestId > 0) $target .= '?request_id=' . $requestId;
+    if ($requestId > 0 && $user['role'] === 'GM') $target = '../official_declarations.php?request_id=' . $requestId;
     $conn->begin_transaction(); $started = true;
     // Consistent lock order: document first, then request, for every decision.
     $s = $conn->prepare('SELECT * FROM documents WHERE doc_id = ? FOR UPDATE');
@@ -26,8 +26,8 @@ try {
     if (!$doc) throw new DomainException('The document is unavailable.');
     if ($action === 'submit') {
         $requestId = drms_declaration_submit($conn, $doc, $user, $_POST);
-        $target = '../official_declarations.php?request_id=' . $requestId;
-        $message = 'Request submitted. The selected management role has been notified.';
+        $target = '../general_docs.php?type=' . rawurlencode((string) ($doc['category'] ?: $doc['doc_type']));
+        $message = 'Request submitted. The General Manager has been notified.';
     } elseif (in_array($action, ['return', 'cancel'], true)) {
         $request = drms_declaration_locked_request($conn, $requestId, $docId);
         $remarks = drms_declaration_text($_POST['remarks'] ?? '', 2000, $action === 'return');

@@ -37,7 +37,7 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
     <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/mobile-settings-admin.css?v=<?php echo filemtime(__DIR__ . '/assets/css/mobile-settings-admin.css'); ?>" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <link rel="stylesheet" href="assets/vendor/sweetalert2/11.26.25/sweetalert2.min.css">
     
 </head>
 <body class="page-notifications">
@@ -66,10 +66,10 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
                 </div>
             </div>
 
-            <div class="filter-tabs">
-                <button type="button" class="filter-btn active" id="filter-all" onclick="filterNotifs('all')">All</button>
-                <button type="button" class="filter-btn text-secondary" id="filter-unread" onclick="filterNotifs('unread')">Unread</button>
-                <button type="button" class="filter-btn text-secondary" id="filter-read" onclick="filterNotifs('read')">Read</button>
+            <div class="filter-tabs" role="group" aria-label="Filter notifications">
+                <button type="button" class="filter-btn active" id="filter-all" aria-pressed="true" onclick="filterNotifs('all')">All</button>
+                <button type="button" class="filter-btn text-secondary" id="filter-unread" aria-pressed="false" onclick="filterNotifs('unread')">Unread</button>
+                <button type="button" class="filter-btn text-secondary" id="filter-read" aria-pressed="false" onclick="filterNotifs('read')">Read</button>
             </div>
 
             <div id="notificationContainer" class="notification-list">
@@ -228,9 +228,9 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
         </div>
     </div>
 
-    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="assets/vendor/jquery/3.7.0/jquery.min.js"></script>
+    <script src="assets/vendor/bootstrap/5.3.0/bootstrap.bundle.min.js"></script>
+    <script src="assets/vendor/sweetalert2/11.26.25/sweetalert2.all.min.js"></script>
 
     <script>
         const csrfToken = "<?php echo $_SESSION['csrf_token']; ?>";
@@ -566,11 +566,13 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
             document.querySelectorAll('.filter-btn').forEach(btn => {
                 btn.classList.remove('active', 'text-white');
                 btn.classList.add('text-secondary');
+                btn.setAttribute('aria-pressed', 'false');
             });
             const activeBtn = document.getElementById('filter-' + filterType);
             if(activeBtn) {
                 activeBtn.classList.remove('text-secondary');
                 activeBtn.classList.add('active', 'text-white');
+                activeBtn.setAttribute('aria-pressed', 'true');
             }
 
             const cards = document.querySelectorAll('.notif-card');
@@ -617,3 +619,4 @@ $unread_count = get_unread_notification_count($conn, $user_id, $role);
     </script>
 </body>
 </html>
+

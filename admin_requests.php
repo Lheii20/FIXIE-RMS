@@ -39,7 +39,7 @@ $reqs = $stmt->get_result();
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
     <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <link rel="stylesheet" href="assets/vendor/sweetalert2/11.26.25/sweetalert2.min.css">
 </head>
 <body class="page-admin-requests">
     <?php include 'sidebar.php'; ?>
@@ -196,8 +196,8 @@ $reqs = $stmt->get_result();
         </div>
     </div>
     
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="assets/vendor/bootstrap/5.3.0/bootstrap.bundle.min.js"></script>
+    <script src="assets/vendor/sweetalert2/11.26.25/sweetalert2.all.min.js"></script>
     <script>
         function openRequestModal(btnElement) {
             const id = btnElement.getAttribute('data-id'); const date = btnElement.getAttribute('data-date'); const fullName = btnElement.getAttribute('data-fullname'); const userName = btnElement.getAttribute('data-username'); const role = btnElement.getAttribute('data-role'); const type = btnElement.getAttribute('data-type'); const newVal = btnElement.getAttribute('data-newval'); const reason = btnElement.getAttribute('data-reason'); const status = btnElement.getAttribute('data-status');
@@ -292,3 +292,4 @@ $reqs = $stmt->get_result();
     </script>
 </body>
 </html>
+

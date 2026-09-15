@@ -230,8 +230,7 @@ if ($status === 'Pending Approval' && $latest_supporting_record !== null) {
     <link href="assets/css/client-po-acknowledgement.css?v=<?php echo filemtime(__DIR__ . '/assets/css/client-po-acknowledgement.css'); ?>" rel="stylesheet">
     <link href="assets/css/e-signature.css?v=<?php echo (string) (@filemtime(__DIR__ . '/assets/css/e-signature.css') ?: 1); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="assets/vendor/sweetalert2/11.26.25/sweetalert2.min.css">
     <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
 <body class="page-view-quotation workflow-ui">
@@ -976,9 +975,9 @@ if ($status === 'Pending Approval' && $latest_supporting_record !== null) {
         </div>
     </div>
 
-    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="assets/vendor/jquery/3.7.0/jquery.min.js"></script>
+    <script src="assets/vendor/bootstrap/5.3.0/bootstrap.bundle.min.js"></script>
+    <script src="assets/vendor/sweetalert2/11.26.25/sweetalert2.all.min.js"></script>
     <script src="assets/js/client-approval-form.js?v=<?php echo filemtime(__DIR__ . '/assets/js/client-approval-form.js'); ?>"></script>
     <script src="assets/js/e-signature.js?v=<?php echo (string) (@filemtime(__DIR__ . '/assets/js/e-signature.js') ?: 1); ?>"></script>
 
@@ -1061,3 +1060,4 @@ if ($status === 'Pending Approval' && $latest_supporting_record !== null) {
     </script>
 </body>
 </html>
+

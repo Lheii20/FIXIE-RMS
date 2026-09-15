@@ -937,3 +937,13 @@
         transition: none !important;
     }
 }
+
+/* Phase 5I: visible keyboard focus for global search controls. */
+@media screen {
+    html body .saas-search-trigger:focus-visible,
+    html body .cp-header .cp-esc:focus-visible {
+        outline: 0 !important;
+        border-color: var(--app-control-focus-border, #3158c9) !important;
+        box-shadow: var(--app-control-focus-ring, 0 0 0 3px rgba(49, 88, 201, 0.18)) !important;
+    }
+}

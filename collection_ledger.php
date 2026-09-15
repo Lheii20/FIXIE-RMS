@@ -1,6 +1,8 @@
 <?php
 require 'config/db_connect.php';
 require 'config/functions.php';
+require_once 'config/payment_signature.php';
+require_once 'config/payment_signature_ui.php';
 
 date_default_timezone_set('Asia/Manila');
 
@@ -337,6 +339,19 @@ try {
     $payment_rows = [];
 }
 
+$payment_signature_map = [];
+try {
+    $payment_signature_map = drms_payment_signature_evidence_map(
+        $conn,
+        array_column($payment_rows, 'payment_id')
+    );
+} catch (Throwable $signature_error) {
+    drms_log_workflow_failure(
+        'Collection ledger payment signature evidence load',
+        $signature_error
+    );
+}
+
 $first_row_number = $total_rows > 0 ? (($page - 1) * $per_page) + 1 : 0;
 $last_row_number = min($page * $per_page, $total_rows);
 ?>
@@ -350,8 +365,8 @@ $last_row_number = min($page * $per_page, $total_rows);
     <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/collection-ledger.css?v=<?php echo filemtime(__DIR__ . '/assets/css/collection-ledger.css'); ?>" rel="stylesheet">
+    <link href="assets/css/payment-signature.css?v=<?php echo filemtime(__DIR__ . '/assets/css/payment-signature.css'); ?>" rel="stylesheet">
     <link href="assets/css/collection-navigation.css?v=<?php echo filemtime(__DIR__ . '/assets/css/collection-navigation.css'); ?>" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
 <body class="ledger-page workflow-ui">
@@ -485,7 +500,7 @@ $last_row_number = min($page * $per_page, $total_rows);
                                             <span class="ledger-status ledger-status-<?php echo htmlspecialchars(strtolower(str_replace([' ', '/'], '-', $row['po_collection_status']))); ?>"><?php echo htmlspecialchars($row['po_collection_status']); ?></span>
                                             <small class="ledger-balance"><?php echo $row['po_balance'] > 0 ? phase5e_money($row['po_balance']) . ' remaining' : 'Fully collected'; ?></small>
                                         </td>
-                                        <td data-label="Recorded by"><div class="ledger-recorder"><span><i class="fas fa-user-check"></i></span><div><strong><?php echo htmlspecialchars($row['recorded_by_name'] ?: 'System record'); ?></strong><small>Payment #<?php echo (int) $row['payment_id']; ?></small></div></div></td>
+                                        <td data-label="Recorded by"><div class="ledger-recorder"><span><i class="fas fa-user-check"></i></span><div><strong><?php echo htmlspecialchars($row['recorded_by_name'] ?: 'System record'); ?></strong><small>Payment #<?php echo (int) $row['payment_id']; ?></small><?php echo drms_payment_signature_chip($payment_signature_map[(int) $row['payment_id']] ?? [], (int) $row['payment_id']); ?></div></div></td>
                                         <td data-label="Evidence">
                                             <div class="ledger-evidence-actions">
                                                 <?php if ($row['official_proof_exists']): ?>
@@ -518,6 +533,7 @@ $last_row_number = min($page * $per_page, $total_rows);
         </div>
     </main>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="assets/vendor/bootstrap/5.3.0/bootstrap.bundle.min.js"></script>
 </body>
 </html>
+

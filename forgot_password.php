@@ -21,7 +21,6 @@ $notice = trim($_GET['notice'] ?? '');
     <title>Account Recovery - Fixie DRMS</title>
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="assets/css/style.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/system-feedback.css?v=<?php echo file_exists(__DIR__ . '/assets/css/system-feedback.css') ? filemtime(__DIR__ . '/assets/css/system-feedback.css') : '1'; ?>">
 </head>

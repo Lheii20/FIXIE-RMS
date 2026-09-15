@@ -284,8 +284,53 @@
             return;
         }
 
-        submitButton.disabled = true;
-        submitButton.innerHTML = '<span>Recording payment...</span><i class="fas fa-circle-notch fa-spin"></i>';
+        var signatureConfirmed = form.elements.e_signature_client_confirmed &&
+            form.elements.e_signature_client_confirmed.value === '1';
+        if (signatureConfirmed) {
+            submitButton.disabled = true;
+            submitButton.innerHTML = '<span>Signing &amp; recording...</span><i class="fas fa-circle-notch fa-spin"></i>';
+            return;
+        }
+
+        event.preventDefault();
+        if (!window.DRMSESignature) {
+            window.DRMSFeedback?.toast(
+                'The electronic-signature component is unavailable. Refresh the page and try again.',
+                'danger',
+                3000
+            );
+            return;
+        }
+
+        var openSignature = function () {
+            window.DRMSESignature.open({
+                form: form,
+                title: 'Sign Finance payment verification',
+                subtitle: 'Confirm the payment and proof before the Official Payment Confirmation is filed.',
+                recordLabel: form.dataset.poNumber || 'Client Payment Confirmation',
+                stage: 'Finance Verification',
+                consent: 'I verified the client payment amount, date, method, reference, classification, and attached proof and authorize this Finance payment confirmation through my electronic signature.',
+                submitText: 'Sign & record payment'
+            });
+        };
+
+        if (window.DRMSFeedback) {
+            window.DRMSFeedback.confirm({
+                title: 'Record this verified payment?',
+                message: 'Finance will electronically sign this payment, file its proof as an Official Record, and update the collection balance.',
+                confirmText: 'Continue to signature',
+                cancelText: 'Review details',
+                tone: 'info',
+                focusConfirm: true
+            }).then(function (approved) {
+                if (approved) {
+                    openSignature();
+                }
+            });
+            return;
+        }
+
+        openSignature();
     });
 
     syncClassification();

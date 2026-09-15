@@ -17,7 +17,16 @@
   $filter = (isset($_GET['filter']) && in_array($_GET['filter'], $valid_filters)) ? $_GET['filter'] : 'all';
   $queue = (isset($_GET['queue']) && $_GET['queue'] === 'mine') ? 'mine' : '';
 
-  $sql = "SELECT * FROM purchase_requests WHERE 1=1";
+  $sql = "SELECT
+              pr_id,
+              pr_number,
+              client_name,
+              amount,
+              status,
+              current_approval_stage,
+              date_created
+          FROM purchase_requests
+          WHERE 1=1";
   $params = [];
   $types = "";
 
@@ -63,6 +72,7 @@
   }
   $stmt->execute();
   $result = $stmt->get_result();
+  $stmt->close();
   ?>
   <!DOCTYPE html>
   <html lang="en">
@@ -116,7 +126,7 @@
                       <input type="text" name="search" class="sleek-search-input" placeholder="Search PR or Client..." value="<?php echo htmlspecialchars($search); ?>">
                   </div>
                 
-                  <select name="filter" class="sleek-select" onchange="this.form.submit()">
+                  <select name="filter" class="sleek-select" aria-label="Filter purchase requests by status" onchange="this.form.submit()">
                       <option value="all" <?php echo ($filter == 'all') ? 'selected' : ''; ?>>All Records</option>
                       <option value="Pending" <?php echo ($filter == 'Pending') ? 'selected' : ''; ?>>Pending Review</option>
                       <option value="Approved" <?php echo ($filter == 'Approved') ? 'selected' : ''; ?>>Approved</option>
@@ -249,6 +259,11 @@
                                   <?php endwhile; ?>
                               <?php endif; ?>
                           </tbody>
+                          <?php
+                          if ($result instanceof mysqli_result) {
+                              $result->free();
+                          }
+                          ?>
                       </table>
                   </div>
               </div>

@@ -269,6 +269,7 @@ if (!empty($certificate['physical_evidence_number'])) {
     </div>
 </main>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="assets/vendor/bootstrap/5.3.0/bootstrap.bundle.min.js"></script>
 </body>
 </html>
+

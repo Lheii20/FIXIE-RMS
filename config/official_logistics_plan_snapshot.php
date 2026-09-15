@@ -131,6 +131,7 @@ if (!function_exists('drms_render_official_logistics_plan_pdf')) {
         $request_record = $snapshot['request_record'];
         $items = $snapshot['items'];
         $total_units = (int) $snapshot['total_units'];
+        $delivery_signature = $snapshot['delivery_signature'];
 
         $pdf = new DrmsPrfPdfBuilder(
             $record_number . ' - Approved Logistics Plan',
@@ -504,52 +505,95 @@ if (!function_exists('drms_render_official_logistics_plan_pdf')) {
         );
         $y += 82;
 
-        if ($y + 130 > 775) {
+        if ($y + 148 > 775) {
             $y = $new_page($pdf, true);
         }
-        $y = $section_title($pdf, $y, 'Authorization', 'Authenticated workflow ownership');
+        $y = $section_title(
+            $pdf,
+            $y,
+            'Authorization',
+            'Workflow authorship and verified electronic approval'
+        );
         $signatories = [
             [
                 'Source request prepared by Procurement',
                 (string) $request['prepared_by_name'],
-                'REQUEST PREPARED',
+                'WORKFLOW AUTHOR',
                 drms_logistics_plan_pdf_date($request['submitted_at']),
+                null,
+                false,
+                '',
             ],
             [
-                'Plan reviewed and approved by Supply Chain',
-                (string) $request['reviewed_by_name'],
-                'PLAN APPROVED',
-                drms_logistics_plan_pdf_date($request['reviewed_at']),
+                'Electronically approved by Supply Chain',
+                (string) $delivery_signature['signer_name'],
+                'E-SIGNED / PLAN APPROVED',
+                drms_logistics_plan_pdf_date($delivery_signature['signed_at']),
+                $delivery_signature['verified_signature_image_path'] ?? null,
+                true,
+                (string) $delivery_signature['verification_code'],
             ],
         ];
         foreach ($signatories as $index => $signatory) {
             $x = 40 + ($index * 260);
-            $pdf->rectangle($x, $y, 255, 88, [255, 255, 255], $border);
+            $pdf->rectangle($x, $y, 255, 110, [255, 255, 255], $border);
             $pdf->wrappedText(
                 $x + 12,
-                $y + 10,
+                $y + 8,
                 strtoupper($signatory[0]),
                 231,
-                7,
+                6.7,
                 true,
                 $blue,
                 8.5,
                 2
             );
+            $signature_image_drawn = !empty($signatory[5]) &&
+                !empty($signatory[4]) &&
+                method_exists($pdf, 'transparentPng') &&
+                $pdf->transparentPng(
+                    (string) $signatory[4],
+                    $x + 12,
+                    $y + 27,
+                    108,
+                    22
+                );
+            if (!empty($signatory[5]) && !$signature_image_drawn) {
+                $pdf->text(
+                    $x + 12,
+                    $y + 38,
+                    '/s/ ' . $signatory[1],
+                    8.2,
+                    true,
+                    $blue,
+                    'center',
+                    108
+                );
+            }
             $pdf->wrappedText(
                 $x + 12,
-                $y + 35,
+                !empty($signatory[5]) ? $y + 52 : $y + 36,
                 $signatory[1],
                 231,
-                10,
+                8.8,
                 true,
                 $ink,
-                11,
+                10,
                 2
             );
-            $pdf->line($x + 12, $y + 60, $x + 243, $y + 60, $border, 0.7);
-            $pdf->text($x + 12, $y + 67, $signatory[2], 6.6, true, $green);
-            $pdf->text($x + 130, $y + 67, $signatory[3], 6.6, false, $muted, 'right', 113);
+            $pdf->line($x + 12, $y + 72, $x + 243, $y + 72, $border, 0.7);
+            $pdf->text($x + 12, $y + 79, $signatory[2], 6.3, true, $green);
+            $pdf->text($x + 130, $y + 79, $signatory[3], 6.3, false, $muted, 'right', 113);
+            if (!empty($signatory[6])) {
+                $pdf->text(
+                    $x + 12,
+                    $y + 94,
+                    'E-SIGN ' . $signatory[6],
+                    5.5,
+                    false,
+                    $muted
+                );
+            }
         }
 
         $page_count = $pdf->pageCount();
@@ -559,7 +603,7 @@ if (!function_exists('drms_render_official_logistics_plan_pdf')) {
             $pdf->text(
                 40,
                 809,
-                'Generated and locked by Fixie DRMS after Supply Chain plan approval.',
+                'Generated and locked by Fixie DRMS after verified Supply Chain e-signature approval.',
                 7.2,
                 false,
                 $muted

@@ -347,3 +347,74 @@
         gap: 9px !important;
     }
 }
+
+/* Phase 5H: keep record-list titles readable beside mobile-only actions. */
+@media screen and (max-width: 767.98px) {
+    html body:is(.page-documents, .page-general-docs)
+        .main-content > .header-section > .d-flex:first-child {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) !important;
+        grid-template-areas:
+            "record-heading"
+            "record-actions" !important;
+        align-items: start !important;
+        gap: 8px !important;
+        width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    html body:is(.page-documents, .page-general-docs)
+        .main-content > .header-section > .d-flex:first-child > .d-flex:first-child {
+        grid-area: record-heading !important;
+        width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    html body:is(.page-documents, .page-general-docs)
+        .main-content > .header-section > .d-flex:first-child > .d-flex:first-child > div:last-child {
+        width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    html body:is(.page-documents, .page-general-docs)
+        .main-content > .header-section h3,
+    html body:is(.page-documents, .page-general-docs)
+        .main-content > .header-section h3 + p {
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        white-space: normal !important;
+        overflow-wrap: normal !important;
+        word-break: normal !important;
+    }
+
+    html body:is(.page-documents, .page-general-docs)
+        .main-content > .header-section > .d-flex:first-child > .d-flex:last-child {
+        display: flex !important;
+        grid-area: record-actions !important;
+        align-items: center !important;
+        justify-content: flex-end !important;
+        flex-wrap: nowrap !important;
+        gap: 6px !important;
+        width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    html body:is(.page-documents, .page-general-docs)
+        .main-content > .header-section a[href="official_declarations.php"] {
+        display: inline-flex !important;
+        flex: 0 1 auto !important;
+        min-width: 0 !important;
+        min-height: 36px !important;
+        padding: 7px 10px !important;
+        overflow: hidden !important;
+        white-space: nowrap !important;
+        text-overflow: ellipsis !important;
+    }
+
+    html body:is(.page-documents, .page-general-docs)
+        .main-content > .header-section > .d-flex:first-child > .d-flex:last-child > :is(.btn, .dropdown) {
+        margin: 0 !important;
+    }
+}

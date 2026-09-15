@@ -168,8 +168,14 @@ function drms_vc1_inspect(mysqli $conn): array
     $database = (string) $server['db'];
     $issues = [];
     $steps = [];
-    if ($database !== 'fixie_drms') {
-        $issues[] = 'Wrong target database. VC1 only permits fixie_drms, never information_schema or another database.';
+    // The selected application database name is environment-specific. Local,
+    // isolated E2E, and hosted deployments legitimately use different names.
+    // Safety therefore rejects only server-owned schemas; db_connect.php has
+    // already bound this connection to the configured application database.
+    $normalizedDatabase = strtolower(trim($database));
+    $systemSchemas = ['information_schema', 'mysql', 'performance_schema', 'sys'];
+    if ($normalizedDatabase === '' || in_array($normalizedDatabase, $systemSchemas, true)) {
+        $issues[] = 'Unsafe target database. Select the configured Fixie DRMS application database, never a server-owned system schema.';
     }
     $version = (string) $server['version'];
     if (stripos($version, 'MariaDB') === false || !preg_match('/(\d+\.\d+\.\d+)-MariaDB/i', $version, $match) || version_compare($match[1], '10.4.0', '<')) {
@@ -282,3 +288,5 @@ function drms_vc1_sync_guard_present(string $root): bool
         && strpos($source, 'PHP_SAPI') !== false
         && !preg_match('/\b(?:require|include|mysqli|truncate|query|exec|eval)\b/i', $source);
 }
+
+

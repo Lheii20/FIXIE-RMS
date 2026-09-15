@@ -222,7 +222,6 @@ $can_record = $record && $eligibility_error === '';
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/prf-form.css?v=<?php echo filemtime(__DIR__ . '/assets/css/prf-form.css'); ?>" rel="stylesheet">
     <link href="assets/css/collection-followup.css?v=<?php echo filemtime(__DIR__ . '/assets/css/collection-followup.css'); ?>" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
 </head>
 <body class="prf-page followup-page workflow-ui">

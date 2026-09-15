@@ -61,7 +61,7 @@ $restorable_packages = array_values(array_filter(
     <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/mobile-settings-admin.css?v=<?php echo filemtime(__DIR__ . '/assets/css/mobile-settings-admin.css'); ?>" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <link rel="stylesheet" href="assets/vendor/sweetalert2/11.26.25/sweetalert2.min.css">
 </head>
 <body class="page-admin-backup">
 <?php include 'sidebar.php'; ?>
@@ -236,9 +236,9 @@ $restorable_packages = array_values(array_filter(
     </div>
 </main>
 
-<script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="assets/vendor/jquery/3.7.0/jquery.min.js"></script>
+<script src="assets/vendor/bootstrap/5.3.0/bootstrap.bundle.min.js"></script>
+<script src="assets/vendor/sweetalert2/11.26.25/sweetalert2.all.min.js"></script>
 <script>
 const toastMessage = <?php echo json_encode($toast_message, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 const toastType = <?php echo json_encode($toast_type, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
@@ -303,3 +303,4 @@ async function confirmSystemRestore() {
 </script>
 </body>
 </html>
+
