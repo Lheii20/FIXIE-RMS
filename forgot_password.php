@@ -23,6 +23,8 @@ $notice = trim($_GET['notice'] ?? '');
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/style.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/system-feedback.css?v=<?php echo file_exists(__DIR__ . '/assets/css/system-feedback.css') ? filemtime(__DIR__ . '/assets/css/system-feedback.css') : '1'; ?>">
+    <link rel="stylesheet" href="assets/css/loading-skeleton.css?v=<?php echo filemtime(__DIR__ . '/assets/css/loading-skeleton.css'); ?>">
+    <script src="assets/js/loading-skeleton.js?v=<?php echo filemtime(__DIR__ . '/assets/js/loading-skeleton.js'); ?>" defer></script>
 </head>
 <body class="page-forgot-password">
     <div class="auth-wrapper">

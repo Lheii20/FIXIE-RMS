@@ -18,6 +18,35 @@ if ($user_result->num_rows == 0) {
     exit();
 }
 $user = $user_result->fetch_assoc();
+$current_device_hash = drms_registry_key_hash();
+$current_auth_hash = hash('sha256', (string) ($_SESSION['session_token'] ?? ''));
+$session_window_minutes = (int) ($_SESSION['drms_session_timeout_minutes'] ?? 30);
+if (!in_array($session_window_minutes, [15, 30, 60, 120], true)) $session_window_minutes = 30;
+$session_cutoff = date('Y-m-d H:i:s', time() - $session_window_minutes * 60);
+$security_sessions = [];
+$session_query = $conn->prepare(
+    'SELECT device_key_hash, auth_token_hash, ip_address, user_agent,
+            signed_in_at, last_seen_at, ended_at, ended_reason
+     FROM user_sessions WHERE user_id = ? ORDER BY signed_in_at DESC LIMIT 8'
+);
+$session_query->bind_param('i', $user_id);
+$session_query->execute();
+$session_result = $session_query->get_result();
+while ($session_row = $session_result->fetch_assoc()) $security_sessions[] = $session_row;
+$session_query->close();
+$other_count_query = $conn->prepare(
+    'SELECT COUNT(*) AS total FROM user_sessions
+     WHERE user_id = ? AND BINARY device_key_hash <> BINARY ? AND BINARY auth_token_hash = BINARY ?
+       AND ended_at IS NULL AND last_seen_at >= ?'
+);
+$other_count_query->bind_param('isss', $user_id, $current_device_hash, $current_auth_hash, $session_cutoff);
+$other_count_query->execute();
+$other_sessions_count = (int) ($other_count_query->get_result()->fetch_assoc()['total'] ?? 0);
+$other_count_query->close();
+$security_error_codes = ['SecurityTokenMismatch', 'SecurityPasswordRequired', 'WrongSecurityPassword', 'SecurityActionCooldown', 'InvalidSecurityAction', 'AccountUpdateFailed'];
+$is_security_success = (string) ($_GET['success'] ?? '') === 'OtherDevicesSignedOut';
+$security_error_code = (string) ($_GET['error'] ?? '');
+$is_security_error = in_array($security_error_code, $security_error_codes, true);
 ?>
 
 <!DOCTYPE html>
@@ -29,6 +58,7 @@ $user = $user_result->fetch_assoc();
     <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/mobile-settings-admin.css?v=<?php echo filemtime(__DIR__ . '/assets/css/mobile-settings-admin.css'); ?>" rel="stylesheet">
+    <link href="assets/css/account-security.css?v=<?php echo filemtime(__DIR__ . '/assets/css/account-security.css'); ?>" rel="stylesheet">
     <link href="assets/css/e-signature.css?v=<?php echo file_exists(__DIR__ . '/assets/css/e-signature.css') ? filemtime(__DIR__ . '/assets/css/e-signature.css') : '1'; ?>" rel="stylesheet">
 </head>
 <body class="page-settings">
@@ -38,14 +68,15 @@ $user = $user_result->fetch_assoc();
     <div class="main-content fade-in settings-main">
         <div class="mb-5 settings-header">
             <h2 class="fw-bold mb-1">Account Settings</h2>
-            <p class="text-muted mb-0">Manage your profile.</p>
+            <p class="text-muted mb-0">Manage your profile, appearance, and account security.</p>
         </div>
 
-        <?php if(isset($_GET['success'])): ?>
+        <?php if(isset($_GET['success']) && !$is_security_success): ?>
             <div class="alert alert-success alert-dismissible fade show border-0 shadow-sm">
                 <i class="fas fa-check-circle me-2"></i> 
                 <?php 
-                if($_GET['success'] == 'CodeSent') echo "A 6-digit verification code has been sent to your new email.";
+                if($_GET['success'] == 'ThemeUpdated') echo "Your appearance preference has been saved.";
+                elseif($_GET['success'] == 'CodeSent') echo "A 6-digit verification code has been sent to your new email.";
                 elseif($_GET['success'] == 'EmailVerified') echo "Email successfully verified and updated!";
                 elseif($_GET['success'] == 'PasswordUpdated') echo "Your password has been successfully updated!";
                 elseif($_GET['success'] == 'ProfileUpdated') echo "Your profile information has been updated.";
@@ -58,11 +89,13 @@ $user = $user_result->fetch_assoc();
             </div>
         <?php endif; ?>
         
-        <?php if(isset($_GET['error'])): ?>
+        <?php if(isset($_GET['error']) && !$is_security_error): ?>
             <div class="alert alert-danger alert-dismissible fade show border-0 shadow-sm">
                 <i class="fas fa-exclamation-circle me-2"></i> Error: 
                 <?php 
-                if($_GET['error'] == 'InvalidCode') echo "The verification code is incorrect or has expired.";
+                if($_GET['error'] == 'PreferenceSaveFailed') echo "The appearance preference could not be saved. Check that the user-preferences migration has been installed.";
+                elseif($_GET['error'] == 'InvalidPreference') echo "Select a valid appearance option.";
+                elseif($_GET['error'] == 'InvalidCode') echo "The verification code is incorrect or has expired.";
                 elseif($_GET['error'] == 'EmailAlreadyInUse') echo "That email address is already in use by another account.";
                 elseif($_GET['error'] == 'WrongCurrentPassword') echo "The current password you entered is incorrect.";
                 elseif($_GET['error'] == 'PasswordMismatch') echo "The new passwords do not match.";
@@ -89,6 +122,35 @@ $user = $user_result->fetch_assoc();
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
         <?php endif; ?>
+
+        <section class="drms-appearance-card" aria-labelledby="appearanceHeading">
+            <div class="drms-appearance-card__copy">
+                <span class="drms-appearance-card__icon" aria-hidden="true"><i class="fas fa-circle-half-stroke"></i></span>
+                <div>
+                    <h3 id="appearanceHeading">Appearance</h3>
+                    <p>Choose the display that works best for your account. Printouts stay light.</p>
+                </div>
+            </div>
+            <form action="actions/user_preferences_handler.php" method="post" class="drms-appearance-form">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) ($_SESSION['csrf_token'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
+                <input type="hidden" name="action" value="set_theme">
+                <fieldset class="drms-theme-options" <?php echo empty($drms_preferences['installed']) ? 'disabled' : ''; ?>>
+                    <legend class="visually-hidden">Theme</legend>
+                    <label class="drms-theme-option">
+                        <input type="radio" name="theme" value="light" <?php echo $drms_preferences['theme'] === 'light' ? 'checked' : ''; ?>>
+                        <span><i class="fas fa-sun" aria-hidden="true"></i> Light</span>
+                    </label>
+                    <label class="drms-theme-option">
+                        <input type="radio" name="theme" value="dark" <?php echo $drms_preferences['theme'] === 'dark' ? 'checked' : ''; ?>>
+                        <span><i class="fas fa-moon" aria-hidden="true"></i> Dark</span>
+                    </label>
+                </fieldset>
+                <button type="submit" class="btn btn-primary drms-appearance-save" <?php echo empty($drms_preferences['installed']) ? 'disabled' : ''; ?>>Save</button>
+            </form>
+            <?php if (empty($drms_preferences['installed'])): ?>
+                <p class="drms-appearance-note">Ask the administrator to install the user-preferences migration first.</p>
+            <?php endif; ?>
+        </section>
 
         <div class="row g-4 settings-grid">
             
@@ -307,6 +369,83 @@ $user = $user_result->fetch_assoc();
 
             </div>
 
+        </div>
+
+        <section id="security-center" class="settings-security-card" aria-labelledby="securityCenterTitle">
+            <div class="settings-security-heading">
+                <div>
+                    <span class="settings-security-kicker">ACCOUNT PROTECTION</span>
+                    <h3 id="securityCenterTitle">Security Center</h3>
+                    <p>Review recent sign-ins and control where your account is open.</p>
+                </div>
+                <button type="button" class="settings-security-action" data-bs-toggle="modal" data-bs-target="#signOutOthersModal">
+                    <i class="fas fa-sign-out-alt" aria-hidden="true"></i>
+                    <span>Sign out other devices<?php echo $other_sessions_count > 0 ? ' (' . $other_sessions_count . ')' : ''; ?></span>
+                </button>
+            </div>
+            <?php if ($is_security_success): ?>
+                <div class="settings-security-message is-success" role="status">Other device sessions were signed out. This device stays active.</div>
+            <?php elseif ($is_security_error): ?>
+                <div class="settings-security-message is-error" role="alert"><?php echo $security_error_code === 'SecurityActionCooldown'
+                    ? 'Too many incorrect attempts. Try again in five minutes.'
+                    : ($security_error_code === 'WrongSecurityPassword' || $security_error_code === 'SecurityPasswordRequired'
+                        ? 'Enter your current password to sign out other devices.'
+                        : ($security_error_code === 'AccountUpdateFailed'
+                            ? 'The security action could not be completed. Please try again.'
+                            : 'The security request could not be verified. Refresh and try again.')); ?></div>
+            <?php endif; ?>
+            <div class="settings-session-list">
+                <?php if (!$security_sessions): ?>
+                    <p class="settings-session-empty">No sign-in history is available yet.</p>
+                <?php else: ?>
+                    <?php foreach ($security_sessions as $security_session):
+                        $is_current = hash_equals($current_device_hash, (string) $security_session['device_key_hash']);
+                        $token_current = hash_equals($current_auth_hash, (string) $security_session['auth_token_hash']);
+                        $last_seen_ts = strtotime((string) $security_session['last_seen_at']) ?: 0;
+                        $still_active = $security_session['ended_at'] === null && $token_current && $last_seen_ts >= time() - $session_window_minutes * 60;
+                        $is_online = $still_active && $last_seen_ts >= time() - 75;
+                        $session_state = $is_current ? 'This device' : ($is_online ? 'Online' : ($still_active ? 'Inactive' : 'Ended'));
+                        $state_class = $is_current ? 'is-current' : ($is_online ? 'is-online' : 'is-muted');
+                    ?>
+                    <div class="settings-session-row">
+                        <div class="settings-session-icon"><i class="fas fa-desktop" aria-hidden="true"></i></div>
+                        <div class="settings-session-copy">
+                            <strong><?php echo e(drms_registry_device_label((string) ($security_session['user_agent'] ?? ''))); ?></strong>
+                            <span>Signed in <?php echo e(date('M d, Y · h:i A', strtotime((string) $security_session['signed_in_at']))); ?><?php if (!empty($security_session['ip_address'])): ?> · IP <?php echo e($security_session['ip_address']); ?><?php endif; ?></span>
+                        </div>
+                        <div class="settings-session-meta">
+                            <span class="settings-session-state <?php echo $state_class; ?>"><?php echo e($session_state); ?></span>
+                            <small>Seen <?php echo e(date('M d · h:i A', $last_seen_ts)); ?></small>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </div>
+            <p class="settings-security-footnote">Online status refreshes while a system page is open. A closed browser may appear online for up to about 75 seconds.</p>
+        </section>
+    </div>
+
+    <div class="modal fade" id="signOutOthersModal" tabindex="-1" aria-labelledby="signOutOthersTitle" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content settings-security-modal">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title" id="signOutOthersTitle">Sign out other devices</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form action="actions/session_security_handler.php" method="post">
+                    <div class="modal-body">
+                        <p>Other sessions, including ones not yet listed here, will close on their next request. This device stays signed in.</p>
+                        <input type="hidden" name="csrf_token" value="<?php echo e($_SESSION['csrf_token']); ?>">
+                        <input type="hidden" name="action" value="sign_out_other_devices">
+                        <label class="form-label" for="securityCurrentPassword">Current password</label>
+                        <input class="form-control" type="password" id="securityCurrentPassword" name="current_password" maxlength="128" autocomplete="current-password" required>
+                    </div>
+                    <div class="modal-footer border-0 pt-0">
+                        <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Sign out others</button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 

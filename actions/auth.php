@@ -113,8 +113,33 @@ if (isset($_POST['login'])) {
         exit();
     }
 
+    if (!empty($_SESSION['user_id'])) {
+        drms_registry_end_current($conn, (int) $_SESSION['user_id'], 'relogin');
+    }
     session_regenerate_id(true);
-    $session_token = bin2hex(random_bytes(32));
+    unset($_SESSION['drms_device_key'], $_SESSION['drms_presence_synced_at']);
+    $proposed_token = bin2hex(random_bytes(32));
+
+    $session_stmt = $conn->prepare(
+        "UPDATE users SET session_token = COALESCE(NULLIF(session_token, ''), ?),
+                          last_active = NOW()
+         WHERE user_id = ? AND status = 'Active'"
+    );
+    $session_stmt->bind_param('si', $proposed_token, $user['user_id']);
+    $session_stmt->execute();
+    $session_stmt->close();
+    $token_stmt = $conn->prepare(
+        "SELECT session_token FROM users WHERE user_id = ? AND status = 'Active' LIMIT 1"
+    );
+    $token_stmt->bind_param('i', $user['user_id']);
+    $token_stmt->execute();
+    $token_row = $token_stmt->get_result()->fetch_assoc();
+    $token_stmt->close();
+    $session_token = (string) ($token_row['session_token'] ?? '');
+    if ($session_token === '') {
+        header('Location: ../index.php?error=AccountLockedWaitAdmin');
+        exit();
+    }
 
     $_SESSION['user_id'] = (int) $user['user_id'];
     $_SESSION['role'] = $user['role'];
@@ -123,12 +148,6 @@ if (isset($_POST['login'])) {
     $_SESSION['session_token'] = $session_token;
     $_SESSION['last_activity'] = time();
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-
-    $session_stmt = $conn->prepare(
-        "UPDATE users SET session_token = ?, last_active = NOW() WHERE user_id = ?"
-    );
-    $session_stmt->bind_param("si", $session_token, $user['user_id']);
-    $session_stmt->execute();
 
     log_audit_action($conn, $user['user_id'], 'LOGIN', 'User logged in successfully');
     header("Location: ../dashboard.php");
@@ -269,6 +288,7 @@ if(isset($_POST['setup_password'])){
 
         session_regenerate_id(true); 
         
+        unset($_SESSION['drms_device_key'], $_SESSION['drms_presence_synced_at']);
         $_SESSION['user_id'] = $verified_user['user_id'];
         $_SESSION['role'] = $verified_user['role'];
         $_SESSION['fullname'] = $verified_user['full_name'];
@@ -312,12 +332,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['logout'])) {
 
     if (isset($_SESSION['user_id'])) {
         $logout_user_id = (int) $_SESSION['user_id'];
-        $logout_session_token = (string) ($_SESSION['session_token'] ?? '');
-        $logout_stmt = $conn->prepare(
-            "UPDATE users SET session_token = NULL WHERE user_id = ? AND session_token = ?"
-        );
-        $logout_stmt->bind_param('is', $logout_user_id, $logout_session_token);
-        $logout_stmt->execute();
+        drms_registry_end_current($conn, $logout_user_id, 'logout');
         log_audit_action($conn, $logout_user_id, 'LOGOUT', 'User securely logged out of the system');
     }
 

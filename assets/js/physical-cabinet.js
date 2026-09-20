@@ -15,6 +15,20 @@
   const icon=name=>{const i=node('i','','fas fa-'+name);i.setAttribute('aria-hidden','true');return i;};
   const typeIcons={building:'building',room:'door-open',cabinet:'archive',drawer:'layer-group',box:'box',folder:'folder'};
   function error(text=''){el('Error').textContent=text;el('Error').hidden=!text;}
+  function skeletonMarkup(kind,label,rows){
+    if(window.DRMSSkeleton && typeof window.DRMSSkeleton[kind]==='function')return window.DRMSSkeleton[kind](label,rows);
+    return '<div class="drms-skeleton-surface" role="status"><span class="visually-hidden">'+label+'</span><span class="drms-skeleton-line is-medium" aria-hidden="true"></span></div>';
+  }
+  function setInlineLoading(target,loading,text=''){
+    if(!target)return;
+    target.classList.toggle('drms-skeleton-inline',loading);
+    target.textContent=loading?'Loading':text;
+  }
+  function treeSkeleton(){el('Tree').innerHTML=skeletonMarkup('tree','Loading storage locations',7);}
+  function tableSkeleton(){
+    const row=node('tr','','vc5-loading-row'),cell=node('td','','vc5-empty vc5-skeleton-cell');cell.colSpan=4;
+    cell.innerHTML=skeletonMarkup('table','Loading physical copies',5);row.append(cell);el('Rows').replaceChildren(row);
+  }
   function syncExport(){const form=el('ExportForm');if(!form)return;el('ExportScope').value=scope;el('ExportCustody').value=custody;el('ExportQuery').value=query;}
   function setLocationPanel(open,focusToggle=false){
     el('LocationPanel').hidden=!open;root.classList.toggle('is-location-collapsed',!open);el('LocationToggle').setAttribute('aria-expanded',String(open));
@@ -68,15 +82,16 @@
   }
   async function directory(){
     const current=++directorySerial;
+    treeSkeleton();
     try{
       const data=await api({action:'directory'});if(current!==directorySerial)return false;nodes=data.nodes;copyStats=data.stats;
       if(scope.startsWith('folder:') && !nodes.some(n=>n.key===scope))scope='all';
       tree();
-      for(const [key,value] of Object.entries(data.stats)){document.querySelectorAll('[data-copy-stat="'+key+'"]').forEach(target=>target.textContent=String(value));}
+      for(const [key,value] of Object.entries(data.stats)){document.querySelectorAll('[data-copy-stat="'+key+'"]').forEach(target=>setInlineLoading(target,false,String(value)));}
       // Summary totals are global; avoid showing global counts as though they describe a selected folder.
       const labels={all:'All custody',borrowed:'Borrowed',overdue:'Overdue',due_soon:'Due in 3 days',no_due_date:'No return date'};
       for(const option of el('Custody').options)option.textContent=labels[option.value]||option.textContent;
-      for(const type of ['cabinet','drawer','folder']){document.querySelectorAll('[data-location-stat="'+type+'"]').forEach(target=>target.textContent=String(nodes.filter(n=>n.type===type).length));}
+      for(const type of ['cabinet','drawer','folder']){document.querySelectorAll('[data-location-stat="'+type+'"]').forEach(target=>setInlineLoading(target,false,String(nodes.filter(n=>n.type===type).length)));}
       return true;
     }catch(e){if(current!==directorySerial)return false;error(e.message);el('Tree').replaceChildren(node('p','Locations could not be loaded. Use Refresh to try again.','vc3-empty'));return false;}
   }
@@ -87,7 +102,7 @@
   async function load(){
     const current=++serial;syncExport();error();el('Prev').disabled=true;el('Next').disabled=true;
     el('Clear').disabled=!query;el('List').setAttribute('aria-busy','true');
-    tableMessage('Loading physical copies…','Your selected location and custody filter are being applied.','hourglass-half');el('Count').textContent='Loading…';el('Page').textContent='—';
+    tableSkeleton();setInlineLoading(el('Count'),true);setInlineLoading(el('Page'),true);
     const selected=nodes.find(n=>n.key===scope);
     el('Title').textContent=scope==='all'?'All physical copies':scope==='unassigned'?'Unassigned locations':selected?.name||'Physical folder';
     el('Title').title=el('Title').textContent;
@@ -120,9 +135,9 @@
       }
       if(!result.data.length)tableMessage(query || custody!=='all'?'No matching physical copies':'No physical copies here',query || custody!=='all'?'Try another search or custody filter. Your selected location is unchanged.':scope==='unassigned'?'All registered copies have a confirmed location.':'Copies appear here after their physical location is confirmed.');
       const start=result.total?(page-1)*15+1:0,end=Math.min(page*15,result.total);
-      el('Count').textContent=`${start}–${end} of ${result.total} copies`;el('Page').textContent=`${page} / ${pages}`;el('Prev').disabled=page<=1;el('Next').disabled=page>=pages;
+      setInlineLoading(el('Count'),false,`${start}–${end} of ${result.total} copies`);setInlineLoading(el('Page'),false,`${page} / ${pages}`);el('Prev').disabled=page<=1;el('Next').disabled=page>=pages;
     }catch(e){
-      if(current!==serial)return;error(e.message);tableMessage('Unable to load physical copies','Use Refresh to try again. No record changes have been made.','exclamation-circle');el('Count').textContent='Not loaded';
+      if(current!==serial)return;error(e.message);tableMessage('Unable to load physical copies','Use Refresh to try again. No record changes have been made.','exclamation-circle');setInlineLoading(el('Count'),false,'Not loaded');setInlineLoading(el('Page'),false,'—');
     }finally{if(current===serial)el('List').setAttribute('aria-busy','false');}
   }
   el('Search').addEventListener('input',()=>{clearTimeout(timer);serial++;query=el('Search').value.trim();syncExport();el('Clear').disabled=!query;el('Prev').disabled=true;el('Next').disabled=true;page=1;timer=setTimeout(load,250);});
@@ -172,7 +187,7 @@
   document.addEventListener('physical-copy-updated',async()=>{if(await directory())await load();});
   applyLocationDefault();
   (async()=>{
-    if(!await directory()){tableMessage('Unable to load the cabinet','Use Refresh to try again.','exclamation-circle');el('Count').textContent='Not loaded';return;}
+    if(!await directory()){tableMessage('Unable to load the cabinet','Use Refresh to try again.','exclamation-circle');setInlineLoading(el('Count'),false,'Not loaded');setInlineLoading(el('Page'),false,'—');return;}
     const params=new URLSearchParams(window.location.search),folder=params.get('physical_folder'),custodyParam=params.get('custody');
     if(folder && /^\d+$/.test(folder) && nodes.some(n=>n.key==='folder:'+folder))scope='folder:'+folder;
     if(['borrowed','overdue','due_soon','no_due_date'].includes(custodyParam)){custody=custodyParam;el('Custody').value=custody;}

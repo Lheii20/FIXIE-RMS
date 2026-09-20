@@ -232,6 +232,7 @@ if ($status === 'Pending Approval' && $latest_supporting_record !== null) {
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link rel="stylesheet" href="assets/vendor/sweetalert2/11.26.25/sweetalert2.min.css">
     <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
+    <link href="assets/css/print-document-standard.css?v=<?php echo filemtime(__DIR__ . '/assets/css/print-document-standard.css'); ?>" rel="stylesheet">
 </head>
 <body class="page-view-quotation workflow-ui">
     <?php include 'sidebar.php'; ?>
@@ -847,104 +848,71 @@ if ($status === 'Pending Approval' && $latest_supporting_record !== null) {
             </div>
         </div>
 
-        <div class="print-only-quote">
-            <div
-                class="d-flex justify-content-between align-items-start"
-                style="border-bottom: 3px solid #0d6efd; padding-bottom: 20px; margin-bottom: 30px;"
-            >
-                <div>
-                    <h1 class="print-header-brand">Fixie Computer Ventures</h1>
-                    <div class="print-header-sub">
-                        <strong>Driven by Innovation, Defined by Service.</strong><br>
-                        123 Technology Avenue, Tech Hub City, Philippines 1000<br>
-                        Phone: (02) 8123-4567 | Email: sales@fixie.com
-                    </div>
+        <section class="print-only-quote drms-print-document" aria-label="Printable quotation">
+            <header class="drms-print-header">
+                <div class="drms-print-brand">
+                    <img src="assets/images/fixie_logo.png" alt="Fixie Computer Ventures logo">
+                    <div><strong>Fixie Computer Ventures</strong><span>Computer products and business solutions</span><small>Client sales document</small></div>
                 </div>
-                <div class="text-end">
-                    <div class="print-title-doc">QUOTATION</div>
-                    <div style="font-size: 13pt; margin-top: 8px; font-weight: 500;">
-                        Quote No:
-                        <strong style="color: #0d6efd !important;">
-                            #<?php echo htmlspecialchars($quote['quotation_number']); ?>
-                        </strong>
-                    </div>
+                <div class="drms-print-title">
+                    <span>Quotation</span>
+                    <h1><?php echo htmlspecialchars($quote['quotation_number']); ?></h1>
+                    <strong class="drms-print-status"><?php echo htmlspecialchars($status_label); ?></strong>
                 </div>
-            </div>
+            </header>
 
-            <div class="row g-4 mb-4">
-                <div class="col-7">
-                    <div class="info-box h-100">
-                        <div class="info-label">Prepared For:</div>
-                        <h4 class="fw-bold m-0 text-dark">
-                            <?php echo htmlspecialchars($quote['client_name']); ?>
-                        </h4>
-                    </div>
-                </div>
-                <div class="col-5">
-                    <div class="info-box h-100">
-                        <table style="width: 100%; font-size: 9.5pt;">
-                            <tr>
-                                <td class="info-label">Date Issued:</td>
-                                <td style="text-align: right; font-weight: bold;">
-                                    <?php echo date('F d, Y', strtotime($quote['created_at'])); ?>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td class="info-label">Prepared By:</td>
-                                <td style="text-align: right; font-weight: bold;">
-                                    <?php echo htmlspecialchars($quote['creator_name'] ?? 'Unknown'); ?>
-                                </td>
-                            </tr>
-                        </table>
-                    </div>
-                </div>
-            </div>
+            <section class="drms-print-reference-grid" aria-label="Quotation references">
+                <div><span>Quotation number</span><strong><?php echo htmlspecialchars($quote['quotation_number']); ?></strong></div>
+                <div><span>Date prepared</span><strong><?php echo date('M d, Y', strtotime($quote['created_at'])); ?></strong></div>
+                <div><span>Prepared by</span><strong><?php echo htmlspecialchars($quote['creator_name'] ?: 'Not recorded'); ?></strong></div>
+                <div><span>Client PO</span><strong><?php echo htmlspecialchars($official_approval_record['actual_client_po_number'] ?? ($quote['client_po_number'] ?: 'Not recorded')); ?></strong></div>
+            </section>
 
-            <table class="print-table">
-                <thead>
-                    <tr>
-                        <th style="text-align: center; width: 5%;">#</th>
-                        <th style="text-align: left; width: 50%;">ITEM DESCRIPTION & SPECIFICATIONS</th>
-                        <th style="text-align: center; width: 10%;">QTY</th>
-                        <th style="text-align: right; width: 15%;">UNIT PRICE</th>
-                        <th style="text-align: right; width: 20%;">TOTAL</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php $counter = 1; ?>
-                    <?php foreach ($items_data as $item): ?>
-                        <tr>
-                            <td style="text-align: center;"><?php echo $counter++; ?></td>
-                            <td>
-                                <div style="font-weight: bold;"><?php echo htmlspecialchars($item['item_name']); ?></div>
-                                <div style="margin-top: 4px;">
-                                    <?php echo nl2br(htmlspecialchars($item['specifications'] ?? '')); ?>
-                                </div>
-                            </td>
-                            <td style="text-align: center;"><?php echo (int) $item['quantity']; ?></td>
-                            <td style="text-align: right; white-space: nowrap;">
-                                ₱ <?php echo number_format((float) $item['unit_price'], 2); ?>
-                            </td>
-                            <td style="text-align: right; font-weight: bold; white-space: nowrap;">
-                                ₱ <?php echo number_format((float) $item['total_price'], 2); ?>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                </tbody>
-                <tfoot>
-                    <tr>
-                        <td colspan="4" style="text-align: right; font-weight: bold;">GRAND TOTAL ESTIMATE</td>
-                        <td style="text-align: right; font-weight: 900;">
-                            ₱ <?php echo number_format((float) $quote['amount'], 2); ?>
-                        </td>
-                    </tr>
-                </tfoot>
-            </table>
+            <section class="drms-print-party-grid" aria-label="Quotation recipient and details">
+                <article>
+                    <span class="drms-print-section-label">Prepared for</span>
+                    <h2><?php echo htmlspecialchars($quote['client_name']); ?></h2>
+                    <p>Client or agency named in the quotation record.</p>
+                </article>
+                <article>
+                    <span class="drms-print-section-label">Document details</span>
+                    <h2>Sales quotation</h2>
+                    <dl>
+                        <div><dt>Current status</dt><dd><?php echo htmlspecialchars($status_label); ?></dd></div>
+                        <div><dt>Item lines</dt><dd><?php echo count($items_data); ?></dd></div>
+                    </dl>
+                </article>
+            </section>
 
-            <p style="text-align: center; margin-top: 30px; font-size: 9pt; color: #6c757d; font-style: italic;">
-                This quotation is subject to terms and conditions. Valid for 30 days from the date of issue.
-            </p>
-        </div>
+            <section class="drms-print-section">
+                <div class="drms-print-section-heading"><div><span>Quoted items</span><h2>Client price schedule</h2></div><small><?php echo count($items_data); ?> item line<?php echo count($items_data) === 1 ? '' : 's'; ?></small></div>
+                <table class="drms-print-items">
+                    <thead><tr><th class="is-number">#</th><th>Item description and specifications</th><th class="is-quantity">Qty</th><th class="is-money">Unit price</th><th class="is-money">Line total</th></tr></thead>
+                    <tbody>
+                        <?php if (empty($items_data)): ?>
+                            <tr><td colspan="5" class="drms-print-empty">No item lines recorded.</td></tr>
+                        <?php else: ?>
+                            <?php foreach ($items_data as $index => $item): ?>
+                                <tr>
+                                    <td class="is-number"><?php echo $index + 1; ?></td>
+                                    <td><strong><?php echo htmlspecialchars($item['item_name']); ?></strong><?php if (!empty($item['specifications'])): ?><p><?php echo nl2br(htmlspecialchars($item['specifications'])); ?></p><?php endif; ?></td>
+                                    <td class="is-quantity"><?php echo (int) $item['quantity']; ?></td>
+                                    <td class="is-money">₱ <?php echo number_format((float) $item['unit_price'], 2); ?></td>
+                                    <td class="is-money"><strong>₱ <?php echo number_format((float) $item['total_price'], 2); ?></strong></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </section>
+
+            <section class="drms-print-summary" aria-label="Quotation total and terms">
+                <div><span class="drms-print-section-label">Quotation note</span><h2>Pricing summary</h2><p>Prices and quantities reflect the saved quotation record. Confirm final terms with the client before relying on this copy.</p></div>
+                <dl><div class="is-total"><dt>Grand total estimate</dt><dd>₱ <?php echo number_format((float) $quote['amount'], 2); ?></dd></div></dl>
+            </section>
+
+            <footer class="drms-print-footer"><span>Generated from the Fixie DRMS on <?php echo date('M d, Y · h:i A'); ?>.</span><strong>Quotation status: <?php echo htmlspecialchars($status_label); ?>. Client acceptance is evidenced separately.</strong></footer>
+        </section>
     </div>
 
     <?php
@@ -988,7 +956,7 @@ if ($status === 'Pending Approval' && $latest_supporting_record !== null) {
                 document.getElementById('previewModal')
             );
 
-            modalBody.innerHTML = '<div class="spinner-border text-primary" role="status"></div>';
+            modalBody.innerHTML = window.DRMSSkeleton ? window.DRMSSkeleton.preview('Loading document preview') : '<div class="drms-skeleton-surface" role="status"><span class="visually-hidden">Loading document preview</span><span class="drms-skeleton-line is-medium" aria-hidden="true"></span></div>';
 
             if (type === 'image') {
                 const image = document.createElement('img');

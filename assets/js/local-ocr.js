@@ -3,6 +3,7 @@
 
     const ASSET_ROOT = 'assets/vendor/tesseract/5.1.1/';
     const DEFAULT_TIMEOUT_MS = 60000;
+    let enginePromise = null;
 
     function assetUrl(relativePath) {
         return new URL(ASSET_ROOT + relativePath, document.baseURI).href;
@@ -51,18 +52,57 @@
         return Boolean(global.Tesseract && typeof global.Tesseract.createWorker === 'function');
     }
 
+    function loadEngine() {
+        if (isAvailable()) {
+            return Promise.resolve(global.Tesseract);
+        }
+
+        if (enginePromise) {
+            return enginePromise;
+        }
+
+        enginePromise = new Promise(function (resolve, reject) {
+            const script = document.createElement('script');
+            script.src = assetUrl('tesseract.min.js');
+            script.async = true;
+            script.dataset.fixieLazyAsset = 'tesseract';
+
+            script.addEventListener('load', function () {
+                if (isAvailable()) {
+                    resolve(global.Tesseract);
+                    return;
+                }
+
+                reject(new Error('The local OCR engine did not initialize.'));
+            }, { once: true });
+
+            script.addEventListener('error', function () {
+                reject(new Error('The local OCR engine could not be loaded.'));
+            }, { once: true });
+
+            document.head.appendChild(script);
+        }).catch(function (error) {
+            enginePromise = null;
+            const failedScript = document.querySelector('script[data-fixie-lazy-asset="tesseract"]');
+            if (failedScript && !isAvailable()) {
+                failedScript.remove();
+            }
+            throw error;
+        });
+
+        return enginePromise;
+    }
+
     async function recognize(image, options) {
         const settings = options && typeof options === 'object' ? options : {};
         const timeoutMs = Number.isFinite(settings.timeoutMs) && settings.timeoutMs >= 5000
             ? settings.timeoutMs
             : DEFAULT_TIMEOUT_MS;
 
-        if (!isAvailable()) {
-            throw new Error('The local OCR engine is unavailable.');
-        }
+        const tesseract = await loadEngine();
 
         let worker = null;
-        const workerPromise = global.Tesseract.createWorker('eng', 1, {
+        const workerPromise = tesseract.createWorker('eng', 1, {
             workerPath: assetUrl('worker.min.js'),
             corePath: assetUrl('core/'),
             langPath: assetUrl('lang/'),
@@ -97,6 +137,7 @@
     }
 
     global.FixieLocalOCR = Object.freeze({
+        load: loadEngine,
         recognize: recognize,
         isAvailable: isAvailable
     });

@@ -33,6 +33,8 @@ if(isset($_GET['success'])) {
     <title>System Login - Fixie DRMS</title>
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
     <link href="assets/css/style.css" rel="stylesheet">
+    <link href="assets/css/loading-skeleton.css?v=<?php echo filemtime(__DIR__ . '/assets/css/loading-skeleton.css'); ?>" rel="stylesheet">
+    <script src="assets/js/loading-skeleton.js?v=<?php echo filemtime(__DIR__ . '/assets/js/loading-skeleton.js'); ?>" defer></script>
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link rel="stylesheet" href="assets/vendor/sweetalert2/11.26.25/sweetalert2.min.css">
     <link rel="stylesheet" href="assets/css/system-feedback.css?v=<?php echo file_exists(__DIR__ . '/assets/css/system-feedback.css') ? filemtime(__DIR__ . '/assets/css/system-feedback.css') : '1'; ?>">
@@ -381,4 +383,3 @@ if(isset($_GET['success'])) {
     </script>
 </body>
 </html>
-

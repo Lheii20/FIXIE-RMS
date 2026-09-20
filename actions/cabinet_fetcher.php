@@ -9,11 +9,12 @@ function drms_copy_response(int $status,array $body): void {
 }
 try {
     if(($_SERVER['REQUEST_METHOD']??'')!=='GET')throw new DrmsStorageError('Use GET to read physical records.',405);
-    $actor=drms_copy_actor($conn,(int)($_SESSION['user_id']??0));drms_copy_ready($conn);
+    $actor=drms_copy_actor($conn,(int)($_SESSION['user_id']??0));
     $action=drms_storage_text($_GET,'action',30);
     if($action==='directory')$result=drms_copy_directory($conn,$actor);
     elseif($action==='get_documents' || $action==='smart_search')$result=drms_copy_list($conn,$actor,$_GET);
     elseif($action==='get_document_profile') {
+        drms_copy_ready($conn);
         $id=drms_storage_text($_GET,'doc_id',10);if(!ctype_digit($id) || (int)$id<1 || (int)$id>2147483647)throw new DrmsStorageError('Invalid record.',422);
         $result=drms_copy_profile($conn,$actor,(int)$id);
     }else throw new DrmsStorageError('Refresh the Virtual Cabinet to use its current interface.',422);

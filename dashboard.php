@@ -1,4 +1,26 @@
-<?php require 'dashboard_logic.php'; ?>
+<?php
+require 'dashboard_logic.php';
+
+// Keep urgent insight cards visible first inside the existing compact panel.
+if (!function_exists('drms_dashboard_prioritize_insights')) {
+    function drms_dashboard_prioritize_insights(array $insights): array
+    {
+        $rank = ['danger' => 0, 'warning' => 1, 'primary' => 2,
+                 'info' => 3, 'secondary' => 4, 'success' => 5];
+        $indexed = [];
+        foreach ($insights as $index => $insight) {
+            $indexed[] = ['index' => $index, 'insight' => $insight];
+        }
+        usort($indexed, static function (array $left, array $right) use ($rank): int {
+            $left_rank = $rank[$left['insight']['status'] ?? ''] ?? 6;
+            $right_rank = $rank[$right['insight']['status'] ?? ''] ?? 6;
+            return ($left_rank <=> $right_rank)
+                ?: ($left['index'] <=> $right['index']);
+        });
+        return array_column($indexed, 'insight');
+    }
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7,6 +29,7 @@
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
     <link href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>" rel="stylesheet">
     <link href="assets/css/dashboard.css?v=<?php echo filemtime(__DIR__ . '/assets/css/dashboard.css'); ?>" rel="stylesheet">
+    <link href="assets/css/dashboard-chart-info.css?v=<?php echo filemtime(__DIR__ . '/assets/css/dashboard-chart-info.css'); ?>" rel="stylesheet">
     <link href="assets/css/client-po-acknowledgement.css?v=<?php echo filemtime(__DIR__ . '/assets/css/client-po-acknowledgement.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link rel="stylesheet" href="assets/vendor/flatpickr/4.6.13/flatpickr.min.css">
@@ -112,7 +135,9 @@
                     'status' => ($p_req > 0) ? 'danger' : 'success', 
                     'icon' => ($p_req > 0) ? 'fa-shield-alt' : 'fa-check-circle', 
                     'title' => ($p_req > 0) ? 'Action Required: Security Requests' : 'Support Queue Cleared', 
-                    'desc' => ($p_req > 0) ? "There are currently <strong>{$p_req}</strong> overall pending user request(s) awaiting your administrative approval." : "No pending security requests from users across all records."
+                    'desc' => ($p_req > 0) ? "<strong>{$p_req}</strong> user request(s) await administrative review." : "No user requests are awaiting administrative review.",
+                    'href' => $p_req > 0 ? 'admin_requests.php' : null,
+                    'action' => 'Review requests'
                 ];
                 
                 $t_today = $admin_insights_data['today_traffic'] ?? 0; 
@@ -122,10 +147,12 @@
                 $spike = ($t_today > ($avg_daily * 1.5));
                 
                 $admin_insights[] = [
-                    'status' => $spike ? 'warning' : 'info', 
-                    'icon' => $spike ? 'fa-exclamation-triangle' : 'fa-server', 
-                    'title' => $spike ? 'System Traffic Spike Detected' : 'Stable System Usage', 
-                    'desc' => $spike ? "Today's activity reached <strong>{$t_today} actions</strong>, notably higher than the historical daily average of " . round($avg_daily) . ". Monitor for unusual events." : "Overall system interaction remains stable and within normal historical thresholds."
+                    'status' => $t_logs < 2 ? 'secondary' : ($spike ? 'warning' : 'info'),
+                    'icon' => $spike ? 'fa-exclamation-triangle' : 'fa-server',
+                    'title' => $t_logs < 2 ? 'Activity Baseline Unavailable' : ($spike ? 'Traffic Above Baseline' : 'No Traffic Spike Flagged'),
+                    'desc' => $t_logs < 2
+                        ? 'More audit activity is needed before comparing daily traffic.'
+                        : "<strong>{$t_today}</strong> actions today versus an average of <strong>" . number_format($avg_daily, 1) . "</strong> per active day. The alert threshold is 1.5× that average."
                 ];
                 
                 $top_user = $admin_insights_data['top_user'] ?? null;
@@ -133,8 +160,8 @@
                     $admin_insights[] = [
                         'status' => 'primary', 
                         'icon' => 'fa-user-check', 
-                        'title' => 'Top System Contributor', 
-                        'desc' => "<strong>" . htmlspecialchars($top_user['full_name']) . "</strong> is the all-time most active user with <strong>" . number_format($top_user['c']) . "</strong> total interactions."
+                        'title' => 'Highest Logged Activity', 
+                        'desc' => "<strong>" . htmlspecialchars($top_user['full_name']) . "</strong> has <strong>" . number_format($top_user['c']) . "</strong> audit-log actions. Activity volume alone does not indicate performance."
                     ]; 
                 }
                 
@@ -142,8 +169,8 @@
                 $admin_insights[] = [
                     'status' => 'success', 
                     'icon' => 'fa-database', 
-                    'title' => 'Total Repository Volume', 
-                    'desc' => "The system currently safeguards a total of <strong>" . number_format($t_files) . "</strong> documents (including archives) across all departments."
+                    'title' => 'Document Index Count', 
+                    'desc' => "<strong>" . number_format($t_files) . "</strong> document entries are registered in the system, including archived records."
                 ];
             ?>
             <div class="row g-3 mb-3 align-items-stretch">
@@ -157,13 +184,14 @@
                     <div class="corp-widget h-100">
                         <div class="corp-widget-header mb-3"><h6 class="corp-widget-title text-dark"><i class="fas fa-shield-alt text-warning"></i>Security & System Insights</h6></div>
                         <div class="dss-insights">
-                            <?php foreach($admin_insights as $i): ?>
+                            <?php foreach(drms_dashboard_prioritize_insights($admin_insights) as $i): ?>
                                 <div class="insight-card p-2 mb-2 rounded border-start border-4 border-<?php echo $i['status']; ?> bg-<?php echo $i['status']; ?> bg-opacity-10">
                                     <div class="d-flex align-items-start gap-2">
                                         <div class="text-<?php echo $i['status']; ?> mt-1 text-center" style="width: 20px;"><i class="fas <?php echo $i['icon']; ?>"></i></div>
                                         <div>
                                             <span class="d-block fw-bold text-dark fs-xs"><?php echo $i['title']; ?></span>
                                             <span class="text-muted fs-xs" style="line-height: 1.35; display: block; margin-top: 2px;"><?php echo $i['desc']; ?></span>
+                                            <?php if (!empty($i['href'])): ?><a class="d-inline-flex align-items-center gap-1 mt-1 fs-xs fw-semibold text-decoration-none" href="<?php echo htmlspecialchars((string) $i['href'], ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars((string) ($i['action'] ?? 'Open records'), ENT_QUOTES, 'UTF-8'); ?><i class="fas fa-arrow-right" aria-hidden="true"></i></a><?php endif; ?>
                                         </div>
                                     </div>
                                 </div>
@@ -184,7 +212,7 @@
                 <div class="col-lg-4">
                     <div class="corp-widget h-100">
                         <div class="corp-widget-header">
-                            <h6 class="corp-widget-title"><i class="fas fa-tasks text-warning"></i> Pending Disposition</h6>
+                            <h6 class="corp-widget-title"><i class="fas fa-tasks text-warning"></i> Ready Records by Policy Action</h6>
                         </div>
                         <div class="chart-box"><canvas id="adminDisposalActionChart"></canvas></div>
                     </div>
@@ -192,7 +220,7 @@
                 <div class="col-lg-8">
                     <div class="corp-widget h-100">
                         <div class="corp-widget-header">
-                            <h6 class="corp-widget-title"><i class="fas fa-history text-danger"></i> Disposal Report (DSS): Historical Actions</h6>
+                            <h6 class="corp-widget-title"><i class="fas fa-history text-danger"></i> Archive & Delete Events</h6>
                         </div>
                         <div class="chart-box"><canvas id="adminDisposalHistoryChart"></canvas></div>
                     </div>
@@ -243,7 +271,7 @@
                         ? ($_SESSION['role'] === 'GM'
                             ? "You have <strong>{$pending_client_po_ack}</strong> Client PO(s), <strong>{$exec_stats['pending_pr']}</strong> PR(s), and <strong>{$exec_stats['pending_po']}</strong> supplier PO(s) awaiting your sign-off."
                             : "You have <strong>{$exec_stats['pending_pr']}</strong> PR(s) and <strong>{$exec_stats['pending_po']}</strong> PO(s) awaiting your executive sign-off.")
-                        : "Your approval queue is currently empty. Excellent turnaround!"
+                        : "No Client PO, PRF, or supplier PO is currently counted in your approval queue."
                 ];
 
                 $uncoll_amt = $gm_charts['uncollected']['total_uncollected'] ?? 0; 
@@ -255,35 +283,46 @@
                 $missing_due_amt = $gm_charts['uncollected']['missing_due_amount'] ?? 0;
                 $missing_due_cnt = $gm_charts['uncollected']['missing_due_count'] ?? 0;
 
+                // Show every active collection issue; one urgent case must not
+                // suppress a separate due-date or upcoming-deadline warning.
                 if ($overdue_amt > 0) {
                     $insights[] = [
                         'status' => 'danger',
                         'icon' => 'fa-triangle-exclamation',
                         'title' => 'Overdue Collections Alert',
-                        'desc' => "<strong>₱ " . number_format($overdue_amt, 2) . "</strong> across <strong>{$overdue_cnt}</strong> PO(s) is already overdue. Total open collection exposure is <strong>₱ " . number_format($uncoll_amt, 2) . "</strong>."
+                        'desc' => "<strong>₱ " . number_format($overdue_amt, 2) . "</strong> across <strong>{$overdue_cnt}</strong> delivered PO(s) is overdue in the selected period. Ask Finance to prioritize follow-up.",
+                        'href' => 'po_list.php?filter=Awaiting_Collection',
+                        'action' => 'View open POs'
                     ];
-                } elseif ($missing_due_cnt > 0) {
+                }
+                if ($missing_due_cnt > 0) {
                     $insights[] = [
                         'status' => 'warning',
                         'icon' => 'fa-calendar-xmark',
                         'title' => 'Collection Due-Date Gap',
-                        'desc' => "<strong>{$missing_due_cnt}</strong> open PO(s), totaling <strong>₱ " . number_format($missing_due_amt, 2) . "</strong>, have no reliable collection due date. Finance should review the legacy delivery record."
+                        'desc' => "<strong>{$missing_due_cnt}</strong> open PO(s), totaling <strong>₱ " . number_format($missing_due_amt, 2) . "</strong>, have no reliable due date in the selected period. Ask Finance to verify delivery evidence.",
+                        'href' => 'po_list.php?filter=Awaiting_Collection',
+                        'action' => 'View open POs'
                     ];
-                } elseif ($due_soon_amt > 0) {
+                }
+                if ($due_soon_amt > 0) {
                     $insights[] = [
                         'status' => 'warning',
                         'icon' => 'fa-clock',
                         'title' => 'Collections Due Within 3 Days',
-                        'desc' => "<strong>₱ " . number_format($due_soon_amt, 2) . "</strong> across <strong>{$due_soon_cnt}</strong> PO(s) is approaching its client payment deadline. Proactive Finance follow-up is advised."
+                        'desc' => "<strong>₱ " . number_format($due_soon_amt, 2) . "</strong> across <strong>{$due_soon_cnt}</strong> PO(s) is due within 3 days in the selected period. Ask Finance to schedule follow-up.",
+                        'href' => 'po_list.php?filter=Awaiting_Collection',
+                        'action' => 'View open POs'
                     ];
-                } else {
+                }
+                if ($overdue_amt <= 0 && $missing_due_cnt <= 0 && $due_soon_amt <= 0) {
                     $insights[] = [
                         'status' => ($uncoll_amt > 0) ? 'warning' : 'success',
                         'icon' => ($uncoll_amt > 0) ? 'fa-file-invoice-dollar' : 'fa-check-double',
                         'title' => ($uncoll_amt > 0) ? 'Pending Collection Exposure' : 'Collections Up-to-date',
                         'desc' => ($uncoll_amt > 0)
                             ? "<strong>₱ " . number_format($uncoll_amt, 2) . "</strong> across <strong>{$uncoll_cnt}</strong> delivered PO(s) remains collectible, with no currently overdue balance."
-                            : "All delivered purchase orders within this period have been fully collected."
+                            : "No open delivered-PO balance was found in the selected period."
                     ];
                 }
 
@@ -293,8 +332,12 @@
                 $insights[] = [
                     'status' => ($hrs_stag >= 48) ? 'danger' : 'info', 
                     'icon' => ($hrs_stag >= 48) ? 'fa-hourglass-half' : 'fa-clock', 
-                    'title' => ($hrs_stag >= 48) ? 'Stagnant Workflow Alert' : 'Healthy Workflow Pace', 
-                    'desc' => ($hrs_stag >= 48) ? "PO <strong>" . htmlspecialchars($aging_po['po_number']) . "</strong> has been stuck at <strong>{$aging_po['status']}</strong> (Location: {$aging_po['current_location']}) for <strong>{$hrs_stag} hours</strong>. Please review to prevent SLA breaches." : "No active purchase orders have been stagnant for more than 48 hours."
+                    'title' => ($hrs_stag >= 48) ? 'Stagnant Workflow Alert' : 'No 48-Hour Delay Flagged', 
+                    'desc' => ($hrs_stag >= 48)
+                        ? "PO <strong>" . htmlspecialchars((string) $aging_po['po_number']) . "</strong> has remained at <strong>" . htmlspecialchars((string) $aging_po['status']) . "</strong> for <strong>{$hrs_stag} hours</strong>. Review its current handoff."
+                        : "No active PO in the selected period has crossed the 48-hour inactivity rule.",
+                    'href' => $hrs_stag >= 48 ? 'po_list.php?filter=In_Progress' : null,
+                    'action' => 'Review active POs'
                 ];
                 
                 $highest_stage = 'None'; 
@@ -318,10 +361,14 @@
                 $is_bottleneck = ($highest_hours > 12 && $highest_hours > ($overall_avg * 1.5));
                 
                 $insights[] = [
-                    'status' => $is_bottleneck ? 'danger' : 'success', 
-                    'icon' => $is_bottleneck ? 'fa-project-diagram' : 'fa-tachometer-alt', 
-                    'title' => $is_bottleneck ? 'Workflow Bottleneck Detected' : 'Optimal Workflow Processing', 
-                    'desc' => $is_bottleneck ? "The <strong>{$highest_stage}</strong> phase averages <strong>{$highest_hours} hrs</strong>, significantly slower than the overall standard (" . round($overall_avg,1) . " hrs). Investigate this stage." : "Document processing stages are balanced with an overall average of <strong>" . round($overall_avg,1) . " hrs</strong>."
+                    'status' => $stage_count === 0 ? 'secondary' : ($is_bottleneck ? 'danger' : 'info'),
+                    'icon' => $is_bottleneck ? 'fa-project-diagram' : 'fa-tachometer-alt',
+                    'title' => $stage_count === 0 ? 'Workflow History Unavailable' : ($is_bottleneck ? 'Workflow Bottleneck Flagged' : 'No Bottleneck Flagged'),
+                    'desc' => $stage_count === 0
+                        ? 'No completed workflow-stage timing is available for this period.'
+                        : ($is_bottleneck
+                            ? "<strong>" . htmlspecialchars((string) $highest_stage) . "</strong> averages <strong>" . number_format((float) $highest_hours, 1) . " hours</strong>, above the rule of 12 hours and 1.5× the stage-average baseline. Review this handoff."
+                            : "No stage exceeds both bottleneck thresholds in the selected period. This does not guarantee every PO is on time.")
                 ];
                 
                 $tot_q = $gm_charts['quote_conversion']['total_quotes'] ?? 0; 
@@ -329,10 +376,14 @@
                 $conv_rate = ($tot_q > 0) ? round(($conv_q / $tot_q) * 100) : 0;
                 
                 $insights[] = [
-                    'status' => ($conv_rate >= 50) ? 'primary' : (($tot_q > 0) ? 'warning' : 'secondary'), 
+                    'status' => $tot_q < 5 ? 'secondary' : (($conv_rate >= 50) ? 'primary' : 'warning'), 
                     'icon' => 'fa-handshake', 
                     'title' => 'Sales Conversion Rate', 
-                    'desc' => ($tot_q > 0) ? "<strong>{$conv_rate}%</strong> of sent quotations ({$conv_q} out of {$tot_q}) converted to Client POs. " . ($conv_rate < 50 ? "Consider reviewing pricing or sending follow-ups." : "Excellent conversion momentum.") : "No client quotations were drafted within the selected period."
+                    'desc' => ($tot_q > 0)
+                        ? "<strong>{$conv_rate}%</strong> of quotations created in the selected period ({$conv_q} of {$tot_q}) reached the recorded Client PO stage. " . ($tot_q < 5 ? "This small sample is not enough to diagnose a trend." : ($conv_rate < 50 ? "Review pending client responses; this rate alone does not explain why clients did not proceed." : "Check the quotation list for pending client responses."))
+                        : "No quotations were created in the selected period.",
+                    'href' => $tot_q > 0 ? 'quotations_list.php' : null,
+                    'action' => 'Review quotations'
                 ];
 
                 $top_client = $gm_charts['top_client'] ?? null;
@@ -340,15 +391,23 @@
                     'status' => 'primary', 
                     'icon' => 'fa-building', 
                     'title' => 'Top Client Activity', 
-                    'desc' => (!empty($top_client)) ? "<strong>" . htmlspecialchars($top_client['client_name']) . "</strong> generated the highest volume with <strong>{$top_client['tx_count']}</strong> transaction(s). Ensure high SLA standards for this key account." : "No purchase order transactions recorded for client volume analysis."
+                    'desc' => (!empty($top_client))
+                        ? "<strong>" . htmlspecialchars((string) $top_client['client_name']) . "</strong> has the most PO entries in the selected period (<strong>" . (int) $top_client['tx_count'] . "</strong>). Review their open orders before follow-up."
+                        : "No PO entries are available for client-volume analysis in the selected period.",
+                    'href' => !empty($top_client) ? 'po_list.php?search=' . rawurlencode((string) $top_client['client_name']) : null,
+                    'action' => 'View client POs'
                 ];
 
                 $disp_count = $gm_charts['lifecycle']['ready_disp'] ?? 0;
                 $insights[] = [
-                    'status' => ($disp_count > 0) ? 'danger' : 'success', 
+                    'status' => ($disp_count > 0) ? 'warning' : 'info', 
                     'icon' => ($disp_count > 0) ? 'fa-archive' : 'fa-shield-alt', 
-                    'title' => ($disp_count > 0) ? 'Retention Compliance Alert' : 'Fully Compliant Records', 
-                    'desc' => ($disp_count > 0) ? "<strong>{$disp_count}</strong> historical records have reached maturity and are ready for disposition. Immediate action is advised." : "All active and archived records are well within their legal retention limits."
+                    'title' => ($disp_count > 0) ? 'Records Ready for Disposition' : 'No Disposition Queue', 
+                    'desc' => ($disp_count > 0)
+                        ? "<strong>{$disp_count}</strong> Official Record(s) are marked Ready for Disposition. Review each record and its retention basis before deciding."
+                        : "No record is currently marked Ready for Disposition. This alone does not establish full retention compliance.",
+                    'href' => $disp_count > 0 ? 'documents.php?disposition=1' : null,
+                    'action' => 'Review records'
                 ];
 
             ?>
@@ -363,13 +422,14 @@
                     <div class="corp-widget h-100">
                         <div class="corp-widget-header mb-3"><h6 class="corp-widget-title text-dark"><i class="fas fa-lightbulb text-warning"></i>Insights & Recommendations</h6></div>
                         <div class="dss-insights">
-                            <?php foreach($insights as $i): ?>
+                            <?php foreach(drms_dashboard_prioritize_insights($insights) as $i): ?>
                                 <div class="insight-card p-2 mb-2 rounded border-start border-4 border-<?php echo $i['status']; ?> bg-<?php echo $i['status']; ?> bg-opacity-10">
                                     <div class="d-flex align-items-start gap-2">
                                         <div class="text-<?php echo $i['status']; ?> mt-1 text-center" style="width: 20px;"><i class="fas <?php echo $i['icon']; ?>"></i></div>
                                         <div>
                                             <span class="d-block fw-bold text-dark fs-xs"><?php echo $i['title']; ?></span>
                                             <span class="text-muted fs-xs" style="line-height: 1.35; display: block; margin-top: 2px;"><?php echo $i['desc']; ?></span>
+                                            <?php if (!empty($i['href'])): ?><a class="d-inline-flex align-items-center gap-1 mt-1 fs-xs fw-semibold text-decoration-none" href="<?php echo htmlspecialchars((string) $i['href'], ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars((string) ($i['action'] ?? 'Open records'), ENT_QUOTES, 'UTF-8'); ?><i class="fas fa-arrow-right" aria-hidden="true"></i></a><?php endif; ?>
                                         </div>
                                     </div>
                                 </div>
@@ -381,27 +441,17 @@
 
             <div class="row g-3 mb-3 align-items-stretch">
                 <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-folder-open text-info"></i> Record Volume Distribution</h6></div><div class="chart-box"><canvas id="gmVolumeChart"></canvas></div></div></div>
-                <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-project-diagram text-rose"></i> Processing Bottleneck (Avg Hrs)</h6></div><div class="chart-box"><canvas id="gmTurnaroundChart"></canvas></div></div></div>
+                <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-project-diagram text-rose"></i> PO Milestone Elapsed Time</h6></div><div class="chart-box"><canvas id="gmTurnaroundChart"></canvas></div></div></div>
                 <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-chart-pie text-emerald"></i> Document Lifecycle</h6></div><div class="chart-box"><canvas id="gmLifecycleChart"></canvas></div></div></div>
             </div>
 
             <div class="row g-3 mb-3 align-items-stretch">
-                <div class="col-lg-8">
+                <div class="col-12">
                     <div class="corp-widget h-100">
                         <div class="corp-widget-header">
                             <h6 class="corp-widget-title"><i class="fas fa-search-location text-warning"></i> Retrieval Frequency Report (DSS)</h6>
                         </div>
                         <div class="chart-box"><canvas id="gmRetrievalChart"></canvas></div>
-                    </div>
-                </div>
-                <div class="col-lg-4">
-                    <div class="corp-widget h-100">
-                        <div class="corp-widget-header mb-3">
-                            <h6 class="corp-widget-title text-dark"><i class="fas fa-info-circle text-info"></i> Frequency Analysis</h6>
-                        </div>
-                        <div class="p-3 bg-light rounded-custom border border-light text-muted fs-sm" style="line-height: 1.6;">
-                            This Decision Support System (DSS) report identifies the most frequently accessed and downloaded records across the organization. High retrieval rates on specific documents may indicate operational priority, frequent audits, or critical active transactions that require management attention.
-                        </div>
                     </div>
                 </div>
             </div>
@@ -411,7 +461,7 @@
                 <div class="col-lg-4">
                     <div class="corp-widget h-100">
                         <div class="corp-widget-header">
-                            <h6 class="corp-widget-title"><i class="fas fa-tasks text-warning"></i> Pending Disposition</h6>
+                            <h6 class="corp-widget-title"><i class="fas fa-tasks text-warning"></i> Ready Records by Policy Action</h6>
                         </div>
                         <div class="chart-box"><canvas id="gmDisposalActionChart"></canvas></div>
                     </div>
@@ -419,7 +469,7 @@
                 <div class="col-lg-8">
                     <div class="corp-widget h-100">
                         <div class="corp-widget-header">
-                            <h6 class="corp-widget-title"><i class="fas fa-history text-danger"></i> Disposal Report (DSS): Historical Actions</h6>
+                            <h6 class="corp-widget-title"><i class="fas fa-history text-danger"></i> Archive & Delete Events</h6>
                         </div>
                         <div class="chart-box"><canvas id="gmDisposalHistoryChart"></canvas></div>
                     </div>
@@ -439,26 +489,32 @@
 
             <?php 
                 $fin_insights = []; 
-                $future_est = $finance_charts['future_sum'] ?? 0;
+                $future_est = (float) ($finance_charts['future_sum'] ?? 0);
+                $forecast_ready = !empty($finance_charts['forecast_ready']);
                 
                 $fin_insights[] = [
-                    'status' => ($future_est > 0) ? 'primary' : 'secondary', 
+                    'status' => $forecast_ready ? 'primary' : 'secondary', 
                     'icon' => 'fa-chart-line', 
-                    'title' => 'Revenue Prediction Forecast', 
-                    'desc' => ($future_est > 0) ? "Predictive analytics forecast a potential revenue of <strong>₱ " . number_format($future_est, 2) . "</strong> over the next 3 months based on established linear trends." : "Insufficient historical data to generate an accurate 3-month forecast."
+                    'title' => 'Approved PO Value Projection', 
+                    'desc' => $forecast_ready
+                        ? "Based on the last 12 completed months, the next 3 months project <strong>₱ " . number_format($future_est, 2) . "</strong> in approved PO value—not guaranteed revenue or cash collection."
+                        : "A projection needs at least 6 completed months with approved POs. Collection priorities remain available below."
                 ];
                 
                 $cf_in_arr = $finance_charts['cf_in'] ?? [0];
                 $cf_out_arr = $finance_charts['cf_out'] ?? [0];
                 $cf_in = end($cf_in_arr); 
                 $cf_out = end($cf_out_arr); 
+                $has_cash_movement = $cf_in > 0 || $cf_out > 0;
                 $is_positive = ($cf_in >= $cf_out);
                 
                 $fin_insights[] = [
-                    'status' => $is_positive ? 'success' : 'danger', 
-                    'icon' => $is_positive ? 'fa-arrow-trend-up' : 'fa-arrow-trend-down', 
-                    'title' => $is_positive ? 'Positive Cash Flow Trend' : 'Negative Cash Flow Alert', 
-                    'desc' => "For the latest recorded month, total cash inflows (₱ ".number_format((float)$cf_in, 2).") " . ($is_positive ? "exceeded" : "fell short of") . " total outflows (₱ ".number_format((float)$cf_out, 2).")."
+                    'status' => !$has_cash_movement ? 'secondary' : ($is_positive ? 'success' : 'danger'), 
+                    'icon' => !$has_cash_movement ? 'fa-minus' : ($is_positive ? 'fa-arrow-trend-up' : 'fa-arrow-trend-down'), 
+                    'title' => !$has_cash_movement ? 'No PO Cash Movement' : ($is_positive ? 'Net PO Cash Inflow' : 'PO Cash Outflow Alert'), 
+                    'desc' => !$has_cash_movement
+                        ? 'No client payments or supplier fund releases are recorded yet.'
+                        : "Latest recorded month: client payments (₱ " . number_format((float)$cf_in, 2) . ") " . ($is_positive ? "exceeded" : "fell short of") . " supplier funds released (₱ " . number_format((float)$cf_out, 2) . "). This excludes other company expenses."
                 ];
                 
                 $outstanding_amount = (float) $finance_stats['uncollected_amount'];
@@ -474,30 +530,39 @@
                         'status' => 'danger',
                         'icon' => 'fa-triangle-exclamation',
                         'title' => 'Immediate Collection Required',
-                        'desc' => "<strong>₱ " . number_format($overdue_amount, 2) . "</strong> across <strong>{$overdue_count}</strong> receivable(s) is overdue. Prioritize these accounts in Collection Monitoring."
+                        'desc' => "<strong>₱ " . number_format($overdue_amount, 2) . "</strong> across <strong>{$overdue_count}</strong> delivered PO(s) is overdue in the selected period. Contact the clients and record the next follow-up.",
+                        'href' => 'collection_aging.php',
+                        'action' => 'Review overdue POs'
                     ];
-                } elseif ($missing_due_count > 0) {
+                }
+                if ($missing_due_count > 0) {
                     $fin_insights[] = [
                         'status' => 'warning',
                         'icon' => 'fa-calendar-xmark',
                         'title' => 'Due-Date Review Required',
-                        'desc' => "<strong>{$missing_due_count}</strong> open receivable(s), totaling <strong>₱ " . number_format($missing_due_amount, 2) . "</strong>, have no reliable due date. Review the delivery record before aging analysis."
+                        'desc' => "<strong>{$missing_due_count}</strong> open PO(s), totaling <strong>₱ " . number_format($missing_due_amount, 2) . "</strong>, have no reliable due date in the selected period. Verify the delivery record before relying on aging.",
+                        'href' => 'collection_aging.php',
+                        'action' => 'Review missing dates'
                     ];
-                } elseif ($due_soon_amount > 0) {
+                }
+                if ($due_soon_amount > 0) {
                     $fin_insights[] = [
                         'status' => 'warning',
                         'icon' => 'fa-clock',
                         'title' => 'Collections Due Within 3 Days',
-                        'desc' => "<strong>₱ " . number_format($due_soon_amount, 2) . "</strong> across <strong>{$due_soon_count}</strong> receivable(s) needs proactive client follow-up."
+                        'desc' => "<strong>₱ " . number_format($due_soon_amount, 2) . "</strong> across <strong>{$due_soon_count}</strong> PO(s) is due within 3 days in the selected period. Schedule client follow-up now.",
+                        'href' => 'collection_aging.php',
+                        'action' => 'Review upcoming dues'
                     ];
-                } else {
+                }
+                if ($overdue_amount <= 0 && $missing_due_count <= 0 && $due_soon_amount <= 0) {
                     $fin_insights[] = [
                         'status' => ($outstanding_amount > 0) ? 'primary' : 'success',
                         'icon' => ($outstanding_amount > 0) ? 'fa-file-invoice-dollar' : 'fa-check-double',
                         'title' => ($outstanding_amount > 0) ? 'Receivables Within Term' : 'No Open Receivables',
                         'desc' => ($outstanding_amount > 0)
-                            ? "The remaining <strong>₱ " . number_format($outstanding_amount, 2) . "</strong> is still within the recorded client payment term."
-                            : "All delivered receivables in the selected period are fully collected."
+                            ? "<strong>₱ " . number_format($outstanding_amount, 2) . "</strong> remains open in the selected period, with no overdue, missing-date, or three-day warning."
+                            : "No open delivered-PO balance was found in the selected period."
                     ];
                 }
 
@@ -533,7 +598,7 @@
             <div class="row g-3 mb-3 align-items-stretch">
                 <div class="col-lg-8">
                     <div class="corp-widget h-100">
-                        <div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-chart-area text-primary"></i> Monthly Sales & Revenue Forecast</h6></div>
+                        <div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-chart-area text-primary"></i> Monthly Approved PO Value & Projection</h6></div>
                         <div class="chart-box"><canvas id="finRevenueChart"></canvas></div>
                     </div>
                 </div>
@@ -541,13 +606,14 @@
                     <div class="corp-widget h-100">
                         <div class="corp-widget-header mb-3"><h6 class="corp-widget-title text-dark"><i class="fas fa-lightbulb text-warning"></i>Finance & Sales Insights</h6></div>
                         <div class="dss-insights">
-                            <?php foreach($fin_insights as $i): ?>
+                            <?php foreach(drms_dashboard_prioritize_insights($fin_insights) as $i): ?>
                                 <div class="insight-card p-2 mb-2 rounded border-start border-4 border-<?php echo $i['status']; ?> bg-<?php echo $i['status']; ?> bg-opacity-10">
                                     <div class="d-flex align-items-start gap-2">
                                         <div class="text-<?php echo $i['status']; ?> mt-1 text-center" style="width: 20px;"><i class="fas <?php echo $i['icon']; ?>"></i></div>
                                         <div>
                                             <span class="d-block fw-bold text-dark fs-xs"><?php echo $i['title']; ?></span>
                                             <span class="text-muted fs-xs" style="line-height: 1.35; display: block; margin-top: 2px;"><?php echo $i['desc']; ?></span>
+                                            <?php if (!empty($i['href'])): ?><a class="d-inline-flex align-items-center gap-1 mt-1 fs-xs fw-semibold text-decoration-none" href="<?php echo htmlspecialchars((string) $i['href'], ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars((string) ($i['action'] ?? 'Open records'), ENT_QUOTES, 'UTF-8'); ?><i class="fas fa-arrow-right" aria-hidden="true"></i></a><?php endif; ?>
                                         </div>
                                     </div>
                                 </div>
@@ -558,9 +624,9 @@
             </div>
 
             <div class="row g-3 mb-3 align-items-stretch">
-                <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-exchange-alt text-success"></i> Cash Flow Trend</h6></div><div class="chart-box"><canvas id="finCashflowChart"></canvas></div></div></div>
-                <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-level-up-alt text-primary"></i> MoM Revenue Growth</h6></div><div class="chart-box"><canvas id="finMomChart"></canvas></div></div></div>
-                <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-building text-info"></i> Client Balances & Revenue</h6></div><div class="chart-box"><canvas id="finTopClientsRadarChart"></canvas></div></div></div>
+                <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-exchange-alt text-success"></i> PO Collections vs Supplier Funding</h6></div><div class="chart-box"><canvas id="finCashflowChart"></canvas></div></div></div>
+                <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-level-up-alt text-primary"></i> MoM Approved PO Value</h6></div><div class="chart-box"><canvas id="finMomChart"></canvas></div></div></div>
+                <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-building text-info"></i> Client Balances & Collections</h6></div><div class="chart-box"><canvas id="finTopClientsRadarChart"></canvas></div></div></div>
             </div>
             
         <!-- ============================================== -->
@@ -581,8 +647,8 @@
                 $proc_insights[] = [
                     'status' => 'primary', 
                     'icon' => 'fa-chart-pie', 
-                    'title' => 'Total Procurement Spend', 
-                    'desc' => "Total value of active and completed purchase orders is <strong>₱ " . number_format($tot_spent, 2) . "</strong> for the selected period."
+                    'title' => 'PO Pipeline Value', 
+                    'desc' => "Non-rejected purchase orders created in the selected period total <strong>₱ " . number_format($tot_spent, 2) . "</strong>. This is order value, not actual supplier spending."
                 ];
                 
                 $stagnant = $proc_charts['stagnant'] ?? null;
@@ -590,15 +656,17 @@
                     $proc_insights[] = [
                         'status' => 'danger', 
                         'icon' => 'fa-exclamation-circle', 
-                        'title' => 'Approval Bottleneck', 
-                        'desc' => "PO <strong>" . htmlspecialchars($stagnant['po_number']) . "</strong> has been stuck at <strong>{$stagnant['status']}</strong> for over <strong>{$stagnant['hours_wait']} hours</strong>. Follow up with " . htmlspecialchars($stagnant['current_location']) . "."
+                        'title' => 'Long-Open Approval PO', 
+                        'desc' => "PO <strong>" . htmlspecialchars((string) $stagnant['po_number']) . "</strong> was created <strong>" . (int) $stagnant['hours_wait'] . " hours</strong> ago and is now at <strong>" . htmlspecialchars((string) $stagnant['status']) . "</strong>. Check the latest handoff before calling this stage delayed.",
+                        'href' => 'po_list.php?filter=In_Progress',
+                        'action' => 'Review approval POs'
                     ]; 
                 } else { 
                     $proc_insights[] = [
-                        'status' => 'success', 
+                        'status' => 'info', 
                         'icon' => 'fa-check-circle', 
-                        'title' => 'Smooth Processing', 
-                        'desc' => "No major approval bottlenecks detected. Purchase orders are moving through the workflow efficiently."
+                        'title' => 'No Long-Open Approval PO', 
+                        'desc' => "No approval-stage PO has crossed the 24-hour age rule. This does not measure time spent in each individual stage."
                     ]; 
                 }
                 
@@ -607,8 +675,8 @@
                     $proc_insights[] = [
                         'status' => 'info', 
                         'icon' => 'fa-boxes', 
-                        'title' => 'Highest Spending Category', 
-                        'desc' => "<strong>" . htmlspecialchars($top_cat['cat_name']) . "</strong> leads procurement spending with <strong>₱ " . number_format($top_cat['spent'], 2) . "</strong>."
+                        'title' => 'Highest PO Item Value', 
+                        'desc' => "<strong>" . htmlspecialchars((string) $top_cat['cat_name']) . "</strong> leads PO line-item value with <strong>₱ " . number_format((float) $top_cat['spent'], 2) . "</strong>; this is not proof of payment."
                     ]; 
                 }
                 
@@ -622,7 +690,9 @@
                         ? "There are <strong>{$ready_prf}</strong> officially approved PRF(s) ready for supplier PO preparation. You also have <strong>{$p_po}</strong> encoded PO(s) moving through approval."
                         : (($p_po > 0)
                             ? "There are <strong>{$p_po}</strong> encoded purchase orders waiting for executive or finance approval."
-                            : "No approved PRFs are awaiting conversion and all encoded purchase orders are processed.")
+                            : "No approved PRFs are awaiting conversion and no approval-stage POs are counted in this queue."),
+                    'href' => $ready_prf > 0 ? 'pr_list.php?filter=Approved' : ($p_po > 0 ? 'po_list.php?filter=In_Progress' : null),
+                    'action' => $ready_prf > 0 ? 'Review approved PRFs' : 'Review approval POs'
                 ];
             ?>
             <div class="row g-3 mb-3 align-items-stretch">
@@ -636,13 +706,14 @@
                     <div class="corp-widget h-100">
                         <div class="corp-widget-header mb-3"><h6 class="corp-widget-title text-dark"><i class="fas fa-lightbulb text-warning"></i> Procurement Insights</h6></div>
                         <div class="dss-insights">
-                            <?php foreach($proc_insights as $i): ?>
+                            <?php foreach(drms_dashboard_prioritize_insights($proc_insights) as $i): ?>
                                 <div class="insight-card p-2 mb-2 rounded border-start border-4 border-<?php echo $i['status']; ?> bg-<?php echo $i['status']; ?> bg-opacity-10">
                                     <div class="d-flex align-items-start gap-2">
                                         <div class="text-<?php echo $i['status']; ?> mt-1 text-center" style="width: 20px;"><i class="fas <?php echo $i['icon']; ?>"></i></div>
                                         <div>
                                             <span class="d-block fw-bold text-dark fs-xs"><?php echo $i['title']; ?></span>
                                             <span class="text-muted fs-xs" style="line-height: 1.35; display: block; margin-top: 2px;"><?php echo $i['desc']; ?></span>
+                                            <?php if (!empty($i['href'])): ?><a class="d-inline-flex align-items-center gap-1 mt-1 fs-xs fw-semibold text-decoration-none" href="<?php echo htmlspecialchars((string) $i['href'], ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars((string) ($i['action'] ?? 'Open records'), ENT_QUOTES, 'UTF-8'); ?><i class="fas fa-arrow-right" aria-hidden="true"></i></a><?php endif; ?>
                                         </div>
                                     </div>
                                 </div>
@@ -654,8 +725,8 @@
             
             <div class="row g-3 mb-3 align-items-stretch">
                 <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-chart-pie text-emerald"></i> PO Status Overview</h6></div><div class="chart-box"><canvas id="procStatusChart"></canvas></div></div></div>
-                <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-tags text-primary"></i> Top Categories (Spend)</h6></div><div class="chart-box"><canvas id="procCategoryChart"></canvas></div></div></div>
-                <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-building text-info"></i> Top Brands Purchased</h6></div><div class="chart-box"><canvas id="procBrandChart"></canvas></div></div></div>
+                <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-tags text-primary"></i> Top Categories (PO Value)</h6></div><div class="chart-box"><canvas id="procCategoryChart"></canvas></div></div></div>
+                <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-building text-info"></i> Top Brands by PO Value</h6></div><div class="chart-box"><canvas id="procBrandChart"></canvas></div></div></div>
             </div>
 
         <!-- ============================================== -->
@@ -677,7 +748,9 @@
                     'status' => $ready > 0 ? 'warning' : 'success', 
                     'icon' => $ready > 0 ? 'fa-truck-loading' : 'fa-check-circle', 
                     'title' => $ready > 0 ? 'Delivery Action Required' : 'Delivery Queue Clear', 
-                    'desc' => $ready > 0 ? "There are <strong>{$ready}</strong> approved delivery request(s) awaiting logistics review, scheduling, or client handoff." : 'There are no approved delivery requests waiting for Supply Chain action.'
+                    'desc' => $ready > 0 ? "<strong>{$ready}</strong> delivery request(s) await logistics review, scheduling, or client handoff in the selected period." : 'No delivery requests are counted in the active queue for this period.',
+                    'href' => $ready > 0 ? 'po_list.php?filter=Delivery_Queue' : null,
+                    'action' => 'Review delivery queue'
                 ];
                 
                 $handoff = $sc_stats['awaiting_collection'];
@@ -688,12 +761,16 @@
                     'desc' => $handoff > 0 ? "<strong>{$handoff}</strong> delivered order(s) are now awaiting Finance collection. Delivery responsibility has been completed for these records." : 'No delivered orders are currently awaiting collection handoff.'
                 ];
                 
-                $proof_gap = max(0, $sc_stats['delivered'] - $sc_stats['delivery_proofs']);
+                $delivered_count = (int) $sc_stats['delivered'];
+                $proof_count = (int) $sc_stats['delivery_proofs'];
+                $proof_gap = max(0, $delivered_count - $proof_count);
                 $sc_insights[] = [
-                    'status' => $proof_gap > 0 ? 'danger' : 'success', 
+                    'status' => $proof_gap > 0 ? 'warning' : 'info', 
                     'icon' => $proof_gap > 0 ? 'fa-file-circle-exclamation' : 'fa-file-circle-check', 
-                    'title' => $proof_gap > 0 ? 'Review Delivery Documentation' : 'Delivery Proof Coverage', 
-                    'desc' => $proof_gap > 0 ? "Up to <strong>{$proof_gap}</strong> delivery record(s) may still need a proof-of-delivery file. Attach the signed receipt or acknowledgement before closing the handoff." : 'Every delivery in the selected period has a matching proof-of-delivery record.'
+                    'title' => 'Delivery Proof Count Check', 
+                    'desc' => "<strong>{$delivered_count}</strong> delivered PO(s) and <strong>{$proof_count}</strong> PO(s) with proof files appear in the selected period. These counts use different event dates; inspect individual deliveries before deciding whether proof is missing.",
+                    'href' => $delivered_count > 0 ? 'po_list.php?filter=Completed' : null,
+                    'action' => 'Review delivered POs'
                 ];
                 
                 $completed = $sc_stats['completed_collections'];
@@ -715,13 +792,14 @@
                     <div class="corp-widget h-100">
                         <div class="corp-widget-header mb-3"><h6 class="corp-widget-title text-dark"><i class="fas fa-lightbulb text-warning"></i> Supply Chain Insights</h6></div>
                         <div class="dss-insights">
-                            <?php foreach($sc_insights as $i): ?>
+                            <?php foreach(drms_dashboard_prioritize_insights($sc_insights) as $i): ?>
                                 <div class="insight-card p-2 mb-2 rounded border-start border-4 border-<?php echo $i['status']; ?> bg-<?php echo $i['status']; ?> bg-opacity-10">
                                     <div class="d-flex align-items-start gap-2">
                                         <div class="text-<?php echo $i['status']; ?> mt-1 text-center" style="width: 20px;"><i class="fas <?php echo $i['icon']; ?>"></i></div>
                                         <div>
                                             <span class="d-block fw-bold text-dark fs-xs"><?php echo $i['title']; ?></span>
                                             <span class="text-muted fs-xs" style="line-height: 1.35; display: block; margin-top: 2px;"><?php echo $i['desc']; ?></span>
+                                            <?php if (!empty($i['href'])): ?><a class="d-inline-flex align-items-center gap-1 mt-1 fs-xs fw-semibold text-decoration-none" href="<?php echo htmlspecialchars((string) $i['href'], ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars((string) ($i['action'] ?? 'Open records'), ENT_QUOTES, 'UTF-8'); ?><i class="fas fa-arrow-right" aria-hidden="true"></i></a><?php endif; ?>
                                         </div>
                                     </div>
                                 </div>
@@ -734,7 +812,7 @@
             <div class="row g-3 mb-3 align-items-stretch">
                 <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-chart-pie text-emerald"></i> Fulfilment Status</h6></div><div class="chart-box"><canvas id="scStatusChart"></canvas></div></div></div>
                 <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-building text-info"></i> Delivery Volume by Client</h6></div><div class="chart-box"><canvas id="scClientChart"></canvas></div></div></div>
-                <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-file-signature text-success"></i> Proof Coverage</h6></div><div class="chart-box"><canvas id="scProofChart"></canvas></div></div></div>
+                <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-file-signature text-success"></i> Proof Count Comparison</h6></div><div class="chart-box"><canvas id="scProofChart"></canvas></div></div></div>
             </div>
 
         <!-- ============================================== -->
@@ -761,23 +839,45 @@
                 
                 $pend_q = $sales_stats['pending_quotations'];
                 $gm_po_wait = $sales_stats['awaiting_gm_client_po'] ?? 0;
-                $sales_insights[] = [
-                    'status' => ($pend_q > 0 || $gm_po_wait > 0) ? 'warning' : 'success', 
-                    'icon' => 'fa-envelope-open-text', 
-                    'title' => ($pend_q > 0) ? 'Quotation Follow-ups' : 'Client PO Status', 
-                    'desc' => ($pend_q > 0)
-                        ? "You have <strong>{$pend_q}</strong> pending quotation(s). Please follow up with your clients to secure their Purchase Orders."
-                        : (($gm_po_wait > 0)
-                            ? "<strong>{$gm_po_wait}</strong> official Client PO(s) are waiting for General Manager acknowledgment."
-                            : "All received Client POs have completed General Manager acknowledgment.")
-                ];
+                if ($pend_q > 0) {
+                    $sales_insights[] = [
+                        'status' => 'warning',
+                        'icon' => 'fa-envelope-open-text',
+                        'title' => 'Quotation Follow-ups',
+                        'desc' => "<strong>{$pend_q}</strong> quotation(s) are pending. Check each client response and record the agreed next follow-up.",
+                        'href' => 'quotations_list.php?filter=Pending%20PO',
+                        'action' => 'Review quotations'
+                    ];
+                }
+                if ($gm_po_wait > 0) {
+                    $sales_insights[] = [
+                        'status' => 'info',
+                        'icon' => 'fa-file-signature',
+                        'title' => 'Client POs Awaiting GM',
+                        'desc' => "<strong>{$gm_po_wait}</strong> Client PO(s) are waiting for General Manager acknowledgment. Check the handoff status before preparing a PRF.",
+                        'href' => 'quotations_list.php?filter=For%20GM%20Acknowledgement',
+                        'action' => 'View client PO handoffs'
+                    ];
+                }
+                if ($pend_q <= 0 && $gm_po_wait <= 0) {
+                    $sales_insights[] = [
+                        'status' => 'success',
+                        'icon' => 'fa-check-circle',
+                        'title' => 'Quotation Handoffs Clear',
+                        'desc' => 'No quotations or Client POs are counted in these pending handoff queues.'
+                    ];
+                }
                 
                 $pend_pr = $sales_stats['pending'];
                 $sales_insights[] = [
                     'status' => ($pend_pr > 0) ? 'info' : 'success', 
                     'icon' => 'fa-user-clock', 
                     'title' => 'Internal Approvals', 
-                    'desc' => ($pend_pr > 0) ? "<strong>{$pend_pr}</strong> of your Purchase Requests are currently pending review from General Management." : "No pending PRs awaiting management approval."
+                    'desc' => ($pend_pr > 0)
+                        ? "<strong>{$pend_pr}</strong> Purchase Request(s) are pending at their assigned review stage. Check the PR list for the current reviewer."
+                        : "No Purchase Requests are counted in the pending queue for this period.",
+                    'href' => $pend_pr > 0 ? 'pr_list.php?filter=Pending' : null,
+                    'action' => 'Review pending PRFs'
                 ];
                 
                 $last_rej = $sales_charts['latest_rejected'] ?? null;
@@ -786,7 +886,9 @@
                         'status' => 'danger', 
                         'icon' => 'fa-times-circle', 
                         'title' => 'Recent PR Rejection', 
-                        'desc' => "PR <strong>" . htmlspecialchars($last_rej['pr_number']) . "</strong> for <strong>" . htmlspecialchars($last_rej['client_name']) . "</strong> was rejected. Please review the details."
+                        'desc' => "PR <strong>" . htmlspecialchars((string) $last_rej['pr_number']) . "</strong> for <strong>" . htmlspecialchars((string) $last_rej['client_name']) . "</strong> was rejected. Review its recorded reason before revising or resubmitting.",
+                        'href' => 'pr_list.php?filter=Rejected',
+                        'action' => 'Review rejected PRFs'
                     ]; 
                 }
             ?>
@@ -801,13 +903,14 @@
                     <div class="corp-widget h-100">
                         <div class="corp-widget-header mb-3"><h6 class="corp-widget-title text-dark"><i class="fas fa-lightbulb text-warning"></i> Sales Insights</h6></div>
                         <div class="dss-insights">
-                            <?php foreach($sales_insights as $i): ?>
+                            <?php foreach(drms_dashboard_prioritize_insights($sales_insights) as $i): ?>
                                 <div class="insight-card p-2 mb-2 rounded border-start border-4 border-<?php echo $i['status']; ?> bg-<?php echo $i['status']; ?> bg-opacity-10">
                                     <div class="d-flex align-items-start gap-2">
                                         <div class="text-<?php echo $i['status']; ?> mt-1 text-center" style="width: 20px;"><i class="fas <?php echo $i['icon']; ?>"></i></div>
                                         <div>
                                             <span class="d-block fw-bold text-dark fs-xs"><?php echo $i['title']; ?></span>
                                             <span class="text-muted fs-xs" style="line-height: 1.35; display: block; margin-top: 2px;"><?php echo $i['desc']; ?></span>
+                                            <?php if (!empty($i['href'])): ?><a class="d-inline-flex align-items-center gap-1 mt-1 fs-xs fw-semibold text-decoration-none" href="<?php echo htmlspecialchars((string) $i['href'], ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars((string) ($i['action'] ?? 'Open records'), ENT_QUOTES, 'UTF-8'); ?><i class="fas fa-arrow-right" aria-hidden="true"></i></a><?php endif; ?>
                                         </div>
                                     </div>
                                 </div>
@@ -1311,18 +1414,18 @@
                 const ctxFinRev = document.getElementById('finRevenueChart').getContext('2d');
                 let gradActual = ctxFinRev.createLinearGradient(0, 0, 0, 400); gradActual.addColorStop(0, 'rgba(59, 130, 246, 0.5)'); gradActual.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
                 let gradPred = ctxFinRev.createLinearGradient(0, 0, 0, 400); gradPred.addColorStop(0, 'rgba(139, 92, 246, 0.4)'); gradPred.addColorStop(1, 'rgba(139, 92, 246, 0.0)');
-                new Chart(ctxFinRev, { type: 'line', data: { labels: finData.revenue_labels, datasets: [ { label: 'Actual Revenue', data: finData.revenue_actuals, borderColor: '#3b82f6', backgroundColor: gradActual, borderWidth: 3, fill: true, tension: 0.4, pointBackgroundColor: '#ffffff', pointBorderColor: '#3b82f6', pointBorderWidth: 2, pointRadius: 4, pointHoverRadius: 6 }, { label: 'Predicted Trend', data: finData.revenue_predicteds, borderColor: '#8b5cf6', backgroundColor: gradPred, borderWidth: 3, borderDash: [5, 5], fill: true, tension: 0.4, pointBackgroundColor: '#ffffff', pointBorderColor: '#8b5cf6', pointBorderWidth: 2, pointRadius: 4, pointHoverRadius: 6 } ] }, options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: {size: 12, family: 'Inter'} } }, tooltip: { backgroundColor: 'rgba(15, 23, 42, 0.95)', titleFont: { size: 13, family: 'Inter' }, bodyFont: { size: 12, family: 'Inter' }, callbacks: { label: function(ctx) { return ctx.dataset.label + ': ₱ ' + ctx.parsed.y.toLocaleString(undefined, {minimumFractionDigits: 2}); } } } }, scales: { y: { grid: { borderDash: [4, 4], color: '#f1f5f9' }, border: {display: false}, ticks: { callback: function(val) { return '₱ ' + val.toLocaleString(); } } }, x: { grid: { display: false }, border: {display: false} } } } });
+                new Chart(ctxFinRev, { type: 'line', data: { labels: finData.revenue_labels, datasets: [ { label: 'Approved PO Value', data: finData.revenue_actuals, borderColor: '#3b82f6', backgroundColor: gradActual, borderWidth: 3, fill: true, tension: 0.4, pointBackgroundColor: '#ffffff', pointBorderColor: '#3b82f6', pointBorderWidth: 2, pointRadius: 4, pointHoverRadius: 6 }, { label: 'Projected PO Value', data: finData.revenue_predicteds, borderColor: '#8b5cf6', backgroundColor: gradPred, borderWidth: 3, borderDash: [5, 5], fill: true, tension: 0.4, pointBackgroundColor: '#ffffff', pointBorderColor: '#8b5cf6', pointBorderWidth: 2, pointRadius: 4, pointHoverRadius: 6 } ] }, options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'top', labels: { usePointStyle: true, font: {size: 12, family: 'Inter'} } }, tooltip: { backgroundColor: 'rgba(15, 23, 42, 0.95)', titleFont: { size: 13, family: 'Inter' }, bodyFont: { size: 12, family: 'Inter' }, callbacks: { label: function(ctx) { return ctx.dataset.label + ': ₱ ' + ctx.parsed.y.toLocaleString(undefined, {minimumFractionDigits: 2}); } } } }, scales: { y: { grid: { borderDash: [4, 4], color: '#f1f5f9' }, border: {display: false}, ticks: { callback: function(val) { return '₱ ' + val.toLocaleString(); } } }, x: { grid: { display: false }, border: {display: false} } } } });
             }
 
             if(document.getElementById('finCashflowChart') && typeof finData !== 'undefined') {
                 const ctxCF = document.getElementById('finCashflowChart').getContext('2d');
-                new Chart(ctxCF, { type: 'line', data: { labels: finData.cf_labels, datasets: [ { label: 'Inflow', data: finData.cf_in, borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', fill: true, tension: 0.4, borderWidth: 2, pointRadius: 3 }, { label: 'Outflow', data: finData.cf_out, borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', fill: true, tension: 0.4, borderWidth: 2, pointRadius: 3 } ] }, options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8, font: {size: 10} } }, tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ₱ ' + ctx.parsed.y.toLocaleString(undefined, {minimumFractionDigits: 2}); } } } }, scales: { y: { grid: { borderDash: [4, 4], color: '#f1f5f9' }, border: {display: false}, ticks: { font: {size: 10}, callback: function(val) { if(val >= 1000) return '₱ ' + (val/1000) + 'k'; return '₱ ' + val; } } }, x: { grid: { display: false }, ticks: { font: {size: 10} } } } } });
+                new Chart(ctxCF, { type: 'line', data: { labels: finData.cf_labels, datasets: [ { label: 'Client Payments', data: finData.cf_in, borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', fill: true, tension: 0.4, borderWidth: 2, pointRadius: 3 }, { label: 'Supplier Funds Released', data: finData.cf_out, borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', fill: true, tension: 0.4, borderWidth: 2, pointRadius: 3 } ] }, options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8, font: {size: 10} } }, tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ₱ ' + ctx.parsed.y.toLocaleString(undefined, {minimumFractionDigits: 2}); } } } }, scales: { y: { grid: { borderDash: [4, 4], color: '#f1f5f9' }, border: {display: false}, ticks: { font: {size: 10}, callback: function(val) { if(val >= 1000) return '₱ ' + (val/1000) + 'k'; return '₱ ' + val; } } }, x: { grid: { display: false }, ticks: { font: {size: 10} } } } } });
             }
 
             if(document.getElementById('finMomChart') && typeof finData !== 'undefined') {
                 const ctxMom = document.getElementById('finMomChart').getContext('2d'); 
                 const momColors = finData.mom_pct.map(val => val >= 0 ? 'rgba(16, 185, 129, 0.8)' : 'rgba(239, 68, 68, 0.8)');
-                new Chart(ctxMom, { type: 'bar', data: { labels: finData.mom_labels, datasets: [{ label: 'Growth (%)', data: finData.mom_pct, backgroundColor: momColors, borderRadius: 4, barPercentage: 0.6 }] }, options: { maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: function(ctx) { return (ctx.parsed.y > 0 ? '+' : '') + ctx.parsed.y + '% MoM'; } } } }, scales: { y: { grid: { borderDash: [4, 4], color: '#f1f5f9' }, border: {display: false}, ticks: { font: {size: 10}, callback: function(val) { return val + '%'; } } }, x: { grid: { display: false }, ticks: { font: {size: 10} } } } } });
+                new Chart(ctxMom, { type: 'bar', data: { labels: finData.mom_labels, datasets: [{ label: 'Change (%)', data: finData.mom_pct, backgroundColor: momColors, borderRadius: 4, barPercentage: 0.6 }] }, options: { maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: function(ctx) { return (ctx.parsed.y > 0 ? '+' : '') + ctx.parsed.y + '% MoM'; } } } }, scales: { y: { grid: { borderDash: [4, 4], color: '#f1f5f9' }, border: {display: false}, ticks: { font: {size: 10}, callback: function(val) { return val + '%'; } } }, x: { grid: { display: false }, ticks: { font: {size: 10} } } } } });
             }
 
             if(document.getElementById('finTopClientsRadarChart') && typeof finData !== 'undefined') {
@@ -1360,7 +1463,7 @@
                 const pcLabels = procData.top_cats.map(c => c.cat_name); 
                 const pcData = procData.top_cats.map(c => c.spent);
                 
-                new Chart(ctxCat, { type: 'bar', data: { labels: pcLabels.length ? pcLabels : ['No Record'], datasets: [{ label: 'Total Spent (₱)', data: pcData, backgroundColor: gradCat, borderRadius: 6, barPercentage: 0.65 }] }, options: { indexAxis: 'y', maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: function(ctx) { return '₱ ' + ctx.parsed.x.toLocaleString(undefined, {minimumFractionDigits: 2}); } } } }, scales: { x: { beginAtZero: true, grid: { borderDash: [4, 4], color: '#f1f5f9' }, border: { display: false }, ticks: { callback: function(val) { if(val >= 1000) return '₱ ' + (val/1000) + 'k'; return '₱ ' + val; } } }, y: { grid: { display: false }, border: { display: false }, ticks: { font: {size: 10} } } } } });
+                new Chart(ctxCat, { type: 'bar', data: { labels: pcLabels.length ? pcLabels : ['No Record'], datasets: [{ label: 'PO Item Value (₱)', data: pcData, backgroundColor: gradCat, borderRadius: 6, barPercentage: 0.65 }] }, options: { indexAxis: 'y', maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: function(ctx) { return '₱ ' + ctx.parsed.x.toLocaleString(undefined, {minimumFractionDigits: 2}); } } } }, scales: { x: { beginAtZero: true, grid: { borderDash: [4, 4], color: '#f1f5f9' }, border: { display: false }, ticks: { callback: function(val) { if(val >= 1000) return '₱ ' + (val/1000) + 'k'; return '₱ ' + val; } } }, y: { grid: { display: false }, border: { display: false }, ticks: { font: {size: 10} } } } } });
             }
 
             if(document.getElementById('procBrandChart') && typeof procData !== 'undefined') {
@@ -1415,5 +1518,6 @@
             }
         });
     </script>
+    <script src="assets/js/dashboard-chart-info.js?v=<?php echo filemtime(__DIR__ . '/assets/js/dashboard-chart-info.js'); ?>"></script>
 </body>
 </html>

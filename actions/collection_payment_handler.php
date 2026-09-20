@@ -3,6 +3,7 @@ session_start();
 
 require '../config/db_connect.php';
 require '../config/functions.php';
+require_once '../config/rbac_policy.php';
 require_once '../config/workflow_feedback.php';
 require_once '../config/official_payment_confirmation_filing.php';
 require_once '../config/upload_policy.php';
@@ -98,7 +99,7 @@ if ($action !== 'record_collection_payment' && $action !== 'add_payment') {
     );
 }
 
-if (($_SESSION['role'] ?? '') !== 'Finance') {
+if (!drms_rbac_role_can_access_module((string) ($_SESSION['role'] ?? ''), 'collections')) {
     phase5d_payment_redirect(
         $po_id,
         $return_to,

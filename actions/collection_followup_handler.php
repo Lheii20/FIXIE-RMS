@@ -3,6 +3,7 @@ session_start();
 
 require '../config/db_connect.php';
 require '../config/functions.php';
+require_once '../config/rbac_policy.php';
 require_once '../config/workflow_feedback.php';
 
 date_default_timezone_set('Asia/Manila');
@@ -113,7 +114,7 @@ if ($action !== 'record_collection_followup') {
     phase5b_redirect($po_id, 'error', 'Invalid collection follow-up action.');
 }
 
-if (($_SESSION['role'] ?? '') !== 'Finance') {
+if (!drms_rbac_role_can_access_module((string) ($_SESSION['role'] ?? ''), 'collections')) {
     phase5b_redirect(
         $po_id,
         'error',

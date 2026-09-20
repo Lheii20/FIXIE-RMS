@@ -1,22 +1,13 @@
 <?php
 require 'config/db_connect.php';
 require 'config/functions.php';
+require_once 'config/rbac_policy.php';
 
 date_default_timezone_set('Asia/Manila');
 
-if (!isset($_SESSION['user_id'])) {
-    header('Location: index.php');
-    exit();
-}
-
-$allowed_roles = ['Finance', 'GM', 'President'];
+drms_rbac_require_module('collections');
 $current_role = (string) ($_SESSION['role'] ?? '');
 $current_user_id = (int) $_SESSION['user_id'];
-
-if (!in_array($current_role, $allowed_roles, true)) {
-    header('Location: dashboard.php');
-    exit();
-}
 
 function phase5a_money(float $amount): string
 {
@@ -54,9 +45,6 @@ $valid_filters = [
 ];
 $active_filter = trim((string) ($_GET['filter'] ?? 'all'));
 if (!in_array($active_filter, $valid_filters, true)) {
-    $active_filter = 'all';
-}
-if ($current_role !== 'Finance' && $active_filter === 'mine') {
     $active_filter = 'all';
 }
 

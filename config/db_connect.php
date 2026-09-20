@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/session_bootstrap.php';
+require_once __DIR__ . '/session_registry.php';
 
 $database_config = drms_runtime_section('database');
 $host = (string) $database_config['host'];
@@ -47,15 +48,11 @@ if (!function_exists('drms_request_expects_json')) {
 }
 
 if (!function_exists('drms_end_session')) {
-    function drms_end_session(mysqli $conn, int $userId, string $sessionToken, string $status, string $errorCode, bool $clearCurrentToken = false): void
+    function drms_end_session(mysqli $conn, int $userId, string $sessionToken, string $status, string $errorCode, bool $expired = false): void
     {
-        if ($clearCurrentToken && $userId > 0 && $sessionToken !== '') {
-            $clearTokenStmt = $conn->prepare(
-                "UPDATE users SET session_token = NULL WHERE user_id = ? AND session_token = ?"
-            );
-            $clearTokenStmt->bind_param('is', $userId, $sessionToken);
-            $clearTokenStmt->execute();
-        }
+        // The account token is shared by this user's approved device sessions.
+        // Ending one browser must not sign out all the others.
+        drms_registry_end_current($conn, $userId, $expired ? 'timeout' : 'revoked');
 
         $_SESSION = [];
         if (ini_get('session.use_cookies')) {
@@ -140,9 +137,16 @@ if (isset($_SESSION['user_id'])) {
         drms_end_session($conn, $uid, $current_token, 'session_expired', 'SessionExpired', true);
     }
 
-    $isSessionProbe = basename((string) ($_SERVER['SCRIPT_NAME'] ?? '')) === 'check_session.php';
-    $probeReportsActivity = $isSessionProbe && (string) ($_GET['activity'] ?? '0') === '1';
-    $isMeaningfulActivity = !$isSessionProbe || $probeReportsActivity;
+    // Presence is a connection heartbeat, not user interaction. Idle probes
+    // update this registry but never extend the inactivity timeout above.
+    if (!drms_registry_touch($conn, $uid, $current_token)) {
+        drms_end_session($conn, $uid, $current_token, 'force_logout', 'ForceLoggedOutByAdmin');
+    }
+
+    $probeName = basename((string) ($_SERVER['SCRIPT_NAME'] ?? ''));
+    $isPassiveProbe = in_array($probeName, ['check_session.php', 'user_presence.php'], true);
+    $probeReportsActivity = $probeName === 'check_session.php' && (string) ($_GET['activity'] ?? '0') === '1';
+    $isMeaningfulActivity = !$isPassiveProbe || $probeReportsActivity;
 
     if ($isMeaningfulActivity) {
         $_SESSION['last_activity'] = $now;

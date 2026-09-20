@@ -1821,7 +1821,7 @@ $can_upload_files = ($role == 'Procurement');
         function viewFile(path, type) {
             const modalBody = document.getElementById('previewBody');
             const myModal = new bootstrap.Modal(document.getElementById('previewModal'));
-            modalBody.innerHTML = '<div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading preview...</span></div>';
+            modalBody.innerHTML = window.DRMSSkeleton ? window.DRMSSkeleton.preview('Loading document preview') : '<div class="drms-skeleton-surface" role="status"><span class="visually-hidden">Loading document preview</span><span class="drms-skeleton-line is-medium" aria-hidden="true"></span></div>';
             
             if (type === 'image') {
                 modalBody.innerHTML = `<img src="${path}" class="img-fluid max-h-80vh" alt="Document preview">`;

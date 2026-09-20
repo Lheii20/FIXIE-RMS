@@ -117,6 +117,7 @@
   }
   function folderOptions(){
     const selected=el('Folder').value,rawQuery=el('FolderSearch').value.trim(),query=rawQuery.toLocaleLowerCase();
+    el('FolderSearchStatus').classList.remove('drms-skeleton-inline');
     const eligible=profile.folders.filter(folder=>action!=='transfer_copy'||String(folder.id)!==String(profile.document.physical_folder_id));
 
     el('Folder').replaceChildren(new Option('Select physical folder',''));

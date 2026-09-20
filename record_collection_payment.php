@@ -1,16 +1,14 @@
 <?php
 require 'config/db_connect.php';
 require 'config/functions.php';
+require_once 'config/rbac_policy.php';
 require_once 'config/workflow_feedback.php';
 require_once 'config/payment_signature.php';
 require_once 'config/payment_signature_ui.php';
 
 date_default_timezone_set('Asia/Manila');
 
-if (!isset($_SESSION['user_id']) || ($_SESSION['role'] ?? '') !== 'Finance') {
-    header('Location: dashboard.php');
-    exit();
-}
+drms_rbac_require_module('collections');
 
 function phase5d_page_date(?string $value, string $fallback = 'Not recorded'): string
 {

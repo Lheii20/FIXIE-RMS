@@ -1,20 +1,12 @@
 <?php
 require 'config/db_connect.php';
 require 'config/functions.php';
+require_once 'config/rbac_policy.php';
 
 date_default_timezone_set('Asia/Manila');
 
-if (!isset($_SESSION['user_id'])) {
-    header('Location: index.php');
-    exit();
-}
-
-$allowed_roles = ['Finance', 'GM', 'President'];
+drms_rbac_require_module('collections');
 $current_role = (string) ($_SESSION['role'] ?? '');
-if (!in_array($current_role, $allowed_roles, true)) {
-    header('Location: dashboard.php');
-    exit();
-}
 
 function phase5g_money(float $amount): string
 {
@@ -220,6 +212,7 @@ $statement_number = $record
     <link href="assets/css/collection-statement.css?v=<?php echo filemtime(__DIR__ . '/assets/css/collection-statement.css'); ?>" rel="stylesheet">
     <link href="assets/vendor/fonts/5.3.0/fixie-fonts.css" rel="stylesheet">
     <link href="assets/css/workflow-ui.css?v=<?php echo filemtime(__DIR__ . '/assets/css/workflow-ui.css'); ?>" rel="stylesheet">
+    <link href="assets/css/print-document-standard.css?v=<?php echo filemtime(__DIR__ . '/assets/css/print-document-standard.css'); ?>" rel="stylesheet">
 </head>
 <body class="statement-page workflow-ui">
     <div class="statement-toolbar" role="toolbar" aria-label="Statement actions">
@@ -240,18 +233,19 @@ $statement_number = $record
             <a href="collection_monitoring.php">Return to Collection Monitoring</a>
         </main>
     <?php else: ?>
-        <main class="statement-sheet">
+        <main class="statement-sheet drms-print-document">
             <header class="statement-document-header">
                 <div class="statement-brand">
                     <img src="assets/images/fixie_logo.png" alt="Fixie Computer Ventures logo">
                     <div>
                         <strong>Fixie Computer Ventures</strong>
                         <span>Computer products and business solutions</span>
+                        <small>Client collection document</small>
                     </div>
                 </div>
                 <div class="statement-title">
-                    <span>Client collection document</span>
-                    <h1>Statement of Account</h1>
+                    <span>Statement of Account</span>
+                    <h1><?php echo htmlspecialchars($statement_number); ?></h1>
                     <small>For collection reference only</small>
                 </div>
             </header>

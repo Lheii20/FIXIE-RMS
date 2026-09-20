@@ -2076,7 +2076,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                       <div class="col-md-7" id="vcTimelineCol">
                           <h6 class="fw-bold text-muted mb-3 text-uppercase fs-xs letter-spacing-tight">File History</h6>
                           <div id="versionHistoryTimeline" class="pe-2" style="max-height: 300px; overflow-y: auto;">
-                              <div class="text-center text-muted small py-4"><i class="fas fa-spinner fa-spin me-2"></i>Loading history...</div>
+                              <div class="drms-skeleton-surface" role="status" aria-live="polite"><span class="visually-hidden">Loading version history</span><div class="drms-skeleton-stack" aria-hidden="true"><span class="drms-skeleton-line is-title"></span><span class="drms-skeleton-line"></span><span class="drms-skeleton-line is-medium"></span><span class="drms-skeleton-line"></span></div></div>
                           </div>
                       </div>
                       <div class="col-md-5" id="vcUploadSection">
@@ -2138,9 +2138,9 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
               <div class="modal-body p-0 d-flex justify-content-center align-items-center overflow-hidden" style="height: 100vh; width: 100vw; touch-action: none; position: relative; z-index: 1050; padding-top: 45px !important;">
                 
                   <!-- Modern Loader -->
-                  <div id="viewerLoader" class="position-absolute text-center" style="z-index: 1040;">
-                      <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem; border-width: 0.2em;"></div>
-                      <div class="fw-bold text-white text-uppercase letter-spacing-tight" style="font-size: 0.85rem; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">Loading Document...</div>
+                  <div id="viewerLoader" class="position-absolute text-center" style="z-index: 1040;" role="status" aria-live="polite">
+                      <span class="visually-hidden">Loading document preview</span>
+                      <div class="drms-skeleton-preview" aria-hidden="true"><span class="drms-skeleton-line"></span><span class="drms-skeleton-line"></span><span class="drms-skeleton-block"></span></div>
                   </div>
 
                   <div id="viewerContentWrapper" style="transition: transform 0.2s ease; transform-origin: center center; display:flex; justify-content:center; align-items:center; width: 100%; height: 100%;">
@@ -3043,9 +3043,8 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
   <script src="assets/vendor/datatables/1.13.6/jquery.dataTables.min.js"></script>
   <script src="assets/vendor/datatables/1.13.6/dataTables.bootstrap5.min.js"></script>
   <script src="assets/vendor/sweetalert2/11.26.25/sweetalert2.all.min.js"></script>
-  <script src="assets/vendor/tesseract/5.1.1/tesseract.min.js"></script>
-  <script src="assets/js/local-ocr.js"></script>
-  <script src="assets/vendor/pdfjs/2.16.105/pdf.min.js"></script>
+  <script src="assets/js/local-ocr.js?v=<?= (int) @filemtime(__DIR__ . '/assets/js/local-ocr.js') ?>"></script>
+  <script src="assets/js/local-pdf-loader.js?v=<?= (int) @filemtime(__DIR__ . '/assets/js/local-pdf-loader.js') ?>"></script>
   <script src="assets/js/local-opencv-loader.js"></script>
   <script src="assets/js/mobile-document-viewer.js"></script>
 
@@ -3590,7 +3589,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                       img.src = URL.createObjectURL(file);
                   });
 
-                  if (!window.FixieLocalOCR || !window.FixieLocalOCR.isAvailable()) {
+                  if (!window.FixieLocalOCR || typeof window.FixieLocalOCR.recognize !== 'function') {
                       throw new Error('LOCAL_OCR_UNAVAILABLE');
                   }
 
@@ -3611,8 +3610,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
               nameDisplay.innerText = "Reading PDF Content...";
               try {
                   const arrayBuffer = await file.arrayBuffer();
-                  const pdfjsLib = window['pdfjs-dist/build/pdf'];
-                  pdfjsLib.GlobalWorkerOptions.workerSrc = 'assets/vendor/pdfjs/2.16.105/pdf.worker.min.js';
+                  const pdfjsLib = await window.FixiePDF.load();
 
                   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
                   const maxPages = Math.min(pdf.numPages, 3);
@@ -3838,7 +3836,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
               document.getElementById('vcTimelineCol').classList.add('col-md-12');
           }
 
-          document.getElementById('versionHistoryTimeline').innerHTML = '<div class="text-center text-muted small py-4"><i class="fas fa-spinner fa-spin me-2"></i>Loading history...</div>';
+          document.getElementById('versionHistoryTimeline').innerHTML = window.DRMSSkeleton ? window.DRMSSkeleton.lines('Loading version history') : '<div class="drms-skeleton-surface" role="status"><span class="visually-hidden">Loading version history</span><span class="drms-skeleton-line is-medium" aria-hidden="true"></span></div>';
           new bootstrap.Modal(document.getElementById('versionControlModal')).show();
 
           $.ajax({

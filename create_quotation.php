@@ -25,11 +25,6 @@ if ($cats_query) {
     while($row = $cats_query->fetch_assoc()) { $categories[] = $row; }
 }
 
-$brands = [];
-$brands_query = $conn->query("SELECT brand_name FROM brands ORDER BY brand_name ASC");
-if ($brands_query) {
-    while($row = $brands_query->fetch_assoc()) { $brands[] = $row['brand_name']; }
-}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -44,137 +39,94 @@ if ($brands_query) {
 </head>
 <body class="page-create-quotation workflow-ui">
     <?php include 'sidebar.php'; ?>
-    <div class="main-content fade-in">
-        <div class="container-fluid max-w-1300">
-            
-            <div class="d-flex flex-nowrap align-items-center justify-content-start mb-4 mt-2 create-form-header text-start">
-                <a href="quotations_list.php" class="btn btn-white shadow-sm rounded-custom d-flex align-items-center justify-content-center me-3 box-38 border create-form-back-btn" aria-label="Back to quotations"><i class="fas fa-arrow-left text-secondary"></i></a>
-                <div class="create-form-heading text-start">
-                    <h4 class="fw-bold text-dark mb-0 tracking-tight">Generate Quotation</h4>
-                    <p class="text-muted mb-0 d-none d-md-block fs-sm">Draft an official client quotation.</p>
-                </div>
-            </div>
-
-            <div class="split-card row g-0">
-                
-                <!-- LEFT PANEL -->
-                <div class="col-lg-3 left-panel d-none d-lg-block">
-                    <div class="p-4 position-sticky sticky-top-85">
-                        <h6 class="fw-bold text-muted text-uppercase mb-4 fs-xs tracking-wider">Creation Progress</h6>
-                        
-                        <div class="vertical-stepper">
-                            <div class="step-node active" id="nav-step1">
-                                <div class="step-icon">1</div>
-                                <div class="step-text">
-                                    <h6 class="fw-bold fs-sm text-dark mb-0">Basic Info</h6>
-                                    <small class="text-muted fs-xs">Client details & Ref</small>
-                                </div>
-                            </div>
-                            <div class="step-line" id="nav-line"></div>
-                            <div class="step-node" id="nav-step2">
-                                <div class="step-icon">2</div>
-                                <div class="step-text">
-                                    <h6 class="fw-bold fs-sm text-dark mb-0">Quoted Items</h6>
-                                    <small class="text-muted fs-xs">Specifications & Pricing</small>
-                                </div>
-                            </div>
-                        </div>
+    <link href="assets/css/create-quotation.css?v=<?php echo filemtime(__DIR__ . '/assets/css/create-quotation.css'); ?>" rel="stylesheet">
+    <main class="main-content fade-in">
+        <div class="quotation-draft-shell">
+            <header class="qd-page-header">
+                <div class="qd-title-group">
+                    <a href="quotations_list.php" class="qd-back-button" aria-label="Back to quotations" title="Back to quotations">
+                        <i class="fas fa-arrow-left" aria-hidden="true"></i>
+                    </a>
+                    <div>
+                        <span class="qd-eyebrow">Sales workspace</span>
+                        <h1>Draft quotation</h1>
+                        <p>Prepare client details, quoted items, and pricing in one focused workspace.</p>
                     </div>
                 </div>
+                <span class="qd-draft-badge"><i class="fas fa-pen" aria-hidden="true"></i> Draft</span>
+            </header>
 
-                <!-- RIGHT PANEL (Form Area) -->
-                <div class="col-lg-9 p-3 p-md-4 right-panel">
-                    
-                    <div id="mobileGrandTotalWrapper" class="d-lg-none mb-3 pb-2 border-bottom d-flex justify-content-between align-items-center">
-                        <span class="badge bg-primary text-white" id="mobile-step-indicator">Step 1 of 2</span>
-                        <h5 class="fw-bold text-primary m-0" id="mobileGrandTotal">₱ 0.00</h5>
+            <nav class="qd-progress" aria-label="Quotation creation progress">
+                <div class="step-node active" id="nav-step1" aria-current="step">
+                    <span class="step-icon">1</span>
+                    <span class="step-text"><strong>Client details</strong><small>Reference and recipient</small></span>
+                </div>
+                <span class="step-line" id="nav-line" aria-hidden="true"></span>
+                <div class="step-node" id="nav-step2">
+                    <span class="step-icon">2</span>
+                    <span class="step-text"><strong>Quoted items</strong><small>Scope and pricing</small></span>
+                </div>
+                <span class="qd-mobile-step" id="mobile-step-indicator">Step 1 of 2</span>
+            </nav>
+
+            <form action="actions/quotation_handler.php" method="POST" id="quotationForm" onkeydown="return event.key != 'Enter';">
+                <input type="hidden" name="action" value="create_detailed_quotation">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) ($_SESSION['csrf_token'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
+                <input type="hidden" name="amount" id="hiddenGrandTotal" value="0">
+
+                <section class="wizard-step active-step qd-form-card" id="step1" aria-labelledby="quotationDetailsHeading">
+                    <header class="qd-section-header">
+                        <span class="qd-section-icon"><i class="fas fa-file-lines" aria-hidden="true"></i></span>
+                        <div><span>Step 1</span><h2 id="quotationDetailsHeading">Quotation details</h2><p>Identify the quotation and the client who will receive it.</p></div>
+                    </header>
+                    <div class="qd-detail-grid">
+                        <div class="qd-field">
+                            <label for="quotationNumber">Quotation number</label>
+                            <div class="qd-input-wrap is-reference"><i class="fas fa-hashtag" aria-hidden="true"></i><input type="text" id="quotationNumber" name="quotation_number" class="form-control soft-input" value="<?php echo htmlspecialchars($display_q_number, ENT_QUOTES, 'UTF-8'); ?>" readonly></div>
+                            <small>Generated automatically and reserved when the quotation is saved.</small>
+                        </div>
+                        <div class="qd-field">
+                            <label for="clientName">Client or agency <span class="req-star">Required</span></label>
+                            <div class="qd-input-wrap"><i class="fas fa-building" aria-hidden="true"></i><input type="text" name="client_name" id="clientName" class="form-control soft-input" placeholder="Enter the registered client or agency name" maxlength="150" autocomplete="organization" required></div>
+                            <small>Use the name that should appear on the printed quotation.</small>
+                        </div>
                     </div>
+                    <aside class="qd-guidance"><i class="fas fa-circle-info" aria-hidden="true"></i><p><strong>Before proceeding:</strong> confirm the client name carefully. It becomes part of the quotation record and approval trail.</p></aside>
+                </section>
 
-                    <form action="actions/quotation_handler.php" method="POST" id="quotationForm" onkeydown="return event.key != 'Enter';">
-                        <input type="hidden" name="action" value="create_detailed_quotation">
-                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
-                        <input type="hidden" name="amount" id="hiddenGrandTotal" value="0">
+                <section class="wizard-step qd-form-card qd-items-card" id="step2" aria-labelledby="quotationItemsHeading">
+                    <header class="qd-section-header qd-items-heading">
+                        <span class="qd-section-icon"><i class="fas fa-boxes-stacked" aria-hidden="true"></i></span>
+                        <div><span>Step 2</span><h2 id="quotationItemsHeading">Quoted items</h2><p>Add each product or service with its quantity and client price.</p></div>
+                        <div class="qd-item-tools"><span id="quotationItemCount">1 item</span><button type="button" class="btn btn-outline-primary" onclick="addItemRow()"><i class="fas fa-plus" aria-hidden="true"></i>Add item</button></div>
+                    </header>
 
-                        <!-- STEP 1 -->
-                        <div class="wizard-step active-step" id="step1">
-                            <h5 class="fw-bold text-dark mb-3">Quotation Information</h5>
-                            
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <label class="form-label-sleek">Generated Quote Number</label>
-                                    <input type="text" name="quotation_number" class="form-control soft-input text-primary fw-bold bg-light-blue" value="<?php echo $display_q_number; ?>" readonly>
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label-sleek">Client / Agency Name <span class="req-star">*</span></label>
-                                    <input type="text" name="client_name" id="clientName" class="form-control soft-input" placeholder="e.g. Acme Corporation" required>
-                                </div>
-                            </div>
-                        </div>
+                    <div class="table-container qd-table-region" role="region" aria-label="Quotation items" tabindex="0">
+                        <table class="table table-glass" id="itemsTable">
+                            <caption class="visually-hidden">Products and services included in this quotation</caption>
+                            <thead><tr><th>Category and item <span class="req-star">*</span></th><th>Specifications</th><th>Quantity <span class="req-star">*</span></th><th>Unit price <span class="req-star">*</span></th><th>Line total</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+                            <tbody id="itemsBody"></tbody>
+                        </table>
+                    </div>
+                </section>
+            </form>
 
-                        <!-- STEP 2 -->
-                        <div class="wizard-step" id="step2">
-                            <div class="d-flex justify-content-between align-items-center mb-3">
-                                <h5 class="fw-bold text-dark m-0">Item Breakdown</h5>
-                                <button type="button" class="btn btn-sm btn-outline-primary fw-bold rounded-custom px-3" onclick="addItemRow()">
-                                    <i class="fas fa-plus me-1"></i> Add Row
-                                </button>
-                            </div>
-
-                            <div class="table-container">
-                                <table class="table table-glass w-100" id="itemsTable">
-                                    <thead>
-                                        <tr>
-                                            <th class="w-20">Category & Brand <span class="req-star">*</span></th>
-                                            <th style="width: 32%;">Description & Specs <span class="req-star">*</span></th>
-                                            <th style="width: 10%;">Qty <span class="req-star">*</span></th>
-                                            <th style="width: 16%;">Unit Price <span class="req-star">*</span></th>
-                                            <th style="width: 16%;">Line Total</th>
-                                            <th style="width: 6%;" class="text-center">Del</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="itemsBody"></tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </form>
+            <footer class="qd-actionbar" aria-label="Quotation form actions">
+                <div class="qd-total">
+                    <span class="qd-total-icon"><i class="fas fa-calculator" aria-hidden="true"></i></span>
+                    <span><small>Quotation total</small><strong id="floatingGrandTotal">₱ 0.00</strong><strong id="mobileGrandTotal">₱ 0.00</strong></span>
                 </div>
-            </div>
+                <div id="btn-group-step1" class="qd-action-group">
+                    <a href="quotations_list.php" class="btn btn-outline-secondary">Cancel</a>
+                    <button type="button" class="btn btn-primary" onclick="goToStep('step2')"><span>Continue to items</span><i class="fas fa-arrow-right" aria-hidden="true"></i></button>
+                </div>
+                <div id="btn-group-step2" class="qd-action-group d-none">
+                    <button type="button" class="btn btn-outline-secondary" onclick="goToStep('step1')"><i class="fas fa-arrow-left" aria-hidden="true"></i><span>Back</span></button>
+                    <button type="button" class="btn btn-success" onclick="submitQuotationForm();"><i class="fas fa-floppy-disk" aria-hidden="true"></i><span>Save quotation</span></button>
+                </div>
+            </footer>
         </div>
-    </div>
-
-    <!-- REFINED ULTRA-THIN GLASS BAR -->
-    <div class="glass-bar-container">
-        <div class="glass-bar">
-            <div class="d-flex align-items-center gap-2">
-                <div class="bg-primary bg-opacity-10 text-primary rounded-custom d-flex align-items-center justify-content-center d-none d-md-flex box-42">
-                    <i class="fas fa-calculator fs-5"></i>
-                </div>
-                <div class="calc-total-box">
-                    <small class="text-primary text-uppercase fw-bold d-block fs-xs tracking-wider">Calculated Total</small>
-                    <h4 class="fw-bold text-primary m-0 tracking-tight text-nowrap" id="floatingGrandTotal">₱ 0.00</h4>
-                </div>
-            </div>
-            
-            <div id="btn-group-step1" class="d-flex gap-2 ms-auto align-items-center">
-                <button type="button" class="btn btn-primary fw-bold rounded-custom shadow-sm btn-glass-action" onclick="goToStep('step2')">
-                    <span class="d-none d-sm-inline">Proceed to Items</span>
-                    <span class="d-inline d-sm-none">Next</span> 
-                    <i class="fas fa-arrow-right ms-1"></i>
-                </button>
-            </div>
-            <div id="btn-group-step2" class="d-flex gap-2 ms-auto align-items-center d-none">
-                <button type="button" class="btn btn-light fw-bold rounded-custom border btn-glass-action" onclick="goToStep('step1')">
-                    <i class="fas fa-arrow-left me-1"></i> 
-                    <span class="d-none d-sm-inline">Back</span>
-                </button>
-                <button type="button" class="btn btn-success fw-bold rounded-custom shadow-sm btn-glass-action" onclick="submitQuotationForm();">
-                    <span class="d-none d-sm-inline">Save Quote</span>
-                    <span class="d-inline d-sm-none">Save</span> 
-                    <i class="fas fa-save ms-1"></i>
-                </button>
-            </div>
-        </div>
-    </div>
+    </main>
 
     <script src="assets/vendor/jquery/3.7.0/jquery.min.js"></script>
     <script src="assets/vendor/bootstrap/5.3.0/bootstrap.bundle.min.js"></script>
@@ -279,45 +231,53 @@ if ($brands_query) {
         }
 
         const dbCategories = <?php echo json_encode($categories); ?>;
-        const dbBrands = <?php echo json_encode($brands); ?>;
         let itemIndex = 0;
+
+        function updateQuotationItemCount() {
+            const rows = Array.from(document.querySelectorAll('#itemsBody tr'));
+            rows.forEach((row, index) => {
+                const sequence = row.querySelector('.qd-item-sequence');
+                if (sequence) sequence.textContent = String(index + 1).padStart(2, '0');
+            });
+            const count = rows.length;
+            document.getElementById('quotationItemCount').textContent = `${count} ${count === 1 ? 'item' : 'items'}`;
+        }
 
         function addItemRow() {
             const tbody = document.getElementById('itemsBody');
             const row = tbody.insertRow();
 
-            let catOptions = `<option value="" disabled selected>Category...</option>`;
+            let catOptions = `<option value="" disabled selected>Select category</option>`;
             dbCategories.forEach(c => { catOptions += `<option value="${c.code}">${parseInt(c.code)} - ${c.name}</option>`; });
             
-            let brandOptions = `<option value="Generic/Other" selected>Select Brand</option>`;
-            dbBrands.forEach(b => { if(b !== 'Generic/Other') { brandOptions += `<option value="${b}">${b}</option>`; } });
-
             row.innerHTML = `
-                <td data-label="Category & Brand">
-                    <select name="items[${itemIndex}][category]" class="form-select soft-input mb-2" required>${catOptions}</select>
-                    <select name="items[${itemIndex}][brand]" class="form-select soft-input text-muted">${brandOptions}</select>
+                <td data-label="Category and item">
+                    <span class="qd-item-sequence" aria-hidden="true">${String(itemIndex + 1).padStart(2, '0')}</span>
+                    <input type="hidden" name="items[${itemIndex}][brand]" value="Generic/Other">
+                    <select name="items[${itemIndex}][category]" class="form-select soft-input qd-category-select" aria-label="Item category" required>${catOptions}</select>
+                    <input type="text" name="items[${itemIndex}][name]" class="form-control soft-input qd-item-name" placeholder="Product or service name" maxlength="150" required>
                 </td>
-                <td data-label="Description & Specs">
-                    <input type="text" name="items[${itemIndex}][name]" class="form-control soft-input mb-2 fw-bold" placeholder="Item Name" required>
-                    <textarea name="items[${itemIndex}][specs]" class="form-control soft-input spec-textarea" rows="1" placeholder="Specifications..." oninput="this.style.height = 'auto'; this.style.height = this.scrollHeight + 'px';"></textarea>
+                <td data-label="Specifications">
+                    <textarea name="items[${itemIndex}][specs]" class="form-control soft-input spec-textarea" rows="2" maxlength="2000" placeholder="Model, configuration, inclusions, or other details" oninput="this.style.height = 'auto'; this.style.height = this.scrollHeight + 'px';"></textarea>
                 </td>
                 <td data-label="Quantity">
-                    <input type="number" name="items[${itemIndex}][qty]" class="form-control soft-input text-center qty-input" value="1" min="1" step="1" oninput="this.value = this.value.replace(/[^0-9]/g, ''); calculateRow(this);" required>
+                    <input type="number" name="items[${itemIndex}][qty]" class="form-control soft-input text-center qty-input" aria-label="Quantity" value="1" min="1" step="1" oninput="this.value = this.value.replace(/[^0-9]/g, ''); calculateRow(this);" required>
                 </td>
                 <td data-label="Unit Price">
                     <div class="soft-input-group w-100">
                         <span class="input-group-text">₱</span>
-                        <input type="number" step="0.01" min="0.01" name="items[${itemIndex}][price]" class="form-control soft-input price-input" placeholder="0.00" oninput="calculateRow(this)" required>
+                        <input type="number" step="0.01" min="0.01" name="items[${itemIndex}][price]" class="form-control soft-input price-input" aria-label="Unit price" placeholder="0.00" oninput="calculateRow(this)" required>
                     </div>
                 </td>
                 <td data-label="Line Total">
-                    <input type="text" class="form-control bg-transparent text-lg-end fw-bold total-display border-0 px-0 fs-6 text-primary" value="0.00" readonly>
+                    <div class="soft-input-group qd-line-total-group">
+                        <span class="input-group-text" aria-hidden="true">₱</span>
+                        <input type="text" class="form-control soft-input total-display" aria-label="Line total" value="0.00" readonly>
+                    </div>
                     <input type="hidden" name="items[${itemIndex}][total]" class="total-input" value="0">
                 </td>
-                <td data-label="Action" class="align-middle border-0">
-                    <div class="d-flex align-items-center justify-content-lg-center h-100 mt-2 mt-lg-0">
-                        <button type="button" class="btn text-danger bg-danger bg-opacity-10 border-0 rounded-custom d-inline-flex align-items-center justify-content-center w-100 max-w-120 h-36 p-0" onclick="removeRow(this)" title="Delete Row"><i class="fas fa-trash-alt m-0 fs-sm"></i> <span class="d-lg-none ms-2 fw-bold fs-sm">Remove Item</span></button>
-                    </div>
+                <td data-label="Action">
+                    <button type="button" class="qd-remove-item" onclick="removeRow(this)" title="Remove item" aria-label="Remove this quotation item"><i class="fas fa-trash-alt" aria-hidden="true"></i><span>Remove</span></button>
                 </td>
             `;
 
@@ -329,6 +289,7 @@ if ($brands_query) {
                 }, 10);
             }
             itemIndex++;
+            updateQuotationItemCount();
         }
 
         function calculateRow(input) {
@@ -352,7 +313,7 @@ if ($brands_query) {
             document.getElementById('hiddenGrandTotal').value = grandTotal;
         }
 
-        function removeRow(btn) { btn.closest('tr').remove(); calculateGrandTotal(); }
+        function removeRow(btn) { btn.closest('tr').remove(); calculateGrandTotal(); updateQuotationItemCount(); }
 
         const quotationFormElement = document.getElementById('quotationForm');
         quotationFormElement.addEventListener('input', clearQuotationFieldErrorOnEntry);

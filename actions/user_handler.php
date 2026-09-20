@@ -443,7 +443,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 
     // Keep every user-management action aligned with the database and workflow roles.
-    $allowed_roles = ['Admin', 'President', 'GM', 'Finance', 'Procurement', 'Supply Chain', 'Sales Staff'];
+    $allowed_roles = drms_rbac_roles();
     $allowed_statuses = ['Active', 'Suspended'];
     ensure_rbac_tables_exist($conn);
 
@@ -479,17 +479,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
         $requested_permissions = array_values(array_unique($requested_permissions));
 
-        $valid_permissions = [];
-        $permission_query = $conn->query(
-            "SELECT permission_name FROM permissions WHERE permission_name <> 'can_manage_users'"
-        );
-        while ($permission_row = $permission_query->fetch_assoc()) {
-            $valid_permissions[] = (string) $permission_row['permission_name'];
-        }
-        if (array_diff($requested_permissions, $valid_permissions)) {
-            drms_admin_users_redirect('error', 'InvalidPermission');
-        }
-
         $conn->begin_transaction();
         try {
             $target_user = drms_get_user_for_update($conn, $target_user_id);
@@ -497,29 +486,34 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 throw new RuntimeException('USER_NOT_FOUND');
             }
 
-            $del = $conn->prepare("DELETE FROM user_permissions WHERE user_id = ?");
-            $del->bind_param("i", $target_user_id);
-            $del->execute();
-            
-            if (!empty($requested_permissions)) {
-                $ins = $conn->prepare("INSERT INTO user_permissions (user_id, permission_name) VALUES (?, ?)");
-                foreach ($requested_permissions as $p) {
-                    $ins->bind_param("is", $target_user_id, $p);
-                    $ins->execute();
-                }
+            $target_role = (string) ($target_user['role'] ?? '');
+            if (array_diff($requested_permissions, drms_rbac_capabilities_for_role($target_role))) {
+                throw new RuntimeException('INVALID_PERMISSION');
             }
+
+            $saved_permissions = drms_rbac_replace_user_capabilities(
+                $conn,
+                $target_user_id,
+                $target_role,
+                $requested_permissions
+            );
             $conn->commit();
             log_audit_action(
                 $conn,
                 (int) $_SESSION['user_id'],
                 'UPDATE_PERMISSIONS',
-                'Updated capabilities for @' . $target_user['username'] . '.'
+                'Updated role-appropriate capabilities for @' . $target_user['username'] .
+                ' (' . $target_role . '): ' .
+                ($saved_permissions === [] ? 'none' : implode(', ', $saved_permissions)) . '.'
             );
             drms_admin_users_redirect('success', 'PermissionsUpdated');
         } catch (Throwable $e) {
             $conn->rollback();
             if ($e->getMessage() === 'USER_NOT_FOUND') {
                 drms_admin_users_redirect('error', 'UserNotFound');
+            }
+            if ($e->getMessage() === 'INVALID_PERMISSION' || $e instanceof InvalidArgumentException) {
+                drms_admin_users_redirect('error', 'InvalidPermission');
             }
             error_log('Permission update failed: ' . $e->getMessage());
             drms_admin_users_redirect('error', 'UpdateFailed');
@@ -575,25 +569,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $stmt->execute();
             $new_user_id = $stmt->insert_id;
             
-            // Clone the established capabilities of the oldest active account in the same role.
-            $role_clone_q = $conn->prepare(
-                "SELECT up.permission_name
-                 FROM user_permissions up
-                 WHERE up.user_id = (
-                    SELECT MIN(u.user_id) FROM users u
-                    WHERE u.role = ? AND u.status = 'Active' AND u.user_id <> ?
-                 )"
-            );
-            $role_clone_q->bind_param("si", $role, $new_user_id);
-            $role_clone_q->execute();
-            $role_res = $role_clone_q->get_result();
-            if ($role_res->num_rows > 0) {
-                $ins_perm = $conn->prepare("INSERT IGNORE INTO user_permissions (user_id, permission_name) VALUES (?, ?)");
-                while($p_row = $role_res->fetch_assoc()) {
-                    $ins_perm->bind_param("is", $new_user_id, $p_row['permission_name']);
-                    $ins_perm->execute();
-                }
-            }
+            // New accounts receive deterministic, least-privilege defaults for
+            // their role instead of copying a possibly customized older user.
+            drms_rbac_replace_user_capabilities($conn, (int) $new_user_id, $role);
             $conn->commit();
         } catch (Throwable $create_error) {
             $conn->rollback();
@@ -724,29 +702,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
 
             if ($role_changed) {
-                $clear_permissions = $conn->prepare('DELETE FROM user_permissions WHERE user_id = ?');
-                $clear_permissions->bind_param('i', $target_user_id);
-                $clear_permissions->execute();
-
-                $role_permissions = $conn->prepare(
-                    "SELECT up.permission_name
-                     FROM user_permissions up
-                     WHERE up.user_id = (
-                        SELECT MIN(u.user_id) FROM users u
-                        WHERE u.role = ? AND u.status = 'Active' AND u.user_id <> ?
-                     )"
-                );
-                $role_permissions->bind_param('si', $role, $target_user_id);
-                $role_permissions->execute();
-                $role_permission_rows = $role_permissions->get_result();
-                $insert_permission = $conn->prepare(
-                    'INSERT IGNORE INTO user_permissions (user_id, permission_name) VALUES (?, ?)'
-                );
-                while ($role_permission = $role_permission_rows->fetch_assoc()) {
-                    $permission_name = (string) $role_permission['permission_name'];
-                    $insert_permission->bind_param('is', $target_user_id, $permission_name);
-                    $insert_permission->execute();
-                }
+                drms_rbac_replace_user_capabilities($conn, $target_user_id, $role);
             }
 
             $conn->commit();

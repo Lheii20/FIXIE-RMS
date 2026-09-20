@@ -10,9 +10,13 @@ if (
     exit('Not found.');
 }
 
+require_once __DIR__ . '/config/rbac_policy.php';
+require_once __DIR__ . '/config/user_preferences.php';
+
 $role = $_SESSION['role'];
 
 $unread_count = get_unread_notification_count($conn, (int)$_SESSION['user_id'], $role);
+$unread_badge_label = $unread_count > 99 ? '99+' : (string) (int) $unread_count;
 
 $can_view_audit = false;
 if (isset($_SESSION['user_id'])) {
@@ -24,10 +28,14 @@ if (isset($_SESSION['user_id'])) {
 $current_page = basename($_SERVER['PHP_SELF']);
 $role = $_SESSION['role'] ?? 'User';
 $user_id = $_SESSION['user_id'] ?? 0;
+$drms_preferences = drms_load_user_preferences($conn, (int) $user_id);
+$can_access_collections = drms_rbac_role_can_access_module($role, 'collections');
 
 // Automatic record-access auditing belongs to config/audit_bootstrap.php.
 // Rendering navigation must not create a second or fallback audit event.
 ?>
+
+<script>document.documentElement.dataset.drmsTheme = <?php echo json_encode($drms_preferences['theme'], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;</script>
 
 <link
     href="assets/css/app-shell.css?v=<?php echo file_exists(__DIR__ . '/assets/css/app-shell.css') ? filemtime(__DIR__ . '/assets/css/app-shell.css') : '1'; ?>"
@@ -64,7 +72,27 @@ $user_id = $_SESSION['user_id'] ?? 0;
     rel="stylesheet"
 >
 
+<link
+    href="assets/css/loading-skeleton.css?v=<?php echo file_exists(__DIR__ . '/assets/css/loading-skeleton.css') ? filemtime(__DIR__ . '/assets/css/loading-skeleton.css') : '1'; ?>"
+    rel="stylesheet"
+>
+
+<link
+    href="assets/css/theme.css?v=<?php echo file_exists(__DIR__ . '/assets/css/theme.css') ? filemtime(__DIR__ . '/assets/css/theme.css') : '1'; ?>"
+    rel="stylesheet"
+>
+
+<link
+    href="assets/css/mobile-ui-corrections.css?v=<?php echo file_exists(__DIR__ . '/assets/css/mobile-ui-corrections.css') ? filemtime(__DIR__ . '/assets/css/mobile-ui-corrections.css') : '1'; ?>"
+    rel="stylesheet"
+>
+
+<script src="assets/js/page-scrollbar.js?v=<?php echo file_exists(__DIR__ . '/assets/js/page-scrollbar.js') ? filemtime(__DIR__ . '/assets/js/page-scrollbar.js') : '1'; ?>"></script>
 <script src="assets/js/system-feedback.js?v=<?php echo file_exists(__DIR__ . '/assets/js/system-feedback.js') ? filemtime(__DIR__ . '/assets/js/system-feedback.js') : '1'; ?>"></script>
+<script src="assets/js/loading-skeleton.js?v=<?php echo file_exists(__DIR__ . '/assets/js/loading-skeleton.js') ? filemtime(__DIR__ . '/assets/js/loading-skeleton.js') : '1'; ?>"></script>
+<?php if ($current_page === 'dashboard.php'): ?>
+<script src="assets/js/dashboard-theme.js?v=<?php echo file_exists(__DIR__ . '/assets/js/dashboard-theme.js') ? filemtime(__DIR__ . '/assets/js/dashboard-theme.js') : '1'; ?>"></script>
+<?php endif; ?>
 
 <nav class="saas-navbar shadow-sm d-print-none">
     <div class="saas-nav-container">
@@ -120,7 +148,7 @@ $user_id = $_SESSION['user_id'] ?? 0;
                         <a href="po_list.php"><i class="fas fa-file-invoice"></i> Purchase Orders</a>
                     <?php endif; ?>
 
-                    <?php if(in_array($role, ['Finance', 'GM', 'President'])): ?>
+                    <?php if($can_access_collections): ?>
                         <a href="collection_monitoring.php"><i class="fas fa-hand-holding-usd"></i> Collections</a>
                     <?php endif; ?>
                 </div>
@@ -163,12 +191,10 @@ $user_id = $_SESSION['user_id'] ?? 0;
             <?php endif; ?>
 
             <!-- Notifications Icon with Badge -->
-            <a href="notifications.php" class="saas-nav-icon <?php echo ($current_page == 'notifications.php') ? 'active' : ''; ?>" title="Notifications">
+            <a href="notifications.php" class="saas-nav-icon <?php echo ($current_page == 'notifications.php') ? 'active' : ''; ?>" title="Notifications" aria-label="Notifications<?php echo $unread_count > 0 ? ', ' . (int) $unread_count . ' unread' : ''; ?>">
                 <i class="fas fa-bell"></i>
                 <?php if ($unread_count > 0): ?>
-                    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger shadow-sm nav-badge-pill">
-                        <?php echo $unread_count; ?>
-                    </span>
+                    <span class="drms-notification-count" aria-hidden="true"><?php echo $unread_badge_label; ?></span>
                 <?php endif; ?>
             </a>
 
@@ -230,7 +256,7 @@ $user_id = $_SESSION['user_id'] ?? 0;
     <div class="mobile-side-nav__section">
         <span class="mobile-side-nav__label">Workspace</span>
         <a href="dashboard.php" class="mobile-side-nav__link <?php echo ($current_page == 'dashboard.php') ? 'active' : ''; ?>"><i class="fas fa-chart-pie"></i>Dashboard</a>
-        <a href="notifications.php" class="mobile-side-nav__link <?php echo ($current_page == 'notifications.php') ? 'active' : ''; ?>"><i class="fas fa-bell"></i>Notifications<?php if($unread_count > 0): ?> <span class="badge bg-danger ms-auto"><?php echo (int) $unread_count; ?></span><?php endif; ?></a>
+        <a href="notifications.php" class="mobile-side-nav__link <?php echo ($current_page == 'notifications.php') ? 'active' : ''; ?>" aria-label="Notifications<?php echo $unread_count > 0 ? ', ' . (int) $unread_count . ' unread' : ''; ?>"><i class="fas fa-bell"></i>Notifications<?php if($unread_count > 0): ?> <span class="drms-notification-count drms-notification-count--mobile" aria-hidden="true"><?php echo $unread_badge_label; ?></span><?php endif; ?></a>
     </div>
     
     <?php if(in_array($role, $ops_roles)): ?>
@@ -239,7 +265,7 @@ $user_id = $_SESSION['user_id'] ?? 0;
         <?php if(in_array($role, ['Sales Staff', 'GM'], true)): ?><a href="quotations_list.php" class="mobile-side-nav__link <?php echo (in_array($current_page, ['quotations_list.php', 'create_quotation.php', 'view_quotation.php'])) ? 'active' : ''; ?>"><i class="fas fa-file-invoice-dollar"></i>Quotations</a><?php endif; ?>
         <?php if(in_array($role, ['Sales Staff', 'Procurement', 'GM', 'President', 'Finance'])): ?><a href="pr_list.php" class="mobile-side-nav__link <?php echo (in_array($current_page, ['pr_list.php', 'create_pr.php', 'view_pr.php'])) ? 'active' : ''; ?>"><i class="fas fa-clipboard-list"></i>Purchase Requests</a><?php endif; ?>
         <?php if(in_array($role, ['Procurement', 'GM', 'President', 'Finance', 'Supply Chain'])): ?><a href="po_list.php" class="mobile-side-nav__link <?php echo (in_array($current_page, ['po_list.php', 'create_po.php', 'view_po.php'])) ? 'active' : ''; ?>"><i class="fas fa-file-invoice"></i>Purchase Orders</a><?php endif; ?>
-        <?php if(in_array($role, ['Finance', 'GM', 'President'])): ?><a href="collection_monitoring.php" class="mobile-side-nav__link <?php echo (in_array($current_page, ['collection_monitoring.php', 'collection_aging.php', 'collection_ledger.php', 'collection_followup.php', 'collection_statement.php', 'record_collection_payment.php'])) ? 'active' : ''; ?>"><i class="fas fa-hand-holding-usd"></i>Collections</a><?php endif; ?>
+        <?php if($can_access_collections): ?><a href="collection_monitoring.php" class="mobile-side-nav__link <?php echo (in_array($current_page, ['collection_monitoring.php', 'collection_aging.php', 'collection_ledger.php', 'collection_followup.php', 'collection_statement.php', 'record_collection_payment.php'])) ? 'active' : ''; ?>"><i class="fas fa-hand-holding-usd"></i>Collections</a><?php endif; ?>
     </div>
     <?php endif; ?>
     
@@ -363,7 +389,7 @@ $user_id = $_SESSION['user_id'] ?? 0;
                     </li>
                 <?php endif; ?>
 
-                <?php if(in_array($role, ['Finance', 'GM', 'President'])): ?>
+                <?php if($can_access_collections): ?>
                     <li data-keywords="finance collections overview receivables overdue aging payment ledger proof due tracker">
                         <a href="collection_monitoring.php">
                             <div class="cp-item-icon cp-icon-success"><i class="fas fa-hand-holding-usd"></i></div>

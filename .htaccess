@@ -14,6 +14,24 @@ Options -Indexes
     Header always set X-Content-Type-Options "nosniff"
     Header always set X-Frame-Options "SAMEORIGIN"
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
+
+    # Reuse versioned front-end files between page visits. Dynamic PHP pages
+    # are deliberately excluded so account, workflow, and record data remain
+    # current after every action.
+    <FilesMatch "\.(?:css|js)$">
+        Header set Cache-Control "public, max-age=604800"
+    </FilesMatch>
+    <FilesMatch "\.(?:png|jpe?g|gif|webp|svg|ico|woff2?|ttf|otf)$">
+        Header set Cache-Control "public, max-age=2592000"
+    </FilesMatch>
+</IfModule>
+
+# Compress only static styles, scripts, and SVG assets when mod_deflate and
+# mod_filter are available. Keep dynamic HTML and JSON responses uncompressed.
+<IfModule mod_deflate.c>
+    <IfModule mod_filter.c>
+        AddOutputFilterByType DEFLATE text/css text/javascript application/javascript image/svg+xml
+    </IfModule>
 </IfModule>
 
 # Dot-files contain environment markers or local tooling metadata and must
@@ -21,4 +39,3 @@ Options -Indexes
 <FilesMatch "^\.">
     Require all denied
 </FilesMatch>
-

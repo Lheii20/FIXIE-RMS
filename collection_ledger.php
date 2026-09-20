@@ -1,22 +1,14 @@
 <?php
 require 'config/db_connect.php';
 require 'config/functions.php';
+require_once 'config/rbac_policy.php';
 require_once 'config/payment_signature.php';
 require_once 'config/payment_signature_ui.php';
 
 date_default_timezone_set('Asia/Manila');
 
-if (!isset($_SESSION['user_id'])) {
-    header('Location: index.php');
-    exit();
-}
-
-$allowed_roles = ['Finance', 'GM', 'President'];
+drms_rbac_require_module('collections');
 $current_role = (string) ($_SESSION['role'] ?? '');
-if (!in_array($current_role, $allowed_roles, true)) {
-    header('Location: dashboard.php');
-    exit();
-}
 
 function phase5e_money(float $amount): string
 {

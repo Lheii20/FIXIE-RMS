@@ -249,7 +249,8 @@ try {
         }
 
         $requiresPasswordChange = (int) ($user['require_pass_change'] ?? 0) === 1;
-        $sessionToken = $requiresPasswordChange ? '' : bin2hex(random_bytes(32));
+        $sessionToken = '';
+        $proposedToken = $requiresPasswordChange ? '' : bin2hex(random_bytes(32));
 
         $conn->begin_transaction();
         try {
@@ -261,10 +262,23 @@ try {
             }
 
             if (!$requiresPasswordChange) {
-                $sessionStmt = $conn->prepare("UPDATE users SET session_token = ?, last_active = NOW() WHERE user_id = ? AND status = 'Active'");
-                $sessionStmt->bind_param('si', $sessionToken, $userId);
+                $sessionStmt = $conn->prepare(
+                    "UPDATE users SET session_token = COALESCE(NULLIF(session_token, ''), ?),
+                                      last_active = NOW()
+                     WHERE user_id = ? AND status = 'Active'"
+                );
+                $sessionStmt->bind_param('si', $proposedToken, $userId);
                 $sessionStmt->execute();
-                if ($sessionStmt->affected_rows !== 1) {
+                $sessionStmt->close();
+                $tokenStmt = $conn->prepare(
+                    "SELECT session_token FROM users WHERE user_id = ? AND status = 'Active' LIMIT 1"
+                );
+                $tokenStmt->bind_param('i', $userId);
+                $tokenStmt->execute();
+                $tokenRow = $tokenStmt->get_result()->fetch_assoc();
+                $tokenStmt->close();
+                $sessionToken = (string) ($tokenRow['session_token'] ?? '');
+                if ($sessionToken === '') {
                     throw new RuntimeException('ACCOUNT_UNAVAILABLE');
                 }
             }
@@ -286,7 +300,11 @@ try {
             throw $transactionError;
         }
 
+        if (!empty($_SESSION['user_id'])) {
+            drms_registry_end_current($conn, (int) $_SESSION['user_id'], 'relogin');
+        }
         session_regenerate_id(true);
+        unset($_SESSION['drms_device_key'], $_SESSION['drms_presence_synced_at']);
         if ($requiresPasswordChange) {
             $_SESSION['temp_user_id'] = $user['user_id'];
             $_SESSION['temp_fullname'] = $user['full_name'];

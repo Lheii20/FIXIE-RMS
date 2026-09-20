@@ -1,0 +1,169 @@
+body.page-settings .settings-security-card {
+    margin: 0 0 1.5rem;
+    overflow: hidden;
+    border: 1px solid #cbd5e1;
+    border-radius: 11px;
+    background: #fff;
+    box-shadow: 0 2px 9px rgba(15, 23, 42, 0.04);
+}
+
+body.page-settings .settings-security-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1.2rem;
+    border-bottom: 1px solid #d8e1ec;
+}
+
+body.page-settings .settings-security-kicker {
+    color: #526780;
+    font-size: 0.73rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+}
+
+body.page-settings .settings-security-heading h3 {
+    margin: 0.16rem 0 0.2rem;
+    color: #17263e;
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+body.page-settings .settings-security-heading p,
+body.page-settings .settings-security-footnote {
+    margin: 0;
+    color: #607086;
+    font-size: 0.83rem;
+    line-height: 1.45;
+}
+
+body.page-settings .settings-security-action {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 36px;
+    padding: 0.46rem 0.8rem;
+    border: 1px solid #a9bfdc;
+    border-radius: 8px;
+    background: #f7faff;
+    color: #1c4e91;
+    font-size: 0.83rem;
+    font-weight: 650;
+    transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+body.page-settings .settings-security-action:not(:disabled):hover {
+    border-color: #5e8bc7;
+    background: #ebf3ff;
+}
+
+body.page-settings .settings-security-message {
+    margin: 0.75rem 1.2rem 0;
+    padding: 0.55rem 0.72rem;
+    border: 1px solid;
+    border-radius: 7px;
+    font-size: 0.82rem;
+    line-height: 1.4;
+}
+
+body.page-settings .settings-security-message.is-success {
+    border-color: #a9ddc8;
+    background: #effaf5;
+    color: #126747;
+}
+
+body.page-settings .settings-security-message.is-error {
+    border-color: #efc3c3;
+    background: #fff6f6;
+    color: #a52b2b;
+}
+
+body.page-settings .settings-session-row {
+    display: grid;
+    grid-template-columns: 38px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.78rem;
+    min-height: 66px;
+    padding: 0.72rem 1.2rem;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+body.page-settings .settings-session-row:last-child { border-bottom: 0; }
+
+body.page-settings .settings-session-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    border: 1px solid #d2dff0;
+    border-radius: 9px;
+    background: #f2f7fd;
+    color: #345f99;
+    font-size: 0.86rem;
+}
+
+body.page-settings .settings-session-copy,
+body.page-settings .settings-session-meta {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.16rem;
+}
+
+body.page-settings .settings-session-copy strong {
+    color: #1c2a40;
+    font-size: 0.87rem;
+    font-weight: 650;
+}
+
+body.page-settings .settings-session-copy span,
+body.page-settings .settings-session-meta small {
+    overflow: hidden;
+    color: #617188;
+    font-size: 0.78rem;
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body.page-settings .settings-session-meta { align-items: flex-end; }
+
+body.page-settings .settings-session-state {
+    display: inline-flex;
+    align-items: center;
+    min-height: 23px;
+    padding: 0.15rem 0.57rem;
+    border: 1px solid #d3dce8;
+    border-radius: 999px;
+    background: #f8fafc;
+    color: #536477;
+    font-size: 0.76rem;
+    font-weight: 650;
+}
+
+body.page-settings .settings-session-state.is-current,
+body.page-settings .settings-session-state.is-online {
+    border-color: #a8dfc8;
+    background: #effaf5;
+    color: #126747;
+}
+
+body.page-settings .settings-session-empty { margin: 0; padding: 1.1rem 1.2rem; color: #64748b; font-size: 0.85rem; }
+body.page-settings .settings-security-footnote { padding: 0.7rem 1.2rem; border-top: 1px solid #e2e8f0; background: #f8fafc; }
+body.page-settings .settings-security-modal { border: 1px solid #cbd5e1; border-radius: 11px; }
+body.page-settings .settings-security-modal .modal-title { color: #17263e; font-size: 1rem; font-weight: 700; }
+body.page-settings .settings-security-modal .modal-body p { color: #536477; font-size: 0.84rem; line-height: 1.45; }
+body.page-settings .settings-security-modal .form-label { color: #26364e; font-size: 0.82rem; font-weight: 650; }
+
+@media (max-width: 640px) {
+    body.page-settings .settings-security-heading { align-items: stretch; flex-direction: column; }
+    body.page-settings .settings-security-action { align-self: flex-start; }
+    body.page-settings .settings-session-row { grid-template-columns: 34px minmax(0, 1fr); gap: 0.6rem; padding-inline: 0.9rem; }
+    body.page-settings .settings-session-icon { width: 34px; height: 34px; }
+    body.page-settings .settings-session-meta { grid-column: 2; align-items: flex-start; flex-direction: row; flex-wrap: wrap; gap: 0.3rem 0.5rem; }
+    body.page-settings .settings-session-meta small { align-self: center; }
+}

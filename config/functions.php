@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/audit_bootstrap.php';
+require_once __DIR__ . '/rbac_policy.php';
 
 // ===============================================
 // RBAC SETUP & PERMISSION HELPERS
@@ -26,9 +27,11 @@ function has_permission($conn, $user_id, $permission_name) {
     if (!array_key_exists($user_id, $permissions_by_user)) {
         $permissions_by_user[$user_id] = [];
         $stmt = $conn->prepare(
-            "SELECT permission_name
-             FROM user_permissions
-             WHERE user_id = ?"
+            "SELECT u.role, up.permission_name
+             FROM users u
+             LEFT JOIN user_permissions up ON up.user_id = u.user_id
+             WHERE u.user_id = ?
+             ORDER BY up.permission_name"
         );
 
         if (!$stmt) {
@@ -38,13 +41,20 @@ function has_permission($conn, $user_id, $permission_name) {
         $stmt->bind_param('i', $user_id);
         $stmt->execute();
         $result = $stmt->get_result();
+        $role = '';
+        $assigned = [];
         while ($row = $result->fetch_assoc()) {
+            $role = trim((string) ($row['role'] ?? $role));
             $name = trim((string) ($row['permission_name'] ?? ''));
             if ($name !== '') {
-                $permissions_by_user[$user_id][$name] = true;
+                $assigned[] = $name;
             }
         }
         $stmt->close();
+
+        foreach (drms_rbac_effective_capabilities($role, $assigned) as $name) {
+            $permissions_by_user[$user_id][$name] = true;
+        }
     }
 
     return isset($permissions_by_user[$user_id][$permission_name]);

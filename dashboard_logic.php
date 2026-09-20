@@ -1053,46 +1053,103 @@ if ($role === 'Finance') {
     $finance_stats['missing_due_amount'] = $collection_dss['missing_due_amount'];
     $finance_stats['missing_due_count'] = $collection_dss['missing_due_count'];
 
+    // This is approved PO value, not collected revenue. Use twelve complete
+    // calendar months so an empty month remains a real zero on the trend axis.
+    $current_month = new DateTimeImmutable(date('Y-m-01'));
+    $first_month = $current_month->modify('-12 months');
     $q_finance_recent_revenue = "
         SELECT month_str, total_sales
         FROM (
             SELECT DATE_FORMAT(date_created, '%Y-%m') AS month_str,
                    SUM(amount) AS total_sales
             FROM purchase_orders
-            WHERE status NOT IN ('Rejected', 'Invalid')
+            WHERE status IN (
+                'President-Approved', 'Funded', 'Delivery Requested',
+                'For Pick-up/Delivery', 'Delivered',
+                'Partially-Collected', 'Collected'
+            )
+              AND date_created >= ?
+              AND date_created < ?
             GROUP BY month_str
             ORDER BY month_str DESC
             LIMIT 12
         ) recent_revenue
         ORDER BY month_str ASC
     ";
-    $historical = fetch_chart_data($conn, $q_finance_recent_revenue, '', [], false);
-    
-    $n = count($historical); $sum_x = 0; $sum_y = 0; $sum_xy = 0; $sum_xx = 0; $x = 1; $last_month_str = date('Y-m');
-    $labels = []; $actuals = []; $predicteds = [];
-    foreach($historical as $row) { $y = (float)$row['total_sales']; $sum_x += $x; $sum_y += $y; $sum_xy += ($x * $y); $sum_xx += ($x * $x); $last_month_str = $row['month_str'].'-01'; $x++; }
-    
-    $m = 0; $b = 0;
-    if($n > 1) {
-        $denominator = (($n * $sum_xx) - ($sum_x * $sum_x));
-        if($denominator != 0) { $m = (($n * $sum_xy) - ($sum_x * $sum_y)) / $denominator; $b = ($sum_y - ($m * $sum_x)) / $n; }
-    } else if ($n == 1) { $b = $historical[0]['total_sales']; }
-    
-    $current_x = 1;
-    foreach($historical as $idx => $row) {
-        $labels[] = date('M Y', strtotime($row['month_str'].'-01')); $actuals[] = (float)$row['total_sales'];
-        if ($idx === count($historical) - 1) { $predicteds[] = (float)$row['total_sales']; } else { $predicteds[] = null; }
-        $current_x++;
+    $po_value_rows = fetch_chart_data(
+        $conn,
+        $q_finance_recent_revenue,
+        'ss',
+        [$first_month->format('Y-m-d'), $current_month->format('Y-m-d')],
+        false
+    );
+    $monthly_po_values = [];
+    foreach ($po_value_rows as $row) {
+        $monthly_po_values[(string) $row['month_str']] = (float) $row['total_sales'];
     }
-    
-    $future_sum = 0; $base_time = strtotime($last_month_str);
-    for($i=1; $i<=3; $i++) {
-        $pred_y = ($m * $current_x) + $b; if($pred_y < 0) $pred_y = 0; 
-        $next_month = strtotime("+$i month", $base_time);
-        $labels[] = date('M Y', $next_month) . ' (Est)'; $actuals[] = null; $predicteds[] = round($pred_y, 2); $future_sum += round($pred_y, 2); $current_x++;
+
+    $historical = [];
+    $active_months = 0;
+    for ($month_index = 0; $month_index < 12; $month_index++) {
+        $month = $first_month->modify('+' . $month_index . ' months');
+        $month_key = $month->format('Y-m');
+        $value = $monthly_po_values[$month_key] ?? 0.0;
+        $historical[] = ['month_str' => $month_key, 'total_sales' => $value];
+        if ($value > 0) {
+            $active_months++;
+        }
     }
-    $finance_charts['revenue_labels'] = $labels; $finance_charts['revenue_actuals'] = $actuals;
-    $finance_charts['revenue_predicteds'] = $predicteds; $finance_charts['future_sum'] = $future_sum;
+
+    // Do not present a prediction from only a few months of orders.
+    $forecast_ready = $active_months >= 6;
+    $n = count($historical);
+    $sum_x = 0.0;
+    $sum_y = 0.0;
+    $sum_xy = 0.0;
+    $sum_xx = 0.0;
+    foreach ($historical as $index => $row) {
+        $x = $index + 1;
+        $y = (float) $row['total_sales'];
+        $sum_x += $x;
+        $sum_y += $y;
+        $sum_xy += $x * $y;
+        $sum_xx += $x * $x;
+    }
+    $slope = 0.0;
+    $intercept = 0.0;
+    $denominator = ($n * $sum_xx) - ($sum_x * $sum_x);
+    if ($forecast_ready && $denominator != 0.0) {
+        $slope = (($n * $sum_xy) - ($sum_x * $sum_y)) / $denominator;
+        $intercept = ($sum_y - ($slope * $sum_x)) / $n;
+    }
+
+    $labels = [];
+    $actuals = [];
+    $predicteds = [];
+    foreach ($historical as $index => $row) {
+        $labels[] = date('M Y', strtotime($row['month_str'] . '-01'));
+        $actuals[] = (float) $row['total_sales'];
+        $predicteds[] = $forecast_ready && $index === $n - 1
+            ? (float) $row['total_sales']
+            : null;
+    }
+
+    $future_sum = 0.0;
+    if ($forecast_ready) {
+        for ($month_ahead = 0; $month_ahead < 3; $month_ahead++) {
+            $month = $current_month->modify('+' . $month_ahead . ' months');
+            $projected = round(max(0, ($slope * ($n + $month_ahead + 1)) + $intercept), 2);
+            $labels[] = $month->format('M Y') . ' (Est)';
+            $actuals[] = null;
+            $predicteds[] = $projected;
+            $future_sum += $projected;
+        }
+    }
+    $finance_charts['revenue_labels'] = $labels;
+    $finance_charts['revenue_actuals'] = $actuals;
+    $finance_charts['revenue_predicteds'] = $predicteds;
+    $finance_charts['future_sum'] = $future_sum;
+    $finance_charts['forecast_ready'] = $forecast_ready;
 
     $q_finance_cash_flow = "
         SELECT month_str,
@@ -1126,9 +1183,14 @@ if ($role === 'Finance') {
 
     $mom_labels = []; $mom_pct = []; $prev_sales = null;
     foreach($historical as $row) {
-        $curr = (float)$row['total_sales']; $growth = 0;
-        if($prev_sales !== null && $prev_sales > 0) { $growth = (($curr - $prev_sales) / $prev_sales) * 100; }
-        $mom_labels[] = date('M Y', strtotime($row['month_str'].'-01')); $mom_pct[] = round($growth, 1); $prev_sales = $curr;
+        $curr = (float)$row['total_sales'];
+        // Growth from a zero-value month is undefined, not 0%.
+        $growth = ($prev_sales !== null && $prev_sales > 0)
+            ? round((($curr - $prev_sales) / $prev_sales) * 100, 1)
+            : null;
+        $mom_labels[] = date('M Y', strtotime($row['month_str'].'-01'));
+        $mom_pct[] = $growth;
+        $prev_sales = $curr;
     }
     $finance_charts['mom_labels'] = array_slice($mom_labels, -6); $finance_charts['mom_pct'] = array_slice($mom_pct, -6);
 

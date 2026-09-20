@@ -48,12 +48,12 @@ if (isset($_SESSION['user_id'])) {
       <?php if ($can_manage_physical): ?><button type="button" class="btn btn-primary vc5-manage" data-bs-toggle="modal" data-bs-target="#storageLocationManager"><i class="fas fa-sliders-h" aria-hidden="true"></i><span>Manage locations</span></button><?php endif; ?>
     </div>
     <div class="vc5-metrics" aria-label="Storage and record totals">
-      <div class="vc5-metric"><i class="fas fa-archive" aria-hidden="true"></i><span>Cabinets</span><strong data-location-stat="cabinet">—</strong></div>
-      <div class="vc5-metric"><i class="fas fa-layer-group" aria-hidden="true"></i><span>Drawers</span><strong data-location-stat="drawer">—</strong></div>
-      <div class="vc5-metric"><i class="fas fa-folder" aria-hidden="true"></i><span>Folders</span><strong data-location-stat="folder">—</strong></div>
-      <div class="vc5-metric"><i class="fas fa-file-alt" aria-hidden="true"></i><span>Working</span><strong data-copy-stat="working">—</strong></div>
-      <div class="vc5-metric"><i class="fas fa-certificate" aria-hidden="true"></i><span>Official</span><strong data-copy-stat="official">—</strong></div>
-      <div class="vc5-metric vc5-metric-custody"><i class="fas fa-hand-holding" aria-hidden="true"></i><span>Borrowed</span><strong data-copy-stat="borrowed">—</strong></div>
+      <div class="vc5-metric"><i class="fas fa-archive" aria-hidden="true"></i><span>Cabinets</span><strong class="drms-skeleton-inline" data-location-stat="cabinet">Loading</strong></div>
+      <div class="vc5-metric"><i class="fas fa-layer-group" aria-hidden="true"></i><span>Drawers</span><strong class="drms-skeleton-inline" data-location-stat="drawer">Loading</strong></div>
+      <div class="vc5-metric"><i class="fas fa-folder" aria-hidden="true"></i><span>Folders</span><strong class="drms-skeleton-inline" data-location-stat="folder">Loading</strong></div>
+      <div class="vc5-metric"><i class="fas fa-file-alt" aria-hidden="true"></i><span>Working</span><strong class="drms-skeleton-inline" data-copy-stat="working">Loading</strong></div>
+      <div class="vc5-metric"><i class="fas fa-certificate" aria-hidden="true"></i><span>Official</span><strong class="drms-skeleton-inline" data-copy-stat="official">Loading</strong></div>
+      <div class="vc5-metric vc5-metric-custody"><i class="fas fa-hand-holding" aria-hidden="true"></i><span>Borrowed</span><strong class="drms-skeleton-inline" data-copy-stat="borrowed">Loading</strong></div>
     </div>
   </header>
 
@@ -62,13 +62,26 @@ if (isset($_SESSION['user_id'])) {
       <div class="vc5-tree-heading"><h2>Storage locations</h2><p>Select a folder to view its copies.</p>
         <div class="vc5-location-search"><i class="fas fa-search" aria-hidden="true"></i><input type="search" id="vc3LocationSearch" aria-label="Find a storage location" placeholder="Find a location…" maxlength="150" autocomplete="off"></div>
       </div>
-      <div id="vc3Tree" class="vc5-tree-scroll">Loading storage locations…</div>
+      <div id="vc3Tree" class="vc5-tree-scroll">
+        <div class="drms-skeleton-tree" role="status" aria-live="polite">
+          <span class="visually-hidden">Loading storage locations</span>
+          <?php for ($skeletonRow = 0; $skeletonRow < 7; $skeletonRow++): ?>
+            <span class="drms-skeleton-tree-row" aria-hidden="true"><span class="drms-skeleton-block"></span><span class="drms-skeleton-block"></span><span class="drms-skeleton-block"></span></span>
+          <?php endfor; ?>
+        </div>
+      </div>
     </aside>
     <section class="vc3-panel" aria-labelledby="vc3Title">
       <div class="vc3-toolbar">
         <div class="vc5-context">
-          <button type="button" class="btn btn-outline-secondary vc5-location-toggle" id="vc3LocationToggle" aria-controls="vc3LocationPanel" aria-expanded="true"><i class="fas fa-archive" aria-hidden="true"></i><span>Locations</span><i class="fas fa-chevron-left vc5-toggle-chevron" aria-hidden="true"></i></button>
+          <button type="button" class="btn btn-outline-secondary vc5-location-toggle" id="vc3LocationToggle" aria-controls="vc3LocationPanel" aria-expanded="true" title="Hide locations"><span>Locations</span><i class="fas fa-chevron-left vc5-toggle-chevron" aria-hidden="true"></i></button>
           <div class="vc5-panel-heading"><h2 id="vc3Title">All physical copies</h2><p id="vc3Path">Across all storage locations</p></div>
+        </div>
+        <div class="vc3-search" role="search" aria-label="Search physical copies">
+          <i class="fas fa-search vc5-search-icon" aria-hidden="true"></i>
+          <input type="search" id="vc3Search" aria-label="Search physical copies" placeholder="Search record, holder or classification…" maxlength="150" autocomplete="off">
+          <button type="button" id="vc3Clear" aria-label="Clear record search">Clear</button>
+          <div class="vc5-custody-select"><i class="fas fa-sliders-h" aria-hidden="true"></i><label class="visually-hidden" for="vc3Custody">Custody filter</label><select id="vc3Custody" aria-label="Filter physical copies by custody"><option value="all">All custody</option><option value="borrowed">Borrowed</option><option value="overdue">Overdue</option><option value="due_soon">Due in 3 days</option><option value="no_due_date">No return date</option></select></div>
         </div>
         <div class="vc5-toolbar-actions">
           <?php if ($records_allowed): ?><form id="vc3ExportForm" class="vc3-export" action="actions/export_physical_inventory.php" method="post">
@@ -78,19 +91,13 @@ if (isset($_SESSION['user_id'])) {
           </form><?php endif; ?>
           <button type="button" class="btn btn-outline-secondary" id="vc3Refresh"><i class="fas fa-sync-alt" aria-hidden="true"></i><span>Refresh</span></button>
         </div>
-        <div class="vc3-search" role="search" aria-label="Search physical copies">
-          <i class="fas fa-search vc5-search-icon" aria-hidden="true"></i>
-          <input type="search" id="vc3Search" aria-label="Search physical copies" placeholder="Search record, holder or classification…" maxlength="150" autocomplete="off">
-          <button type="button" id="vc3Clear" aria-label="Clear record search">Clear</button>
-          <div class="vc5-custody-select"><i class="fas fa-sliders-h" aria-hidden="true"></i><label class="visually-hidden" for="vc3Custody">Custody filter</label><select id="vc3Custody" aria-label="Filter physical copies by custody"><option value="all">All custody</option><option value="borrowed">Borrowed</option><option value="overdue">Overdue</option><option value="due_soon">Due in 3 days</option><option value="no_due_date">No return date</option></select></div>
-        </div>
       </div>
       <div id="vc3Error" class="vc3-error" role="alert" hidden></div>
       <p class="vc5-table-hint">Each record is grouped into a compact card for easier reading.</p>
       <div class="vc3-list" id="vc3List" tabindex="0" role="region" aria-label="Physical copies table">
-        <table><caption class="visually-hidden">Registered physical copies in the selected location and custody filter</caption><thead><tr><th scope="col">Record</th><th scope="col">Physical location</th><th scope="col">Custody</th><th scope="col">Action</th></tr></thead><tbody id="vc3Rows"></tbody></table>
+        <table><caption class="visually-hidden">Registered physical copies in the selected location and custody filter</caption><thead><tr><th scope="col">Record</th><th scope="col">Physical location</th><th scope="col">Custody</th><th scope="col">Action</th></tr></thead><tbody id="vc3Rows"><tr class="vc5-loading-row"><td colspan="4" class="vc5-empty vc5-skeleton-cell"><div class="drms-skeleton-surface" role="status" aria-live="polite"><span class="visually-hidden">Loading physical copies</span><div class="drms-skeleton-table" aria-hidden="true"><?php for ($skeletonCopy = 0; $skeletonCopy < 5; $skeletonCopy++): ?><div class="drms-skeleton-table-row"><div class="drms-skeleton-record"><span class="drms-skeleton-block drms-skeleton-record-icon"></span><span class="drms-skeleton-record-copy"><span class="drms-skeleton-line is-medium"></span><span class="drms-skeleton-line is-short"></span></span></div><span class="drms-skeleton-stack"><span class="drms-skeleton-line is-medium"></span><span class="drms-skeleton-line is-short"></span></span><span class="drms-skeleton-chip"></span><span class="drms-skeleton-block"></span></div><?php endfor; ?></div></div></td></tr></tbody></table>
       </div>
-      <footer class="vc3-pagination"><span id="vc3Count" role="status" aria-live="polite">Loading…</span><nav aria-label="Physical copies pagination"><button type="button" class="btn btn-outline-secondary" id="vc3Prev" disabled><i class="fas fa-chevron-left" aria-hidden="true"></i><span>Previous</span></button><span id="vc3Page">—</span><button type="button" class="btn btn-outline-secondary" id="vc3Next" disabled><span>Next</span><i class="fas fa-chevron-right" aria-hidden="true"></i></button></nav></footer>
+      <footer class="vc3-pagination"><span id="vc3Count" class="drms-skeleton-inline" role="status" aria-live="polite">Loading copies</span><nav aria-label="Physical copies pagination"><button type="button" class="btn btn-outline-secondary" id="vc3Prev" disabled><i class="fas fa-chevron-left" aria-hidden="true"></i><span>Previous</span></button><span id="vc3Page" class="drms-skeleton-inline">Loading page</span><button type="button" class="btn btn-outline-secondary" id="vc3Next" disabled><span>Next</span><i class="fas fa-chevron-right" aria-hidden="true"></i></button></nav></footer>
     </section>
   </div>
 </main>

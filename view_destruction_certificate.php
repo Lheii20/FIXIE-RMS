@@ -128,8 +128,9 @@ if (!empty($certificate['physical_evidence_number'])) {
             .certificate-card { border: 1px solid #aeb7c4 !important; box-shadow: none !important; }
         }
     </style>
+    <link href="assets/css/print-document-standard.css?v=<?php echo filemtime(__DIR__ . '/assets/css/print-document-standard.css'); ?>" rel="stylesheet">
 </head>
-<body class="bg-f8f9fa">
+<body class="bg-f8f9fa page-destruction-certificate">
 <?php include 'sidebar.php'; ?>
 
 <main class="main-content fade-in">
@@ -143,26 +144,29 @@ if (!empty($certificate['physical_evidence_number'])) {
             </button>
         </div>
 
-        <section class="certificate-card shadow-sm overflow-hidden">
-            <header class="px-4 py-4 border-bottom d-flex flex-wrap justify-content-between align-items-start gap-3">
-                <div>
-                    <div class="certificate-kicker text-danger fw-bold text-uppercase mb-1">Official disposition record</div>
-                    <h1 class="certificate-title fw-bold text-dark mb-1"><?php echo $digitalOnlyCertificate ? 'Certificate of Digital File Destruction' : 'Certificate of Record Destruction'; ?></h1>
-                    <p class="text-muted small mb-0"><?php echo $digitalOnlyCertificate ? 'Evidence of digital-file deletion only. This does not certify disposal of any physical paper copy.' : 'Verifiable evidence of an approved and executed retention action.'; ?></p>
+        <section class="certificate-card shadow-sm overflow-hidden drms-print-document">
+            <header class="certificate-print-header">
+                <div class="certificate-print-brand">
+                    <img src="assets/images/fixie_logo.png" alt="Fixie Computer Ventures logo">
+                    <div><strong>Fixie Computer Ventures</strong><span>Computer products and business solutions</span><small>Records disposition document</small></div>
                 </div>
-                <div class="text-md-end">
-                    <div class="certificate-label mb-1">Certificate number</div>
-                    <div class="fs-5 fw-bold text-dark"><?php echo e($certificate['certificate_number']); ?></div>
+                <div class="certificate-print-title">
+                    <span><?php echo $digitalOnlyCertificate ? 'Digital file destruction' : 'Record destruction'; ?></span>
+                    <h1><?php echo e($certificate['certificate_number']); ?></h1>
                     <?php if ($certificateIntegrityValid): ?>
-                        <span class="badge bg-success mt-2 px-3 py-2"><i class="fas fa-check-circle me-1"></i> Integrity verified</span>
+                        <strong class="certificate-print-status is-verified">Integrity verified</strong>
                     <?php else: ?>
-                        <span class="badge bg-danger mt-2 px-3 py-2"><i class="fas fa-exclamation-triangle me-1"></i> Integrity warning</span>
+                        <strong class="certificate-print-status is-warning">Integrity warning</strong>
                     <?php endif; ?>
                 </div>
             </header>
 
             <div class="p-4">
-                <div class="row g-3 mb-4">
+                <div class="certificate-print-summary">
+                    <span class="certificate-kicker text-danger fw-bold text-uppercase"><?php echo $digitalOnlyCertificate ? 'Certificate of Digital File Destruction' : 'Certificate of Record Destruction'; ?></span>
+                    <p><?php echo $digitalOnlyCertificate ? 'Evidence of digital-file deletion only. This does not certify disposal of any physical paper copy.' : 'Verifiable evidence of an approved and executed retention action.'; ?></p>
+                </div>
+                <div class="row g-3 mb-4 certificate-reference-grid">
                     <div class="col-md-4">
                         <div class="certificate-label mb-1">Official record number</div>
                         <div class="certificate-value"><?php echo e($certificate['record_number'] ?: 'Not assigned'); ?></div>
@@ -265,6 +269,10 @@ if (!empty($certificate['physical_evidence_number'])) {
                     <?php endif; ?>
                 </div>
             </div>
+            <footer class="certificate-print-footer">
+                <span>Generated from the Fixie DRMS on <?php echo date('M d, Y · h:i A'); ?>.</span>
+                <strong><?php echo $certificateIntegrityValid ? 'Certificate integrity verified against the stored evidence.' : 'Integrity warning: stored evidence did not verify.'; ?></strong>
+            </footer>
         </section>
     </div>
 </main>

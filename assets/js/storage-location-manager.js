@@ -8,7 +8,7 @@
     cabinet:{label:'Cabinet',parents:['room'],max:100},drawer:{label:'Drawer',parents:['cabinet'],max:100},
     box:{label:'Box',parents:['room','drawer'],max:120},folder:{label:'Physical folder',parents:['drawer','box'],max:120}
   };
-  let nodes=[], page=1, editing=null, deleting=false, dirty=false, changed=false, busy=false, loaded=false;
+  let nodes=[], page=1, editing=null, deleting=false, dirty=false, changed=false, busy=false, loaded=false, loading=false;
   const pageSize=10;
   function message(text='', error=false) { el('Message').textContent=text; el('Message').hidden=!text; el('Message').classList.toggle('is-error',error); }
   function setBusy(value) {
@@ -37,6 +37,12 @@
     const filtered=nodes.filter(n=>(!type || n.type===type) && [n.name,n.code,n.path,types[n.type].label].join(' ').toLocaleLowerCase().includes(query));
     const pages=Math.max(1,Math.ceil(filtered.length/pageSize)); page=Math.max(1,Math.min(page,pages));
     el('Rows').replaceChildren();
+    if(loading){
+      const row=document.createElement('tr'),cell=document.createElement('td');cell.className='vcm-empty vcm-skeleton-cell';cell.colSpan=4;
+      cell.innerHTML=window.DRMSSkeleton?window.DRMSSkeleton.table('Loading storage locations',4):'<div class="drms-skeleton-surface" role="status"><span class="visually-hidden">Loading storage locations</span><span class="drms-skeleton-line is-medium" aria-hidden="true"></span></div>';
+      row.append(cell);el('Rows').append(row);el('Count').textContent='Loading locations';el('Count').classList.add('drms-skeleton-inline');el('Page').textContent='Loading';el('Page').classList.add('drms-skeleton-inline');el('Prev').disabled=true;el('Next').disabled=true;return;
+    }
+    el('Count').classList.remove('drms-skeleton-inline');el('Page').classList.remove('drms-skeleton-inline');
     filtered.slice((page-1)*pageSize,page*pageSize).forEach(node=>{
       const row=document.createElement('tr');
       const name=document.createElement('td'), parent=document.createElement('td'), usage=document.createElement('td'), actions=document.createElement('td');
@@ -53,16 +59,16 @@
       remove.title=node.in_use?'Contains child locations or links; deletion is blocked.':'Delete this empty location'; remove.addEventListener('click',()=>removeNode(node));
       buttons.append(edit,remove); actions.append(buttons); row.append(name,parent,usage,actions); el('Rows').append(row);
     });
-    if (!filtered.length) { const row=document.createElement('tr'),cell=textNode('td',loaded?'No matching locations. Add a location or change your search.':'Loading locations…','vcm-empty'); cell.colSpan=4; row.append(cell); el('Rows').append(row); }
+    if (!filtered.length) { const row=document.createElement('tr'),cell=textNode('td','No matching locations. Add a location or change your search.','vcm-empty'); cell.colSpan=4; row.append(cell); el('Rows').append(row); }
     el('Count').textContent=filtered.length?`${(page-1)*pageSize+1}–${Math.min(page*pageSize,filtered.length)} of ${filtered.length} locations`:'0 locations';
     el('Page').textContent=`${page} / ${pages}`;
     el('Prev').disabled=busy || page===1; el('Next').disabled=busy || page===pages;
   }
   async function load() {
-    setBusy(true);
+    loading=true;setBusy(true);render();
     try { const result=await request(); nodes=result.nodes; loaded=true; render(); }
     catch(error) { message(error.message,true); }
-    finally { setBusy(false); render(); }
+    finally { loading=false;setBusy(false); render(); }
   }
   function setupFields(selectedParent='') {
     const type=el('EditType').value, spec=types[type], extended=['box','folder'].includes(type);

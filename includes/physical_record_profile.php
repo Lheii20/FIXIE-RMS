@@ -37,10 +37,20 @@ $vc3IsCabinet = basename($_SERVER['SCRIPT_NAME'] ?? '') === 'virtual_cabinet.php
                 <div id="vcpMessage" role="status" aria-live="polite" hidden></div>
 
                 <div id="vcpLoading" class="vcp-loading" role="status" aria-live="polite">
-                    <span class="vcp-loading-spinner" aria-hidden="true"></span>
-                    <div>
-                        <strong>Loading physical record</strong>
-                        <span>Retrieving its location, custody, and history.</span>
+                    <span class="visually-hidden">Loading physical record</span>
+                    <div class="drms-skeleton-profile" aria-hidden="true">
+                        <div class="drms-skeleton-stack">
+                            <span class="drms-skeleton-line is-title"></span>
+                            <span class="drms-skeleton-line is-medium"></span>
+                        </div>
+                        <div class="drms-skeleton-profile-grid">
+                            <?php for ($vcpSkeleton = 0; $vcpSkeleton < 6; $vcpSkeleton++): ?>
+                                <span class="drms-skeleton-profile-card">
+                                    <span class="drms-skeleton-line is-short"></span>
+                                    <span class="drms-skeleton-line is-medium"></span>
+                                </span>
+                            <?php endfor; ?>
+                        </div>
                     </div>
                 </div>
 
@@ -184,7 +194,7 @@ $vc3IsCabinet = basename($_SERVER['SCRIPT_NAME'] ?? '') === 'virtual_cabinet.php
                                     </button>
                                 </div>
                                 <div class="vcp-folder-search-meta">
-                                    <span id="vcpFolderSearchStatus" role="status" aria-live="polite">Loading available folders…</span>
+                                    <span id="vcpFolderSearchStatus" class="drms-skeleton-inline" role="status" aria-live="polite">Loading available folders</span>
                                     <button type="button" id="vcpFolderBrowse" class="vcp-folder-browse">
                                         <i class="fas fa-folder-tree" aria-hidden="true"></i><span>Browse all</span>
                                     </button>

@@ -1,0 +1,285 @@
+/* Shared PRF-inspired print language; only the certificate's new header has screen styles. */
+@media screen {
+    body.page-view-quotation .drms-print-document { display: none; }
+
+    .certificate-print-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 20px;
+        padding: 22px 24px;
+        border-bottom: 1px solid #cbd5e1;
+    }
+    .certificate-print-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .certificate-print-brand img { width: 48px; height: 48px; object-fit: contain; }
+    .certificate-print-brand strong,
+    .certificate-print-brand span,
+    .certificate-print-brand small { display: block; }
+    .certificate-print-brand strong { color: #0f172a; font-size: 16px; line-height: 1.2; }
+    .certificate-print-brand span { margin-top: 2px; color: #64748b; font-size: 12px; }
+    .certificate-print-brand small { margin-top: 2px; color: #64748b; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+    .certificate-print-title { text-align: right; }
+    .certificate-print-title > span { display: block; color: #64748b; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; }
+    .certificate-print-title h1 { margin: 3px 0 8px; color: #0f172a; font-size: 20px; font-weight: 750; }
+    .certificate-print-status { display: inline-flex; align-items: center; min-height: 27px; padding: 4px 10px; border: 1px solid; border-radius: 99px; font-size: 11px; }
+    .certificate-print-status.is-verified { color: #166534; background: #f0fdf4; border-color: #86efac; }
+    .certificate-print-status.is-warning { color: #b91c1c; background: #fef2f2; border-color: #fca5a5; }
+    .certificate-print-summary { margin-bottom: 17px; }
+    .certificate-print-summary p { margin: 4px 0 0; color: #64748b; font-size: 12px; }
+    .certificate-print-footer { display: flex; justify-content: space-between; gap: 15px; margin: 0 24px 22px; padding-top: 11px; border-top: 1px solid #cbd5e1; color: #64748b; font-size: 11px; }
+    .certificate-print-footer strong { color: #334155; text-align: right; }
+    .statement-brand small { display: block; margin-top: 2px; color: #7b8797; font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }
+}
+
+@media screen and (max-width: 560px) {
+    .certificate-print-header { flex-direction: column; padding: 16px; }
+    .certificate-print-title { text-align: left; }
+    .certificate-print-footer { flex-direction: column; margin: 0 16px 18px; }
+    .certificate-print-footer strong { text-align: left; }
+}
+
+@page { size: A4 portrait; margin: 0; }
+
+@media print {
+    body.page-view-quotation,
+    body.statement-page,
+    body.page-destruction-certificate {
+        margin: 0 !important;
+        padding: 10mm 12mm !important;
+        background: #fff !important;
+        color: #0f172a !important;
+        font-family: Arial, Helvetica, sans-serif !important;
+        font-size: 8.5pt !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
+    body.page-view-quotation .saas-navbar,
+    body.page-view-quotation .mobile-side-nav,
+    body.page-view-quotation .mobile-nav-backdrop,
+    body.page-view-quotation #commandPaletteOverlay,
+    body.page-view-quotation .main-content > :not(.drms-print-document),
+    body.statement-page .statement-toolbar,
+    body.page-destruction-certificate .saas-navbar,
+    body.page-destruction-certificate .mobile-side-nav,
+    body.page-destruction-certificate .mobile-nav-backdrop,
+    body.page-destruction-certificate .certificate-actions,
+    body.page-destruction-certificate #commandPaletteOverlay {
+        display: none !important;
+    }
+
+    body.page-view-quotation .main-content,
+    body.page-destruction-certificate .main-content {
+        display: block !important;
+        width: 100% !important;
+        max-width: none !important;
+        min-height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        opacity: 1 !important;
+        transform: none !important;
+        animation: none !important;
+        overflow: visible !important;
+    }
+
+    body.page-view-quotation .print-only-quote,
+    body.statement-page .statement-sheet,
+    body.page-destruction-certificate .certificate-card.drms-print-document {
+        display: block !important;
+        width: 100% !important;
+        max-width: none !important;
+        min-height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        color: #0f172a !important;
+        background: #fff !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        overflow: visible !important;
+    }
+
+    /* Header, identity, and status follow the PRF's exact paper scale. */
+    .drms-print-header,
+    .statement-document-header,
+    .certificate-print-header {
+        display: flex !important;
+        align-items: flex-start !important;
+        justify-content: space-between !important;
+        gap: 8mm !important;
+        margin: 0 !important;
+        padding: 0 0 4mm !important;
+        border: 0 !important;
+        border-bottom: 2px solid #2563eb !important;
+        break-inside: avoid;
+    }
+    .drms-print-brand,
+    .statement-brand,
+    .certificate-print-brand { display: flex !important; align-items: center !important; gap: 3mm !important; min-width: 0; }
+    .drms-print-brand img,
+    .statement-brand img,
+    .certificate-print-brand img { width: 14mm !important; height: 14mm !important; object-fit: contain; }
+    .drms-print-brand > div,
+    .statement-brand > div,
+    .certificate-print-brand > div { display: flex; flex-direction: column; }
+    .drms-print-brand strong,
+    .statement-brand strong,
+    .certificate-print-brand strong { color: #0f172a !important; font-size: 13pt !important; font-weight: 750 !important; line-height: 1.15 !important; letter-spacing: 0 !important; }
+    .drms-print-brand span,
+    .statement-brand span,
+    .certificate-print-brand span { margin-top: .8mm !important; color: #475569 !important; font-size: 8pt !important; }
+    .drms-print-brand small,
+    .statement-brand small,
+    .certificate-print-brand small { display: block; margin-top: .5mm !important; color: #64748b !important; font-size: 7pt !important; text-transform: uppercase; letter-spacing: .06em; }
+    .drms-print-title,
+    .statement-title,
+    .certificate-print-title { display: flex !important; flex-direction: column; align-items: flex-end !important; text-align: right !important; }
+    .drms-print-title > span,
+    .statement-title > span,
+    .certificate-print-title > span { color: #475569 !important; font-size: 7.5pt !important; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .drms-print-title h1,
+    .statement-title h1,
+    .certificate-print-title h1 { margin: 1mm 0 !important; color: #0f172a !important; font-size: 15pt !important; font-weight: 800 !important; letter-spacing: -.02em; line-height: 1.15; }
+    .drms-print-status,
+    .statement-title small,
+    .certificate-print-status { display: inline-flex; min-height: 6mm; align-items: center; justify-content: center; padding: 1mm 3mm; border: 1px solid #bfdbfe; border-radius: 99px; background: #eff6ff !important; color: #1d4ed8 !important; font-size: 7.5pt !important; font-weight: 700; letter-spacing: .04em; }
+    .certificate-print-status.is-verified { border-color: #86efac; background: #f0fdf4 !important; color: #166534 !important; }
+    .certificate-print-status.is-warning { border-color: #fca5a5; background: #fef2f2 !important; color: #b91c1c !important; }
+
+    .drms-print-reference-grid,
+    .statement-reference-grid,
+    .certificate-reference-grid {
+        display: grid !important;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0 !important;
+        margin: 4mm 0 !important;
+        padding: 0 !important;
+        overflow: hidden;
+        background: #f8fafc !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 2mm !important;
+        break-inside: avoid;
+    }
+    .certificate-reference-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .drms-print-reference-grid > div,
+    .statement-reference-grid > div,
+    .certificate-reference-grid > div { min-width: 0; padding: 2.5mm 3mm !important; background: #f8fafc !important; border-right: 1px solid #cbd5e1; }
+    .certificate-reference-grid > div:nth-child(3n),
+    .drms-print-reference-grid > div:last-child,
+    .statement-reference-grid > div:last-child { border-right: 0; }
+    .drms-print-reference-grid span,
+    .statement-reference-grid span,
+    .certificate-reference-grid .certificate-label,
+    .drms-print-section-label,
+    .statement-section-label,
+    .drms-print-section-heading span,
+    .statement-section-heading span { display: block; color: #64748b !important; font-size: 6.8pt !important; font-weight: 700; letter-spacing: .065em; text-transform: uppercase; }
+    .drms-print-reference-grid strong,
+    .statement-reference-grid strong,
+    .certificate-reference-grid .certificate-value { display: block; margin: .8mm 0 0 !important; color: #0f172a !important; font-size: 8.5pt !important; font-weight: 700; line-height: 1.25; white-space: normal !important; overflow-wrap: anywhere; }
+
+    .drms-print-party-grid,
+    .statement-party-grid { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 3mm !important; margin: 0 0 4mm !important; break-inside: avoid; }
+    .drms-print-party-grid article,
+    .statement-party-grid article { min-width: 0; padding: 3mm !important; border: 1px solid #cbd5e1 !important; border-radius: 2mm !important; }
+    .drms-print-party-grid h2,
+    .statement-party-grid h2 { margin: 1.2mm 0 2mm !important; color: #0f172a !important; font-size: 10pt !important; font-weight: 750; overflow-wrap: anywhere; }
+    .drms-print-party-grid p { margin: 0; color: #64748b; font-size: 7.2pt; }
+    .drms-print-party-grid dl,
+    .statement-party-grid dl { margin: 0; }
+    .drms-print-party-grid dl > div,
+    .statement-party-grid dl > div { display: grid; grid-template-columns: 28mm minmax(0, 1fr); gap: 2mm; padding: 1mm 0; border-top: 1px solid #e2e8f0; }
+    .drms-print-party-grid dt,
+    .statement-party-grid dt { color: #64748b !important; font-size: 7.2pt !important; font-weight: 600; }
+    .drms-print-party-grid dd,
+    .statement-party-grid dd { margin: 0; color: #0f172a !important; font-size: 7.5pt !important; font-weight: 650; text-align: right; overflow-wrap: anywhere; }
+
+    .drms-print-section,
+    .statement-section { margin: 0 0 4mm !important; }
+    .drms-print-section-heading,
+    .statement-section-heading { display: flex; justify-content: space-between; align-items: flex-end; gap: 4mm; margin-bottom: 2mm !important; break-after: avoid; }
+    .drms-print-section-heading h2,
+    .statement-section-heading h2 { margin: .8mm 0 0 !important; color: #0f172a !important; font-size: 10pt !important; font-weight: 750; }
+    .drms-print-section-heading small,
+    .statement-section-heading small { color: #64748b !important; font-size: 7pt !important; }
+    .drms-print-items,
+    .statement-table { width: 100% !important; min-width: 0 !important; margin: 0 !important; border: 1px solid #94a3b8 !important; border-collapse: collapse; table-layout: auto; }
+    .drms-print-items thead,
+    .statement-table thead { display: table-header-group; }
+    .drms-print-items tr,
+    .statement-table tr { break-inside: avoid; }
+    .drms-print-items th,
+    .statement-table th { padding: 2mm 2.2mm !important; color: #fff !important; background: #1e3a5f !important; border: 1px solid #1e3a5f !important; font-size: 7pt !important; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
+    .drms-print-items td,
+    .statement-table td { padding: 2.2mm !important; color: #0f172a !important; background: #fff !important; border: 1px solid #cbd5e1 !important; font-size: 7.7pt !important; vertical-align: top; overflow-wrap: anywhere; }
+    .drms-print-items td > strong { display: block; font-size: 8pt; }
+    .drms-print-items td > p { margin: .8mm 0 0; color: #475569; font-size: 6.8pt; line-height: 1.3; }
+    .drms-print-items .is-number { width: 8mm; text-align: center; }
+    .drms-print-items .is-quantity { width: 13mm; text-align: center; }
+    .drms-print-items .is-money { width: 27mm; text-align: right; white-space: nowrap; }
+    .drms-print-empty { padding: 5mm !important; text-align: center; color: #64748b !important; }
+    .statement-table-wrap { overflow: visible !important; border: 0 !important; border-radius: 0 !important; }
+    .statement-table th:last-child,
+    .statement-table td:last-child { text-align: right; white-space: nowrap; }
+
+    .drms-print-summary,
+    .statement-summary-layout { display: grid !important; grid-template-columns: minmax(0, 1fr) 78mm !important; gap: 5mm !important; margin: 0 0 5mm !important; padding: 3mm !important; background: #f8fafc !important; border: 1px solid #cbd5e1 !important; border-radius: 2mm !important; break-inside: avoid; }
+    .drms-print-summary h2 { margin: .8mm 0 0; color: #0f172a; font-size: 10pt; }
+    .drms-print-summary p,
+    .statement-collection-note p,
+    .statement-collection-note small { margin: 1.5mm 0 0; color: #475569 !important; font-size: 7.3pt !important; line-height: 1.4; }
+    .drms-print-summary dl,
+    .statement-totals { margin: 0; background: transparent !important; border: 0 !important; border-radius: 0 !important; }
+    .drms-print-summary dl > div,
+    .statement-totals > div { display: flex; align-items: center; justify-content: space-between; gap: 4mm; padding: 1.2mm 0 !important; background: transparent !important; border: 0 !important; border-bottom: 1px solid #e2e8f0 !important; }
+    .drms-print-summary dl > div:last-child,
+    .statement-totals > div:last-child { border-bottom: 0 !important; }
+    .drms-print-summary dt,
+    .statement-totals span { color: #64748b !important; font-size: 7.2pt !important; font-weight: 600; }
+    .drms-print-summary dd,
+    .statement-totals strong { margin: 0; color: #0f172a !important; font-size: 8pt !important; font-weight: 700; white-space: nowrap; }
+    .drms-print-summary .is-total,
+    .statement-totals .statement-total-due { padding: 1.8mm 2mm !important; background: #eff6ff !important; border: 1px solid #bfdbfe !important; border-radius: 1.5mm; }
+    .drms-print-summary .is-total dt,
+    .drms-print-summary .is-total dd,
+    .statement-total-due span,
+    .statement-total-due strong { color: #1d4ed8 !important; font-weight: 800; }
+    .statement-balance-banner { grid-template-columns: 45mm minmax(0, 1fr) !important; gap: 4mm !important; margin: 0 0 4mm !important; padding: 3mm !important; border-radius: 2mm !important; break-inside: avoid; }
+    .statement-balance-banner > div:first-child { padding-right: 3mm; }
+    .statement-balance-banner > div:first-child strong { font-size: 14pt !important; }
+    .statement-balance-banner p { font-size: 7.2pt !important; }
+    .statement-collection-note { padding: 0 !important; background: transparent !important; border: 0 !important; }
+
+    .drms-print-footer,
+    .statement-footer,
+    .certificate-print-footer { display: flex !important; justify-content: space-between !important; gap: 8mm !important; margin: 5mm 0 0 !important; padding: 2.5mm 0 0 !important; color: #64748b !important; background: transparent !important; border: 0 !important; border-top: 1px solid #cbd5e1 !important; font-size: 6.5pt !important; break-inside: avoid; }
+    .drms-print-footer strong,
+    .certificate-print-footer strong { max-width: 90mm; color: #334155 !important; font-weight: 650; text-align: right; }
+    .statement-footer > div { min-width: 0; }
+    .statement-footer span { color: #64748b !important; font-size: 6.5pt !important; }
+    .statement-footer strong,
+    .statement-footer small { color: #334155 !important; font-size: 6.5pt !important; }
+
+    /* Certificate keeps its evidence fields, but uses the same paper grid and type scale. */
+    body.page-destruction-certificate .certificate-shell { width: 100% !important; max-width: none !important; margin: 0 !important; padding: 0 !important; }
+    .certificate-card .p-4 { padding: 0 !important; }
+    .certificate-print-summary { margin: 4mm 0 !important; padding: 3mm !important; background: #f8fafc !important; border: 1px solid #cbd5e1; border-radius: 2mm; break-inside: avoid; }
+    .certificate-print-summary .certificate-kicker { color: #64748b !important; font-size: 6.8pt !important; }
+    .certificate-print-summary p { margin: 1mm 0 0; color: #475569; font-size: 7.3pt; }
+    .certificate-reference-grid { --bs-gutter-x: 0; --bs-gutter-y: 0; }
+    .certificate-reference-grid > div { width: auto !important; max-width: none !important; margin: 0 !important; }
+    .certificate-reference-grid .certificate-label { margin: 0 !important; }
+    .certificate-card .border.rounded-3,
+    .certificate-card .actor-step { border: 1px solid #cbd5e1 !important; border-radius: 2mm !important; box-shadow: none !important; }
+    .certificate-card .border.rounded-3 { padding: 3mm !important; margin-bottom: 4mm !important; background: #f8fafc !important; break-inside: avoid; }
+    .certificate-card .actor-step { min-height: 0; padding: 2.5mm !important; break-inside: avoid; }
+    .certificate-card .certificate-label { color: #64748b !important; font-size: 6.8pt !important; letter-spacing: .065em; }
+    .certificate-card .certificate-value { color: #0f172a !important; font-size: 8pt !important; }
+    .certificate-card .small { font-size: 7pt !important; line-height: 1.35; }
+    .certificate-card .hash-value { font-size: 6.5pt !important; overflow-wrap: anywhere; }
+    .certificate-card .row:not(.certificate-reference-grid) { --bs-gutter-x: 3mm; --bs-gutter-y: 3mm; }
+    .certificate-card .border-top { border-top: 1px solid #cbd5e1 !important; }
+    .certificate-card .bg-light { background: #f8fafc !important; }
+}

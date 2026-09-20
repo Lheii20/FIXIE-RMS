@@ -151,3 +151,259 @@
         --app-shell-gutter: 12px;
     }
 }
+
+/* Canonical navigation motion and alignment for every authenticated page.
+   Module styles must not control the shared navbar's dropdown transition. */
+@media screen {
+    html body .saas-navbar {
+        --nav-surface: #ffffff;
+        --nav-ink: #172033;
+        --nav-muted: #52637a;
+        --nav-line: #c4cfdd;
+        --nav-hover: #f1f5f9;
+        --nav-accent: #3158c9;
+        --nav-accent-soft: #edf2ff;
+    }
+    html[data-drms-theme="dark"] body .saas-navbar {
+        --nav-surface: #1f252d;
+        --nav-ink: #c5cbd3;
+        --nav-muted: #9ca7b3;
+        --nav-line: #424b57;
+        --nav-hover: #303943;
+        --nav-accent: #a5bbdc;
+        --nav-accent-soft: #2a3a50;
+    }
+}
+
+@media screen and (min-width: 992px) {
+    html body .saas-navbar .saas-nav-container,
+    html body .saas-navbar .saas-nav-menu {
+        align-items: center;
+    }
+    html body .saas-navbar .saas-nav-menu { gap: 4px; }
+    html body .saas-navbar .saas-nav-item.has-dropdown { position: relative; }
+    html body .saas-navbar .saas-nav-link {
+        display: inline-flex;
+        min-height: 38px;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        padding: 7px 11px;
+        border-radius: 8px;
+        color: var(--nav-muted);
+        line-height: 1.2;
+        white-space: nowrap;
+        transform: none !important;
+        transition: color .18s ease, background-color .18s ease !important;
+    }
+    html body .saas-navbar .saas-nav-link > i:first-child {
+        display: inline-flex;
+        width: 16px;
+        align-items: center;
+        justify-content: center;
+        margin: 0;
+        transform: none !important;
+    }
+    html body .saas-navbar .saas-nav-link > .fa-chevron-down {
+        margin-left: 2px !important;
+        font-size: 10px;
+        transition: transform .18s ease !important;
+    }
+    html body .saas-navbar .saas-nav-item.has-dropdown:is(:hover, :focus-within)
+        .saas-nav-link > .fa-chevron-down { transform: rotate(180deg) !important; }
+    html body .saas-navbar .saas-nav-link:hover,
+    html body .saas-navbar .saas-nav-item.has-dropdown:is(:hover, :focus-within) > .saas-nav-link {
+        background: var(--nav-hover) !important;
+        color: var(--nav-ink) !important;
+    }
+    html body .saas-navbar .saas-nav-link.active {
+        background: var(--nav-accent-soft) !important;
+        color: var(--nav-accent) !important;
+    }
+    html body .saas-navbar .saas-nav-icon,
+    html body .saas-navbar .saas-profile-trigger {
+        transform: none !important;
+        transition: background-color .18s ease, border-color .18s ease,
+                    color .18s ease !important;
+    }
+    html body .saas-navbar .saas-nav-icon:hover {
+        background: var(--nav-hover) !important;
+        color: var(--nav-ink) !important;
+    }
+    html body .saas-navbar .saas-profile-trigger:hover {
+        border-color: var(--nav-line) !important;
+    }
+    html body .saas-navbar .saas-nav-item.has-dropdown::after {
+        top: 100%;
+        height: 10px;
+    }
+    html body .saas-navbar .saas-dropdown {
+        top: calc(100% + 8px);
+        min-width: 218px;
+        max-height: calc(100dvh - 84px);
+        overflow-y: auto;
+        padding: 6px;
+        border: 1px solid var(--nav-line) !important;
+        border-radius: 10px;
+        background: var(--nav-surface) !important;
+        color: var(--nav-ink) !important;
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transform: translateY(7px) !important;
+        transition: opacity .2s cubic-bezier(.22,1,.36,1),
+                    transform .2s cubic-bezier(.22,1,.36,1),
+                    visibility 0s linear .2s !important;
+    }
+    html body .saas-navbar .saas-dropdown.shadow-sm {
+        box-shadow: 0 12px 28px rgba(15,23,42,.14) !important;
+    }
+    html body .saas-navbar .saas-nav-item.has-dropdown:is(:hover, :focus-within) > .saas-dropdown {
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
+        transform: translateY(0) !important;
+        transition-delay: 0s !important;
+    }
+    html body .saas-navbar .saas-dropdown a {
+        display: flex;
+        min-height: 36px;
+        align-items: center;
+        gap: 9px;
+        padding: 7px 10px;
+        border-radius: 7px;
+        color: var(--nav-ink) !important;
+        line-height: 1.3;
+        transform: none !important;
+        transition: color .18s ease, background-color .18s ease !important;
+    }
+    html body .saas-navbar .saas-dropdown a i {
+        display: inline-flex;
+        width: 17px;
+        flex: 0 0 17px;
+        align-items: center;
+        justify-content: center;
+        color: var(--nav-muted) !important;
+        transform: none !important;
+    }
+    html body .saas-navbar .saas-dropdown a:hover,
+    html body .saas-navbar .saas-dropdown a:focus-visible {
+        background: var(--nav-hover) !important;
+        color: var(--nav-accent) !important;
+    }
+    html body .saas-navbar .saas-dropdown a:is(:hover, :focus-visible) i {
+        color: var(--nav-accent) !important;
+    }
+    html body .saas-navbar :is(.saas-nav-link, .saas-nav-icon, .saas-dropdown a):focus-visible {
+        outline: 2px solid var(--nav-accent);
+        outline-offset: 2px;
+    }
+    html body .saas-navbar .profile-dropdown-menu {
+        right: 0;
+        left: auto;
+    }
+}
+
+/* Shared notification indicator: insulated from module-level .badge styles. */
+@media screen {
+    html body .drms-notification-count {
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 26px;
+        width: 26px !important;
+        min-width: 26px !important;
+        height: 20px !important;
+        min-height: 20px !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        border: 2px solid var(--nav-surface, #fff) !important;
+        border-radius: 999px !important;
+        background: #cf3442 !important;
+        color: #fff !important;
+        box-shadow: 0 1px 3px rgba(82, 22, 31, .2) !important;
+        font: 700 10px/1 'Inter', system-ui, sans-serif !important;
+        letter-spacing: 0 !important;
+        text-align: center;
+        white-space: nowrap;
+        box-sizing: border-box;
+        transform: none !important;
+    }
+    html body .saas-navbar .saas-nav-icon {
+        position: relative;
+        overflow: visible;
+    }
+    html body .saas-navbar .drms-notification-count {
+        position: absolute;
+        top: -5px;
+        right: -3px;
+        left: auto;
+    }
+    html body .mobile-side-nav__link .drms-notification-count--mobile {
+        position: static;
+        margin-left: auto !important;
+        border-color: transparent !important;
+    }
+}
+
+/* The document scrollbar sits inside the viewport on desktop. The native
+   scrollbar remains available as a stable-gutter fallback when JS is off. */
+@media screen and (min-width: 768px) and (pointer: fine) {
+    html:not(.drms-overlay-scroll-ready) {
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
+    }
+    html.drms-overlay-scroll-ready {
+        overflow-y: auto;
+        scrollbar-gutter: auto;
+        scrollbar-width: none !important;
+    }
+    html.drms-overlay-scroll-ready::-webkit-scrollbar {
+        width: 0 !important;
+        height: 0 !important;
+    }
+    html.drms-overlay-scroll-ready .drms-page-scrollbar {
+        display: block;
+    }
+}
+.drms-page-scrollbar {
+    position: fixed;
+    z-index: 1039;
+    top: 69px;
+    right: 4px;
+    bottom: 5px;
+    width: 9px;
+    display: none;
+    border-radius: 999px;
+    background: transparent;
+    touch-action: none;
+    user-select: none;
+}
+.drms-page-scrollbar[hidden] { display: none !important; }
+.drms-page-scrollbar__thumb {
+    position: absolute;
+    top: 0;
+    left: 1px;
+    width: 7px;
+    min-height: 32px;
+    border-radius: 999px;
+    background: #8b9bae;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, .55);
+    cursor: grab;
+    will-change: transform;
+}
+.drms-page-scrollbar:hover .drms-page-scrollbar__thumb,
+.drms-page-scrollbar__thumb:active {
+    background: #64758a;
+}
+.drms-page-scrollbar__thumb:active { cursor: grabbing; }
+html[data-drms-theme="dark"] .drms-page-scrollbar__thumb {
+    background: #7c8999;
+    box-shadow: 0 0 0 1px rgba(25, 31, 40, .7);
+}
+html[data-drms-theme="dark"] .drms-page-scrollbar:hover .drms-page-scrollbar__thumb {
+    background: #a2adba;
+}
+@media print {
+    .drms-page-scrollbar { display: none !important; }
+}
