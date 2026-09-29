@@ -1,0 +1,38 @@
+{
+    "run_at": "2026-09-23T21:12:19+08:00",
+    "mode": "dry_run",
+    "status": "success",
+    "cutoff_at": "2026-06-25T21:12:19+08:00",
+    "policy": {
+        "telemetry_retention_days": 90,
+        "cleanup_batch_size": 500,
+        "telemetry_action_types": [
+            "PAGE_VIEW",
+            "SEARCH",
+            "FILTER"
+        ]
+    },
+    "candidates": [
+        {
+            "action_type": "FILTER",
+            "total": 58,
+            "oldest_at": "2026-06-06 13:58:16",
+            "newest_at": "2026-06-23 21:03:37"
+        },
+        {
+            "action_type": "PAGE_VIEW",
+            "total": 4611,
+            "oldest_at": "2026-04-16 10:51:56",
+            "newest_at": "2026-06-25 21:10:34"
+        },
+        {
+            "action_type": "SEARCH",
+            "total": 5,
+            "oldest_at": "2026-06-08 19:08:47",
+            "newest_at": "2026-06-11 21:01:17"
+        }
+    ],
+    "candidate_count": 4674,
+    "removed_count": 0,
+    "preservation_note": "Only configured telemetry action types were eligible. Material audit events were excluded."
+}

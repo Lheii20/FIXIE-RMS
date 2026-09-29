@@ -3,6 +3,8 @@ session_start();
 
 require '../config/db_connect.php';
 require '../config/functions.php';
+require_once '../config/business_document_numbers.php';
+require_once '../config/approval_email_notifications.php';
 require_once '../config/client_po_acknowledgement.php';
 require_once '../config/workflow_feedback.php';
 require_once '../config/upload_policy.php';
@@ -59,7 +61,6 @@ if (
 
 if ($action === 'create_detailed_quotation') {
     $data = [
-        'quotation_number' => trim((string) ($_POST['quotation_number'] ?? '')),
         'client_name' => trim((string) ($_POST['client_name'] ?? '')),
         'grand_total' => round(
             (float) ($_POST['amount'] ?? 0),
@@ -68,14 +69,11 @@ if ($action === 'create_detailed_quotation') {
         'items' => $_POST['items'] ?? []
     ];
 
-    if (
-        $data['quotation_number'] === '' ||
-        $data['client_name'] === ''
-    ) {
+    if ($data['client_name'] === '') {
         header(
             "Location: ../create_quotation.php?error=" .
             rawurlencode(
-                "Quotation number and client name are required."
+                "Client or agency name is required."
             )
         );
         exit();
@@ -718,6 +716,18 @@ if ($action === 'receive_po') {
         $conn->commit();
 
         if ($is_official_client_po) {
+            // Send only after the official Client PO and GM alert are committed.
+            // SMTP failure is handled by the helper and cannot roll back the Client PO.
+            drms_send_approval_email_to_role(
+                $conn,
+                'GM',
+                'Approval required: Official Client PO',
+                "Official Client PO {$actual_client_po_number} for Quotation {$quotation['quotation_number']} is ready for your review and sign-off.",
+                'view_quotation.php?id=' . $quotation_id
+            );
+        }
+
+        if ($is_official_client_po) {
             $success_message =
                 "Official Client PO recorded and sent to the General Manager for acknowledgement. Internal Reference: {$internal_reference}";
         } else {
@@ -790,3 +800,7 @@ header(
 );
 exit();
 ?>
+
+
+
+

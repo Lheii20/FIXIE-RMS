@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/storage_locations.php';
+require_once __DIR__ . '/business_document_numbers.php';
 
 /** VC3: physical filing never changes digital classification or signed files. */
 function drms_copy_schema(mysqli $conn): array
@@ -456,9 +457,12 @@ function drms_copy_mutate(mysqli $conn,int $userId,array $input,string $ip=''): 
             $certificateHash=hash('sha256',json_encode($certificatePayload,JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
             if(!hash_equals((string)$certificates[0]['certificate_hash'],$certificateHash)) throw new DrmsStorageError('The digital destruction certificate failed its integrity check. The physical copy was not changed.',409);
             $clock=(string)$conn->query('SELECT NOW()')->fetch_row()[0];
-            $year=substr($clock,0,4);
-            $sequence=(int)drms_vc1_select($conn,"SELECT COALESCE(MAX(CAST(SUBSTRING(evidence_number,10) AS UNSIGNED)),0) AS n FROM physical_disposition_logs WHERE evidence_number LIKE ?",['PCD-'.$year.'-%'])[0]['n']+1;
-            $evidenceNumber='PCD-'.$year.'-'.str_pad((string)$sequence,6,'0',STR_PAD_LEFT);
+            /* Allocated in the current transaction; never calculated with MAX()+1. */
+            $evidenceNumber=drms_allocate_business_document_number(
+                $conn,
+                'physical_disposition',
+                new DateTimeImmutable($clock)
+            );
             $evidence=[
                 'evidence_number'=>$evidenceNumber,'document_id'=>$id,'record_number'=>$doc['record_number']?:'',
                 'source_folder_id'=>(int)$doc['physical_folder_id'],'source_path'=>$nodes[$sourceKey]['path'],
@@ -492,3 +496,5 @@ function drms_copy_mutate(mysqli $conn,int $userId,array $input,string $ip=''): 
         try{$conn->query("SELECT RELEASE_LOCK('fixie_drms:storage-management')");}catch(Throwable $cleanup){error_log('Physical-copy lock cleanup: '.$cleanup->getMessage());}
     }
 }
+
+

@@ -4,6 +4,7 @@ session_start();
 require '../config/db_connect.php';
 require '../config/functions.php';
 require_once '../config/rbac_policy.php';
+require_once '../config/external_references.php';
 require_once '../config/workflow_feedback.php';
 require_once '../config/official_payment_confirmation_filing.php';
 require_once '../config/upload_policy.php';
@@ -127,6 +128,20 @@ $classification = trim(
 $payment_remarks = trim((string) ($_POST['payment_remarks'] ?? ''));
 $confirmed = isset($_POST['payment_confirmation']) &&
     $_POST['payment_confirmation'] === '1';
+
+try {
+    $reference_number = drms_normalize_external_reference(
+        $reference_number,
+        'Client payment reference'
+    );
+} catch (DomainException $reference_error) {
+    phase5d_payment_redirect(
+        $po_id,
+        $return_to,
+        'error',
+        $reference_error->getMessage()
+    );
+}
 
 $allowed_methods = [
     'Cash',
@@ -414,13 +429,12 @@ try {
     $duplicate_stmt = $conn->prepare(
         "SELECT payment_id
          FROM payments
-         WHERE po_id = ?
-           AND TRIM(reference_number) = ?
-         LIMIT 1"
+         WHERE UPPER(REPLACE(TRIM(reference_number), ' ', '')) = ?
+         LIMIT 1
+         FOR UPDATE"
     );
     $duplicate_stmt->bind_param(
-        'is',
-        $po_id,
+        's',
         $reference_number
     );
     $duplicate_stmt->execute();
@@ -430,7 +444,7 @@ try {
     $duplicate_stmt->close();
     if ($duplicate_payment) {
         throw new DomainException(
-            'This payment reference is already recorded for the PO.'
+            'This client payment reference is already recorded. Check the bank, cheque, cash, or receipt proof before trying again.'
         );
     }
 
@@ -768,4 +782,6 @@ try {
         $public_error
     );
 }
+
+
 

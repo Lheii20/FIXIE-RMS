@@ -3,6 +3,7 @@ session_start();
 
 require '../config/db_connect.php';
 require '../config/functions.php';
+require_once '../config/approval_email_notifications.php';
 require_once '../config/workflow_feedback.php';
 require_once '../config/official_delivery_request_snapshot.php';
 require_once '../config/official_logistics_plan_snapshot.php';
@@ -1374,6 +1375,17 @@ try {
 
     $conn->commit();
 
+    // This is an action-required review, not a delivery status update.
+    // Send after the delivery request, assignment, and in-app alert are committed.
+    drms_send_approval_email_to_role(
+        $conn,
+        $notify_target,
+        'Approval required: Delivery request ' . $request_number,
+        'Delivery request ' . $request_number . ' for PO ' . $po['po_number'] .
+            ' is ready for logistics review and schedule plotting.',
+        'review_delivery_request.php?po_id=' . $po_id
+    );
+
     header(
         'Location: ../view_po.php?id=' . $po_id . '&success=' .
         rawurlencode(
@@ -1397,3 +1409,5 @@ try {
 
     phase4b_redirect($po_id, 'error', $public_error);
 }
+
+

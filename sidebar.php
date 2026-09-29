@@ -83,6 +83,11 @@ $can_access_collections = drms_rbac_role_can_access_module($role, 'collections')
 >
 
 <link
+    href="assets/css/final-ui-ux-audit.css?v=<?php echo file_exists(__DIR__ . '/assets/css/final-ui-ux-audit.css') ? filemtime(__DIR__ . '/assets/css/final-ui-ux-audit.css') : '1'; ?>"
+    rel="stylesheet"
+>
+
+<link
     href="assets/css/mobile-ui-corrections.css?v=<?php echo file_exists(__DIR__ . '/assets/css/mobile-ui-corrections.css') ? filemtime(__DIR__ . '/assets/css/mobile-ui-corrections.css') : '1'; ?>"
     rel="stylesheet"
 >

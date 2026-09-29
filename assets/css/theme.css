@@ -326,6 +326,28 @@
         .drms-esign-fact small, .drms-esign-image__empty) {
         color: var(--settings-muted) !important;
     }
+    html[data-drms-theme="dark"] body.page-admin-settings .form-label-sleek {
+        color: var(--settings-ink-soft) !important;
+    }
+    html[data-drms-theme="dark"] body.page-admin-backup #restoreBackupForm .form-label {
+        color: var(--settings-ink-soft) !important;
+    }
+    html[data-drms-theme="dark"] body.page-settings .drms-appearance-save {
+        background: #41618e !important;
+        color: #fff !important;
+        border-color: #6380a9 !important;
+    }
+    html[data-drms-theme="dark"] body.page-settings .drms-appearance-save:hover {
+        background: #345376 !important;
+    }
+    html[data-drms-theme="dark"] body.page-settings .settings-grid .btn-info.text-white {
+        background: #0b708a !important;
+        color: #fff !important;
+        border-color: #21829a !important;
+    }
+    html[data-drms-theme="dark"] body.page-settings .settings-grid .btn-info.text-white:hover {
+        background: #095b70 !important;
+    }
     html[data-drms-theme="dark"] body.page-settings .settings-grid :is(.form-control, .form-select, .input-group-text, .input-group > .btn),
     html[data-drms-theme="dark"] body.page-settings .settings-security-modal :is(.form-control, .form-select),
     html[data-drms-theme="dark"] body:is(.page-admin-settings, .page-admin-backup) :is(.sleek-input, .form-control, .form-select) {
@@ -423,6 +445,26 @@
         background: var(--settings-surface-soft) !important;
         border-color: var(--settings-line) !important;
         color: var(--settings-ink) !important;
+    }
+    html[data-drms-theme="dark"] body.page-admin-backup .badge.bg-warning {
+        background: #403723 !important;
+        color: #f5d189 !important;
+        border-color: #76623b !important;
+    }
+    html[data-drms-theme="dark"] body.page-admin-backup .badge.bg-primary {
+        background: #263650 !important;
+        color: #a8caff !important;
+        border-color: #49668e !important;
+    }
+    html[data-drms-theme="dark"] body.page-admin-backup .badge.bg-success {
+        background: #20382f !important;
+        color: #72ddb0 !important;
+        border-color: #426b57 !important;
+    }
+    html[data-drms-theme="dark"] body.page-admin-backup .badge.bg-danger {
+        background: #462c36 !important;
+        color: #ff9da8 !important;
+        border-color: #82505a !important;
     }
 }
 
@@ -1226,3 +1268,1831 @@
     }
 }
 
+/* Phase A1: readable Audit Trail activity rows on mobile */
+@media screen and (max-width: 767.98px) {
+    html body.page-audit-logs #auditTable
+    .audit-primary-cell > .d-flex > div:last-child {
+        flex: 1 1 0;
+        min-width: 0 !important;
+        overflow: visible !important;
+    }
+
+    html body.page-audit-logs #auditTable .timeline-desc {
+        display: -webkit-box !important;
+        max-width: 100% !important;
+        overflow: hidden !important;
+        color: #1d314d !important;
+        font-size: 13px !important;
+        font-weight: 650 !important;
+        line-height: 1.35 !important;
+        white-space: normal !important;
+        text-overflow: clip !important;
+        overflow-wrap: anywhere;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+    }
+
+    html body.page-audit-logs #auditTable
+    .timeline-desc :is(.text-main, .text-dark, .text-muted) {
+        color: inherit !important;
+    }
+
+    html[data-drms-theme="dark"] body.page-audit-logs
+    #auditTable .timeline-desc,
+    html[data-drms-theme="dark"] body.page-audit-logs
+    #auditTable .timeline-desc :is(.text-main, .text-dark, .text-muted) {
+        color: #d5dbe4 !important;
+    }
+}
+
+/* Phase A2: Admin Capabilities modal contrast and switch alignment */
+/* Keep the entire dialog on the same dark surface, including its scrollable
+   body and the empty state shown for roles with no editable capabilities. */
+html[data-drms-theme="dark"] body.page-admin-users
+#permissionsModal .modal-body {
+    background: #1a2028 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+#permissionsModal .rbac-modal-actions {
+    border-top-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+#permissionsModal .rbac-role-icon,
+html[data-drms-theme="dark"] body.page-admin-users
+#permissionsModal .rbac-empty > i {
+    background: #2a3a50 !important;
+    border-color: #526f99 !important;
+    color: #b5c9e5 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+#permissionsModal .rbac-empty {
+    background: #1f252d !important;
+    border-color: #566171 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+#permissionsModal .rbac-empty :is(strong, p) {
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+#permissionsModal .btn-close {
+    filter: invert(1) grayscale(1);
+    opacity: .72;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+#permissionsModal .btn-close:hover,
+html[data-drms-theme="dark"] body.page-admin-users
+#permissionsModal .btn-close:focus-visible {
+    opacity: 1;
+}
+
+body.page-admin-users #permissionsModal .rbac-capability .sleek-switch {
+    width: 40px;
+    height: 22px;
+}
+
+body.page-admin-users #permissionsModal .rbac-capability .sleek-slider::before {
+    width: 16px;
+    height: 16px;
+    left: 3px;
+    bottom: 2px;
+}
+
+body.page-admin-users #permissionsModal
+.rbac-capability input:checked + .sleek-slider::before {
+    transform: translateX(18px);
+}
+
+body.page-admin-users #permissionsModal
+.rbac-capability input:focus-visible + .sleek-slider {
+    outline: 2px solid #6b9fe8;
+    outline-offset: 3px;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+#permissionsModal .rbac-capability {
+    background: #282f38 !important;
+    border-color: #526071 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+#permissionsModal .rbac-capability:hover {
+    background: #303943 !important;
+    border-color: #7388a3 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+#permissionsModal .rbac-capability:has(input:checked) {
+    background: #2a3a50 !important;
+    border-color: #829dc4 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+#permissionsModal .rbac-capability-title {
+    color: #e0e6ef !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+#permissionsModal .rbac-capability-desc {
+    color: #b6c1cf !important;
+    font-size: 12px;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+#permissionsModal :is(
+    .rbac-group > header strong,
+    .rbac-fixed-access-label,
+    .rbac-modal-actions > span
+) {
+    color: #bac6d5 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+#permissionsModal :is(.rbac-fixed-access, .rbac-group > header span) {
+    background: #282f38 !important;
+    border-color: #526071 !important;
+    color: #cbd5e1 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+#permissionsModal .rbac-fixed-access-list span {
+    background: #303f53 !important;
+    border-color: #5d7491 !important;
+    color: #d4e3f7 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+#permissionsModal .rbac-tag {
+    background: #303943 !important;
+    border-color: #566476 !important;
+    color: #d4dce7 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+#permissionsModal .rbac-tag.is-recommended {
+    background: #203a32 !important;
+    border-color: #477a66 !important;
+    color: #a9dec4 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+#permissionsModal .rbac-tag.is-sensitive {
+    background: #402b33 !important;
+    border-color: #825766 !important;
+    color: #edbdc8 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+#permissionsModal .rbac-capability .sleek-slider {
+    background: #566171 !important;
+    border-color: #718096 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+#permissionsModal .rbac-capability input:checked + .sleek-slider {
+    background: #218562 !important;
+    border-color: #52ad88 !important;
+}
+
+/* Phase A15: mobile User Management status chips need dark-only surfaces. */
+html[data-drms-theme="dark"] body.page-admin-users .admin-mobile-status.is-active {
+    background: #20382f !important;
+    border: 1px solid #426b57 !important;
+    color: #72ddb0 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users .admin-mobile-status.is-suspended {
+    background: #462c36 !important;
+    border: 1px solid #82505a !important;
+    color: #ff9da8 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users .admin-mobile-presence {
+    background: #2a313a !important;
+    border-color: #566171 !important;
+    color: #b6c1cf !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users .admin-mobile-presence.is-online {
+    background: #20382f !important;
+    border-color: #426b57 !important;
+    color: #72ddb0 !important;
+}
+
+/* Phase A16: account-request statuses share the dark chip language. */
+html[data-drms-theme="dark"] body.page-admin-requests .admin-mobile-request-status.is-pending,
+html[data-drms-theme="dark"] body.page-admin-requests .badge.bg-warning {
+    background: #403723 !important;
+    border-color: #76623b !important;
+    color: #f5d189 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-requests .admin-mobile-request-status.is-approved,
+html[data-drms-theme="dark"] body.page-admin-requests .badge.bg-success {
+    background: #20382f !important;
+    border-color: #426b57 !important;
+    color: #72ddb0 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-requests .admin-mobile-request-status.is-rejected,
+html[data-drms-theme="dark"] body.page-admin-requests .badge.bg-danger {
+    background: #462c36 !important;
+    border-color: #82505a !important;
+    color: #ff9da8 !important;
+}
+
+/* Phase A17: keep Audit Trail metadata readable during fast row scanning. */
+html[data-drms-theme="dark"] body.page-audit-logs .audit-mobile-module {
+    color: #b6c1cf !important;
+}
+
+html[data-drms-theme="dark"] body.page-audit-logs :is(.audit-mobile-category, .badge.badge-soft).bg-soft-secondary {
+    background: #2d3745 !important;
+    border-color: #566171 !important;
+    color: #c5cbd3 !important;
+}
+
+/* Phase A18: notification filters retain clear selected and idle states. */
+html[data-drms-theme="dark"] body.page-notifications .filter-btn {
+    color: #b6c1cf !important;
+}
+
+html[data-drms-theme="dark"] body.page-notifications .filter-btn:hover:not(.active) {
+    background: #2a313a !important;
+    color: #e0e6ef !important;
+}
+
+html[data-drms-theme="dark"] body.page-notifications .filter-btn.active {
+    background: #41618e !important;
+    border-color: #6380a9 !important;
+    color: #fff !important;
+}
+
+/* Phase A19: expanded physical-record history must not return to light colors. */
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-history[open] > summary {
+    background: #282f38 !important;
+    border-bottom-color: #424b57 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-history-grid > section + section,
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-history-row {
+    border-color: #34475b !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-history-row strong {
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-history-row :is(small, div),
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-history > summary small {
+    color: #9ca7b3 !important;
+}
+
+/* Phase A20: the storage-location manager keeps every internal surface dark. */
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcm :is(
+    .vcm-search select, .vcm-table th, .vcm-pager
+) {
+    background: #282f38 !important;
+    color: #c5cbd3 !important;
+    border-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcm :is(
+    .vcm-table-scroll, .vcm-table th, .vcm-table td, .vcm-pager, .vcm-boundary
+) {
+    border-color: #34475b !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcm :is(
+    .vcm-subtitle, .vcm-meta, .vcm-empty, .vcm-help
+) {
+    color: #9ca7b3 !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcm .vcm-message {
+    background: #263650 !important;
+    border-color: #49668e !important;
+    color: #b8d1f5 !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcm .vcm-message.is-error {
+    background: #462c36 !important;
+    border-color: #82505a !important;
+    color: #ffb0ba !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcm .vcm-form :is(input, select):disabled,
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcm .vcm-form input:read-only {
+    background: #282f38 !important;
+    color: #9ca7b3 !important;
+}
+
+/* Phase A8: keep Add User and Edit Account legible in dark mode. */
+html[data-drms-theme="dark"] body.page-admin-users
+:is(#addUserModal, #editUserModal) .modal-header {
+    background: #282f38 !important;
+    border-bottom-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+:is(#addUserModal, #editUserModal) .modal-body {
+    background: #1a2028 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+:is(#addUserModal, #editUserModal) .modal-title {
+    color: #e0e6ef !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+:is(#addUserModal, #editUserModal) :is(.form-label, .form-text) {
+    color: #b6c1cf !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+:is(#addUserModal, #editUserModal) .btn-close {
+    filter: invert(1) grayscale(1);
+    opacity: .72;
+}
+
+html[data-drms-theme="dark"] body.page-admin-users
+:is(#addUserModal, #editUserModal) .btn-close:hover,
+html[data-drms-theme="dark"] body.page-admin-users
+:is(#addUserModal, #editUserModal) .btn-close:focus-visible {
+    opacity: 1;
+}
+
+/* Phase A9: readable Request Details throughout the dark-mode dialog. */
+html[data-drms-theme="dark"] body.page-admin-requests
+#requestDetailsModal .modal-header {
+    background: #282f38 !important;
+    border-bottom-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-requests
+#requestDetailsModal .modal-body {
+    background: #1a2028 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-requests
+#requestDetailsModal :is(.admin-request-profile, .admin-request-detail-item) {
+    background: #1f252d !important;
+    border-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-requests
+#requestDetailsModal .reason-box {
+    background: #282f38 !important;
+    border-color: #526071 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-requests
+#requestDetailsModal .avatar-circle {
+    background: #2a3a50 !important;
+    border-color: #526f99 !important;
+    color: #d5e4fa !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-requests
+#requestDetailsModal :is(.modal-title, #modFullName, .data-value, .admin-request-type-badge) {
+    color: #e0e6ef !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-requests
+#requestDetailsModal :is(.modal-header p, .admin-request-profile-meta, .data-label) {
+    color: #aebbc9 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-requests
+#requestDetailsModal #modNewValue {
+    color: #a9c8ff !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-requests
+#requestDetailsModal #modStatusBadge .badge.bg-warning {
+    background: #403522 !important;
+    border-color: #816a3c !important;
+    color: #f4d58b !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-requests
+#requestDetailsModal .modal-footer {
+    border-top-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] body.page-admin-requests
+#requestDetailsModal .btn-close {
+    filter: invert(1) grayscale(1);
+    opacity: .72;
+}
+
+html[data-drms-theme="dark"] body.page-admin-requests
+#requestDetailsModal .btn-close:hover,
+html[data-drms-theme="dark"] body.page-admin-requests
+#requestDetailsModal .btn-close:focus-visible {
+    opacity: 1;
+}
+
+/* Phase A10: consistent dark surfaces for Audit details and export options. */
+html[data-drms-theme="dark"] body.page-audit-logs
+:is(#auditDetailsModal, #exportModal) .modal-header {
+    background: #282f38 !important;
+    border-bottom-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] body.page-audit-logs
+:is(#auditDetailsModal, #exportModal) .modal-body {
+    background: #1a2028 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] body.page-audit-logs
+:is(#auditDetailsModal, #exportModal) .modal-title {
+    color: #e0e6ef !important;
+}
+
+html[data-drms-theme="dark"] body.page-audit-logs
+:is(#auditDetailsModal, #exportModal) .btn-close {
+    filter: invert(1) grayscale(1);
+    opacity: .72;
+}
+
+html[data-drms-theme="dark"] body.page-audit-logs
+:is(#auditDetailsModal, #exportModal) .btn-close:hover,
+html[data-drms-theme="dark"] body.page-audit-logs
+:is(#auditDetailsModal, #exportModal) .btn-close:focus-visible {
+    opacity: 1;
+}
+
+html[data-drms-theme="dark"] body.page-audit-logs
+#auditDetailsModal #techAction {
+    background: #303f53 !important;
+    color: #d4e3f7 !important;
+    border: 1px solid #5d7491 !important;
+}
+
+html[data-drms-theme="dark"] body.page-audit-logs
+#exportModal .list-group {
+    border-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] body.page-audit-logs
+#exportModal .list-group-item {
+    background: #1f252d !important;
+    border-color: #424b57 !important;
+    color: #e0e6ef !important;
+}
+
+html[data-drms-theme="dark"] body.page-audit-logs
+#exportModal .list-group-item.bg-soft-primary {
+    background: #2a3a50 !important;
+    border-color: #6d91c6 !important;
+    border-left-color: #8ab0e8 !important;
+}
+
+html[data-drms-theme="dark"] body.page-audit-logs
+#exportModal .list-group-item :is(h6, small) {
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] body.page-audit-logs
+#exportModal #lblExportAll h6 {
+    color: #ed9fac !important;
+}
+
+html[data-drms-theme="dark"] body.page-audit-logs
+#exportModal #exportWarning {
+    background: #403522 !important;
+    border-color: #816a3c !important;
+    color: #f4d58b !important;
+}
+
+/* Phase A3: readable backup history cards on mobile */
+@media screen and (max-width: 767.98px) {
+    html body.page-admin-backup
+    section[aria-labelledby="storedBackupsTitle"] .table-responsive {
+        overflow: visible !important;
+    }
+
+    html body.page-admin-backup
+    section[aria-labelledby="storedBackupsTitle"] table {
+        width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    html body.page-admin-backup
+    section[aria-labelledby="storedBackupsTitle"] thead {
+        position: absolute !important;
+        width: 1px !important;
+        height: 1px !important;
+        padding: 0 !important;
+        margin: -1px !important;
+        overflow: hidden !important;
+        clip-path: inset(50%) !important;
+        white-space: nowrap !important;
+        border: 0 !important;
+    }
+
+    html body.page-admin-backup
+    section[aria-labelledby="storedBackupsTitle"] tbody {
+        display: grid !important;
+        gap: 10px;
+        padding: 12px;
+    }
+
+    html body.page-admin-backup
+    section[aria-labelledby="storedBackupsTitle"] tbody tr {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas:
+            "identity identity"
+            "type status"
+            "contents contents"
+            "size action";
+        align-items: center;
+        gap: 9px 12px;
+        min-width: 0;
+        padding: 12px;
+        border: 1px solid #cbd5e1;
+        border-radius: 10px;
+        background: #ffffff;
+    }
+
+    html body.page-admin-backup
+    section[aria-labelledby="storedBackupsTitle"] tbody td {
+        display: block !important;
+        min-width: 0 !important;
+        padding: 0 !important;
+        border: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+    }
+
+    html body.page-admin-backup
+    section[aria-labelledby="storedBackupsTitle"] tbody td:nth-child(1) {
+        grid-area: identity;
+        padding-bottom: 9px !important;
+        border-bottom: 1px solid #d9e2ed !important;
+    }
+
+    html body.page-admin-backup
+    section[aria-labelledby="storedBackupsTitle"] tbody td:nth-child(1)
+    .text-truncate {
+        display: -webkit-box !important;
+        max-width: none !important;
+        overflow: hidden !important;
+        font-size: 13px;
+        line-height: 1.35;
+        white-space: normal !important;
+        overflow-wrap: anywhere;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+    }
+
+    html body.page-admin-backup
+    section[aria-labelledby="storedBackupsTitle"] tbody td:nth-child(1) small {
+        display: block;
+        margin-top: 3px;
+        font-size: 11px;
+    }
+
+    html body.page-admin-backup
+    section[aria-labelledby="storedBackupsTitle"] tbody td:nth-child(2) {
+        grid-area: type;
+    }
+
+    html body.page-admin-backup
+    section[aria-labelledby="storedBackupsTitle"] tbody td:nth-child(3) {
+        grid-area: contents;
+        font-size: 12px;
+        line-height: 1.4;
+    }
+
+    html body.page-admin-backup
+    section[aria-labelledby="storedBackupsTitle"] tbody td:nth-child(3) small {
+        display: block;
+        margin-top: 2px;
+        font-size: 11px;
+        overflow-wrap: anywhere;
+    }
+
+    html body.page-admin-backup
+    section[aria-labelledby="storedBackupsTitle"] tbody td:nth-child(4) {
+        grid-area: size;
+        font-size: 13px;
+    }
+
+    html body.page-admin-backup
+    section[aria-labelledby="storedBackupsTitle"] tbody td:nth-child(4)::before {
+        display: block;
+        content: "PACKAGE SIZE";
+        margin-bottom: 2px;
+        color: #64748b;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+    }
+
+    html body.page-admin-backup
+    section[aria-labelledby="storedBackupsTitle"] tbody td:nth-child(5) {
+        grid-area: status;
+        text-align: right;
+    }
+
+    html body.page-admin-backup
+    section[aria-labelledby="storedBackupsTitle"] tbody td:nth-child(6) {
+        grid-area: action;
+        text-align: right !important;
+    }
+
+    html body.page-admin-backup
+    section[aria-labelledby="storedBackupsTitle"] tbody td:nth-child(6) .btn {
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-height: 38px !important;
+        padding: 7px 10px !important;
+        font-size: 12px !important;
+    }
+
+    html body.page-admin-backup
+    section[aria-labelledby="storedBackupsTitle"] tbody td:nth-child(6)
+    .d-none.d-xl-inline {
+        display: inline !important;
+        margin-left: 0 !important;
+    }
+
+    html[data-drms-theme="dark"] body.page-admin-backup
+    section[aria-labelledby="storedBackupsTitle"] tbody tr {
+        background: #282f38 !important;
+        border-color: #526071 !important;
+    }
+
+    html[data-drms-theme="dark"] body.page-admin-backup
+    section[aria-labelledby="storedBackupsTitle"] tbody td {
+        background: transparent !important;
+        box-shadow: none !important;
+    }
+
+    html[data-drms-theme="dark"] body.page-admin-backup
+    section[aria-labelledby="storedBackupsTitle"] tbody td:nth-child(1) {
+        border-bottom-color: #526071 !important;
+    }
+
+    html[data-drms-theme="dark"] body.page-admin-backup
+    section[aria-labelledby="storedBackupsTitle"] tbody td:nth-child(4)::before {
+        color: #aebbc9;
+    }
+}
+/* Phase A21: Physical Record Control alerts retain their meaning in dark mode. */
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-alert-warning {
+    background: #403522 !important;
+    border-color: #816a3c !important;
+    color: #f4d58b !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-alert-danger {
+    background: #3c2732 !important;
+    border-color: #885163 !important;
+    color: #ffc2cc !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-action-danger .vcp-action-icon,
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-confirm-card.is-danger .vcp-confirm-icon {
+    background: #462c36 !important;
+    color: #ff9da8 !important;
+}
+/* Phase A22: Physical Record Control validation stays clear in dark mode. */
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp .vcp-field-error {
+    color: #ffacb7 !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp .vcp-field-error::before {
+    background: #b84b5b !important;
+    color: #fff !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp :is(.form-control, .form-select).vcp-invalid,
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp .vcp-confirm.vcp-invalid {
+    background-color: #35262e !important;
+    border-color: #b96070 !important;
+    box-shadow: 0 0 0 3px rgba(185, 96, 112, .18) !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-folder-results.vcp-invalid {
+    background: #35262e !important;
+    border-color: #b96070 !important;
+    box-shadow: 0 0 0 3px rgba(185, 96, 112, .16) !important;
+}
+/* Phase A23: Physical folder search results use the same dark surfaces. */
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-folder-results {
+    background: #1b2129 !important;
+    border-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-folder-result,
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp .vcp-folder-browse,
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp .vcp-folder-show-more {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-folder-result:hover,
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp .vcp-folder-browse:hover,
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp .vcp-folder-show-more:hover {
+    background: #303946 !important;
+    border-color: #70839a !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-folder-result[aria-selected=true] {
+    background: #243b5b !important;
+    border-color: #5d88c9 !important;
+    box-shadow: inset 0 0 0 1px #5d88c9 !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) :is(.vcp-folder-result-copy strong, .vcp-folder-result-title strong) {
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) :is(.vcp-folder-result-copy small, .vcp-folder-search-meta, .vcp-folder-search-meta > span:first-child) {
+    color: #aeb8c4 !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-folder-result-icon {
+    background: #313d4d !important;
+    color: #a9c8f4 !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-folder-empty {
+    background: #252c35 !important;
+    border-color: #566273 !important;
+    color: #aeb8c4 !important;
+}
+/* Phase A24: Physical Record Control overview and activity panels are fully dark. */
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-grid {
+    background: #424b57 !important;
+    border-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) :is(.vcp-data-item, .vcp-action-card, .vcp-position-card, .vcp-destination, .vcp-confirm) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-action-card:hover {
+    background: #303946 !important;
+    border-color: #70839a !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) :is(.vcp-data-icon, .vcp-card-icon, .vcp-form-icon, .vcp-action-icon) {
+    background: #313d4d !important;
+    border-color: #4b6079 !important;
+    color: #a9c8f4 !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) :is(.vcp dd, .vcp-position-card h6, .vcp-destination h6, .vcp-action-copy strong, .vcp-history-row strong, .vcp-history-grid h6) {
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) :is(.vcp-position-card p, .vcp-destination p, .vcp-action-copy small, .vcp-history-row small, .vcp-history-row div, .vcp-history > summary small) {
+    color: #aeb8c4 !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-history[open] > summary {
+    background: #252c35 !important;
+    border-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-history-row {
+    border-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-action-danger .vcp-action-icon {
+    background: #462c36 !important;
+    border-color: #754454 !important;
+    color: #ff9da8 !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-selected-folder {
+    background: #213b35 !important;
+    border-color: #4f9076 !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-selected-folder .vcp-card-icon {
+    background: #294b41 !important;
+    border-color: #4f9076 !important;
+    color: #8ce0bd !important;
+}
+/* Phase A25: Physical Record Control feedback and footer controls are dark-mode safe. */
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) #vcpMessage {
+    background: #3c2732 !important;
+    border-color: #885163 !important;
+    color: #ffc2cc !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) #vcpMessage[data-kind=success] {
+    background: #213b35 !important;
+    border-color: #4f9076 !important;
+    color: #9be4c2 !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp .vcp-modal-footer {
+    background: #1f252d !important;
+    border-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp :is(.btn-outline-primary, .btn-outline-secondary) {
+    background: #252c35 !important;
+    border-color: #586779 !important;
+    color: #c5d7ef !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp :is(.btn-outline-primary, .btn-outline-secondary):hover {
+    background: #303946 !important;
+    border-color: #7895ba !important;
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-confirm-copy :is(h6, p) {
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] body:is(.page-virtual-cabinet, .page-documents, .page-general-docs) .vcp-confirm-copy p {
+    color: #aeb8c4 !important;
+}
+/* Phase A26: Main Virtual Cabinet workspace list is complete in dark mode. */
+html[data-drms-theme="dark"] body.page-virtual-cabinet :is(.vc3-workspace, .vc3-tree, .vc3-toolbar, .vc3-pagination) {
+    background: #1f252d !important;
+    border-color: #424b57 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] body.page-virtual-cabinet .vc3-tree button {
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] body.page-virtual-cabinet .vc3-tree button:hover,
+html[data-drms-theme="dark"] body.page-virtual-cabinet .vc3-tree button[aria-current=true] {
+    background: #243b5b !important;
+    border-color: #5d88c9 !important;
+    color: #d8e7fa !important;
+}
+
+html[data-drms-theme="dark"] body.page-virtual-cabinet .vc3-search {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+}
+
+html[data-drms-theme="dark"] body.page-virtual-cabinet .vc3-search :is(input, select, button) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] body.page-virtual-cabinet .vc3-search input::placeholder {
+    color: #9ca7b3 !important;
+}
+
+html[data-drms-theme="dark"] body.page-virtual-cabinet .vc3-list th {
+    background: #252c35 !important;
+    color: #b8c6d6 !important;
+}
+
+html[data-drms-theme="dark"] body.page-virtual-cabinet .vc3-list :is(th, td) {
+    border-color: #424b57 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] body.page-virtual-cabinet .vc3-list td small,
+html[data-drms-theme="dark"] body.page-virtual-cabinet :is(.vc3-empty, .vc3-pagination) {
+    color: #aeb8c4 !important;
+}
+
+html[data-drms-theme="dark"] body.page-virtual-cabinet .vc3-position {
+    background: #303946 !important;
+    border-color: #586779 !important;
+    color: #c5d7ef !important;
+}
+
+html[data-drms-theme="dark"] body.page-virtual-cabinet .vc3-position-borrowed,
+html[data-drms-theme="dark"] body.page-virtual-cabinet .vc3-position-due {
+    background: #403522 !important;
+    border-color: #816a3c !important;
+    color: #f4d58b !important;
+}
+
+html[data-drms-theme="dark"] body.page-virtual-cabinet .vc3-position-overdue {
+    background: #3c2732 !important;
+    border-color: #885163 !important;
+    color: #ffc2cc !important;
+}
+
+html[data-drms-theme="dark"] body.page-virtual-cabinet .vc3-error {
+    background: #3c2732 !important;
+    color: #ffc2cc !important;
+}
+/* Phase A27: Client document-control modal has complete dark-mode surfaces. */
+html[data-drms-theme="dark"] .client-approval-modal .modal-content,
+html[data-drms-theme="dark"] .client-approval-modal .modal-header,
+html[data-drms-theme="dark"] .client-approval-modal .modal-footer {
+    background: #1f252d !important;
+    border-color: #424b57 !important;
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] .client-approval-modal .modal-body,
+html[data-drms-theme="dark"] .client-approval-modal .client-approval-section {
+    background: #252c35 !important;
+    border-color: #424b57 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] .client-approval-modal :is(.client-approval-heading, .client-approval-field label, .client-approval-section-label, .client-approval-record-title, .client-approval-record-reference, .client-approval-file-copy strong) {
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] .client-approval-modal :is(.client-approval-guidance, .client-approval-file-copy small, .client-approval-record-date, .client-approval-field .form-text) {
+    color: #aeb8c4 !important;
+}
+
+html[data-drms-theme="dark"] .client-approval-modal :is(.form-control, .form-select, .client-approval-file-control, .client-approval-cancel) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] .client-approval-modal :is(.form-control, .form-select)::placeholder {
+    color: #9ca7b3 !important;
+}
+
+html[data-drms-theme="dark"] .client-approval-modal .client-approval-file-control:hover,
+html[data-drms-theme="dark"] .client-approval-modal .client-approval-cancel:hover {
+    background: #303946 !important;
+    border-color: #70839a !important;
+}
+
+html[data-drms-theme="dark"] .client-approval-modal .client-approval-guidance.is-official {
+    background: #213b35 !important;
+    border-color: #4f9076 !important;
+    color: #9be4c2 !important;
+}
+
+html[data-drms-theme="dark"] .client-approval-modal .client-approval-browse {
+    background: #243b5b !important;
+    color: #b9d5fa !important;
+}
+/* Phase A28: E-signature panels remain legible and focused in dark mode. */
+html[data-drms-theme="dark"] :is(.drms-esign-card, .drms-esign-dialog) {
+    background: #1f252d !important;
+    border-color: #424b57 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] :is(.drms-esign-card__head, .drms-esign-dialog__head, .drms-esign-dialog__foot) {
+    background: #252c35 !important;
+    border-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] :is(.drms-esign-card__head h1, .drms-esign-dialog__head h2, .drms-esign-fact strong, .drms-esign-context strong) {
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] :is(.drms-esign-card__eyebrow, .drms-esign-help, .drms-esign-fact small, .drms-esign-image__empty, .drms-esign-session-note, .drms-esign-dialog__head p, .drms-esign-dialog .form-label) {
+    color: #aeb8c4 !important;
+}
+
+html[data-drms-theme="dark"] :is(.drms-esign-fact, .drms-esign-image, .drms-esign-choice, .drms-esign-session-note, .drms-esign-context) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] .drms-esign-card__icon {
+    background: #243b5b !important;
+    color: #b9d5fa !important;
+}
+
+html[data-drms-theme="dark"] .drms-esign-dialog .form-control {
+    background: #252c35 !important;
+    border-color: #586779 !important;
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] .drms-esign-dialog .form-control::placeholder {
+    color: #9ca7b3 !important;
+}
+
+html[data-drms-theme="dark"] .drms-esign-error {
+    color: #ffacb7 !important;
+}
+/* Phase A29: Funding Release cards and confirmation states are dark-mode safe. */
+html[data-drms-theme="dark"] .funding-release-page .funding-detail {
+    border-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] .funding-release-page .funding-detail > span,
+html[data-drms-theme="dark"] .funding-release-page :is(.funding-method-panel small, .funding-proof-title span, .funding-proof-item span) {
+    color: #aeb8c4 !important;
+}
+
+html[data-drms-theme="dark"] .funding-release-page :is(.funding-detail > strong, .funding-proof-item strong) {
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] .funding-release-page .funding-method-panel {
+    background: #243b5b !important;
+    border-color: #5176ac !important;
+    color: #c5d7ef !important;
+}
+
+html[data-drms-theme="dark"] .funding-release-page .funding-next-step {
+    background: #403522 !important;
+    border-color: #816a3c !important;
+    color: #f4d58b !important;
+}
+
+html[data-drms-theme="dark"] .funding-release-page .funding-confirmation {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] .funding-release-page .funding-confirmation.is-invalid {
+    background: #3c2732 !important;
+    border-color: #885163 !important;
+    color: #ffc2cc !important;
+}
+
+html[data-drms-theme="dark"] .funding-release-page .funding-proof-summary {
+    background: #213b35 !important;
+    border-color: #4f9076 !important;
+}
+
+html[data-drms-theme="dark"] .funding-release-page :is(.funding-proof-icon, .funding-proof-link) {
+    background: #294b41 !important;
+    border-color: #4f9076 !important;
+    color: #9be4c2 !important;
+}
+
+html[data-drms-theme="dark"] .funding-release-page :is(.funding-proof-title strong, .funding-route-complete strong) {
+    color: #9be4c2 !important;
+}
+/* Phase A30: Delivery Request workflow panels stay coherent in dark mode. */
+html[data-drms-theme="dark"] .delivery-request-page .delivery-return-notice,
+html[data-drms-theme="dark"] .delivery-request-page .delivery-next-step,
+html[data-drms-theme="dark"] .delivery-request-page .delivery-request-summary-status {
+    background: #403522 !important;
+    border-color: #816a3c !important;
+    color: #f4d58b !important;
+}
+
+html[data-drms-theme="dark"] .delivery-request-page :is(.delivery-return-notice strong, .delivery-next-step strong) {
+    color: #f4d58b !important;
+}
+
+html[data-drms-theme="dark"] .delivery-request-page :is(.delivery-return-notice span, .delivery-next-step span) {
+    color: #d8c48f !important;
+}
+
+html[data-drms-theme="dark"] .delivery-request-page .delivery-locked-grid {
+    background: #424b57 !important;
+    border-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] .delivery-request-page .delivery-locked-detail {
+    background: #252c35 !important;
+}
+
+html[data-drms-theme="dark"] .delivery-request-page .delivery-locked-primary,
+html[data-drms-theme="dark"] .delivery-request-page .delivery-summary-card .prf-summary-request {
+    background: #243b5b !important;
+    border-color: #5176ac !important;
+}
+
+html[data-drms-theme="dark"] .delivery-request-page :is(.delivery-locked-detail strong, .delivery-summary-card .prf-summary-request strong, .delivery-funding-panel strong, .delivery-request-summary-title strong, .delivery-request-summary-item strong) {
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] .delivery-request-page :is(.delivery-locked-detail span, .delivery-funding-panel span, .delivery-funding-panel small, .delivery-request-summary-title span, .delivery-request-summary-item span, .delivery-request-page .prf-help-text) {
+    color: #aeb8c4 !important;
+}
+
+html[data-drms-theme="dark"] .delivery-request-page :is(.form-control, .form-select, .delivery-funding-panel) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] .delivery-request-page :is(.form-control, .form-select)::placeholder {
+    color: #9ca7b3 !important;
+}
+
+html[data-drms-theme="dark"] .delivery-request-page .delivery-request-summary {
+    background: #1f252d !important;
+    border-color: #424b57 !important;
+}
+/* Phase A31: Delivery Completion proof and receipt states are dark-mode safe. */
+html[data-drms-theme="dark"] .delivery-completion-page .delivery-readonly-chip {
+    background: #303946 !important;
+    border-color: #586779 !important;
+    color: #c5d7ef !important;
+}
+
+html[data-drms-theme="dark"] .delivery-completion-page .delivery-plan-grid {
+    background: #424b57 !important;
+    border-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] .delivery-completion-page .delivery-plan-item,
+html[data-drms-theme="dark"] .delivery-completion-page .delivery-destination {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+}
+
+html[data-drms-theme="dark"] .delivery-completion-page .delivery-plan-primary,
+html[data-drms-theme="dark"] .delivery-completion-page .delivery-completion-summary .prf-summary-request {
+    background: #213b35 !important;
+    border-color: #4f9076 !important;
+}
+
+html[data-drms-theme="dark"] .delivery-completion-page :is(.delivery-plan-item strong, .delivery-destination strong, .delivery-completion-summary .prf-summary-request strong, .delivery-receipt-summary-title strong, .delivery-receipt-summary-item strong) {
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] .delivery-completion-page :is(.delivery-plan-item span, .delivery-plan-item small, .delivery-destination span, .delivery-due-panel span, .delivery-due-panel small, .delivery-receipt-summary-title span, .delivery-receipt-summary-item span, .delivery-completion-page .prf-help-text) {
+    color: #aeb8c4 !important;
+}
+
+html[data-drms-theme="dark"] .delivery-completion-page :is(.form-control, .form-select, .delivery-proof-control) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] .delivery-completion-page :is(.form-control, .form-select)::placeholder {
+    color: #9ca7b3 !important;
+}
+
+html[data-drms-theme="dark"] .delivery-completion-page .delivery-due-panel {
+    background: #243b5b !important;
+    border-color: #5176ac !important;
+}
+
+html[data-drms-theme="dark"] .delivery-completion-page .delivery-due-panel strong {
+    color: #b9d5fa !important;
+}
+
+html[data-drms-theme="dark"] .delivery-completion-page .delivery-finance-next {
+    background: #403522 !important;
+    border-color: #816a3c !important;
+}
+
+html[data-drms-theme="dark"] .delivery-completion-page :is(.delivery-finance-next strong, .delivery-finance-next span) {
+    color: #f4d58b !important;
+}
+
+html[data-drms-theme="dark"] .delivery-completion-page .delivery-receipt-summary {
+    background: #1f252d !important;
+    border-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] .delivery-completion-page .delivery-receipt-proof-link {
+    background: #294b41 !important;
+    border-color: #4f9076 !important;
+    color: #9be4c2 !important;
+}
+/* Phase A32: Finance payment-signature view is complete in dark mode. */
+html[data-drms-theme="dark"] :is(.payment-signature-header, .payment-signature-card) {
+    background: #1f252d !important;
+    border-color: #424b57 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] :is(.payment-signature-card__head, .payment-signature-back) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #c5d7ef !important;
+}
+
+html[data-drms-theme="dark"] :is(.payment-signature-heading h1, .payment-signature-card__head strong, .payment-signature-fact strong, .payment-signature-proof strong) {
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] :is(.payment-signature-heading span, .payment-signature-heading strong, .payment-signature-card__head span, .payment-signature-fact span, .payment-signature-proof span) {
+    color: #aeb8c4 !important;
+}
+
+html[data-drms-theme="dark"] .payment-signature-mark,
+html[data-drms-theme="dark"] .payment-esign-chip {
+    background: #213b35 !important;
+    border-color: #4f9076 !important;
+    color: #9be4c2 !important;
+}
+
+html[data-drms-theme="dark"] :is(.payment-signature-fact, .payment-signature-proof, .payment-signature-state-message) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] .payment-signature-fact code {
+    color: #b9d5fa !important;
+}
+
+html[data-drms-theme="dark"] .payment-signature-proof a {
+    background: #243b5b !important;
+    border-color: #5176ac !important;
+    color: #b9d5fa !important;
+}
+
+html[data-drms-theme="dark"] :is(.payment-signature-state-message--invalid, .payment-esign-chip--invalid) {
+    background: #3c2732 !important;
+    border-color: #885163 !important;
+    color: #ffc2cc !important;
+}
+
+html[data-drms-theme="dark"] .payment-esign-chip--legacy {
+    background: #303946 !important;
+    border-color: #586779 !important;
+    color: #c5d7ef !important;
+}
+/* Phase A33: Logistics Review scheduling and return controls are dark-mode safe. */
+html[data-drms-theme="dark"] .logistics-review-page .logistics-readonly-chip {
+    background: #303946 !important;
+    border-color: #586779 !important;
+    color: #c5d7ef !important;
+}
+
+html[data-drms-theme="dark"] .logistics-review-page .logistics-request-grid {
+    background: #424b57 !important;
+    border-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] .logistics-review-page :is(.logistics-request-item, .logistics-address-grid > div) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+}
+
+html[data-drms-theme="dark"] .logistics-review-page .logistics-request-primary,
+html[data-drms-theme="dark"] .logistics-review-page .logistics-control-note {
+    background: #243b5b !important;
+    border-color: #5176ac !important;
+}
+
+html[data-drms-theme="dark"] .logistics-review-page .logistics-request-notes > div,
+html[data-drms-theme="dark"] .logistics-review-page .logistics-summary-card .prf-summary-request {
+    background: #403522 !important;
+    border-color: #816a3c !important;
+}
+
+html[data-drms-theme="dark"] .logistics-review-page :is(.logistics-request-item strong, .logistics-address-grid strong) {
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] .logistics-review-page :is(.logistics-request-item span, .logistics-address-grid span, .logistics-request-notes span, .logistics-control-note span) {
+    color: #aeb8c4 !important;
+}
+
+html[data-drms-theme="dark"] .logistics-review-page :is(.logistics-request-notes p, .logistics-summary-card .prf-summary-request strong) {
+    color: #f4d58b !important;
+}
+
+html[data-drms-theme="dark"] .logistics-review-page .logistics-control-note strong {
+    color: #b9d5fa !important;
+}
+
+html[data-drms-theme="dark"] .logistics-review-page :is(.form-control, .form-select) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] .logistics-review-page :is(.form-control, .form-select)::placeholder {
+    color: #9ca7b3 !important;
+}
+
+html[data-drms-theme="dark"] .logistics-return-button,
+html[data-drms-theme="dark"] .logistics-return-actions button:last-child {
+    background: #3c2732 !important;
+    border-color: #885163 !important;
+    color: #ffc2cc !important;
+}
+
+html[data-drms-theme="dark"] .logistics-return-dialog {
+    background: #1f252d !important;
+    border-color: #424b57 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] .logistics-return-dialog :is(h3, label) {
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] .logistics-return-dialog :is(.form-control, .logistics-return-actions button:first-child) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] .logistics-return-dialog p,
+html[data-drms-theme="dark"] .logistics-return-dialog > small {
+    color: #aeb8c4 !important;
+}
+
+html[data-drms-theme="dark"] .logistics-return-close {
+    background: #303946 !important;
+    color: #c5d7ef !important;
+}
+/* Phase A34: GM Client PO Acknowledgement panels are fully usable in dark mode. */
+html[data-drms-theme="dark"] :is(.po-ack-panel, .po-ack-dashboard-queue) {
+    background: #1f252d !important;
+    border-color: #424b57 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] .po-ack-header {
+    background: #252c35 !important;
+    border-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] :is(.po-ack-title, .po-ack-summary-item strong, .po-ack-label, .po-ack-audit-item strong, .po-ack-dashboard-copy strong) {
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] :is(.po-ack-subtitle, .po-ack-summary-item span, .po-ack-confirmation, .po-ack-signature-note, .po-ack-note, .po-ack-audit-item span, .po-ack-dashboard-copy small) {
+    color: #aeb8c4 !important;
+}
+
+html[data-drms-theme="dark"] :is(.po-ack-summary-item, .po-ack-note) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+}
+
+html[data-drms-theme="dark"] .po-ack-textarea {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] .po-ack-textarea::placeholder {
+    color: #9ca7b3 !important;
+}
+
+html[data-drms-theme="dark"] .po-ack-chip {
+    background: #303946 !important;
+    border-color: #586779 !important;
+    color: #c5d7ef !important;
+}
+
+html[data-drms-theme="dark"] .po-ack-panel.is-approved :is(.po-ack-chip, .po-ack-icon) {
+    background: #213b35 !important;
+    border-color: #4f9076 !important;
+    color: #9be4c2 !important;
+}
+
+html[data-drms-theme="dark"] .po-ack-panel.is-returned :is(.po-ack-chip, .po-ack-icon),
+html[data-drms-theme="dark"] .po-ack-button.is-return {
+    background: #3c2732 !important;
+    border-color: #885163 !important;
+    color: #ffc2cc !important;
+}
+
+html[data-drms-theme="dark"] .po-ack-signature-image {
+    background: #252c35 !important;
+    border-color: #70839a !important;
+}
+
+html[data-drms-theme="dark"] .po-ack-dashboard-icon,
+html[data-drms-theme="dark"] .po-ack-list-action {
+    background: #243b5b !important;
+    border-color: #5176ac !important;
+    color: #b9d5fa !important;
+}
+/* Phase A35: PRF Review cards, route, financials, and decision controls are dark-mode safe. */
+html[data-drms-theme="dark"] .prf-review-page :is(.prf-review-source-card, .prf-review-route-card, .prf-review-card, .prf-review-decision-card, .prf-review-side-card) {
+    background: #1f252d !important;
+    border-color: #424b57 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] .prf-review-page :is(.prf-review-source-item, .prf-review-financial-grid > div, .prf-review-detail-grid > div, .prf-review-card-header) {
+    border-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] .prf-review-page :is(.prf-review-source-item > strong, .prf-review-section-title h3, .prf-review-card-header h3, .prf-review-step-heading strong, .prf-review-financial-grid strong, .prf-review-table td > strong, .prf-review-detail-grid strong, .prf-review-detail-grid p, .prf-review-decision-heading > small, .prf-review-decision-card > label, .prf-review-side-card h3) {
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] .prf-review-page :is(.prf-review-source-item > span, .prf-review-source-item > small, .prf-review-detail-grid > div > span, .prf-review-financial-grid > div > span, .prf-review-section-title > small, .prf-review-card-header > small, .prf-review-step-heading span, .prf-review-step-copy > small, .prf-review-step-copy > p, .prf-review-table th, .prf-review-table td, .prf-review-table td > small, .prf-review-table td > span, .prf-review-decision-card > label small, .prf-review-decision-footnote, .prf-review-side-card p) {
+    color: #aeb8c4 !important;
+}
+
+html[data-drms-theme="dark"] .prf-review-page :is(.prf-review-source-documents a, .prf-review-header-link, .prf-review-route-step, .prf-review-step-marker) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #c5d7ef !important;
+}
+
+html[data-drms-theme="dark"] .prf-review-page .prf-review-route-step.is-current,
+html[data-drms-theme="dark"] .prf-review-page .prf-review-role-note {
+    background: #243b5b !important;
+    border-color: #5176ac !important;
+    color: #b9d5fa !important;
+}
+
+html[data-drms-theme="dark"] .prf-review-page .prf-review-route-step.is-approved,
+html[data-drms-theme="dark"] .prf-review-page .prf-review-financial-grid .is-profit {
+    background: #213b35 !important;
+    border-color: #4f9076 !important;
+}
+
+html[data-drms-theme="dark"] .prf-review-page .prf-review-route-step.is-rejected,
+html[data-drms-theme="dark"] .prf-review-page .prf-review-financial-grid .is-profit.is-negative,
+html[data-drms-theme="dark"] .prf-review-page .prf-review-alert.is-error {
+    background: #3c2732 !important;
+    border-color: #885163 !important;
+    color: #ffc2cc !important;
+}
+
+html[data-drms-theme="dark"] .prf-review-page .prf-review-financial-grid .is-requested,
+html[data-drms-theme="dark"] .prf-review-page .prf-review-table th {
+    background: #252c35 !important;
+}
+
+html[data-drms-theme="dark"] .prf-review-page :is(.prf-review-table th, .prf-review-table td) {
+    border-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] .prf-review-page .prf-review-decision-card textarea {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] .prf-review-page .prf-review-decision-card textarea::placeholder {
+    color: #9ca7b3 !important;
+}
+
+html[data-drms-theme="dark"] .prf-review-page .prf-review-reject-button {
+    background: #3c2732 !important;
+    border-color: #885163 !important;
+    color: #ffc2cc !important;
+}
+/* Phase A36: PRF creation workspace remains readable in dark mode. */
+html[data-drms-theme="dark"] .prf-page :is(.prf-source-card, .prf-route-card, .prf-card, .prf-summary-card, .prf-empty-state) {
+    background: #1f252d !important;
+    border-color: #424b57 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] .prf-page :is(.prf-source-item, .prf-source-action, .prf-card-header, .prf-summary-heading, .prf-legacy-actions) {
+    border-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] .prf-page :is(.prf-page-heading h2, .prf-source-item strong, .prf-card-header h3, .prf-cost-table td strong, .prf-summary-heading span, .prf-summary-row strong, .prf-summary-request span, .prf-summary-request strong, .prf-empty-state h3) {
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] .prf-page :is(.prf-page-heading p, .prf-source-item span, .prf-route-label, .prf-route-step small, .prf-readonly-note, .prf-required-note, .prf-cost-table th, .prf-cost-table td, .prf-cost-table td small, .prf-cost-table td:first-child > span, .prf-field > label small, .prf-help-text, .prf-summary-heading small, .prf-summary-row, .prf-summary-note, .prf-empty-state p) {
+    color: #aeb8c4 !important;
+}
+
+html[data-drms-theme="dark"] .prf-page :is(.prf-back-button, .prf-document-link, .prf-route-step > span, .prf-file-control) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #c5d7ef !important;
+}
+
+html[data-drms-theme="dark"] .prf-page :is(.prf-route-step strong, .prf-field > label, .prf-file-control > span) {
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] .prf-page .prf-cost-table th,
+html[data-drms-theme="dark"] .prf-page :is(.prf-cost-table th, .prf-cost-table td) {
+    background: #252c35 !important;
+    border-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] .prf-page :is(.prf-field .form-control, .prf-field .form-select, .prf-cost-table .form-control) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] .prf-page :is(.prf-field .form-control, .prf-field .form-select, .prf-cost-table .form-control)::placeholder {
+    color: #9ca7b3 !important;
+}
+
+html[data-drms-theme="dark"] .prf-page .prf-conditional-group,
+html[data-drms-theme="dark"] .prf-page .prf-summary-note,
+html[data-drms-theme="dark"] .prf-page .prf-legacy-actions {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+}
+
+html[data-drms-theme="dark"] .prf-page .prf-workflow-chip,
+html[data-drms-theme="dark"] .prf-page .prf-empty-icon {
+    background: #243b5b !important;
+    border-color: #5176ac !important;
+    color: #b9d5fa !important;
+}
+
+html[data-drms-theme="dark"] .prf-page .prf-workflow-chip.is-legacy,
+html[data-drms-theme="dark"] .prf-page .prf-alert-warning {
+    background: #403522 !important;
+    border-color: #816a3c !important;
+    color: #f4d58b !important;
+}
+
+html[data-drms-theme="dark"] .prf-page :is(.prf-alert-danger, .prf-profit-panel.is-negative, .prf-file-control.is-invalid) {
+    background: #3c2732 !important;
+    border-color: #885163 !important;
+    color: #ffc2cc !important;
+}
+
+html[data-drms-theme="dark"] .prf-page .prf-profit-panel {
+    background: #213b35 !important;
+    border-color: #4f9076 !important;
+    color: #9be4c2 !important;
+}
+/* Final Dark Mode Sweep: remaining page-scoped surfaces, inputs, tables, and status panels. */
+html[data-drms-theme="dark"] body.page-create-quotation :is(.qd-page-header, .qd-progress, .qd-form-card, .qd-actionbar) {
+    background: #1f252d !important;
+    border-color: #424b57 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] body.page-create-quotation :is(.qd-section-header, .qd-table-region, #itemsTable tbody tr, #itemsTable tbody td, .qd-back-button, .qd-draft-badge, .qd-progress .step-icon, .qd-item-sequence, .soft-input-group .input-group-text) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] body.page-create-quotation :is(.qd-page-header h1, .qd-section-header h2, .qd-total strong) {
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] body.page-create-quotation :is(.qd-page-header p, .qd-eyebrow, .qd-section-header p, .qd-section-header > div > span, .qd-field > small, .qd-item-tools > span, .qd-total small) {
+    color: #aeb8c4 !important;
+}
+
+html[data-drms-theme="dark"] body.page-create-quotation :is(.qd-field > label, .qd-progress .step-text strong, .qd-progress .step-text small) {
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] body.page-create-quotation :is(.form-control, .form-select, .soft-input, .total-display) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] body.page-create-quotation :is(.form-control, .form-select, .soft-input)::placeholder {
+    color: #9ca7b3 !important;
+}
+
+html[data-drms-theme="dark"] body.page-create-quotation #itemsTable thead th {
+    background: #303946 !important;
+    border-color: #4b5664 !important;
+    color: #b8c6d6 !important;
+}
+
+html[data-drms-theme="dark"] body.page-create-quotation :is(.qd-guidance, .qd-input-wrap.is-reference .soft-input, .total-display) {
+    background: #243b5b !important;
+    border-color: #5176ac !important;
+    color: #b9d5fa !important;
+}
+
+html[data-drms-theme="dark"] body.page-create-quotation .qd-remove-item {
+    background: #3c2732 !important;
+    border-color: #885163 !important;
+    color: #ffc2cc !important;
+}
+
+/* PO conversion shares the PRF shell, with its own source, supplier, and document panels. */
+html[data-drms-theme="dark"] .po-conversion-page :is(.po-item-table th, .po-item-table td, .po-detail, .po-summary-reference, .po-confirmation) {
+    background: #252c35 !important;
+    border-color: #424b57 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] .po-conversion-page :is(.po-item-table td strong, .po-detail > strong, .po-document-copy strong, .po-summary-reference strong) {
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] .po-conversion-page :is(.po-item-table th, .po-item-table td small, .po-detail > span, .po-document-copy span, .po-summary-reference > span, .po-summary-reference small) {
+    color: #aeb8c4 !important;
+}
+
+html[data-drms-theme="dark"] .po-conversion-page :is(.po-document-copy > i, .po-route-next) {
+    background: #243b5b !important;
+    border-color: #5176ac !important;
+    color: #b9d5fa !important;
+}
+
+html[data-drms-theme="dark"] .po-conversion-page .po-next-step {
+    background: #403522 !important;
+    border-color: #816a3c !important;
+    color: #f4d58b !important;
+}
+
+html[data-drms-theme="dark"] .po-conversion-page .po-confirmation.is-invalid {
+    background: #3c2732 !important;
+    border-color: #885163 !important;
+    color: #ffc2cc !important;
+}
+
+/* Official declaration workspace. */
+html[data-drms-theme="dark"] :is(.dec-header, .dec-panel) {
+    background: #1f252d !important;
+    border-color: #424b57 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] :is(.dec-header h1, .dec-workspace h2, .dec-workspace h3, .dec-details dd, .dec-list td strong) {
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] :is(.dec-header p, .dec-workspace p, .dec-eyebrow, .dec-details dt, .dec-list td, .dec-list td small, .dec-pagination) {
+    color: #aeb8c4 !important;
+}
+
+html[data-drms-theme="dark"] :is(.dec-btn:not(.dec-primary), .dec-workspace input:not([type=checkbox]), .dec-workspace select, .dec-workspace textarea, .dec-search-input, .dec-details > div, .dec-note, .dec-signature-evidence, .dec-list th, .dec-pagination) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] :is(.dec-search, .dec-list th) {
+    background: #303946 !important;
+}
+
+html[data-drms-theme="dark"] .dec-feedback,
+html[data-drms-theme="dark"] .dec-error {
+    background: #3c2732 !important;
+    border-color: #885163 !important;
+    color: #ffc2cc !important;
+}
+
+/* Finance collection workspaces and statements. */
+html[data-drms-theme="dark"] :is(.collection-page, .aging-page, .ledger-page, .payment-page, .followup-page, .statement-page) :is(.collection-workspace, .aging-workspace, .ledger-workspace, .payment-source, .payment-main, .payment-sidebar, .followup-source, .followup-main, .followup-summary, .statement-sheet, .statement-section, .statement-document-header) {
+    background: #1f252d !important;
+    border-color: #424b57 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] :is(.collection-page, .aging-page, .ledger-page) :is(.collection-header, .aging-header, .ledger-header, .collection-tools, .aging-tools, .ledger-filter-form, .collection-pagination, .aging-pagination, .ledger-pagination) {
+    background: #252c35 !important;
+    border-color: #424b57 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] :is(.collection-page, .aging-page, .ledger-page) :is(.collection-search, .aging-search, .ledger-search-field, .collection-filter-tabs, .aging-tabs) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] :is(.collection-page, .aging-page, .ledger-page) :is(.collection-table th, .aging-table th, .ledger-table th) {
+    background: #303946 !important;
+    border-color: #4b5664 !important;
+    color: #b8c6d6 !important;
+}
+
+html[data-drms-theme="dark"] :is(.collection-page, .aging-page, .ledger-page) :is(.collection-table td, .aging-table td, .ledger-table td) {
+    background: #1f252d !important;
+    border-color: #424b57 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] :is(.collection-page, .aging-page, .ledger-page) :is(.collection-kpi, .aging-kpi, .ledger-kpi, .aging-client-item, .aging-exposure, .ledger-readonly-chip, .collection-owner-summary) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] :is(.collection-page, .aging-page, .ledger-page) :is(.collection-empty, .aging-empty, .ledger-empty, .aging-exposure-empty) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #aeb8c4 !important;
+}
+
+html[data-drms-theme="dark"] .payment-page :is(.payment-context-grid, .payment-confirm-card, .payment-proof-panel, .payment-history-item, .payment-type-option, .payment-status-preview, .payment-file-picker),
+html[data-drms-theme="dark"] .followup-page :is(.followup-context-grid, .followup-promise-panel, .followup-latest-card, .followup-confirmation) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] :is(.payment-page, .followup-page) :is(.form-control, .form-select, textarea) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] :is(.payment-page, .followup-page) :is(.form-control, .form-select, textarea)::placeholder {
+    color: #9ca7b3 !important;
+}
+
+html[data-drms-theme="dark"] .statement-page :is(.statement-toolbar, .statement-section-label, .statement-table th, .statement-totals) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] .statement-page :is(.statement-table td, .statement-footer, .statement-collection-note) {
+    background: #1f252d !important;
+    border-color: #424b57 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] :is(.payment-page, .followup-page) :is(.payment-lock-alert, .payment-boundary-note, .followup-boundary) {
+    background: #403522 !important;
+    border-color: #816a3c !important;
+    color: #f4d58b !important;
+}
+
+html[data-drms-theme="dark"] :is(.collection-page, .aging-page, .ledger-page, .payment-page, .followup-page, .statement-page) :is(.collection-alert, .aging-alert, .ledger-alert) {
+    background: #3c2732 !important;
+    border-color: #885163 !important;
+    color: #ffc2cc !important;
+}
+
+/* Remaining approval evidence and administrator access panels. */
+html[data-drms-theme="dark"] :is(.delivery-esign-summary, .delivery-plan-card, .delivery-esign-identity, .delivery-esign-reference, .delivery-esign-meta) {
+    background: #1f252d !important;
+    border-color: #424b57 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] :is(.delivery-esign-mark, .delivery-esign-state-icon) {
+    background: #213b35 !important;
+    border-color: #4f9076 !important;
+    color: #9be4c2 !important;
+}
+
+html[data-drms-theme="dark"] :is(.delivery-esign-summary--invalid, .delivery-esign-summary--legacy) {
+    background: #3c2732 !important;
+    border-color: #885163 !important;
+    color: #ffc2cc !important;
+}
+
+html[data-drms-theme="dark"] .page-admin-users :is(.rbac-role-summary, .rbac-group, .rbac-capability, .rbac-fixed-access, .rbac-policy-note) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] .page-admin-users :is(.rbac-role-summary h1, .rbac-role-summary h2, .rbac-group h3, .rbac-capability strong, .rbac-fixed-access strong) {
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] .page-admin-users :is(.rbac-role-summary p, .rbac-capability small, .rbac-fixed-access small, .rbac-policy-note) {
+    color: #aeb8c4 !important;
+}
+
+html[data-drms-theme="dark"] .page-admin-users :is(.rbac-role-icon, .rbac-tag) {
+    background: #243b5b !important;
+    border-color: #5176ac !important;
+    color: #b9d5fa !important;
+}
+
+html[data-drms-theme="dark"] :is(.page-admin-users, .page-admin-requests, .page-admin-backup, .page-admin-settings, .page-settings) :is(.form-control, .form-select, textarea) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] :is(.page-admin-users, .page-admin-requests, .page-admin-backup, .page-admin-settings, .page-settings) :is(.form-control, .form-select, textarea)::placeholder {
+    color: #9ca7b3 !important;
+}
+
+/* Shared list-page and modal fallback: protects unstyled light controls without changing behavior. */
+html[data-drms-theme="dark"] :is(.page-pr-list, .page-po-list, .page-quotation-list, .page-view-quotation, .page-view-po) :is(.grid-card, .table-responsive-custom, .sleek-filter-bar) {
+    background: #1f252d !important;
+    border-color: #424b57 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] :is(.page-pr-list, .page-po-list, .page-quotation-list, .page-view-quotation, .page-view-po) :is(.sleek-filter-bar input, .sleek-filter-bar select, .table-responsive-custom th) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] :is(.page-pr-list, .page-po-list, .page-quotation-list, .page-view-quotation, .page-view-po) .table-responsive-custom :is(th, td) {
+    border-color: #424b57 !important;
+    color: #c5cbd3 !important;
+}

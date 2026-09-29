@@ -1,0 +1,101 @@
+/*
+ * Fixie DRMS — Final Defense UI/UX Audit, Phase 1A
+ *
+ * Screen-only alignment refinements. This file deliberately contains no
+ * workflow, access, data, print, or form-validation rules.
+ */
+
+@media screen {
+    /* A shared boundary prevents long headings, actions, and tables from
+       pushing outside their page surface. */
+    html body:not(:is(.auth-page, .page-forgot-password, .page-reset-password, .page-setup-password))
+        :is(.main-content, .main-content > *, .main-content > * > *) {
+        min-width: 0;
+    }
+
+    /* Every authenticated page header aligns its content vertically without
+       changing the page-specific button placement or actions. */
+    html body :is(
+        .dashboard-header,
+        .page-header,
+        .header-section,
+        .notif-header,
+        .admin-page-header,
+        .settings-header,
+        .vc-page-header,
+        .create-form-header,
+        .prf-page-header,
+        .prf-review-header,
+        .view-doc-toolbar
+    ) > * {
+        min-width: 0;
+    }
+
+    /* Settings uses a one-column workspace. These selectors intentionally
+       outrank the earlier shared-header stylesheet loaded from sidebar.php. */
+    html body.page-settings .settings-header {
+        display: flex !important;
+        min-height: 88px !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+    }
+
+    html body.page-settings .settings-header-copy {
+        display: grid !important;
+        width: 100%;
+        min-width: 0;
+        align-content: center;
+        gap: 3px;
+    }
+
+    html body.page-settings .settings-header :is(h2, p) {
+        min-width: 0;
+    }
+
+    /* Keep user-facing no-data states calm, centered, and readable across
+       lists without changing their height, pagination, or filtering logic. */
+    html body :is(
+        .empty-state,
+        .collection-empty,
+        .aging-empty,
+        .aging-exposure-empty,
+        .ledger-empty,
+        .prf-empty-state,
+        .settings-session-empty
+    ) {
+        text-align: center;
+    }
+
+    html body :is(
+        .empty-state,
+        .collection-empty,
+        .aging-empty,
+        .aging-exposure-empty,
+        .ledger-empty,
+        .prf-empty-state
+    ) > :is(i, .fas, .far, .fab) {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Footer rows and pagination remain attached to their table surface and
+       never inherit an accidental oversized line height. */
+    html body :is(
+        .dataTables_info,
+        .dataTables_paginate,
+        .dataTables_wrapper > .row.align-items-center
+    ) {
+        line-height: 1.3;
+    }
+}
+
+@media screen and (max-width: 767.98px) {
+    html body.page-settings .settings-header {
+        min-height: 0 !important;
+    }
+
+    html body.page-settings .settings-header-copy {
+        gap: 2px;
+    }
+}

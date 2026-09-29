@@ -99,29 +99,67 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
         <!-- ============================================== -->
         <?php if ($_SESSION['role'] === 'Admin'): ?>
             <div class="row g-3 mb-3 dashboard-kpi-grid">
-                <div class="col-xl-3 col-md-6"><a href="admin_users.php" class="text-decoration-none"><div class="kpi-corp-card accent-blue"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Active Users</p><h3 class="kpi-corp-value mt-1"><?php echo $admin_stats['total_users']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-users"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-primary box-12" style="font-size: 5px;"></i> System credentials</div></div></a></div>
-                <div class="col-xl-3 col-md-6"><a href="documents.php" class="text-decoration-none"><div class="kpi-corp-card accent-purple"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Managed Files</p><h3 class="kpi-corp-value mt-1"><?php echo $admin_stats['total_files']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10" style="color: #8b5cf6;"><i class="fas fa-folder-open"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle box-12" style="color: #8b5cf6; font-size: 5px;"></i> Uploaded records</div></div></a></div>
-                <div class="col-xl-3 col-md-6"><a href="admin_requests.php" class="text-decoration-none"><div class="kpi-corp-card accent-rose"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Pending Requests</p><h3 class="kpi-corp-value mt-1"><?php echo $admin_stats['pending_requests']; ?></h3></div><div class="kpi-corp-icon bg-danger bg-opacity-10 text-danger"><i class="fas fa-shield-alt"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-danger box-12" style="font-size: 5px;"></i> Needs your approval</div></div></a></div>
-                
-                <?php 
-                    $pct = $admin_insights_data['storage_pct']; 
-                    $p_color = ($pct > 85) ? 'bg-danger' : (($pct > 60) ? 'bg-warning' : 'bg-success');
-                    $t_color = ($pct > 85) ? 'text-danger' : (($pct > 60) ? 'text-warning' : 'text-success');
-                    $accent = ($pct > 85) ? 'accent-rose' : (($pct > 60) ? 'accent-amber' : 'accent-emerald');
-                ?>
                 <div class="col-xl-3 col-md-6">
-                    <div class="kpi-corp-card <?php echo $accent; ?>">
-                        <div class="kpi-corp-header">
-                            <div><p class="kpi-corp-title">Storage Health</p><h3 class="kpi-corp-value mt-1"><?php echo $admin_insights_data['storage_formatted']; ?></h3></div>
-                            <div class="kpi-corp-icon <?php echo $p_color; ?> bg-opacity-10 <?php echo $t_color; ?>"><i class="fas fa-server"></i></div>
+                    <a href="admin_users.php" class="text-decoration-none">
+                        <div class="kpi-corp-card accent-blue">
+                            <div class="kpi-corp-header">
+                                <div>
+                                    <p class="kpi-corp-title"><?php echo $period === 'all' ? 'Active Accounts' : 'Active Accounts Added'; ?></p>
+                                    <h3 class="kpi-corp-value mt-1"><?php echo $admin_stats['total_users']; ?></h3>
+                                </div>
+                                <div class="kpi-corp-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-users"></i></div>
+                            </div>
+                            <div class="kpi-corp-badge">
+                                <i class="fas fa-circle text-primary box-12" style="font-size: 5px;"></i>
+                                <?php echo $period === 'all' ? 'Currently enabled' : 'Created in selected period'; ?>
+                            </div>
                         </div>
-                        <div class="mt-auto pt-2">
-                            <div class="d-flex justify-content-between align-items-center mb-1 fs-xs fw-bold">
-                                <span class="<?php echo $t_color; ?>"><?php echo $pct; ?>% Used</span><span class="text-muted">50 GB Max</span>
+                    </a>
+                </div>
+                <div class="col-xl-3 col-md-6">
+                    <a href="documents.php" class="text-decoration-none">
+                        <div class="kpi-corp-card accent-purple">
+                            <div class="kpi-corp-header">
+                                <div>
+                                    <p class="kpi-corp-title">Document Entries</p>
+                                    <h3 class="kpi-corp-value mt-1"><?php echo $admin_stats['total_files']; ?></h3>
+                                </div>
+                                <div class="kpi-corp-icon bg-primary bg-opacity-10" style="color: #8b5cf6;"><i class="fas fa-folder-open"></i></div>
                             </div>
-                            <div class="progress shadow-sm" style="height: 5px; border-radius: 3px; background-color: #f1f5f9;">
-                                <div class="progress-bar <?php echo $p_color; ?>" role="progressbar" style="width: <?php echo $pct; ?>%;"></div>
+                            <div class="kpi-corp-badge">
+                                <i class="fas fa-circle box-12" style="color: #8b5cf6; font-size: 5px;"></i>
+                                <?php echo $period === 'all' ? 'Registered records' : 'Uploaded in selected period'; ?>
                             </div>
+                        </div>
+                    </a>
+                </div>
+                <div class="col-xl-3 col-md-6">
+                    <a href="admin_requests.php" class="text-decoration-none">
+                        <div class="kpi-corp-card accent-rose">
+                            <div class="kpi-corp-header">
+                                <div>
+                                    <p class="kpi-corp-title">Pending Requests</p>
+                                    <h3 class="kpi-corp-value mt-1"><?php echo $admin_stats['pending_requests']; ?></h3>
+                                </div>
+                                <div class="kpi-corp-icon bg-danger bg-opacity-10 text-danger"><i class="fas fa-shield-alt"></i></div>
+                            </div>
+                            <div class="kpi-corp-badge">
+                                <i class="fas fa-circle text-danger box-12" style="font-size: 5px;"></i>
+                                Awaiting review
+                            </div>
+                        </div>
+                    </a>
+                </div>
+                
+                <div class="col-xl-3 col-md-6">
+                    <div class="kpi-corp-card accent-slate">
+                        <div class="kpi-corp-header">
+                            <div><p class="kpi-corp-title">Uploaded File Storage</p><h3 class="kpi-corp-value mt-1"><?php echo $admin_insights_data['storage_formatted']; ?></h3></div>
+                            <div class="kpi-corp-icon bg-secondary bg-opacity-10 text-secondary"><i class="fas fa-server"></i></div>
+                        </div>
+                        <div class="kpi-corp-badge">
+                            <i class="fas fa-circle text-secondary box-12" style="font-size: 5px;"></i>
+                            Uploads only &middot; excludes DB and backups
                         </div>
                     </div>
                 </div>
@@ -160,8 +198,11 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                     $admin_insights[] = [
                         'status' => 'primary', 
                         'icon' => 'fa-user-check', 
-                        'title' => 'Highest Logged Activity', 
-                        'desc' => "<strong>" . htmlspecialchars($top_user['full_name']) . "</strong> has <strong>" . number_format($top_user['c']) . "</strong> audit-log actions. Activity volume alone does not indicate performance."
+                        'title' => 'All-time Log Volume',
+                        'desc' => "<strong>" . htmlspecialchars($top_user['full_name']) .
+                            "</strong> has <strong>" . number_format($top_user['c']) .
+                            "</strong> total logged actions, including routine activity. " .
+                            "The Audit Trail shows a narrower review set; this is not a performance score."
                     ]; 
                 }
                 
@@ -176,7 +217,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
             <div class="row g-3 mb-3 align-items-stretch">
                 <div class="col-lg-8">
                     <div class="corp-widget h-100">
-                        <div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-server text-primary"></i> System Traffic & Activity Trend</h6></div>
+                        <div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-server text-primary"></i> Logged Actions Trend</h6></div>
                         <div class="chart-box"><canvas id="adminTrafficChart"></canvas></div>
                     </div>
                 </div>
@@ -203,7 +244,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
 
             <div class="row g-3 mb-3 align-items-stretch">
                 <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-chart-pie text-emerald"></i> User Role Distribution</h6></div><div class="chart-box"><canvas id="adminRolesChart"></canvas></div></div></div>
-                <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-users text-primary"></i> Most Active Users</h6></div><div class="chart-box"><canvas id="adminActiveUsersChart"></canvas></div></div></div>
+                <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-users text-primary"></i> Users by Logged Actions</h6></div><div class="chart-box"><canvas id="adminActiveUsersChart"></canvas></div></div></div>
                 <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-headset text-rose"></i> Support Requests Workload</h6></div><div class="chart-box"><canvas id="adminRequestsChart"></canvas></div></div></div>
             </div>
 

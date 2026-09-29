@@ -2,6 +2,8 @@
 session_start();
 require '../config/db_connect.php';
 require '../config/functions.php';
+require_once '../config/business_document_numbers.php';
+require_once '../config/approval_email_notifications.php';
 require_once '../config/client_po_acknowledgement.php';
 require_once '../config/workflow_feedback.php';
 require_once '../config/official_prf_snapshot.php';
@@ -648,6 +650,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
                 $transaction_started = false;
 
+                // Best-effort email is sent only after the workflow commit.
+                // An SMTP problem never reverses the saved approval or in-app notification.
+                drms_send_approval_email_to_role(
+                    $conn,
+                    $next_role,
+                    'Approval required: PRF ' . $pr_number,
+                    'PRF ' . $pr_number . ' requires your ' . $next_stage_name . '.',
+                    'view_pr.php?id=' . $pr_id
+                );
+
                 phase2_prf_redirect_to_view(
                     $pr_id,
                     'success',
@@ -790,17 +802,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 throw new InvalidArgumentException(
                     'You must select a quotation with an official signed Client PO.'
                 );
-            }
-
-            $pr_number = phase2_prf_text(
-                $_POST['pr_number'] ?? '',
-                'PR number',
-                50,
-                true
-            );
-
-            if (!preg_match('/^PR-[0-9]{4,6}-[0-9]{4,}$/', $pr_number)) {
-                throw new InvalidArgumentException('The PR number format is invalid.');
             }
 
             $supplier_name = phase2_prf_text(
@@ -1009,16 +1010,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 throw new RuntimeException('A Purchase Request already exists for this quotation.');
             }
 
-            $duplicate_number_stmt = $conn->prepare(
-                'SELECT pr_id FROM purchase_requests WHERE pr_number = ? LIMIT 1 FOR UPDATE'
-            );
-            $duplicate_number_stmt->bind_param('s', $pr_number);
-            if (!$duplicate_number_stmt->execute()) {
-                throw new RuntimeException('The PR number could not be checked.');
-            }
-            if ($duplicate_number_stmt->get_result()->num_rows > 0) {
-                throw new RuntimeException('The PR number is already in use. Please reload the form.');
-            }
+            /* Allocate after source and existing-PR checks are locked. */
+            $pr_number = drms_allocate_business_document_number($conn, 'prf');
 
             $source_items_stmt = $conn->prepare(
                 "SELECT
@@ -1327,6 +1320,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
             $transaction_started = false;
 
+            // The GM alert is sent only after the PRF and its in-app notification exist.
+            drms_send_approval_email_to_role(
+                $conn,
+                'GM',
+                'Approval required: PRF ' . $pr_number,
+                'New PRF ' . $pr_number . ' requires GM review.',
+                'view_pr.php?id=' . $pr_id
+            );
+
             header(
                 'Location: ../view_pr.php?id=' . $pr_id .
                 '&success=' . rawurlencode('PRF submitted to the General Manager for review.')
@@ -1358,3 +1360,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 header("Location: ../dashboard.php");
 exit();
 ?>
+
+
+
+

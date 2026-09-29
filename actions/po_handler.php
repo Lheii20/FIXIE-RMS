@@ -2,6 +2,9 @@
 session_start();
 require '../config/db_connect.php';
 require '../config/functions.php';
+require_once '../config/business_document_numbers.php';
+require_once '../config/external_references.php';
+require_once '../config/approval_email_notifications.php';
 require_once '../config/workflow_feedback.php';
 require_once '../config/official_po_snapshot.php';
 require_once '../config/official_fund_release_filing.php';
@@ -584,40 +587,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 );
             }
 
-            // Generate the next internal PO number under a database row lock.
-            $year = date('Y');
-            $po_prefix = 'PO-' . $year . '-';
-            $like_prefix = $po_prefix . '%';
-
-            $po_number_stmt = $conn->prepare(
-                "SELECT po_number
-                 FROM purchase_orders
-                 WHERE po_number LIKE ?
-                 ORDER BY CAST(
-                    SUBSTRING_INDEX(po_number, '-', -1) AS UNSIGNED
-                 ) DESC
-                 LIMIT 1
-                 FOR UPDATE"
-            );
-            $po_number_stmt->bind_param('s', $like_prefix);
-            if (!$po_number_stmt->execute()) {
-                throw new RuntimeException('The next PO number could not be generated.');
-            }
-
-            $po_number_result = $po_number_stmt->get_result();
-            if ($po_number_result->num_rows > 0) {
-                $last_po_number = $po_number_result->fetch_assoc()['po_number'];
-                $last_sequence = (int) substr(
-                    $last_po_number,
-                    strlen($po_prefix)
-                );
-                $next_sequence = $last_sequence + 1;
-            } else {
-                $next_sequence = 1;
-            }
-
-            $po_number = $po_prefix .
-                str_pad($next_sequence, 4, '0', STR_PAD_LEFT);
+            // Allocated inside this transaction; never calculated from MAX()+1.
+            $po_number = drms_allocate_business_document_number($conn, 'po');
             $quotation_number = (string) $source_pr['source_quotation_number'];
             $client_name = (string) $source_pr['client_name'];
             // The official PRF already completed GM, Finance, and Owner approval.
@@ -919,6 +890,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
             $official_po_storage_path = null;
 
+            // Finance receives this optional alert only after the PO, assignment,
+            // and normal in-app notification have committed successfully.
+            drms_send_approval_email_to_role(
+                $conn,
+                'Finance',
+                'Action required: PO funding release',
+                'PO ' . $po_number . ' was filed as ' . $official_po_record_number .
+                    ' and is ready for funding release.',
+                'view_po.php?id=' . $po_id
+            );
+
             header(
                 "Location: ../view_po.php?id=" . $po_id .
                 "&success=" .
@@ -1084,6 +1066,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     trim((string) ($_POST['released_at'] ?? ''));
                 $funding_remarks =
                     trim((string) ($_POST['funding_remarks'] ?? ''));
+
+                try {
+                    $reference_number = drms_normalize_external_reference(
+                        $reference_number,
+                        'Supplier payment reference'
+                    );
+                } catch (DomainException $reference_error) {
+                    header(
+                        "Location: ../release_funding.php?po_id=" . $po_id .
+                        "&error=" . rawurlencode($reference_error->getMessage())
+                    );
+                    exit();
+                }
 
                 $allowed_release_methods = [
                     'Cash',
@@ -1327,6 +1322,26 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     ) {
                         throw new DomainException(
                             'An active supplier fund-release record already exists for this PO.'
+                        );
+                    }
+
+                    $duplicate_reference_stmt = $conn->prepare(
+                        "SELECT fund_release_id
+                         FROM po_supplier_fund_releases
+                         WHERE UPPER(REPLACE(TRIM(reference_number), ' ', '')) = ?
+                         LIMIT 1
+                         FOR UPDATE"
+                    );
+                    $duplicate_reference_stmt->bind_param('s', $reference_number);
+                    $duplicate_reference_stmt->execute();
+                    $duplicate_reference = $duplicate_reference_stmt
+                        ->get_result()
+                        ->fetch_assoc();
+                    $duplicate_reference_stmt->close();
+
+                    if ($duplicate_reference) {
+                        throw new DomainException(
+                            'This supplier payment reference is already recorded. Check the bank, cheque, cash, or receipt proof before trying again.'
                         );
                     }
 
@@ -1732,6 +1747,24 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $audit_action = $action === 'reject' ? 'REJECT_PO' : 'WORKFLOW_ACTION';
             log_audit_action($conn, $user_id, $audit_action, "PO {$po['po_number']}: {$po['status']} to $new_status", ['status' => $po['status']], ['status' => $new_status, 'remarks' => $remarks]);
             $conn->commit();
+
+            // The legacy/internal PO approval route may still use GM, Finance,
+            // or President stages. Email only those reviewers after commit.
+            $approval_email_roles = ['GM', 'Finance', 'President'];
+            if (
+                $action !== 'reject' &&
+                !empty($rule['notify_target']) &&
+                in_array((string) $rule['notify_target'], $approval_email_roles, true)
+            ) {
+                drms_send_approval_email_to_role(
+                    $conn,
+                    (string) $rule['notify_target'],
+                    'Approval required: PO ' . $po['po_number'],
+                    'PO ' . $po['po_number'] . ' is ready for your assigned review.',
+                    'view_po.php?id=' . $po_id
+                );
+            }
+
             header("Location: ../view_po.php?id=$po_id&success=PO Updated Successfully");
         } catch (Exception $e) {
             $conn->rollback();
@@ -1947,5 +1980,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 }
 ?>
+
+
+
+
+
+
 
 

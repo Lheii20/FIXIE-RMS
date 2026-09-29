@@ -1,6 +1,7 @@
 <?php
 require 'config/db_connect.php';
 require 'config/functions.php';
+require_once 'config/business_document_numbers.php';
 require_once 'config/client_po_acknowledgement.php';
 
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Sales Staff') {
@@ -81,16 +82,8 @@ $has_gm_acknowledgement = $official_po_acknowledgement &&
 $is_structured_prf = $has_complete_official_po &&
     $has_gm_acknowledgement;
 
-$year = date('Y');
-$pr_prefix = 'PR-' . $year . '-';
-$sequence_stmt = $conn->query(
-    "SELECT MAX(CAST(SUBSTRING_INDEX(pr_number, '-', -1) AS UNSIGNED)) AS latest_sequence
-     FROM purchase_requests
-     WHERE pr_number REGEXP '^PR-[0-9]{4,6}-[0-9]+$'"
-);
-$sequence_row = $sequence_stmt ? $sequence_stmt->fetch_assoc() : null;
-$next_pr_number = ((int) ($sequence_row['latest_sequence'] ?? 0)) + 1;
-$display_pr_number = $pr_prefix . str_pad((string) $next_pr_number, 4, '0', STR_PAD_LEFT);
+/* Display-only. The server allocates the final PR number during submission. */
+$display_pr_number = drms_business_document_number_preview('prf');
 
 $category_map = [
     '01' => '1 - Hardware',
@@ -250,7 +243,6 @@ $official_po_file_url = $has_complete_official_po
                         value="<?php echo htmlspecialchars($_SESSION['csrf_token'] ?? ''); ?>"
                     >
                     <input type="hidden" name="quotation_id" value="<?php echo $quotation_id; ?>">
-                    <input type="hidden" name="pr_number" value="<?php echo htmlspecialchars($display_pr_number); ?>">
 
                     <div class="prf-layout">
                         <div class="prf-main-column">
@@ -555,4 +547,6 @@ $official_po_file_url = $has_complete_official_po
     <script src="assets/js/prf-form.js?v=<?php echo filemtime(__DIR__ . '/assets/js/prf-form.js'); ?>"></script>
 </body>
 </html>
+
+
 

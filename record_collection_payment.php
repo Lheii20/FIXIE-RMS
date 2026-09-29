@@ -488,9 +488,9 @@ $can_record = $record && $eligibility_error === '';
                                         <small class="prf-help-text">Must not exceed ₱<?php echo number_format($balance, 2); ?>.</small>
                                     </div>
                                     <div class="prf-field">
-                                        <label for="referenceNumber">Reference / receipt no. <span>*</span></label>
+                                        <label for="referenceNumber">External payment / receipt reference <span>*</span></label>
                                         <input type="text" class="form-control" id="referenceNumber" name="reference_number" maxlength="100" placeholder="e.g. TRX-2026-00125" autocomplete="off" required <?php echo $can_record ? '' : 'disabled'; ?>>
-                                        <small class="prf-help-text">A duplicate reference for this PO will be rejected.</small>
+                                        <small class="prf-help-text">Copy the bank, cheque, cash, or receipt reference exactly. A duplicate anywhere in the payment register is rejected.</small>
                                     </div>
                                 </div>
 
@@ -566,4 +566,6 @@ $can_record = $record && $eligibility_error === '';
     <?php endif; ?>
 </body>
 </html>
+
+
 

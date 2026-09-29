@@ -2,6 +2,7 @@
 require 'config/db_connect.php'; 
 require 'config/functions.php';
 require_once 'config/workflow_access.php';
+require_once 'config/user_preferences.php';
 
 drms_require_login();
 
@@ -18,18 +19,44 @@ if ($user_result->num_rows == 0) {
     exit();
 }
 $user = $user_result->fetch_assoc();
+$drms_preferences = drms_load_user_preferences($conn, (int) $user_id);
+$approval_email_ready = empty($user['pending_email']) &&
+    filter_var((string) ($user['email'] ?? ''), FILTER_VALIDATE_EMAIL) !== false;
+$approval_email_enabled = !empty($drms_preferences['approval_email_enabled']);
 $current_device_hash = drms_registry_key_hash();
 $current_auth_hash = hash('sha256', (string) ($_SESSION['session_token'] ?? ''));
 $session_window_minutes = (int) ($_SESSION['drms_session_timeout_minutes'] ?? 30);
 if (!in_array($session_window_minutes, [15, 30, 60, 120], true)) $session_window_minutes = 30;
 $session_cutoff = date('Y-m-d H:i:s', time() - $session_window_minutes * 60);
+$security_session_retention_days = 90;
+$security_session_display_limit = 4;
+
+// Security Center is an account convenience view, not the system audit trail.
+// Remove only this user's already-ended device sessions after the retention period.
+$session_cleanup_query = $conn->prepare(
+    'DELETE FROM user_sessions
+     WHERE user_id = ?
+       AND ended_at IS NOT NULL
+       AND ended_at < DATE_SUB(NOW(), INTERVAL 90 DAY)'
+);
+$session_cleanup_query->bind_param('i', $user_id);
+$session_cleanup_query->execute();
+$session_cleanup_query->close();
+
 $security_sessions = [];
 $session_query = $conn->prepare(
     'SELECT device_key_hash, auth_token_hash, ip_address, user_agent,
             signed_in_at, last_seen_at, ended_at, ended_reason
-     FROM user_sessions WHERE user_id = ? ORDER BY signed_in_at DESC LIMIT 8'
+     FROM user_sessions
+     WHERE user_id = ?
+     ORDER BY CASE
+         WHEN BINARY device_key_hash = BINARY ? THEN 0
+         WHEN ended_at IS NULL THEN 1
+         ELSE 2
+     END, last_seen_at DESC
+     LIMIT 4'
 );
-$session_query->bind_param('i', $user_id);
+$session_query->bind_param('is', $user_id, $current_device_hash);
 $session_query->execute();
 $session_result = $session_query->get_result();
 while ($session_row = $session_result->fetch_assoc()) $security_sessions[] = $session_row;
@@ -66,16 +93,20 @@ $is_security_error = in_array($security_error_code, $security_error_codes, true)
     <?php include 'sidebar.php'; ?>
 
     <div class="main-content fade-in settings-main">
-        <div class="mb-5 settings-header">
-            <h2 class="fw-bold mb-1">Account Settings</h2>
-            <p class="text-muted mb-0">Manage your profile, appearance, and account security.</p>
-        </div>
+        <header class="settings-header">
+            <div class="settings-header-copy">
+                <span class="settings-header-eyebrow">ACCOUNT WORKSPACE</span>
+                <h2 class="fw-bold mb-1">Account Settings</h2>
+                <p class="text-muted mb-0">Manage your profile, appearance, and account security.</p>
+            </div>
+        </header>
 
         <?php if(isset($_GET['success']) && !$is_security_success): ?>
             <div class="alert alert-success alert-dismissible fade show border-0 shadow-sm">
                 <i class="fas fa-check-circle me-2"></i> 
                 <?php 
                 if($_GET['success'] == 'ThemeUpdated') echo "Your appearance preference has been saved.";
+                elseif($_GET['success'] == 'ApprovalEmailPreferenceUpdated') echo "Your approval email preference has been saved.";
                 elseif($_GET['success'] == 'CodeSent') echo "A 6-digit verification code has been sent to your new email.";
                 elseif($_GET['success'] == 'EmailVerified') echo "Email successfully verified and updated!";
                 elseif($_GET['success'] == 'PasswordUpdated') echo "Your password has been successfully updated!";
@@ -151,6 +182,7 @@ $is_security_error = in_array($security_error_code, $security_error_codes, true)
                 <p class="drms-appearance-note">Ask the administrator to install the user-preferences migration first.</p>
             <?php endif; ?>
         </section>
+
 
         <div class="row g-4 settings-grid">
             
@@ -257,6 +289,45 @@ $is_security_error = in_array($security_error_code, $security_error_codes, true)
                         </form>
                     </div>
                 </div>
+
+            <section class="drms-email-notification-card" aria-labelledby="approvalEmailHeading">
+                <div class="drms-email-notification-card__copy">
+                    <span class="drms-email-notification-card__icon" aria-hidden="true"><i class="fas fa-envelope-circle-check"></i></span>
+                    <div>
+                        <h3 id="approvalEmailHeading">Approval emails</h3>
+                        <p>Receive an email when your action is needed in the approval flow.</p>
+                    </div>
+                </div>
+                <form action="actions/user_preferences_handler.php" method="post" class="drms-email-notification-form">
+                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars((string) ($_SESSION['csrf_token'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
+                    <input type="hidden" name="action" value="set_approval_email">
+                    <label class="drms-email-switch" for="approvalEmailEnabled">
+                        <span class="drms-email-switch__label">
+                            <strong>Receive approval emails</strong>
+                            <small><?php echo $approval_email_ready ? htmlspecialchars((string) $user['email']) : 'Add and verify an email address first'; ?></small>
+                        </span>
+                        <span class="drms-email-switch__control">
+                            <input
+                                type="checkbox"
+                                name="approval_email_enabled"
+                                id="approvalEmailEnabled"
+                                value="1"
+                                <?php echo $approval_email_enabled ? 'checked' : ''; ?>
+                                <?php echo (!$approval_email_ready || empty($drms_preferences['installed'])) ? 'disabled' : ''; ?>
+                                onchange="this.form.submit()"
+                            >
+                            <span class="drms-email-switch__track" aria-hidden="true"></span>
+                        </span>
+                    </label>
+                </form>
+                <?php if (!$approval_email_ready): ?>
+                    <p class="drms-email-notification-card__note"><i class="fas fa-circle-info" aria-hidden="true"></i> Update your recovery email below, then enter its verification code to enable this preference.</p>
+                <?php elseif (empty($drms_preferences['installed'])): ?>
+                    <p class="drms-email-notification-card__note"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> Ask the administrator to install the user-preferences migration first.</p>
+                <?php else: ?>
+                    <p class="drms-email-notification-card__note"><i class="fas fa-shield-halved" aria-hidden="true"></i> Only approval-required alerts are emailed. In-app notifications remain active.</p>
+                <?php endif; ?>
+            </section>
             </div>
 
             <div class="col-lg-6">
@@ -369,60 +440,65 @@ $is_security_error = in_array($security_error_code, $security_error_codes, true)
 
             </div>
 
+            <section id="security-center" class="settings-security-card" aria-labelledby="securityCenterTitle">
+                <div class="settings-security-heading">
+                    <div>
+                        <span class="settings-security-kicker">ACCOUNT PROTECTION</span>
+                        <h3 id="securityCenterTitle">Security Center</h3>
+                        <p>Review this device and your most relevant recent sign-ins.</p>
+                    </div>
+                    <button type="button" class="settings-security-action" data-bs-toggle="modal" data-bs-target="#signOutOthersModal">
+                        <i class="fas fa-sign-out-alt" aria-hidden="true"></i>
+                        <span>Sign out other devices<?php echo $other_sessions_count > 0 ? ' (' . $other_sessions_count . ')' : ''; ?></span>
+                    </button>
+                </div>
+                <?php if ($is_security_success): ?>
+                    <div class="settings-security-message is-success" role="status">Other device sessions were signed out. This device stays active.</div>
+                <?php elseif ($is_security_error): ?>
+                    <div class="settings-security-message is-error" role="alert"><?php echo $security_error_code === 'SecurityActionCooldown'
+                        ? 'Too many incorrect attempts. Try again in five minutes.'
+                        : ($security_error_code === 'WrongSecurityPassword' || $security_error_code === 'SecurityPasswordRequired'
+                            ? 'Enter your current password to sign out other devices.'
+                            : ($security_error_code === 'AccountUpdateFailed'
+                                ? 'The security action could not be completed. Please try again.'
+                                : 'The security request could not be verified. Refresh and try again.')); ?></div>
+                <?php endif; ?>
+                <div class="settings-security-summary" role="note">
+                    <i class="fas fa-clock-rotate-left" aria-hidden="true"></i>
+                    <span>Showing this device plus up to <?php echo $security_session_display_limit - 1; ?> recent or active sessions. Ended sessions older than <?php echo $security_session_retention_days; ?> days are automatically removed.</span>
+                </div>
+                <div class="settings-session-list">
+                    <?php if (!$security_sessions): ?>
+                        <p class="settings-session-empty">No sign-in history is available yet.</p>
+                    <?php else: ?>
+                        <?php foreach ($security_sessions as $security_session):
+                            $is_current = hash_equals($current_device_hash, (string) $security_session['device_key_hash']);
+                            $token_current = hash_equals($current_auth_hash, (string) $security_session['auth_token_hash']);
+                            $last_seen_ts = strtotime((string) $security_session['last_seen_at']) ?: 0;
+                            $still_active = $security_session['ended_at'] === null && $token_current && $last_seen_ts >= time() - $session_window_minutes * 60;
+                            $is_online = $still_active && $last_seen_ts >= time() - 75;
+                            $session_state = $is_current ? 'This device' : ($is_online ? 'Online' : ($still_active ? 'Inactive' : 'Ended'));
+                            $state_class = $is_current ? 'is-current' : ($is_online ? 'is-online' : 'is-muted');
+                        ?>
+                        <div class="settings-session-row">
+                            <div class="settings-session-icon"><i class="fas fa-desktop" aria-hidden="true"></i></div>
+                            <div class="settings-session-copy">
+                                <strong><?php echo e(drms_registry_device_label((string) ($security_session['user_agent'] ?? ''))); ?></strong>
+                                <span>Signed in <?php echo e(date('M d, Y · h:i A', strtotime((string) $security_session['signed_in_at']))); ?><?php if (!empty($security_session['ip_address'])): ?> · IP <?php echo e($security_session['ip_address']); ?><?php endif; ?></span>
+                            </div>
+                            <div class="settings-session-meta">
+                                <span class="settings-session-state <?php echo $state_class; ?>"><?php echo e($session_state); ?></span>
+                                <small>Seen <?php echo e(date('M d · h:i A', $last_seen_ts)); ?></small>
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
+                <p class="settings-security-footnote">Online status refreshes while a system page is open. A closed browser may appear online for up to about 75 seconds. Security Center cleanup does not remove audit-trail records.</p>
+            </section>
+
         </div>
 
-        <section id="security-center" class="settings-security-card" aria-labelledby="securityCenterTitle">
-            <div class="settings-security-heading">
-                <div>
-                    <span class="settings-security-kicker">ACCOUNT PROTECTION</span>
-                    <h3 id="securityCenterTitle">Security Center</h3>
-                    <p>Review recent sign-ins and control where your account is open.</p>
-                </div>
-                <button type="button" class="settings-security-action" data-bs-toggle="modal" data-bs-target="#signOutOthersModal">
-                    <i class="fas fa-sign-out-alt" aria-hidden="true"></i>
-                    <span>Sign out other devices<?php echo $other_sessions_count > 0 ? ' (' . $other_sessions_count . ')' : ''; ?></span>
-                </button>
-            </div>
-            <?php if ($is_security_success): ?>
-                <div class="settings-security-message is-success" role="status">Other device sessions were signed out. This device stays active.</div>
-            <?php elseif ($is_security_error): ?>
-                <div class="settings-security-message is-error" role="alert"><?php echo $security_error_code === 'SecurityActionCooldown'
-                    ? 'Too many incorrect attempts. Try again in five minutes.'
-                    : ($security_error_code === 'WrongSecurityPassword' || $security_error_code === 'SecurityPasswordRequired'
-                        ? 'Enter your current password to sign out other devices.'
-                        : ($security_error_code === 'AccountUpdateFailed'
-                            ? 'The security action could not be completed. Please try again.'
-                            : 'The security request could not be verified. Refresh and try again.')); ?></div>
-            <?php endif; ?>
-            <div class="settings-session-list">
-                <?php if (!$security_sessions): ?>
-                    <p class="settings-session-empty">No sign-in history is available yet.</p>
-                <?php else: ?>
-                    <?php foreach ($security_sessions as $security_session):
-                        $is_current = hash_equals($current_device_hash, (string) $security_session['device_key_hash']);
-                        $token_current = hash_equals($current_auth_hash, (string) $security_session['auth_token_hash']);
-                        $last_seen_ts = strtotime((string) $security_session['last_seen_at']) ?: 0;
-                        $still_active = $security_session['ended_at'] === null && $token_current && $last_seen_ts >= time() - $session_window_minutes * 60;
-                        $is_online = $still_active && $last_seen_ts >= time() - 75;
-                        $session_state = $is_current ? 'This device' : ($is_online ? 'Online' : ($still_active ? 'Inactive' : 'Ended'));
-                        $state_class = $is_current ? 'is-current' : ($is_online ? 'is-online' : 'is-muted');
-                    ?>
-                    <div class="settings-session-row">
-                        <div class="settings-session-icon"><i class="fas fa-desktop" aria-hidden="true"></i></div>
-                        <div class="settings-session-copy">
-                            <strong><?php echo e(drms_registry_device_label((string) ($security_session['user_agent'] ?? ''))); ?></strong>
-                            <span>Signed in <?php echo e(date('M d, Y · h:i A', strtotime((string) $security_session['signed_in_at']))); ?><?php if (!empty($security_session['ip_address'])): ?> · IP <?php echo e($security_session['ip_address']); ?><?php endif; ?></span>
-                        </div>
-                        <div class="settings-session-meta">
-                            <span class="settings-session-state <?php echo $state_class; ?>"><?php echo e($session_state); ?></span>
-                            <small>Seen <?php echo e(date('M d · h:i A', $last_seen_ts)); ?></small>
-                        </div>
-                    </div>
-                    <?php endforeach; ?>
-                <?php endif; ?>
-            </div>
-            <p class="settings-security-footnote">Online status refreshes while a system page is open. A closed browser may appear online for up to about 75 seconds.</p>
-        </section>
     </div>
 
     <div class="modal fade" id="signOutOthersModal" tabindex="-1" aria-labelledby="signOutOthersTitle" aria-hidden="true">
@@ -513,4 +589,8 @@ $is_security_error = in_array($security_error_code, $security_error_codes, true)
     </script>
 </body>
 </html>
+
+
+
+
 

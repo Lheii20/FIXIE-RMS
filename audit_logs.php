@@ -347,7 +347,7 @@ $hasActiveFilters = $filterState['search'] !== '' ||
         <header class="admin-page-header audit-page-header mb-4 pb-2 border-bottom d-flex flex-wrap justify-content-between align-items-center gap-3">
             <div class="admin-page-title flex-grow-1">
                 <h5 class="fw-bold mb-1 text-main tracking-tight"><i class="fas fa-shield-alt text-primary me-2"></i>System Audit Trail</h5>
-                <p class="text-muted mb-0 fs-sm">Monitor enterprise activity, security events, and user actions.</p>
+                <p class="text-muted mb-0 fs-sm">Reviewable events exclude routine navigation and search activity.</p>
             </div>
             
             <button class="audit-export-action btn-modern btn-primary-modern" onclick="openExportModal()" aria-label="Export audit logs">
@@ -359,7 +359,7 @@ $hasActiveFilters = $filterState['search'] !== '' ||
             <div class="col-xl-3 col-md-6">
                 <div class="kpi-corp-card accent-blue">
                     <div class="kpi-corp-header">
-                        <div><p class="kpi-corp-title">Tracked Events</p><h3 class="kpi-corp-value"><?= number_format($totalLogs) ?></h3></div>
+                        <div><p class="kpi-corp-title">Reviewable Events</p><h3 class="kpi-corp-value"><?= number_format($totalLogs) ?></h3></div>
                         <div class="kpi-corp-icon bg-soft-primary"><i class="fas fa-stream"></i></div>
                     </div>
                 </div>
@@ -367,7 +367,7 @@ $hasActiveFilters = $filterState['search'] !== '' ||
             <div class="col-xl-3 col-md-6">
                 <div class="kpi-corp-card accent-rose">
                     <div class="kpi-corp-header">
-                        <div><p class="kpi-corp-title">Critical Actions</p><h3 class="kpi-corp-value"><?= number_format($criticalCount) ?></h3></div>
+                        <div><p class="kpi-corp-title">Deletion Activity</p><h3 class="kpi-corp-value"><?= number_format($criticalCount) ?></h3></div>
                         <div class="kpi-corp-icon bg-soft-danger"><i class="fas fa-trash-alt"></i></div>
                     </div>
                 </div>
@@ -375,7 +375,7 @@ $hasActiveFilters = $filterState['search'] !== '' ||
             <div class="col-xl-3 col-md-6">
                 <div class="kpi-corp-card accent-emerald">
                     <div class="kpi-corp-header">
-                        <div><p class="kpi-corp-title">Active Accounts</p><h3 class="kpi-corp-value"><?= number_format($activeUsersCount) ?></h3></div>
+                        <div><p class="kpi-corp-title">Accounts in Logs</p><h3 class="kpi-corp-value"><?= number_format($activeUsersCount) ?></h3></div>
                         <div class="kpi-corp-icon bg-soft-success"><i class="fas fa-users"></i></div>
                     </div>
                 </div>

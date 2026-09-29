@@ -1261,8 +1261,13 @@ if (!function_exists('drms_file_generated_pdf_as_official_record')) {
 // ==========================================
 
 function create_detailed_quotation($conn, $data, $user_id) {
+    require_once __DIR__ . '/business_document_numbers.php';
+
     $conn->begin_transaction();
     try {
+        /* The browser never controls internal quotation numbering. */
+        $data['quotation_number'] = drms_allocate_business_document_number($conn, 'quotation');
+
         // A newly issued quotation remains in the client-approval queue until proof is submitted.
         $stmt = $conn->prepare("INSERT INTO quotations (quotation_number, client_name, amount, created_by, status) VALUES (?, ?, ?, ?, 'Pending Approval')");
         $stmt->bind_param("ssdi", $data['quotation_number'], $data['client_name'], $data['grand_total'], $user_id);
@@ -1322,3 +1327,5 @@ function receive_client_po($conn, $quotation_id, $client_po_number, $approval_mo
     return true;
 }
 ?>
+
+

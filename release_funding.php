@@ -395,7 +395,7 @@ $reference_placeholder = $po && $po['payment_method'] === 'Cash'
 
                                     <div class="prf-form-grid funding-form-grid">
                                         <div class="prf-field">
-                                            <label for="fundingReference">Payment reference <span>*</span></label>
+                                            <label for="fundingReference">External payment / receipt reference <span>*</span></label>
                                             <input
                                                 type="text"
                                                 name="reference_number"
@@ -406,6 +406,7 @@ $reference_placeholder = $po && $po['payment_method'] === 'Cash'
                                                 autocomplete="off"
                                                 required
                                             >
+                                            <small class="prf-help-text">Copy the reference exactly from the bank, cheque, cash, or supplier receipt. Duplicate references are blocked.</small>
                                         </div>
 
                                         <div class="prf-field">
@@ -517,4 +518,6 @@ $reference_placeholder = $po && $po['payment_method'] === 'Cash'
     <script src="assets/js/funding-release.js?v=<?php echo filemtime(__DIR__ . '/assets/js/funding-release.js'); ?>"></script>
 </body>
 </html>
+
+
 

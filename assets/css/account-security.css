@@ -167,3 +167,540 @@ body.page-settings .settings-security-modal .form-label { color: #26364e; font-s
     body.page-settings .settings-session-meta { grid-column: 2; align-items: flex-start; flex-direction: row; flex-wrap: wrap; gap: 0.3rem 0.5rem; }
     body.page-settings .settings-session-meta small { align-self: center; }
 }
+
+/* Account Settings layout: compact, aligned, and readable at every width. */
+body.page-settings .settings-main {
+    width: min(100%, 1550px);
+    margin: 0 auto;
+    padding: 22px 24px 32px;
+}
+
+body.page-settings .settings-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 88px;
+    margin: 0 0 16px !important;
+    padding: 17px 20px;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    background: #fff;
+}
+
+body.page-settings .settings-header-copy {
+    display: grid;
+    align-content: center;
+    gap: 3px;
+    min-height: 52px;
+}
+
+body.page-settings .settings-header-eyebrow {
+    color: #52729a;
+    font-size: .69rem;
+    font-weight: 800;
+    letter-spacing: .09em;
+    line-height: 1.1;
+}
+
+body.page-settings .settings-header h2 {
+    margin: 0;
+    color: #152941;
+    font-size: 1.2rem;
+    letter-spacing: -.02em;
+}
+
+body.page-settings .settings-header p {
+    margin: 0 !important;
+    font-size: .86rem;
+}
+
+body.page-settings .settings-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+    margin: 16px 0 0 !important;
+}
+
+body.page-settings .settings-grid > .col-lg-6 {
+    display: contents;
+}
+
+body.page-settings .settings-grid :is(.card, .drms-esign-card, .settings-security-card) {
+    grid-column: 1;
+    width: 100%;
+    margin: 0 !important;
+    overflow: hidden;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 12px !important;
+    box-shadow: none !important;
+}
+
+body.page-settings .settings-grid .card-header {
+    min-height: 60px;
+    display: flex;
+    align-items: center;
+    padding: 15px 18px !important;
+    border-bottom: 1px solid #e2e8f0 !important;
+    background: #fff !important;
+}
+
+body.page-settings .settings-grid .card-header h5 {
+    margin: 0;
+    font-size: .92rem;
+}
+
+body.page-settings .settings-grid .card-body {
+    padding: 18px !important;
+}
+
+body.page-settings .settings-grid .card-body > :last-child {
+    margin-bottom: 0 !important;
+}
+
+body.page-settings .settings-grid .input-group-text,
+body.page-settings .settings-grid .input-group > .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 46px;
+    border-color: #cbd5e1;
+}
+
+body.page-settings .settings-grid .form-control,
+body.page-settings .settings-grid .form-select {
+    min-height: 42px;
+    border-color: #cbd5e1;
+    font-size: .88rem;
+}
+
+body.page-settings .settings-grid .bg-light.rounded-3 {
+    align-items: center !important;
+    min-height: 116px;
+    padding: 15px !important;
+    border-color: #d7e0eb !important;
+}
+
+body.page-settings .settings-security-card {
+    margin-bottom: 0;
+}
+
+body.page-settings .settings-security-summary {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 12px 18px 0;
+    padding: 9px 10px;
+    border: 1px solid #d5e1f1;
+    border-radius: 8px;
+    background: #f5f8fd;
+    color: #506681;
+    font-size: .76rem;
+    line-height: 1.45;
+}
+
+body.page-settings .settings-security-summary i {
+    margin-top: 2px;
+    color: #356fbe;
+}
+
+body.page-settings .settings-session-list {
+    margin-top: 10px;
+}
+
+body.page-settings .settings-session-row {
+    min-height: 70px;
+}
+
+body.page-settings .settings-session-copy strong {
+    font-size: .84rem;
+}
+
+body.page-settings .settings-session-copy span,
+body.page-settings .settings-session-meta small {
+    font-size: .73rem;
+}
+
+html[data-drms-theme="dark"] body.page-settings :is(.settings-header, .settings-grid .card, .settings-security-card) {
+    background: #1f252d !important;
+    border-color: #424b57 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] body.page-settings :is(.settings-header h2, .settings-grid .card-header h5, .settings-session-copy strong, .settings-security-heading h3) {
+    color: #e1e6ec !important;
+}
+
+html[data-drms-theme="dark"] body.page-settings :is(.settings-grid .card-header, .settings-security-heading, .settings-security-footnote) {
+    background: #252c35 !important;
+    border-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] body.page-settings :is(.settings-header p, .settings-security-heading p, .settings-security-footnote, .settings-session-copy span, .settings-session-meta small) {
+    color: #aeb8c4 !important;
+}
+
+html[data-drms-theme="dark"] body.page-settings :is(.settings-grid .bg-light, .settings-grid .input-group-text, .settings-grid .input-group > .btn, .settings-security-summary, .settings-session-state) {
+    background: #252c35 !important;
+    border-color: #4b5664 !important;
+    color: #c5cbd3 !important;
+}
+
+html[data-drms-theme="dark"] body.page-settings .settings-session-row {
+    border-color: #424b57 !important;
+}
+
+html[data-drms-theme="dark"] body.page-settings .settings-session-icon {
+    background: #243b5b !important;
+    border-color: #5176ac !important;
+    color: #b9d5fa !important;
+}
+
+html[data-drms-theme="dark"] body.page-settings .settings-security-summary {
+    background: #243b5b !important;
+    border-color: #5176ac !important;
+    color: #b9d5fa !important;
+}
+
+html[data-drms-theme="dark"] body.page-settings .settings-header-eyebrow {
+    color: #90b7e5 !important;
+}
+
+@media (max-width: 991.98px) {
+    body.page-settings .settings-main { padding: 16px 16px 28px; }
+    body.page-settings .settings-grid { gap: 16px; }
+}
+
+@media (max-width: 640px) {
+    body.page-settings .settings-main { padding: 12px 10px 24px; }
+    body.page-settings .settings-header { min-height: auto; padding: 14px; }
+    body.page-settings .settings-header h2 { font-size: 1.08rem; }
+    body.page-settings .settings-grid { gap: 12px; }
+    body.page-settings .settings-grid .card-header,
+    body.page-settings .settings-grid .card-body { padding: 14px !important; }
+    body.page-settings .settings-grid .bg-light.rounded-3 { align-items: flex-start !important; min-height: 0; }
+    body.page-settings .settings-security-summary { margin: 10px 12px 0; }
+}
+
+
+
+/* Approval email preference and restored tiled Settings layout. */
+body.page-settings .settings-preference-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    margin: 0 0 16px;
+}
+
+body.page-settings .settings-preference-grid :is(.drms-appearance-card, .drms-email-notification-card) {
+    min-width: 0;
+    min-height: 152px;
+    margin: 0;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: none;
+}
+
+body.page-settings .drms-email-notification-card {
+    display: flex;
+    flex-direction: column;
+    padding: 16px 18px;
+}
+
+body.page-settings .drms-email-notification-card__copy {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    min-width: 0;
+}
+
+body.page-settings .drms-email-notification-card__icon {
+    display: inline-flex;
+    flex: 0 0 38px;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    border: 1px solid #bfd0e7;
+    border-radius: 10px;
+    background: #edf4fd;
+    color: #245c9f;
+    font-size: .92rem;
+}
+
+body.page-settings .drms-email-notification-card h3 {
+    margin: 0 0 3px;
+    color: #152941;
+    font-size: .95rem;
+    font-weight: 750;
+}
+
+body.page-settings .drms-email-notification-card p {
+    margin: 0;
+    color: #5c6e83;
+    font-size: .8rem;
+    line-height: 1.4;
+}
+
+body.page-settings .drms-email-notification-form {
+    margin: 14px 0 9px;
+}
+
+body.page-settings .drms-email-switch {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 48px;
+    padding: 9px 10px 9px 12px;
+    border: 1px solid #d6e0ed;
+    border-radius: 9px;
+    background: #f8fafc;
+    cursor: pointer;
+}
+
+body.page-settings .drms-email-switch__label {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+}
+
+body.page-settings .drms-email-switch__label strong {
+    color: #263c57;
+    font-size: .81rem;
+    font-weight: 700;
+}
+
+body.page-settings .drms-email-switch__label small {
+    overflow: hidden;
+    color: #65758b;
+    font-size: .74rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body.page-settings .drms-email-switch__control {
+    position: relative;
+    display: inline-flex;
+    flex: 0 0 42px;
+    height: 24px;
+}
+
+body.page-settings .drms-email-switch__control input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}
+
+body.page-settings .drms-email-switch__track {
+    position: relative;
+    display: block;
+    width: 42px;
+    height: 24px;
+    border: 1px solid #9eafc5;
+    border-radius: 999px;
+    background: #cbd5e1;
+    transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+body.page-settings .drms-email-switch__track::after {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    content: "";
+    transition: transform 160ms ease;
+}
+
+body.page-settings .drms-email-switch__control input:checked + .drms-email-switch__track {
+    border-color: #16765d;
+    background: #168168;
+}
+
+body.page-settings .drms-email-switch__control input:checked + .drms-email-switch__track::after {
+    transform: translateX(18px);
+}
+
+body.page-settings .drms-email-switch__control input:focus-visible + .drms-email-switch__track {
+    outline: 3px solid rgba(37, 99, 235, .28);
+    outline-offset: 2px;
+}
+
+body.page-settings .drms-email-switch__control input:disabled + .drms-email-switch__track {
+    cursor: not-allowed;
+    opacity: .52;
+}
+
+body.page-settings .drms-email-switch:has(input:disabled) {
+    cursor: not-allowed;
+}
+
+body.page-settings .drms-email-notification-card__note {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin-top: auto !important;
+    font-size: .74rem !important;
+}
+
+body.page-settings .drms-email-notification-card__note i {
+    margin-top: 2px;
+    color: #4974a6;
+}
+
+/* Restore the compact two-column card arrangement on desktop. */
+body.page-settings .settings-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    margin: 0 !important;
+    --bs-gutter-x: 0;
+    --bs-gutter-y: 0;
+}
+
+body.page-settings .settings-grid > .col-lg-6 {
+    display: block;
+    width: auto;
+    max-width: none;
+    padding: 0;
+}
+
+body.page-settings .settings-grid > .col-lg-6 > :is(.card, .drms-esign-card) {
+    width: 100%;
+    margin: 0 0 16px !important;
+}
+
+body.page-settings .settings-grid > .col-lg-6 > :is(.card, .drms-esign-card):last-child {
+    margin-bottom: 0 !important;
+}
+
+body.page-settings .settings-grid > .settings-security-card {
+    grid-column: 1 / -1;
+    width: 100%;
+    margin-top: 0 !important;
+}
+
+html[data-drms-theme="dark"] body.page-settings .settings-preference-grid :is(.drms-appearance-card, .drms-email-notification-card) {
+    border-color: #424b57;
+    background: #1f252d;
+}
+
+html[data-drms-theme="dark"] body.page-settings .drms-email-notification-card :is(h3, .drms-email-switch__label strong) {
+    color: #e1e6ec;
+}
+
+html[data-drms-theme="dark"] body.page-settings .drms-email-notification-card :is(p, .drms-email-switch__label small) {
+    color: #aeb8c4;
+}
+
+html[data-drms-theme="dark"] body.page-settings .drms-email-notification-card__icon {
+    border-color: #5176ac;
+    background: #243b5b;
+    color: #b9d5fa;
+}
+
+html[data-drms-theme="dark"] body.page-settings .drms-email-switch {
+    border-color: #4b5664;
+    background: #252c35;
+}
+
+html[data-drms-theme="dark"] body.page-settings .drms-email-switch__track {
+    border-color: #657487;
+    background: #4b5563;
+}
+
+@media (max-width: 991.98px) {
+    body.page-settings .settings-preference-grid,
+    body.page-settings .settings-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    body.page-settings .settings-grid > .settings-security-card {
+        grid-column: 1;
+    }
+}
+
+@media (max-width: 640px) {
+    body.page-settings .settings-preference-grid {
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+
+    body.page-settings .drms-email-notification-card {
+        padding: 14px;
+    }
+
+    body.page-settings .drms-email-switch {
+        min-height: 50px;
+    }
+}
+
+
+
+
+/* Phase 4: full-width compact appearance panel; approval email uses the natural
+   empty area below the profile details, without changing any preference logic. */
+body.page-settings .settings-preference-grid {
+    display: block;
+    margin: 0 0 16px;
+}
+
+body.page-settings .settings-preference-grid .drms-appearance-card {
+    display: flex;
+    width: 100%;
+    min-height: 0;
+    margin: 0;
+    padding: 13px 18px;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: none;
+}
+
+body.page-settings .settings-preference-grid .drms-appearance-card__copy {
+    min-width: 0;
+}
+
+body.page-settings .settings-preference-grid .drms-appearance-card__copy h3 {
+    margin-bottom: 2px;
+}
+
+body.page-settings .settings-preference-grid .drms-appearance-card__copy p {
+    margin-bottom: 0;
+}
+
+body.page-settings .settings-grid > .col-lg-6 > .drms-email-notification-card {
+    display: flex;
+    width: 100%;
+    min-height: 0;
+    margin: 16px 0 0 !important;
+    padding: 16px 18px;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: none;
+}
+
+html[data-drms-theme="dark"] body.page-settings .settings-preference-grid .drms-appearance-card,
+html[data-drms-theme="dark"] body.page-settings .settings-grid > .col-lg-6 > .drms-email-notification-card {
+    border-color: #424b57;
+    background: #1f252d;
+}
+
+@media (max-width: 640px) {
+    body.page-settings .settings-preference-grid .drms-appearance-card {
+        display: block;
+        padding: 14px;
+    }
+
+    body.page-settings .settings-grid > .col-lg-6 > .drms-email-notification-card {
+        margin-top: 12px !important;
+        padding: 14px;
+    }
+}
+

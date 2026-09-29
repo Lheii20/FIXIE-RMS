@@ -1,23 +1,15 @@
 <?php
 require 'config/db_connect.php';
 require 'config/functions.php';
+require_once 'config/business_document_numbers.php';
 
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Sales Staff') {
     header("Location: dashboard.php");
     exit();
 }
 
-$year = date('Y');
-$q_prefix = "QTN-" . $year . "-";
-$like_prefix = $q_prefix . "%";
-
-$stmt = $conn->prepare("SELECT quotation_number FROM quotations WHERE quotation_number LIKE ? ORDER BY CAST(SUBSTRING_INDEX(quotation_number, '-', -1) AS UNSIGNED) DESC LIMIT 1");
-$stmt->bind_param("s", $like_prefix);
-$stmt->execute();
-$res = $stmt->get_result();
-
-$next_num = ($res->num_rows > 0) ? intval(substr($res->fetch_assoc()['quotation_number'], -4)) + 1 : 1;
-$display_q_number = $q_prefix . str_pad($next_num, 4, "0", STR_PAD_LEFT);
+/* This is display-only; the server allocates the final QTN when saving. */
+$display_q_number = drms_business_document_number_preview('quotation');
 
 $categories = [];
 $cats_query = $conn->query("SELECT code, name FROM item_categories ORDER BY code ASC");
@@ -82,8 +74,8 @@ if ($cats_query) {
                     <div class="qd-detail-grid">
                         <div class="qd-field">
                             <label for="quotationNumber">Quotation number</label>
-                            <div class="qd-input-wrap is-reference"><i class="fas fa-hashtag" aria-hidden="true"></i><input type="text" id="quotationNumber" name="quotation_number" class="form-control soft-input" value="<?php echo htmlspecialchars($display_q_number, ENT_QUOTES, 'UTF-8'); ?>" readonly></div>
-                            <small>Generated automatically and reserved when the quotation is saved.</small>
+                            <div class="qd-input-wrap is-reference"><i class="fas fa-hashtag" aria-hidden="true"></i><input type="text" id="quotationNumber" class="form-control soft-input" value="<?php echo htmlspecialchars($display_q_number, ENT_QUOTES, 'UTF-8'); ?>" readonly aria-describedby="quotationNumberHelp"></div>
+                            <small id="quotationNumberHelp">Assigned securely by the server only when the quotation is saved.</small>
                         </div>
                         <div class="qd-field">
                             <label for="clientName">Client or agency <span class="req-star">Required</span></label>
@@ -328,4 +320,6 @@ if ($cats_query) {
     </script>
 </body>
 </html>
+
+
 

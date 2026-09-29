@@ -432,10 +432,10 @@ if ($role === 'Admin') {
              WHERE {$doc_date['sql']}) AS total_files,
             (SELECT COUNT(*)
              FROM user_requests
-             WHERE status = 'Pending' AND {$req_date['sql']}) AS pending_requests
+             WHERE status = 'Pending') AS pending_requests
     ";
-    $admin_core_types = $user_date['types'] . $doc_date['types'] . $req_date['types'];
-    $admin_core_params = array_merge($user_date['params'], $doc_date['params'], $req_date['params']);
+    $admin_core_types = $user_date['types'] . $doc_date['types'];
+    $admin_core_params = array_merge($user_date['params'], $doc_date['params']);
     $admin_core_kpis = fetch_chart_data(
         $conn,
         $q_admin_core_kpis,
@@ -460,17 +460,12 @@ if ($role === 'Admin') {
     $q_requests = "SELECT status, COUNT(*) as req_count FROM user_requests WHERE {$req_date['sql']} GROUP BY status";
     $admin_charts['requests'] = fetch_chart_data($conn, $q_requests, $req_date['types'], $req_date['params'], false);
 
+    $admin_insights_data['pending_req_all'] = $admin_stats['pending_requests'];
     if ($period === 'all') {
-        $admin_insights_data['pending_req_all'] = $admin_stats['pending_requests'];
         $admin_insights_data['total_files_all'] = $admin_stats['total_files'];
     } else {
-        $q_admin_baseline_counts = "
-            SELECT
-                (SELECT COUNT(*) FROM user_requests WHERE status = 'Pending') AS pending_req_all,
-                (SELECT COUNT(*) FROM documents) AS total_files_all
-        ";
+        $q_admin_baseline_counts = "SELECT COUNT(*) AS total_files_all FROM documents";
         $admin_baseline_counts = fetch_chart_data($conn, $q_admin_baseline_counts, '', [], true) ?: [];
-        $admin_insights_data['pending_req_all'] = (int) ($admin_baseline_counts['pending_req_all'] ?? 0);
         $admin_insights_data['total_files_all'] = (int) ($admin_baseline_counts['total_files_all'] ?? 0);
     }
 
@@ -497,16 +492,10 @@ if ($role === 'Admin') {
     $admin_charts['disposal'] = $shared_disposal_dss;
 
     // ==========================================
-    // SYSTEM STORAGE CALCULATOR
+    // UPLOADED-FILE STORAGE (NOT THE HOST'S TOTAL DISK QUOTA)
     // ==========================================
     $uploads_dir = __DIR__ . '/uploads'; 
     $storage_used = getCachedDirSize($uploads_dir, 300);
-    $storage_limit = 50 * 1024 * 1024 * 1024; // 50GB Limit
-    $storage_pct = ($storage_limit > 0) ? round(($storage_used / $storage_limit) * 100, 1) : 0;
-    
-    $admin_insights_data['storage_used'] = $storage_used;
-    $admin_insights_data['storage_limit'] = $storage_limit;
-    $admin_insights_data['storage_pct'] = $storage_pct;
     $admin_insights_data['storage_formatted'] = formatBytes($storage_used);
 }
 
