@@ -664,7 +664,8 @@ $delivery_planning_ui_pending =
 $delivery_completion_ui_pending =
     $po['status'] === 'For Pick-up/Delivery';
 
-$can_delete_files = in_array($role, ['GM', 'President', 'Procurement']);
+$can_delete_files = $role === 'GM'
+    && has_permission($conn, (int) $_SESSION['user_id'], 'can_delete_documents');
 $can_upload_files = ($role == 'Procurement');
 
 ?>
@@ -1334,7 +1335,7 @@ $can_upload_files = ($role == 'Procurement');
                     <div class="card-body p-3">
                         <ul class="list-unstyled mb-3">
                             <?php
-                            $stmt = $conn->prepare("SELECT * FROM documents WHERE po_id = ? AND COALESCE(disposition_status, '') <> 'Destroyed'");
+                            $stmt = $conn->prepare("SELECT * FROM documents WHERE po_id = ? AND status <> 'Recycled' AND COALESCE(disposition_status, '') <> 'Destroyed'");
                             $stmt->bind_param("i", $po_id);
                             $stmt->execute();
                             $docs = $stmt->get_result();
@@ -1346,6 +1347,18 @@ $can_upload_files = ($role == 'Procurement');
                                     $ext = strtolower(pathinfo($doc['file_name'], PATHINFO_EXTENSION));
                                     $isImage = in_array($ext, ['jpg', 'jpeg', 'png', 'gif']);
                                     $isPdf = ($ext == 'pdf');
+                                    $attachmentDisplayName = (string) ($doc['doc_type'] ?? '') === 'PO Supporting File'
+                                        && preg_match('/^\d+_[a-f0-9]{8}\.[a-z0-9]+$/i', (string) $doc['file_name'])
+                                        && trim((string) ($doc['original_file_name'] ?? '')) !== ''
+                                        ? (string) $doc['original_file_name']
+                                        : (string) $doc['file_name'];
+                                    $canRemoveAttachment = $can_delete_files
+                                        && (string) ($doc['doc_type'] ?? '') === 'PO Supporting File'
+                                        && (string) ($doc['record_phase'] ?? '') === 'Working'
+                                        && (string) ($doc['status'] ?? '') === 'Active'
+                                        && empty($doc['source_module'])
+                                        && empty($doc['official_doc_id'])
+                                        && (int) ($doc['is_legal_hold'] ?? 0) === 0;
                                 ?>
                                     <li class="mb-2 p-2 bg-light rounded border d-flex align-items-center justify-content-between po-attachment-row">
                                         <div class="d-flex align-items-center gap-2 overflow-hidden">
@@ -1353,7 +1366,7 @@ $can_upload_files = ($role == 'Procurement');
                                                 <img
                                                     src="<?php echo $secureLink; ?>"
                                                     class="file-thumbnail bg-white"
-                                                    alt="Preview <?php echo htmlspecialchars($doc['file_name']); ?>"
+                                                    alt="Preview <?php echo htmlspecialchars($attachmentDisplayName); ?>"
                                                     role="button"
                                                     tabindex="0"
                                                     onclick="viewFile('<?php echo $secureLink; ?>', 'image')"
@@ -1364,7 +1377,7 @@ $can_upload_files = ($role == 'Procurement');
                                                     class="file-icon text-danger bg-white shadow-sm"
                                                     role="button"
                                                     tabindex="0"
-                                                    aria-label="Preview <?php echo htmlspecialchars($doc['file_name']); ?>"
+                                                    aria-label="Preview <?php echo htmlspecialchars($attachmentDisplayName); ?>"
                                                     onclick="viewFile('<?php echo $secureLink; ?>', 'pdf')"
                                                     onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); viewFile('<?php echo $secureLink; ?>', 'pdf'); }"
                                                 ><i class="fas fa-file-pdf"></i></div>
@@ -1375,28 +1388,29 @@ $can_upload_files = ($role == 'Procurement');
                                             <div class="text-truncate">
                                                 <a href="#" class="text-dark text-decoration-none fw-bold small d-block text-truncate" 
                                                    onclick="viewFile('<?php echo $secureLink; ?>', '<?php echo $isImage ? 'image' : ($isPdf ? 'pdf' : 'other'); ?>'); return false;">
-                                                    <?php echo htmlspecialchars($doc['file_name']); ?>
+                                                    <?php echo htmlspecialchars($attachmentDisplayName); ?>
                                                 </a>
                                                 <small class="text-muted fs-xs"><?php echo strtoupper($ext); ?></small>
                                             </div>
                                         </div>
                                         
                                         <div class="d-flex gap-2 po-attachment-actions">
-                                            <a href="<?php echo $secureLink; ?>" class="btn btn-sm btn-white border" title="Download" aria-label="Download <?php echo htmlspecialchars($doc['file_name']); ?>"><i class="fas fa-download text-primary"></i></a>
-                                            <?php if($can_delete_files): ?>
+                                            <a href="<?php echo $secureLink; ?>" class="btn btn-sm btn-white border" title="Download" aria-label="Download <?php echo htmlspecialchars($attachmentDisplayName); ?>"><i class="fas fa-download text-primary"></i></a>
+                                            <?php if($canRemoveAttachment): ?>
                                             <form
-                                                action="actions/po_handler.php"
+                                                action="actions/document_handler.php"
                                                 method="POST"
-                                                data-drms-confirm="This file will be permanently removed from this PO. This action cannot be undone."
-                                                data-drms-confirm-title="Delete this attachment?"
-                                                data-drms-confirm-button="Delete attachment"
+                                                data-drms-confirm="This working supporting file will move to the Company Files Recycle Bin. The PO and Official Records will remain unchanged."
+                                                data-drms-confirm-title="Move attachment to Recycle Bin?"
+                                                data-drms-confirm-button="Move to Recycle Bin"
                                                 data-drms-cancel-button="Keep file"
                                                 data-drms-confirm-tone="danger"
                                             >
                                                 <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                                                 <input type="hidden" name="action" value="delete">
                                                 <input type="hidden" name="doc_id" value="<?php echo $doc['doc_id']; ?>">
-                                                <button type="submit" class="btn btn-sm btn-white border text-danger" title="Delete attachment" aria-label="Delete <?php echo htmlspecialchars($doc['file_name']); ?>"><i class="fas fa-trash"></i></button>
+                                                <input type="hidden" name="return_url" value="../view_po.php?id=<?php echo (int) $po_id; ?>">
+                                                <button type="submit" class="btn btn-sm btn-white border text-danger" title="Move to Recycle Bin" aria-label="Move <?php echo htmlspecialchars($attachmentDisplayName); ?> to Recycle Bin"><i class="fas fa-trash"></i></button>
                                             </form>
                                             <?php endif; ?>
                                         </div>

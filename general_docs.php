@@ -970,6 +970,16 @@ $view_archives = isset($_GET['view_archives']) && $_GET['view_archives'] == '1';
 $view_shared = isset($_GET['shared']) && $_GET['shared'] == '1';
 $view_recycled = isset($_GET['view_recycled']) && $_GET['view_recycled'] == '1';
 $sort = (string) ($_GET['sort'] ?? 'date_desc');
+$requested_records_page = filter_var($_GET['page'] ?? null, FILTER_VALIDATE_INT);
+$records_page = is_int($requested_records_page) && $requested_records_page > 0
+    ? $requested_records_page : 1;
+$requested_records_per_page = filter_var($_GET['per_page'] ?? null, FILTER_VALIDATE_INT);
+$records_per_page = is_int($requested_records_per_page)
+    && in_array($requested_records_per_page, [10, 15, 25, 50, 100], true)
+    ? $requested_records_per_page : 15;
+$requested_focus_doc = filter_var($_GET['doc'] ?? null, FILTER_VALIDATE_INT);
+$focus_doc_id = is_int($requested_focus_doc) && $requested_focus_doc > 0
+    ? $requested_focus_doc : 0;
 
 $allowed_record_statuses = ['Archived', 'Recycled'];
 $allowed_record_sorts = ['date_desc', 'date_asc', 'name_asc', 'name_desc'];
@@ -980,7 +990,7 @@ if (!$view_archives && !$view_disposition && !$view_shared && !$view_recycled) {
     if ($doc_status === 'Recycled') $view_recycled = true;
 }
 if ($view_archives || $view_disposition || $view_shared || $view_recycled) $doc_status = '';
-$records_query_active = $search !== '' || $doc_status !== '' || $sort !== 'date_desc';
+$records_query_active = $search !== '' || $doc_status !== '' || $sort !== 'date_desc' || $focus_doc_id > 0;
 
 // Official Record disposition is managed from one canonical workspace.
 if ($view_disposition) {
@@ -988,10 +998,10 @@ if ($view_disposition) {
     exit();
 }
 
-$order_by = "d.uploaded_at DESC";
-if ($sort === 'date_asc') $order_by = "d.uploaded_at ASC";
-elseif ($sort === 'name_asc') $order_by = "d.file_name ASC";
-elseif ($sort === 'name_desc') $order_by = "d.file_name DESC";
+$order_by = "d.uploaded_at DESC, d.doc_id DESC";
+if ($sort === 'date_asc') $order_by = "d.uploaded_at ASC, d.doc_id ASC";
+elseif ($sort === 'name_asc') $order_by = "d.file_name ASC, d.doc_id ASC";
+elseif ($sort === 'name_desc') $order_by = "d.file_name DESC, d.doc_id DESC";
 
 // ----------------------------------------------------
 // SYSTEM ADMINISTRATOR HARD REDIRECT
@@ -1023,9 +1033,21 @@ if($view_archives) $return_params[] = "view_archives=1";
 if($view_disposition) $return_params[] = "disposition=1";
 if($view_shared) $return_params[] = "shared=1";
 if($view_recycled) $return_params[] = "view_recycled=1";
-if(!empty($search)) $return_params[] = "search=".urlencode($search);
+if($search !== '') $return_params[] = "search=".urlencode($search);
 if(!empty($doc_status)) $return_params[] = "doc_status=".urlencode($doc_status);
 if($sort !== 'date_desc') $return_params[] = "sort=".urlencode($sort);
+if($records_per_page !== 15) $return_params[] = "per_page=".$records_per_page;
+
+$record_page_url = static function (int $page) use ($return_params): string {
+    return 'general_docs.php?' . implode('&', array_merge($return_params, ['page=' . max(1, $page)]));
+};
+$record_size_url = static function (int $size) use ($return_params): string {
+    $params = array_values(array_filter($return_params, static function ($part): bool {
+        return strpos($part, 'per_page=') !== 0;
+    }));
+    if ($size !== 15) $params[] = 'per_page=' . $size;
+    return 'general_docs.php' . ($params ? '?' . implode('&', $params) : '');
+};
 
 $exact_return_url = "general_docs.php" . (!empty($return_params) ? "?" . implode("&", $return_params) : "");
 
@@ -1173,11 +1195,13 @@ $where[] = "COALESCE(d.disposition_status, '') <> 'Destroyed'";
 $params = [];
 $types = "";
 
-if (!empty($search)) {
-    $where[] = "(d.file_name LIKE ? OR d.category LIKE ?)";
+if ($search !== '') {
+    $where[] = "(d.file_name LIKE ? OR d.original_file_name LIKE ? OR d.business_reference LIKE ? OR d.category LIKE ?)";
     $params[] = "%$search%";
     $params[] = "%$search%";
-    $types .= "ss";
+    $params[] = "%$search%";
+    $params[] = "%$search%";
+    $types .= "ssss";
 }
 
 if ($view_shared) {
@@ -1218,18 +1242,86 @@ $query = "SELECT d.*, p.po_number, p.client_name, p.amount, p.status as po_statu
           LEFT JOIN users u ON d.uploaded_by = u.user_id
           LEFT JOIN users locker ON d.locked_by = locker.user_id
           LEFT JOIN virt_document_locations vdl ON d.doc_id = vdl.document_id
-          LEFT JOIN document_categories dc ON d.category = dc.sub_category
 /* VC3 physical path is resolved by its independent folder ID. 1 */
           WHERE $whereClause 
           ORDER BY $order_by";
 
 $documents = null;
-// SECURITY: Do not fetch actual documents if Admin
-if ($role !== 'Admin') {
-    $stmt = $conn->prepare($query);
-    if(!empty($params)) $stmt->bind_param($types, ...$params);
+$record_total = 0;
+$record_total_pages = 1;
+$record_first = 0;
+$record_last = 0;
+$visible_record_pages = [];
+// Folder overview and disposition do not render this list. Avoid loading records there.
+$show_normal_record_list = $role !== 'Admin'
+    && !$view_disposition
+    && (!empty($type_filter) || $view_archives || $view_recycled || $view_shared || $records_query_active);
+if ($show_normal_record_list) {
+    $count_stmt = $conn->prepare("SELECT COUNT(*) AS total FROM documents d WHERE $whereClause");
+    if (!empty($params)) $count_stmt->bind_param($types, ...$params);
+    $count_stmt->execute();
+    $record_total = (int) ($count_stmt->get_result()->fetch_assoc()['total'] ?? 0);
+    $count_stmt->close();
+    $record_total_pages = max(1, (int) ceil($record_total / $records_per_page));
+
+    // Keep direct links to a specific file useful after moving pagination to SQL.
+    if ($focus_doc_id > 0 && !is_int($requested_records_page)) {
+        $focus_stmt = $conn->prepare(
+            "SELECT d.uploaded_at AS sort_date, d.file_name
+             FROM documents d WHERE $whereClause AND d.doc_id = ? LIMIT 1"
+        );
+        $focus_params = array_merge($params, [$focus_doc_id]);
+        $focus_stmt->bind_param($types . 'i', ...$focus_params);
+        $focus_stmt->execute();
+        $focus_record = $focus_stmt->get_result()->fetch_assoc();
+        $focus_stmt->close();
+
+        if ($focus_record) {
+            $sort_is_date = in_array($sort, ['date_desc', 'date_asc'], true);
+            $sort_column = $sort_is_date ? 'd.uploaded_at' : 'd.file_name';
+            $sort_value = (string) ($sort_is_date
+                ? $focus_record['sort_date'] : $focus_record['file_name']);
+            $ascending = in_array($sort, ['date_asc', 'name_asc'], true);
+            $comparison = $ascending ? '<' : '>';
+            $rank_stmt = $conn->prepare(
+                "SELECT COUNT(*) AS before_count FROM documents d
+                 WHERE $whereClause AND
+                 ($sort_column $comparison ? OR
+                  ($sort_column = ? AND d.doc_id $comparison ?))"
+            );
+            $rank_params = array_merge($params, [$sort_value, $sort_value, $focus_doc_id]);
+            $rank_stmt->bind_param($types . 'ssi', ...$rank_params);
+            $rank_stmt->execute();
+            $before_count = (int) ($rank_stmt->get_result()->fetch_assoc()['before_count'] ?? 0);
+            $rank_stmt->close();
+            $records_page = (int) floor($before_count / $records_per_page) + 1;
+        }
+    }
+
+    $records_page = min($records_page, $record_total_pages);
+    $record_offset = ($records_page - 1) * $records_per_page;
+    $record_first = $record_total ? $record_offset + 1 : 0;
+    $record_last = $record_total ? min($record_offset + $records_per_page, $record_total) : 0;
+    if ($record_total_pages <= 7) {
+        $visible_record_pages = range(1, $record_total_pages);
+    } else {
+        $visible_record_pages = array_values(array_unique(array_filter(
+            [1, $records_page - 1, $records_page, $records_page + 1, $record_total_pages],
+            static function (int $page) use ($record_total_pages): bool {
+                return $page >= 1 && $page <= $record_total_pages;
+            }
+        )));
+        sort($visible_record_pages, SORT_NUMERIC);
+    }
+
+    $page_params = array_merge($params, [$records_per_page, $record_offset]);
+    $stmt = $conn->prepare($query . ' LIMIT ? OFFSET ?');
+    $stmt->bind_param($types . 'ii', ...$page_params);
     $stmt->execute();
     $documents = $stmt->get_result();
+    $stmt->close();
+    $exact_return_url = $record_page_url($records_page)
+        . ($focus_doc_id > 0 ? '&doc=' . $focus_doc_id : '');
 }
 
 $toastMsg = '';
@@ -1358,6 +1450,7 @@ if(isset($_GET['success'])) {
                 if ($view_recycled) $records_context_params['view_recycled'] = '1';
                 if (!empty($parent_filter)) $records_context_params['parent'] = $parent_filter;
                 if (!empty($type_filter)) $records_context_params['type'] = $type_filter;
+                if ($records_per_page !== 15) $records_context_params['per_page'] = (string) $records_per_page;
 
                 $records_filter_reset_params = $records_context_params;
                 if ($search !== '') $records_filter_reset_params['search'] = $search;
@@ -1379,7 +1472,7 @@ if(isset($_GET['success'])) {
                 <div class="records-search-control">
                     <label class="records-search-field" for="documentSearchInput">
                         <span class="records-search-icon" aria-hidden="true"><i class="fas fa-search"></i></span>
-                        <input type="search" name="search" id="documentSearchInput" placeholder="Search file name or folder" value="<?php echo htmlspecialchars($search); ?>" autocomplete="off">
+                        <input type="search" name="search" id="documentSearchInput" placeholder="Search file name, PO number, or folder" value="<?php echo htmlspecialchars($search); ?>" autocomplete="off">
                         <?php if ($search !== ''): ?>
                             <a class="records-search-clear" href="<?php echo htmlspecialchars($records_search_clear_url); ?>" title="Clear search" aria-label="Clear search"><i class="fas fa-times"></i></a>
                         <?php endif; ?>
@@ -1715,6 +1808,8 @@ if(isset($_GET['success'])) {
                 <?php endif; ?>
 
                 <div class="file-list-container shadow-sm">
+                    <div class="dataTables_wrapper">
+                        <div class="table-scroll-container">
                     <table id="documentsTable" class="table table-hover align-middle mb-0 w-100">
                         <thead>
                             <?php if(isset($view_recycled) && $view_recycled): ?>
@@ -1740,6 +1835,12 @@ if(isset($_GET['success'])) {
                             <?php if($documents && $documents->num_rows > 0): while($doc = $documents->fetch_assoc()): 
                                 $ext = strtolower(pathinfo($doc['file_name'], PATHINFO_EXTENSION));
                                 $is_img = in_array($ext, ['jpg','jpeg','png','gif']);
+                                $display_file_name = (int) ($doc['po_id'] ?? 0) > 0
+                                    && (string) ($doc['doc_type'] ?? '') === 'PO Supporting File'
+                                    && preg_match('/^\d+_[a-f0-9]{8}\.[a-z0-9]+$/i', (string) $doc['file_name'])
+                                    && trim((string) ($doc['original_file_name'] ?? '')) !== ''
+                                    ? (string) $doc['original_file_name']
+                                    : (string) $doc['file_name'];
                                 
                                 $is_locked = (bool)$doc['is_locked'];
                                 $locked_by = $doc['locked_by'];
@@ -1771,7 +1872,7 @@ if(isset($_GET['success'])) {
                                 $can_edit_file = in_array($my_file_role, ['Editor']);
                                 $document_file_url = 'download.php?type=document&record_id=' . (int) $doc['doc_id'];
                             ?>
-                            <tr id="target-doc-<?php echo $doc['doc_id']; ?>" class="<?php echo $has_file_access ? 'cursor-pointer file-row-title' : ''; ?>" <?php if($has_file_access): ?>onclick="openDocumentViewer('<?php echo htmlspecialchars(addslashes($document_file_url), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($doc['file_name']), ENT_QUOTES); ?>', <?php echo $is_img ? 'true' : 'false'; ?>)"<?php endif; ?>>
+                            <tr id="target-doc-<?php echo $doc['doc_id']; ?>" class="<?php echo $has_file_access ? 'cursor-pointer file-row-title' : ''; ?>" <?php if($has_file_access): ?>onclick="openDocumentViewer('<?php echo htmlspecialchars(addslashes($document_file_url), ENT_QUOTES); ?>', '<?php echo htmlspecialchars(addslashes($display_file_name), ENT_QUOTES); ?>', <?php echo $is_img ? 'true' : 'false'; ?>)"<?php endif; ?>>
                                 <td class="ps-4 py-3">
                                     <div class="d-flex align-items-center">
                                         <div class="file-icon-md bg-light text-primary me-3 border transition-all rounded-3 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
@@ -1786,8 +1887,8 @@ if(isset($_GET['success'])) {
                                         </div>
                                         <div>
                                             <div class="d-flex align-items-center">
-                                                <h6 class="mb-0 text-dark fw-bold text-truncate d-inline-block align-middle" style="max-width: 420px;" title="<?php echo htmlspecialchars($doc['file_name']); ?>">
-                                                    <?php echo htmlspecialchars($doc['file_name']); ?>
+                                                <h6 class="mb-0 text-dark fw-bold text-truncate d-inline-block align-middle" style="max-width: 420px;" title="<?php echo htmlspecialchars($display_file_name); ?>">
+                                                    <?php echo htmlspecialchars($display_file_name); ?>
                                                 </h6>
                                                 
                                                 <?php if($is_locked): ?>
@@ -1995,6 +2096,47 @@ if(isset($_GET['success'])) {
                             <?php endwhile; endif; ?>
                         </tbody>
                     </table>
+                        </div>
+                        <div class="bottom-pagination-bar">
+                            <div class="dataTables_info" role="status" aria-live="polite">
+                                Showing <?php echo $record_first; ?> to <?php echo $record_last; ?> of <?php echo $record_total; ?> items
+                            </div>
+                            <div class="dataTables_length">
+                                <label>Items per page
+                                    <select aria-label="Items per page" onchange="window.location.assign(this.value)">
+                                        <?php foreach ([10, 15, 25, 50, 100] as $page_size): ?>
+                                            <option value="<?php echo htmlspecialchars($record_size_url($page_size), ENT_QUOTES, 'UTF-8'); ?>" <?php echo $records_per_page === $page_size ? 'selected' : ''; ?>><?php echo $page_size; ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </label>
+                            </div>
+                            <nav class="dataTables_paginate" aria-label="Company file pages">
+                                <ul class="pagination">
+                                    <?php if ($records_page > 1): ?>
+                                        <li class="paginate_button page-item previous"><a class="page-link" href="<?php echo htmlspecialchars($record_page_url($records_page - 1), ENT_QUOTES, 'UTF-8'); ?>" aria-label="Previous page"><i class="fas fa-chevron-left" aria-hidden="true"></i></a></li>
+                                    <?php else: ?>
+                                        <li class="paginate_button page-item previous disabled"><span class="page-link" aria-disabled="true"><i class="fas fa-chevron-left" aria-hidden="true"></i></span></li>
+                                    <?php endif; ?>
+                                    <?php $previous_record_page = 0; foreach ($visible_record_pages as $page_number): ?>
+                                        <?php if ($previous_record_page > 0 && $page_number > $previous_record_page + 1): ?>
+                                            <li class="page-item disabled"><span class="page-link" aria-hidden="true">…</span></li>
+                                        <?php endif; ?>
+                                        <?php if ($page_number === $records_page): ?>
+                                            <li class="paginate_button page-item active"><span class="page-link" aria-current="page"><?php echo $page_number; ?></span></li>
+                                        <?php else: ?>
+                                            <li class="paginate_button page-item"><a class="page-link" href="<?php echo htmlspecialchars($record_page_url($page_number), ENT_QUOTES, 'UTF-8'); ?>" aria-label="Page <?php echo $page_number; ?>"><?php echo $page_number; ?></a></li>
+                                        <?php endif; ?>
+                                        <?php $previous_record_page = $page_number; ?>
+                                    <?php endforeach; ?>
+                                    <?php if ($records_page < $record_total_pages): ?>
+                                        <li class="paginate_button page-item next"><a class="page-link" href="<?php echo htmlspecialchars($record_page_url($records_page + 1), ENT_QUOTES, 'UTF-8'); ?>" aria-label="Next page"><i class="fas fa-chevron-right" aria-hidden="true"></i></a></li>
+                                    <?php else: ?>
+                                        <li class="paginate_button page-item next disabled"><span class="page-link" aria-disabled="true"><i class="fas fa-chevron-right" aria-hidden="true"></i></span></li>
+                                    <?php endif; ?>
+                                </ul>
+                            </nav>
+                        </div>
+                    </div>
                 </div>
             <?php endif; ?>
         <?php endif; ?>
@@ -2848,8 +2990,8 @@ if(isset($_GET['success'])) {
 
 <script>
     $(document).ready(function() {
-        if (document.getElementById('documentsTable')) {
-            $('#documentsTable').DataTable({
+        if (<?php echo $view_disposition ? 'true' : 'false'; ?> && document.getElementById('documentsTable')) {
+            const table = $('#documentsTable').DataTable({
                 "order": [],
                 "pageLength": 15,
                 "lengthChange": true,

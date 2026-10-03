@@ -988,6 +988,16 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
   $view_archives = isset($_GET['view_archives']) && $_GET['view_archives'] == '1';
   $view_shared = isset($_GET['shared']) && $_GET['shared'] == '1';
   $sort = (string) ($_GET['sort'] ?? 'date_desc');
+  $requested_records_page = filter_var($_GET['page'] ?? null, FILTER_VALIDATE_INT);
+  $records_page = is_int($requested_records_page) && $requested_records_page > 0
+      ? $requested_records_page : 1;
+  $requested_records_per_page = filter_var($_GET['per_page'] ?? null, FILTER_VALIDATE_INT);
+  $records_per_page = is_int($requested_records_per_page)
+      && in_array($requested_records_per_page, [10, 15, 25, 50, 100], true)
+      ? $requested_records_per_page : 15;
+  $requested_focus_doc = filter_var($_GET['doc'] ?? null, FILTER_VALIDATE_INT);
+  $focus_doc_id = is_int($requested_focus_doc) && $requested_focus_doc > 0
+      ? $requested_focus_doc : 0;
 
   $allowed_record_statuses = ['Archived'];
   $allowed_record_sorts = ['date_desc', 'date_asc', 'name_asc', 'name_desc'];
@@ -997,12 +1007,12 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
       $view_archives = true;
   }
   if ($view_archives || $view_disposition_section || $view_shared) $doc_status = '';
-  $records_query_active = $search !== '' || $doc_status !== '' || $sort !== 'date_desc';
+  $records_query_active = $search !== '' || $doc_status !== '' || $sort !== 'date_desc' || $focus_doc_id > 0;
 
-  $order_by = "COALESCE(d.declared_at, d.uploaded_at) DESC";
-  if ($sort === 'date_asc') $order_by = "COALESCE(d.declared_at, d.uploaded_at) ASC";
-  elseif ($sort === 'name_asc') $order_by = "d.file_name ASC";
-  elseif ($sort === 'name_desc') $order_by = "d.file_name DESC";
+  $order_by = "COALESCE(d.declared_at, d.uploaded_at) DESC, d.doc_id DESC";
+  if ($sort === 'date_asc') $order_by = "COALESCE(d.declared_at, d.uploaded_at) ASC, d.doc_id ASC";
+  elseif ($sort === 'name_asc') $order_by = "d.file_name ASC, d.doc_id ASC";
+  elseif ($sort === 'name_desc') $order_by = "d.file_name DESC, d.doc_id DESC";
 
   // ----------------------------------------------------
   // SYSTEM ADMINISTRATOR HARD REDIRECT
@@ -1034,9 +1044,21 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
   if($view_disposition) $return_params[] = "disposition=1";
   if($view_disposition_history) $return_params[] = "disposition_history=1";
   if($view_shared) $return_params[] = "shared=1";
-  if(!empty($search)) $return_params[] = "search=".urlencode($search);
+  if($search !== '') $return_params[] = "search=".urlencode($search);
   if(!empty($doc_status)) $return_params[] = "doc_status=".urlencode($doc_status);
   if($sort !== 'date_desc') $return_params[] = "sort=".urlencode($sort);
+  if($records_per_page !== 15) $return_params[] = "per_page=".$records_per_page;
+
+  $record_page_url = static function (int $page) use ($return_params): string {
+      return 'documents.php?' . implode('&', array_merge($return_params, ['page=' . max(1, $page)]));
+  };
+  $record_size_url = static function (int $size) use ($return_params): string {
+      $params = array_values(array_filter($return_params, static function ($part): bool {
+          return strpos($part, 'per_page=') !== 0;
+      }));
+      if ($size !== 15) $params[] = 'per_page=' . $size;
+      return 'documents.php' . ($params ? '?' . implode('&', $params) : '');
+  };
 
   $exact_return_url = "documents.php" . (!empty($return_params) ? "?" . implode("&", $return_params) : "");
 
@@ -1118,6 +1140,12 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
   // DOCUMENTS QUERIES (UNIFIED RBAC & SHARE CHECK)
   // ==========================================
   $disposition_docs = null;
+  $disp_total = 0;
+  $disp_total_pages = 1;
+  $disp_page = $records_page;
+  $disp_first = 0;
+  $disp_last = 0;
+  $disp_visible_pages = [];
   if ($view_disposition_section) {
       $retention_base_sql = "COALESCE(d.declared_at, d.uploaded_at)";
       if ($view_disposition_history) {
@@ -1139,7 +1167,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
       $disp_params = [];
       $disp_types = "";
     
-      if (!empty($search)) {
+      if ($search !== '') {
         $disp_where[] = "(d.file_name LIKE ? OR d.original_file_name LIKE ? OR d.record_number LIKE ? OR d.business_reference LIKE ? OR d.doc_type LIKE ? OR d.category LIKE ?)";
         $disp_params[] = "%$search%";
         $disp_params[] = "%$search%";
@@ -1167,7 +1195,26 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
       }
     
       $disp_where_clause = implode(" AND ", $disp_where);
-    
+      // Count and fetch use the same joins and RBAC predicate so pagination
+      // never exposes a row outside the user's permitted disposition view.
+      $disp_from_sql = "
+          FROM documents d
+          LEFT JOIN document_categories dc ON d.category = dc.sub_category
+          LEFT JOIN retention_policies p ON p.policy_id = COALESCE(d.policy_id, dc.policy_id)
+          LEFT JOIN users u ON d.uploaded_by = u.user_id
+          LEFT JOIN users locker ON d.locked_by = locker.user_id
+          LEFT JOIN disposition_requests req ON req.request_id = (
+              SELECT latest_req.request_id
+              FROM disposition_requests latest_req
+              WHERE latest_req.doc_id = d.doc_id
+              ORDER BY latest_req.request_id DESC
+              LIMIT 1
+          )
+          LEFT JOIN users requester ON requester.user_id = req.requested_by
+          LEFT JOIN users reviewer ON reviewer.user_id = req.reviewed_by
+          LEFT JOIN users executor ON executor.user_id = req.executed_by
+          LEFT JOIN physical_disposition_logs pdl ON pdl.document_id=d.doc_id
+      ";
       $disp_query_sql = "
           SELECT d.*, p.policy_name, p.action_after_retention, u.full_name,
                  DATE_ADD(DATE_ADD($retention_base_sql, INTERVAL (COALESCE(p.active_years, 0) + COALESCE(p.archive_years, 0)) YEAR), INTERVAL (COALESCE(p.active_months, 0) + COALESCE(p.archive_months, 0)) MONTH) AS retention_date,
@@ -1198,32 +1245,44 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                  pdl.source_path AS physical_disposal_source_path,
                  (SELECT COUNT(*) FROM virt_document_locations retained_copy WHERE retained_copy.document_id=d.doc_id) AS registered_physical_copy,
                  $vc3PhysicalPathSql as full_physical_path
-          FROM documents d
-          LEFT JOIN document_categories dc ON d.category = dc.sub_category
-          LEFT JOIN retention_policies p ON p.policy_id = COALESCE(d.policy_id, dc.policy_id)
-          LEFT JOIN users u ON d.uploaded_by = u.user_id
-          LEFT JOIN users locker ON d.locked_by = locker.user_id
-          LEFT JOIN disposition_requests req ON req.request_id = (
-              SELECT latest_req.request_id
-              FROM disposition_requests latest_req
-              WHERE latest_req.doc_id = d.doc_id
-              ORDER BY latest_req.request_id DESC
-              LIMIT 1
-          )
-          LEFT JOIN users requester ON requester.user_id = req.requested_by
-          LEFT JOIN users reviewer ON reviewer.user_id = req.reviewed_by
-          LEFT JOIN users executor ON executor.user_id = req.executed_by
-          LEFT JOIN physical_disposition_logs pdl ON pdl.document_id=d.doc_id
+          $disp_from_sql
 /* VC3 physical path is resolved by its independent folder ID. 0 */
           WHERE $disp_where_clause
-          ORDER BY " . ($view_disposition_history ? "req.executed_at DESC, d.doc_id DESC" : "retention_date ASC");
+          ORDER BY " . ($view_disposition_history ? "req.executed_at DESC, d.doc_id DESC" : "retention_date ASC, d.doc_id ASC");
         
       // SECURITY: Prevent backend from fetching actual documents if role is Admin
       if ($role !== 'Admin') {
-          $stmt_disp = $conn->prepare($disp_query_sql);
-          if (!empty($disp_params)) $stmt_disp->bind_param($disp_types, ...$disp_params);
+          $disp_count_sql = "SELECT COUNT(*) AS total $disp_from_sql WHERE $disp_where_clause";
+          $stmt_disp_count = $conn->prepare($disp_count_sql);
+          if (!empty($disp_params)) $stmt_disp_count->bind_param($disp_types, ...$disp_params);
+          $stmt_disp_count->execute();
+          $disp_total = (int) ($stmt_disp_count->get_result()->fetch_assoc()['total'] ?? 0);
+          $stmt_disp_count->close();
+
+          $disp_total_pages = max(1, (int) ceil($disp_total / $records_per_page));
+          $disp_page = min($disp_page, $disp_total_pages);
+          $disp_offset = ($disp_page - 1) * $records_per_page;
+          $disp_first = $disp_total > 0 ? $disp_offset + 1 : 0;
+          $disp_last = $disp_total > 0 ? min($disp_offset + $records_per_page, $disp_total) : 0;
+          if ($disp_total_pages <= 7) {
+              $disp_visible_pages = range(1, $disp_total_pages);
+          } else {
+              $disp_visible_pages = array_values(array_unique(array_filter(
+                  [1, $disp_page - 1, $disp_page, $disp_page + 1, $disp_total_pages],
+                  static function (int $page) use ($disp_total_pages): bool {
+                      return $page >= 1 && $page <= $disp_total_pages;
+                  }
+              )));
+              sort($disp_visible_pages, SORT_NUMERIC);
+          }
+
+          $disp_page_params = array_merge($disp_params, [$records_per_page, $disp_offset]);
+          $stmt_disp = $conn->prepare($disp_query_sql . ' LIMIT ? OFFSET ?');
+          $stmt_disp->bind_param($disp_types . 'ii', ...$disp_page_params);
           $stmt_disp->execute();
           $disposition_docs = $stmt_disp->get_result();
+          $stmt_disp->close();
+          $exact_return_url = $record_page_url($disp_page);
       }
   }
 
@@ -1239,7 +1298,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
   $params = [];
   $types = "";
 
-  if (!empty($search)) {
+  if ($search !== '') {
     $where[] = "(d.file_name LIKE ? OR d.original_file_name LIKE ? OR d.record_number LIKE ? OR d.business_reference LIKE ? OR d.doc_type LIKE ? OR d.category LIKE ?)";
     $params[] = "%$search%";
     $params[] = "%$search%";
@@ -1293,18 +1352,88 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
             LEFT JOIN purchase_orders p ON d.po_id = p.po_id
             LEFT JOIN users u ON d.uploaded_by = u.user_id
             LEFT JOIN virt_document_locations vdl ON d.doc_id = vdl.document_id
-            LEFT JOIN document_categories dc ON d.category = dc.sub_category
 /* VC3 physical path is resolved by its independent folder ID. 1 */
             WHERE $whereClause 
             ORDER BY $order_by";
 
   $documents = null;
-  // SECURITY: Do not fetch actual documents if Admin
-  if ($role !== 'Admin') {
-      $stmt = $conn->prepare($query);
-      if(!empty($params)) $stmt->bind_param($types, ...$params);
+  $record_total = 0;
+  $record_total_pages = 1;
+  $record_first = 0;
+  $record_last = 0;
+  $visible_record_pages = [];
+  // Fetch the main list only when it is displayed. Disposition has a separate
+  // query, and folder overview pages do not render the document table.
+  $show_normal_record_list = $role !== 'Admin'
+      && !$view_disposition_section
+      && (!empty($type_filter) || $view_archives || $view_shared || $records_query_active);
+  if ($show_normal_record_list) {
+      $count_stmt = $conn->prepare("SELECT COUNT(*) AS total FROM documents d WHERE $whereClause");
+      if (!empty($params)) $count_stmt->bind_param($types, ...$params);
+      $count_stmt->execute();
+      $record_total = (int) ($count_stmt->get_result()->fetch_assoc()['total'] ?? 0);
+      $count_stmt->close();
+      $record_total_pages = max(1, (int) ceil($record_total / $records_per_page));
+
+      // A link to a specific document must still find it after server paging.
+      if ($focus_doc_id > 0 && !is_int($requested_records_page)) {
+          $focus_stmt = $conn->prepare(
+              "SELECT COALESCE(d.declared_at, d.uploaded_at) AS sort_date, d.file_name
+               FROM documents d WHERE $whereClause AND d.doc_id = ? LIMIT 1"
+          );
+          $focus_params = array_merge($params, [$focus_doc_id]);
+          $focus_stmt->bind_param($types . 'i', ...$focus_params);
+          $focus_stmt->execute();
+          $focus_record = $focus_stmt->get_result()->fetch_assoc();
+          $focus_stmt->close();
+
+          if ($focus_record) {
+              $sort_is_date = in_array($sort, ['date_desc', 'date_asc'], true);
+              $sort_column = $sort_is_date
+                  ? 'COALESCE(d.declared_at, d.uploaded_at)' : 'd.file_name';
+              $sort_value = (string) ($sort_is_date
+                  ? $focus_record['sort_date'] : $focus_record['file_name']);
+              $ascending = in_array($sort, ['date_asc', 'name_asc'], true);
+              $comparison = $ascending ? '<' : '>';
+              $rank_stmt = $conn->prepare(
+                  "SELECT COUNT(*) AS before_count FROM documents d
+                   WHERE $whereClause AND
+                   ($sort_column $comparison ? OR
+                    ($sort_column = ? AND d.doc_id $comparison ?))"
+              );
+              $rank_params = array_merge($params, [$sort_value, $sort_value, $focus_doc_id]);
+              $rank_stmt->bind_param($types . 'ssi', ...$rank_params);
+              $rank_stmt->execute();
+              $before_count = (int) ($rank_stmt->get_result()->fetch_assoc()['before_count'] ?? 0);
+              $rank_stmt->close();
+              $records_page = (int) floor($before_count / $records_per_page) + 1;
+          }
+      }
+
+      $records_page = min($records_page, $record_total_pages);
+      $record_offset = ($records_page - 1) * $records_per_page;
+      $record_first = $record_total ? $record_offset + 1 : 0;
+      $record_last = $record_total ? min($record_offset + $records_per_page, $record_total) : 0;
+      if ($record_total_pages <= 7) {
+          $visible_record_pages = range(1, $record_total_pages);
+      } else {
+          $visible_record_pages = array_values(array_unique(array_filter(
+              [1, $records_page - 1, $records_page, $records_page + 1, $record_total_pages],
+              static function (int $page) use ($record_total_pages): bool {
+                  return $page >= 1 && $page <= $record_total_pages;
+              }
+          )));
+          sort($visible_record_pages, SORT_NUMERIC);
+      }
+
+      $page_params = array_merge($params, [$records_per_page, $record_offset]);
+      $stmt = $conn->prepare($query . ' LIMIT ? OFFSET ?');
+      $stmt->bind_param($types . 'ii', ...$page_params);
       $stmt->execute();
       $documents = $stmt->get_result();
+      $stmt->close();
+      $exact_return_url = $record_page_url($records_page)
+          . ($focus_doc_id > 0 ? '&doc=' . $focus_doc_id : '');
   }
 
   $toastMsg = '';
@@ -1437,6 +1566,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                   if ($view_shared) $records_context_params['shared'] = '1';
                   if (!empty($parent_filter)) $records_context_params['parent'] = $parent_filter;
                   if (!empty($type_filter)) $records_context_params['type'] = $type_filter;
+                  if ($records_per_page !== 15) $records_context_params['per_page'] = (string) $records_per_page;
 
                   $records_filter_reset_params = $records_context_params;
                   if ($search !== '') $records_filter_reset_params['search'] = $search;
@@ -1681,6 +1811,8 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
 
               <?php if($view_disposition_section): ?>
                   <div class="file-list-container shadow-sm">
+                      <div class="dataTables_wrapper">
+                          <div class="table-scroll-container">
                       <table id="documentsTable" class="table table-hover align-middle mb-0 w-100">
                           <thead>
                               <tr>
@@ -1882,13 +2014,58 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                                       </div>
                                   </td>
                               </tr>
-                              <?php endwhile; endif; ?>
+                              <?php endwhile; else: ?>
+                              <tr><td colspan="4" class="text-center py-5 text-muted">No disposition records found.</td></tr>
+                              <?php endif; ?>
                           </tbody>
                       </table>
+                          </div>
+                          <div class="bottom-pagination-bar">
+                              <div class="dataTables_info" role="status" aria-live="polite">
+                                  Showing <?php echo $disp_first; ?> to <?php echo $disp_last; ?> of <?php echo $disp_total; ?> items
+                              </div>
+                              <div class="dataTables_length">
+                                  <label>Items per page
+                                      <select aria-label="Disposition items per page" onchange="window.location.assign(this.value)">
+                                          <?php foreach ([10, 15, 25, 50, 100] as $page_size): ?>
+                                              <option value="<?php echo htmlspecialchars($record_size_url($page_size), ENT_QUOTES, 'UTF-8'); ?>" <?php echo $records_per_page === $page_size ? 'selected' : ''; ?>><?php echo $page_size; ?></option>
+                                          <?php endforeach; ?>
+                                      </select>
+                                  </label>
+                              </div>
+                              <nav class="dataTables_paginate" aria-label="Disposition record pages">
+                                  <ul class="pagination">
+                                      <?php if ($disp_page > 1): ?>
+                                          <li class="paginate_button page-item previous"><a class="page-link" href="<?php echo htmlspecialchars($record_page_url($disp_page - 1), ENT_QUOTES, 'UTF-8'); ?>" aria-label="Previous page"><i class="fas fa-chevron-left" aria-hidden="true"></i></a></li>
+                                      <?php else: ?>
+                                          <li class="paginate_button page-item previous disabled"><span class="page-link" aria-disabled="true"><i class="fas fa-chevron-left" aria-hidden="true"></i></span></li>
+                                      <?php endif; ?>
+                                      <?php $previous_disp_page = 0; foreach ($disp_visible_pages as $page_number): ?>
+                                          <?php if ($previous_disp_page > 0 && $page_number > $previous_disp_page + 1): ?>
+                                              <li class="page-item disabled"><span class="page-link" aria-hidden="true">…</span></li>
+                                          <?php endif; ?>
+                                          <?php if ($page_number === $disp_page): ?>
+                                              <li class="paginate_button page-item active"><span class="page-link" aria-current="page"><?php echo $page_number; ?></span></li>
+                                          <?php else: ?>
+                                              <li class="paginate_button page-item"><a class="page-link" href="<?php echo htmlspecialchars($record_page_url($page_number), ENT_QUOTES, 'UTF-8'); ?>" aria-label="Page <?php echo $page_number; ?>"><?php echo $page_number; ?></a></li>
+                                          <?php endif; ?>
+                                          <?php $previous_disp_page = $page_number; ?>
+                                      <?php endforeach; ?>
+                                      <?php if ($disp_page < $disp_total_pages): ?>
+                                          <li class="paginate_button page-item next"><a class="page-link" href="<?php echo htmlspecialchars($record_page_url($disp_page + 1), ENT_QUOTES, 'UTF-8'); ?>" aria-label="Next page"><i class="fas fa-chevron-right" aria-hidden="true"></i></a></li>
+                                      <?php else: ?>
+                                          <li class="paginate_button page-item next disabled"><span class="page-link" aria-disabled="true"><i class="fas fa-chevron-right" aria-hidden="true"></i></span></li>
+                                      <?php endif; ?>
+                                  </ul>
+                              </nav>
+                          </div>
+                      </div>
                   </div>
 
               <?php else: ?>
                   <div class="file-list-container shadow-sm">
+                      <div class="dataTables_wrapper">
+                          <div class="table-scroll-container">
                       <table id="documentsTable" class="table table-hover align-middle mb-0 w-100">
                           <thead>
                               <tr>
@@ -2053,6 +2230,47 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                               <?php endwhile; endif; ?>
                           </tbody>
                       </table>
+                          </div>
+                          <div class="bottom-pagination-bar">
+                              <div class="dataTables_info" role="status" aria-live="polite">
+                                  Showing <?php echo $record_first; ?> to <?php echo $record_last; ?> of <?php echo $record_total; ?> items
+                              </div>
+                              <div class="dataTables_length">
+                                  <label>Items per page
+                                      <select aria-label="Items per page" onchange="window.location.assign(this.value)">
+                                          <?php foreach ([10, 15, 25, 50, 100] as $page_size): ?>
+                                              <option value="<?php echo htmlspecialchars($record_size_url($page_size), ENT_QUOTES, 'UTF-8'); ?>" <?php echo $records_per_page === $page_size ? 'selected' : ''; ?>><?php echo $page_size; ?></option>
+                                          <?php endforeach; ?>
+                                      </select>
+                                  </label>
+                              </div>
+                              <nav class="dataTables_paginate" aria-label="Official record pages">
+                                  <ul class="pagination">
+                                      <?php if ($records_page > 1): ?>
+                                          <li class="paginate_button page-item previous"><a class="page-link" href="<?php echo htmlspecialchars($record_page_url($records_page - 1), ENT_QUOTES, 'UTF-8'); ?>" aria-label="Previous page"><i class="fas fa-chevron-left" aria-hidden="true"></i></a></li>
+                                      <?php else: ?>
+                                          <li class="paginate_button page-item previous disabled"><span class="page-link" aria-disabled="true"><i class="fas fa-chevron-left" aria-hidden="true"></i></span></li>
+                                      <?php endif; ?>
+                                      <?php $previous_record_page = 0; foreach ($visible_record_pages as $page_number): ?>
+                                          <?php if ($previous_record_page > 0 && $page_number > $previous_record_page + 1): ?>
+                                              <li class="page-item disabled"><span class="page-link" aria-hidden="true">…</span></li>
+                                          <?php endif; ?>
+                                          <?php if ($page_number === $records_page): ?>
+                                              <li class="paginate_button page-item active"><span class="page-link" aria-current="page"><?php echo $page_number; ?></span></li>
+                                          <?php else: ?>
+                                              <li class="paginate_button page-item"><a class="page-link" href="<?php echo htmlspecialchars($record_page_url($page_number), ENT_QUOTES, 'UTF-8'); ?>" aria-label="Page <?php echo $page_number; ?>"><?php echo $page_number; ?></a></li>
+                                          <?php endif; ?>
+                                          <?php $previous_record_page = $page_number; ?>
+                                      <?php endforeach; ?>
+                                      <?php if ($records_page < $record_total_pages): ?>
+                                          <li class="paginate_button page-item next"><a class="page-link" href="<?php echo htmlspecialchars($record_page_url($records_page + 1), ENT_QUOTES, 'UTF-8'); ?>" aria-label="Next page"><i class="fas fa-chevron-right" aria-hidden="true"></i></a></li>
+                                      <?php else: ?>
+                                          <li class="paginate_button page-item next disabled"><span class="page-link" aria-disabled="true"><i class="fas fa-chevron-right" aria-hidden="true"></i></span></li>
+                                      <?php endif; ?>
+                                  </ul>
+                              </nav>
+                          </div>
+                      </div>
                   </div>
               <?php endif; ?>
           <?php endif; ?>
@@ -3050,35 +3268,6 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
 
   <script>
       $(document).ready(function() {
-          if (document.getElementById('documentsTable')) {
-              $('#documentsTable').DataTable({
-                  "order": [],
-                  "pageLength": 15,
-                  "lengthChange": true,
-                  "lengthMenu": [[10, 15, 25, 50, 100], [10, 15, 25, 50, 100]], 
-                  "searching": false, 
-                  "info": true,
-                  // DOM Structure: Table inside scroll container, Info/Length/Paginate in bottom fixed bar
-                  "dom": '<"table-scroll-container"t><"bottom-pagination-bar"ilp>',
-                  "language": {
-                      "emptyTable": "<div class='text-center p-5 text-muted'><i class='fas fa-folder-open fa-3x mb-3 opacity-50'></i><br><h5>No documents found</h5><p class='mb-0 fs-sm'>Upload a file to get started.</p></div>",
-                      "info": "Showing _START_ to _END_ of _TOTAL_ items",
-                      "lengthMenu": "Items per page _MENU_",
-                      "paginate": {
-                          "previous": "<i class='fas fa-chevron-left'></i>",
-                          "next": "<i class='fas fa-chevron-right'></i>"
-                      }
-                  },
-                  "drawCallback": function(settings) {
-                      // Ensure table wrapper always fills remaining height
-                      $('.dataTables_wrapper').css('height', '100%');
-                  }
-              });
-
-              // Trigger DataTables redraw on window resize to fix scrolling bounds
-              $(window).on('resize', function() { table.columns.adjust(); });
-          }
-
           const Toast = Swal.mixin({
               toast: true,
               position: 'bottom-end',

@@ -99,6 +99,130 @@ function drms_get_user_for_update(mysqli $conn, int $userId): ?array
     return $user ?: null;
 }
 
+/**
+ * Transfer every active PO task to the least-loaded active colleague with the
+ * same workflow role before an account is suspended. Runs inside the caller's
+ * transaction; if any task has no eligible successor, the caller can roll back
+ * the whole operation so neither the account nor its task ownership is changed.
+ */
+function drms_transfer_active_po_tasks_before_suspension(mysqli $conn, int $targetUserId, int $adminUserId): array
+{
+    $taskStmt = $conn->prepare(
+        "SELECT assignment_id, po_id, assigned_role
+         FROM purchase_order_task_assignments
+         WHERE assigned_to = ? AND assignment_status = 'Active'
+         ORDER BY assignment_id ASC
+         FOR UPDATE"
+    );
+    if (!$taskStmt) {
+        throw new RuntimeException('TASK_LOOKUP_FAILED');
+    }
+    $taskStmt->bind_param('i', $targetUserId);
+    $taskStmt->execute();
+    $tasks = $taskStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $taskStmt->close();
+
+    $transferred = [];
+    foreach ($tasks as $task) {
+        $assignmentId = (int) ($task['assignment_id'] ?? 0);
+        $poId = (int) ($task['po_id'] ?? 0);
+        $assignedRole = trim((string) ($task['assigned_role'] ?? ''));
+        if ($assignmentId < 1 || $poId < 1 || $assignedRole === '') {
+            throw new RuntimeException('TASK_ASSIGNMENT_INVALID');
+        }
+
+        $candidateStmt = $conn->prepare(
+            "SELECT u.user_id
+             FROM users u
+             WHERE u.role = ? AND u.status = 'Active' AND u.user_id <> ?
+             ORDER BY (
+                 SELECT COUNT(*)
+                 FROM purchase_order_task_assignments active_task
+                 WHERE active_task.assigned_to = u.user_id
+                   AND active_task.assignment_status = 'Active'
+             ) ASC, u.user_id ASC
+             LIMIT 1
+             FOR UPDATE"
+        );
+        if (!$candidateStmt) {
+            throw new RuntimeException('TASK_SUCCESSOR_LOOKUP_FAILED');
+        }
+        $candidateStmt->bind_param('si', $assignedRole, $targetUserId);
+        $candidateStmt->execute();
+        $candidate = $candidateStmt->get_result()->fetch_assoc();
+        $candidateStmt->close();
+
+        $successorId = (int) ($candidate['user_id'] ?? 0);
+        if ($successorId < 1) {
+            throw new RuntimeException('NO_ACTIVE_ROLE_SUCCESSOR');
+        }
+
+        $releaseReason = 'Transferred to active same-role user before assigned account suspension';
+        $releaseStmt = $conn->prepare(
+            "UPDATE purchase_order_task_assignments
+             SET assignment_status = 'Released', released_at = NOW(), release_reason = ?
+             WHERE assignment_id = ? AND assigned_to = ? AND assignment_status = 'Active'"
+        );
+        if (!$releaseStmt) {
+            throw new RuntimeException('TASK_RELEASE_FAILED');
+        }
+        $releaseStmt->bind_param('sii', $releaseReason, $assignmentId, $targetUserId);
+        $releaseStmt->execute();
+        $released = $releaseStmt->affected_rows === 1;
+        $releaseStmt->close();
+        if (!$released) {
+            throw new RuntimeException('TASK_CHANGED_DURING_TRANSFER');
+        }
+
+        $insertStmt = $conn->prepare(
+            "INSERT INTO purchase_order_task_assignments
+                (po_id, assigned_to, assigned_by, assigned_role, assignment_status, assigned_at)
+             VALUES (?, ?, ?, ?, 'Active', NOW())"
+        );
+        if (!$insertStmt) {
+            throw new RuntimeException('TASK_REASSIGN_FAILED');
+        }
+        $insertStmt->bind_param('iiis', $poId, $successorId, $adminUserId, $assignedRole);
+        $insertStmt->execute();
+        $newAssignmentId = (int) $insertStmt->insert_id;
+        $insertStmt->close();
+
+        $message = 'A PO task was transferred to you because its previous assignee account is being suspended.';
+        $url = 'view_po.php?id=' . $poId;
+        $notificationKey = 'user-suspension-task-transfer:' . $assignmentId;
+        $notificationStmt = $conn->prepare(
+            "INSERT INTO notifications
+                (target_role, recipient_user_id, message, target_url, notification_key, is_read, is_pinned)
+             VALUES (?, ?, ?, ?, ?, 0, 0)"
+        );
+        if (!$notificationStmt) {
+            throw new RuntimeException('TASK_NOTIFICATION_FAILED');
+        }
+        $notificationStmt->bind_param('sisss', $assignedRole, $successorId, $message, $url, $notificationKey);
+        $notificationSent = $notificationStmt->execute();
+        $notificationStmt->close();
+        if (!$notificationSent) {
+            throw new RuntimeException('TASK_NOTIFICATION_FAILED');
+        }
+
+        log_audit_action(
+            $conn,
+            $adminUserId,
+            'PO_TASK_TRANSFERRED_FOR_SUSPENSION',
+            'Transferred active PO task #' . $poId . ' from user #' . $targetUserId .
+                ' to active same-role user #' . $successorId . ' before suspension (assignment #' . $newAssignmentId . ').'
+        );
+
+        $transferred[] = [
+            'po_id' => $poId,
+            'role' => $assignedRole,
+            'successor_id' => $successorId,
+        ];
+    }
+
+    return $transferred;
+}
+
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     
     if (!isset($_POST['csrf_token']) || !is_string($_POST['csrf_token']) || !hash_equals((string) $_SESSION['csrf_token'], $_POST['csrf_token'])) {
@@ -887,6 +1011,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 throw new RuntimeException('USER_NOT_FOUND');
             }
 
+            $transferred_po_tasks = [];
+            if ($new_status === 'Suspended') {
+                $transferred_po_tasks = drms_transfer_active_po_tasks_before_suspension(
+                    $conn,
+                    $target_user_id,
+                    (int) $_SESSION['user_id']
+                );
+            }
+
             if ($target_user['role'] === 'Admin' && $target_user['status'] === 'Active' && $new_status === 'Suspended') {
                 $admin_count = (int) ($conn->query(
                     "SELECT COUNT(*) AS total FROM users WHERE role = 'Admin' AND status = 'Active'"
@@ -920,9 +1053,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 (int) $_SESSION['user_id'],
                 'UPDATE_STATUS',
                 'Changed @' . $target_user['username'] . ' account status from ' . $target_user['status'] . ' to ' . $new_status .
+                (count($transferred_po_tasks) > 0
+                    ? '; transferred ' . count($transferred_po_tasks) . ' active PO task(s) to active same-role users.'
+                    : '') .
                 ($new_status === 'Suspended' ? '; active sessions and access tokens were revoked.' : '.')
             );
-            drms_admin_users_redirect('success', 'UserStatusUpdated');
+            drms_admin_users_redirect(
+                'success',
+                $new_status === 'Suspended' && count($transferred_po_tasks) > 0
+                    ? 'UserSuspendedTasksTransferred'
+                    : 'UserStatusUpdated'
+            );
         } catch (Throwable $status_error) {
             $conn->rollback();
             if ($status_error->getMessage() === 'USER_NOT_FOUND') {
@@ -930,6 +1071,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
             if ($status_error->getMessage() === 'LAST_ACTIVE_ADMIN') {
                 drms_admin_users_redirect('error', 'LastActiveAdmin');
+            }
+            if ($status_error->getMessage() === 'NO_ACTIVE_ROLE_SUCCESSOR') {
+                drms_admin_users_redirect('error', 'NoActiveTaskSuccessor');
+            }
+            if (in_array($status_error->getMessage(), [
+                'TASK_LOOKUP_FAILED',
+                'TASK_ASSIGNMENT_INVALID',
+                'TASK_SUCCESSOR_LOOKUP_FAILED',
+                'TASK_RELEASE_FAILED',
+                'TASK_CHANGED_DURING_TRANSFER',
+                'TASK_REASSIGN_FAILED',
+                'TASK_NOTIFICATION_FAILED',
+            ], true)) {
+                drms_admin_users_redirect('error', 'SuspensionTaskTransferFailed');
             }
             error_log('Account status update failed: ' . $status_error->getMessage());
             drms_admin_users_redirect('error', 'UpdateFailed');

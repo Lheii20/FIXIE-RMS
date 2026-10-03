@@ -1858,54 +1858,36 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 
     if ($action == 'delete') {
-        $allowed = ['GM', 'President', 'Procurement'];
-        if (!in_array($_SESSION['role'], $allowed, true)) {
-            po_handler_redirect(
-                '../po_list.php',
-                'error',
-                'Your account is not allowed to delete this document.'
-            );
-        }
-
-        $doc_id = intval($_POST['doc_id']);
-        $redirectUrl = getRedirectUrl($conn, $doc_id);
-        
-        $stmt = $conn->prepare("SELECT file_path, file_name FROM documents WHERE doc_id = ?");
-        $stmt->bind_param("i", $doc_id);
-        $stmt->execute();
-        $res = $stmt->get_result();
-        
-        if($res->num_rows > 0) {
-            $file = $res->fetch_assoc();
-            
-            $fixedUploadDir = "../uploads/";
-            $safeFileName = basename($file['file_name']); 
-            $physicalPath = $fixedUploadDir . $safeFileName;
-
-            if (file_exists($physicalPath)) {
-                unlink($physicalPath);
-            }
-            
-            $del = $conn->prepare("DELETE FROM documents WHERE doc_id = ?");
-            $del->bind_param("i", $doc_id);
-            $del->execute();
-            
-            $desc = "Deleted file: " . $file['file_name'];
-            if (function_exists('log_document_action')) {
-                log_document_action($conn, $user_id, 'DELETE_FILE', $doc_id, $desc, $redirectUrl);
-            } else {
-                log_audit_action($conn, $user_id, 'DELETE_FILE', $desc);
-            }
-        }
-        
-        header("Location: " . $redirectUrl . (strpos($redirectUrl, '?') ? '&' : '?') . "success=Deleted");
-        exit();
+        $doc_id = filter_var($_POST['doc_id'] ?? null, FILTER_VALIDATE_INT);
+        $redirectUrl = $doc_id !== false && $doc_id !== null && $doc_id > 0
+            ? getRedirectUrl($conn, $doc_id)
+            : '../po_list.php';
+        po_handler_redirect(
+            $redirectUrl,
+            'error',
+            'This legacy delete route is disabled. Refresh View PO and use the controlled Recycle Bin action for an eligible working attachment.'
+        );
     }
 
     if ($action == 'upload' || isset($_FILES['document'])) {
         $po_id = isset($_POST['po_id']) && !empty($_POST['po_id']) ? intval($_POST['po_id']) : null;
-        $doc_type = $_POST['doc_type'] ?? 'General'; 
         $redirectUrl = getRedirectUrl($conn, null, $po_id);
+
+        if ($_SESSION['role'] !== 'Procurement') {
+            po_handler_redirect($redirectUrl, 'error', 'Only Procurement can upload PO supporting files.');
+        }
+        if ($po_id === null || $po_id < 1) {
+            po_handler_redirect('../po_list.php', 'error', 'Select a valid purchase order before uploading a file.');
+        }
+        $po_stmt = $conn->prepare('SELECT po_number FROM purchase_orders WHERE po_id = ? LIMIT 1');
+        $po_stmt->bind_param('i', $po_id);
+        $po_stmt->execute();
+        $po_row = $po_stmt->get_result()->fetch_assoc();
+        $po_stmt->close();
+        if (!$po_row) {
+            po_handler_redirect('../po_list.php', 'error', 'The selected purchase order is unavailable.');
+        }
+        $po_number = (string) $po_row['po_number'];
 
         $file = $_FILES['document'] ?? null;
         try {
@@ -1922,6 +1904,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             );
         }
         $ext = $validated_attachment['extension'];
+        $original_name = basename(str_replace('\\', '/', (string) $validated_attachment['original_name']));
+        $original_name = trim((string) preg_replace('/[\x00-\x1F\x7F]/u', ' ', $original_name));
+        $original_name = mb_substr($original_name, 0, 255);
+        if ($original_name === '') {
+            po_handler_redirect($redirectUrl, 'error', 'The selected file has no valid name.');
+        }
         $fileHash = hash_file('sha256', $validated_attachment['tmp_name']);
         $checkStmt = $conn->prepare("SELECT doc_id FROM documents WHERE file_hash = ?");
         $checkStmt->bind_param("s", $fileHash);
@@ -1945,16 +1933,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $dbPath = $dbDir . $newFileName;         
 
         if (drms_storage_move_uploaded_file($validated_attachment['tmp_name'], $targetPath)) {
-            if ($po_id === null) {
-                $stmt = $conn->prepare("INSERT INTO documents (po_id, doc_type, file_name, file_path, file_hash, uploaded_by, status) VALUES (NULL, ?, ?, ?, ?, ?, 'Active')");
-                $stmt->bind_param("ssssi", $doc_type, $newFileName, $dbPath, $fileHash, $user_id);
-            } else {
-                $stmt = $conn->prepare("INSERT INTO documents (po_id, doc_type, file_name, file_path, file_hash, uploaded_by, status) VALUES (?, ?, ?, ?, ?, ?, 'Active')");
-                $stmt->bind_param("issssi", $po_id, $doc_type, $newFileName, $dbPath, $fileHash, $user_id);
-            }
+            $stmt = $conn->prepare(
+                "INSERT INTO documents
+                    (po_id, doc_type, file_name, original_file_name, business_reference,
+                     file_path, file_hash, uploaded_by, status, record_phase)
+                 VALUES (?, 'PO Supporting File', ?, ?, ?, ?, ?, ?, 'Active', 'Working')"
+            );
+            $stmt->bind_param('isssssi', $po_id, $newFileName, $original_name, $po_number, $dbPath, $fileHash, $user_id);
             
             if($stmt->execute()) {
-                log_audit_action($conn, $user_id, 'UPLOAD', "Uploaded file: $newFileName");
+                log_audit_action($conn, $user_id, 'UPLOAD', "Uploaded PO supporting file: $original_name for $po_number");
                 po_handler_redirect(
                     $redirectUrl,
                     'success',

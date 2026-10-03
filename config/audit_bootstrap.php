@@ -62,29 +62,28 @@ if (!function_exists('drms_log_audit_action')) {
         $old_json = $old_payload !== null ? (is_string($old_payload) ? $old_payload : json_encode($old_payload)) : null;
         $new_json = $new_payload !== null ? (is_string($new_payload) ? $new_payload : json_encode($new_payload)) : null;
 
+        $stmt = null;
         try {
             $stmt = $conn->prepare("INSERT INTO audit_logs (user_id, action_type, description, old_payload, new_payload, ip_address) VALUES (?, ?, ?, ?, ?, ?)");
-            $stmt->bind_param("isssss", $user_id, $action_type, $description, $old_json, $new_json, $ip_address);
-            $stmt->execute();
-            return $stmt->insert_id;
-        } catch (Throwable $e) {
-            error_log("Audit insert failed, retrying with manual ID: " . $e->getMessage());
-        }
-
-        try {
-            $next_id = 1;
-            $res = $conn->query("SELECT COALESCE(MAX(log_id), 0) + 1 AS next_id FROM audit_logs");
-            if ($res && $row = $res->fetch_assoc()) {
-                $next_id = (int)$row['next_id'];
+            if (!$stmt) {
+                throw new RuntimeException('Could not prepare the audit insert.');
             }
-
-            $stmt = $conn->prepare("INSERT INTO audit_logs (log_id, user_id, action_type, description, old_payload, new_payload, ip_address) VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $stmt->bind_param("iisssss", $next_id, $user_id, $action_type, $description, $old_json, $new_json, $ip_address);
-            $stmt->execute();
-            return $next_id;
+            $stmt->bind_param("isssss", $user_id, $action_type, $description, $old_json, $new_json, $ip_address);
+            if (!$stmt->execute()) {
+                throw new RuntimeException($stmt->error);
+            }
+            $new_id = (int) $stmt->insert_id;
+            if ($new_id <= 0) {
+                throw new RuntimeException('The audit table did not generate an automatic ID.');
+            }
+            return $new_id;
         } catch (Throwable $e) {
-            error_log("Audit insert failed completely: " . $e->getMessage());
+            error_log("Audit insert failed: " . $e->getMessage());
             return false;
+        } finally {
+            if ($stmt instanceof mysqli_stmt) {
+                $stmt->close();
+            }
         }
     }
 }
@@ -375,3 +374,4 @@ if (!function_exists('drms_capture_request_audit')) {
     }
 }
 ?>
+

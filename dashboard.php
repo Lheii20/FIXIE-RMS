@@ -289,8 +289,8 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
             <?php endif; ?>
 
             <div class="row g-3 mb-3 dashboard-kpi-grid">
-                <div class="col-xl-3 col-md-6"><a href="documents.php" class="text-decoration-none"><div class="kpi-corp-card accent-blue"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Active Records</p><h3 class="kpi-corp-value mt-1"><?php echo $exec_stats['active_docs']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-folder-open"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-primary box-12" style="font-size: 5px;"></i> Current working files</div></div></a></div>
-                <div class="col-xl-3 col-md-6"><a href="documents.php?view_filter=All" class="text-decoration-none"><div class="kpi-corp-card accent-slate"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Archived Docs</p><h3 class="kpi-corp-value mt-1"><?php echo $exec_stats['archived_docs']; ?></h3></div><div class="kpi-corp-icon bg-secondary bg-opacity-10 text-secondary"><i class="fas fa-archive"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-secondary box-12" style="font-size: 5px;"></i> Safely stored records</div></div></a></div>
+                <div class="col-xl-3 col-md-6"><a href="documents.php" class="text-decoration-none"><div class="kpi-corp-card accent-blue"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Active Records</p><h3 class="kpi-corp-value mt-1"><?php echo $exec_stats['active_docs']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-folder-open"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-primary box-12" style="font-size: 5px;"></i> Filed Official Records</div></div></a></div>
+                <div class="col-xl-3 col-md-6"><a href="documents.php?view_archives=1" class="text-decoration-none"><div class="kpi-corp-card accent-slate"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Archived Docs</p><h3 class="kpi-corp-value mt-1"><?php echo $exec_stats['archived_docs']; ?></h3></div><div class="kpi-corp-icon bg-secondary bg-opacity-10 text-secondary"><i class="fas fa-archive"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-secondary box-12" style="font-size: 5px;"></i> Archived Official Records</div></div></a></div>
                 <div class="col-xl-3 col-md-6"><a href="pr_list.php?queue=mine" class="text-decoration-none"><div class="kpi-corp-card accent-amber"><div class="kpi-corp-header"><div><p class="kpi-corp-title">My PRF Queue</p><h3 class="kpi-corp-value mt-1"><?php echo $exec_stats['pending_pr']; ?></h3></div><div class="kpi-corp-icon bg-warning bg-opacity-10 text-warning"><i class="fas fa-file-signature"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-warning box-12" style="font-size: 5px;"></i> Assigned to your stage</div></div></a></div>
                 <div class="col-xl-3 col-md-6"><a href="po_list.php?filter=<?php echo $_SESSION['role'] === 'GM' ? 'Pending' : 'Finance-Approved'; ?>" class="text-decoration-none"><div class="kpi-corp-card accent-rose"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Pending POs</p><h3 class="kpi-corp-value mt-1"><?php echo $exec_stats['pending_po']; ?></h3></div><div class="kpi-corp-icon bg-danger bg-opacity-10 text-danger"><i class="fas fa-stamp"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-danger box-12" style="font-size: 5px;"></i> Action required</div></div></a></div>
             </div>
@@ -331,7 +331,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                         'status' => 'danger',
                         'icon' => 'fa-triangle-exclamation',
                         'title' => 'Overdue Collections Alert',
-                        'desc' => "<strong>₱ " . number_format($overdue_amt, 2) . "</strong> across <strong>{$overdue_cnt}</strong> delivered PO(s) is overdue in the selected period. Ask Finance to prioritize follow-up.",
+                        'desc' => "<strong>₱ " . number_format($overdue_amt, 2) . "</strong> across <strong>{$overdue_cnt}</strong> delivered PO(s) is overdue as of today. Ask Finance to prioritize follow-up.",
                         'href' => 'po_list.php?filter=Awaiting_Collection',
                         'action' => 'View open POs'
                     ];
@@ -341,7 +341,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                         'status' => 'warning',
                         'icon' => 'fa-calendar-xmark',
                         'title' => 'Collection Due-Date Gap',
-                        'desc' => "<strong>{$missing_due_cnt}</strong> open PO(s), totaling <strong>₱ " . number_format($missing_due_amt, 2) . "</strong>, have no reliable due date in the selected period. Ask Finance to verify delivery evidence.",
+                        'desc' => "<strong>{$missing_due_cnt}</strong> open PO(s), totaling <strong>₱ " . number_format($missing_due_amt, 2) . "</strong>, have no reliable due date. Ask Finance to verify delivery evidence.",
                         'href' => 'po_list.php?filter=Awaiting_Collection',
                         'action' => 'View open POs'
                     ];
@@ -351,7 +351,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                         'status' => 'warning',
                         'icon' => 'fa-clock',
                         'title' => 'Collections Due Within 3 Days',
-                        'desc' => "<strong>₱ " . number_format($due_soon_amt, 2) . "</strong> across <strong>{$due_soon_cnt}</strong> PO(s) is due within 3 days in the selected period. Ask Finance to schedule follow-up.",
+                        'desc' => "<strong>₱ " . number_format($due_soon_amt, 2) . "</strong> across <strong>{$due_soon_cnt}</strong> PO(s) is due within 3 days. Ask Finance to schedule follow-up.",
                         'href' => 'po_list.php?filter=Awaiting_Collection',
                         'action' => 'View open POs'
                     ];
@@ -363,7 +363,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                         'title' => ($uncoll_amt > 0) ? 'Pending Collection Exposure' : 'Collections Up-to-date',
                         'desc' => ($uncoll_amt > 0)
                             ? "<strong>₱ " . number_format($uncoll_amt, 2) . "</strong> across <strong>{$uncoll_cnt}</strong> delivered PO(s) remains collectible, with no currently overdue balance."
-                            : "No open delivered-PO balance was found in the selected period."
+                            : "No open delivered-PO balance was found as of today."
                     ];
                 }
 
@@ -483,7 +483,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
             <div class="row g-3 mb-3 align-items-stretch">
                 <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-folder-open text-info"></i> Record Volume Distribution</h6></div><div class="chart-box"><canvas id="gmVolumeChart"></canvas></div></div></div>
                 <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-project-diagram text-rose"></i> PO Milestone Elapsed Time</h6></div><div class="chart-box"><canvas id="gmTurnaroundChart"></canvas></div></div></div>
-                <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-chart-pie text-emerald"></i> Document Lifecycle</h6></div><div class="chart-box"><canvas id="gmLifecycleChart"></canvas></div></div></div>
+                <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-chart-pie text-emerald"></i> Official Record Lifecycle</h6></div><div class="chart-box"><canvas id="gmLifecycleChart"></canvas></div></div></div>
             </div>
 
             <div class="row g-3 mb-3 align-items-stretch">
@@ -552,10 +552,10 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                 $fin_insights[] = [
                     'status' => !$has_cash_movement ? 'secondary' : ($is_positive ? 'success' : 'danger'), 
                     'icon' => !$has_cash_movement ? 'fa-minus' : ($is_positive ? 'fa-arrow-trend-up' : 'fa-arrow-trend-down'), 
-                    'title' => !$has_cash_movement ? 'No PO Cash Movement' : ($is_positive ? 'Net PO Cash Inflow' : 'PO Cash Outflow Alert'), 
+                    'title' => !$has_cash_movement ? 'No PO Cash Movement This Month' : ($is_positive ? 'Net PO Cash Inflow' : 'PO Cash Outflow Alert'),
                     'desc' => !$has_cash_movement
-                        ? 'No client payments or supplier fund releases are recorded yet.'
-                        : "Latest recorded month: client payments (₱ " . number_format((float)$cf_in, 2) . ") " . ($is_positive ? "exceeded" : "fell short of") . " supplier funds released (₱ " . number_format((float)$cf_out, 2) . "). This excludes other company expenses."
+                        ? 'No client payments or supplier fund releases are recorded for the current month.'
+                        : "Current month: client payments (₱ " . number_format((float)$cf_in, 2) . ") " . ($is_positive ? "exceeded" : "fell short of") . " supplier funds released (₱ " . number_format((float)$cf_out, 2) . "). This excludes other company expenses."
                 ];
                 
                 $outstanding_amount = (float) $finance_stats['uncollected_amount'];
@@ -571,7 +571,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                         'status' => 'danger',
                         'icon' => 'fa-triangle-exclamation',
                         'title' => 'Immediate Collection Required',
-                        'desc' => "<strong>₱ " . number_format($overdue_amount, 2) . "</strong> across <strong>{$overdue_count}</strong> delivered PO(s) is overdue in the selected period. Contact the clients and record the next follow-up.",
+                        'desc' => "<strong>₱ " . number_format($overdue_amount, 2) . "</strong> across <strong>{$overdue_count}</strong> delivered PO(s) is overdue as of today. Contact the clients and record the next follow-up.",
                         'href' => 'collection_aging.php',
                         'action' => 'Review overdue POs'
                     ];
@@ -581,7 +581,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                         'status' => 'warning',
                         'icon' => 'fa-calendar-xmark',
                         'title' => 'Due-Date Review Required',
-                        'desc' => "<strong>{$missing_due_count}</strong> open PO(s), totaling <strong>₱ " . number_format($missing_due_amount, 2) . "</strong>, have no reliable due date in the selected period. Verify the delivery record before relying on aging.",
+                        'desc' => "<strong>{$missing_due_count}</strong> open PO(s), totaling <strong>₱ " . number_format($missing_due_amount, 2) . "</strong>, have no reliable due date. Verify the delivery record before relying on aging.",
                         'href' => 'collection_aging.php',
                         'action' => 'Review missing dates'
                     ];
@@ -591,7 +591,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                         'status' => 'warning',
                         'icon' => 'fa-clock',
                         'title' => 'Collections Due Within 3 Days',
-                        'desc' => "<strong>₱ " . number_format($due_soon_amount, 2) . "</strong> across <strong>{$due_soon_count}</strong> PO(s) is due within 3 days in the selected period. Schedule client follow-up now.",
+                        'desc' => "<strong>₱ " . number_format($due_soon_amount, 2) . "</strong> across <strong>{$due_soon_count}</strong> PO(s) is due within 3 days. Schedule client follow-up now.",
                         'href' => 'collection_aging.php',
                         'action' => 'Review upcoming dues'
                     ];
@@ -602,8 +602,8 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                         'icon' => ($outstanding_amount > 0) ? 'fa-file-invoice-dollar' : 'fa-check-double',
                         'title' => ($outstanding_amount > 0) ? 'Receivables Within Term' : 'No Open Receivables',
                         'desc' => ($outstanding_amount > 0)
-                            ? "<strong>₱ " . number_format($outstanding_amount, 2) . "</strong> remains open in the selected period, with no overdue, missing-date, or three-day warning."
-                            : "No open delivered-PO balance was found in the selected period."
+                            ? "<strong>₱ " . number_format($outstanding_amount, 2) . "</strong> remains open as of today, with no overdue, missing-date, or three-day warning."
+                            : "No open delivered-PO balance was found as of today."
                     ];
                 }
 
@@ -621,7 +621,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                     'title' => 'Collection Realization Rate',
                     'desc' => $collection_position_value > 0
                         ? "<strong>" . number_format($collection_rate, 1) . "%</strong> of delivered receivable value is already collected, leaving <strong>₱ " . number_format($outstanding_amount, 2) . "</strong> outstanding."
-                        : "No delivered receivable value is available for collection-rate analysis in the selected period."
+                        : "No delivered receivable value is available for collection-rate analysis."
                 ];
                 
                 $p_prf = $finance_stats['pending_prf'];
@@ -789,7 +789,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                     'status' => $ready > 0 ? 'warning' : 'success', 
                     'icon' => $ready > 0 ? 'fa-truck-loading' : 'fa-check-circle', 
                     'title' => $ready > 0 ? 'Delivery Action Required' : 'Delivery Queue Clear', 
-                    'desc' => $ready > 0 ? "<strong>{$ready}</strong> delivery request(s) await logistics review, scheduling, or client handoff in the selected period." : 'No delivery requests are counted in the active queue for this period.',
+                    'desc' => $ready > 0 ? "<strong>{$ready}</strong> delivery request(s) currently await logistics review, scheduling, or client handoff." : 'No delivery requests are currently waiting in the active queue.',
                     'href' => $ready > 0 ? 'po_list.php?filter=Delivery_Queue' : null,
                     'action' => 'Review delivery queue'
                 ];

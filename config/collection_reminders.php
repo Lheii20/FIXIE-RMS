@@ -301,7 +301,7 @@ function phase5c_sync_collection_reminders(
                 }
             }
 
-            continue;
+            // A follow-up never suppresses the independent contractual due alert.
         }
 
         $due_date_value = (string) (

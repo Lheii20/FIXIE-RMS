@@ -747,6 +747,45 @@ if (!function_exists('drms_official_source_linkage_is_installed')) {
     }
 }
 
+if (!function_exists('drms_verify_existing_official_source_record')) {
+    function drms_verify_existing_official_source_record(array $record): void
+    {
+        $stored_path = trim((string) ($record['file_path'] ?? ''));
+        $normalized_path = str_replace('\\', '/', $stored_path);
+        $normalized_path = (string) preg_replace('#^\./+#', '', $normalized_path);
+        $stored_hash = strtolower(trim((string) ($record['file_hash'] ?? '')));
+
+        if (
+            (int) ($record['doc_id'] ?? 0) < 1 ||
+            trim((string) ($record['record_number'] ?? '')) === '' ||
+            trim((string) ($record['file_name'] ?? '')) === '' ||
+            ($record['record_phase'] ?? '') !== 'Official' ||
+            !in_array(($record['status'] ?? ''), ['Active', 'Archived'], true) ||
+            ($record['disposition_status'] ?? '') === 'Destroyed' ||
+            (int) ($record['is_locked'] ?? 0) !== 1 ||
+            stripos($normalized_path, 'uploads/official/') !== 0 ||
+            !preg_match('/^[a-f0-9]{64}$/', $stored_hash)
+        ) {
+            throw new RuntimeException(
+                'The existing Official Record is not available as a locked, verifiable file.'
+            );
+        }
+
+        require_once __DIR__ . '/storage_security.php';
+        require_once __DIR__ . '/file_integrity.php';
+        try {
+            $absolute_path = drms_storage_resolve_existing_file($stored_path);
+            drms_file_integrity_verify($absolute_path, $stored_hash);
+        } catch (RuntimeException $error) {
+            throw new RuntimeException(
+                'The existing Official Record copy is missing or failed integrity verification. No new record was filed.',
+                0,
+                $error
+            );
+        }
+    }
+}
+
 if (!function_exists('drms_file_existing_source_as_official_record')) {
     function drms_file_existing_source_as_official_record(
         mysqli $conn,
@@ -798,7 +837,8 @@ if (!function_exists('drms_file_existing_source_as_official_record')) {
         }
 
         $existing_stmt = $conn->prepare(
-            "SELECT doc_id, record_number
+            "SELECT doc_id, record_number, file_name, file_path, file_hash,
+                    record_phase, status, disposition_status, is_locked
              FROM documents
              WHERE source_module = ?
                AND source_record_id = ?
@@ -815,6 +855,12 @@ if (!function_exists('drms_file_existing_source_as_official_record')) {
         $existing_stmt->close();
 
         if ($existing_record) {
+            drms_verify_existing_official_source_record($existing_record);
+            if (!hash_equals($expected_hash, strtolower((string) $existing_record['file_hash']))) {
+                throw new RuntimeException(
+                    'The source file has changed since this Official Record was filed. No new record was filed.'
+                );
+            }
             return [
                 'created' => false,
                 'doc_id' => (int) $existing_record['doc_id'],
@@ -1045,7 +1091,8 @@ if (!function_exists('drms_file_generated_pdf_as_official_record')) {
         }
 
         $existing_stmt = $conn->prepare(
-            "SELECT doc_id, record_number, file_name
+            "SELECT doc_id, record_number, file_name, file_path, file_hash,
+                    record_phase, status, disposition_status, is_locked
              FROM documents
              WHERE source_module = ?
                AND source_record_id = ?
@@ -1058,6 +1105,7 @@ if (!function_exists('drms_file_generated_pdf_as_official_record')) {
         $existing_stmt->close();
 
         if ($existing_record) {
+            drms_verify_existing_official_source_record($existing_record);
             return [
                 'created' => false,
                 'doc_id' => (int) $existing_record['doc_id'],

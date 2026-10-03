@@ -225,6 +225,11 @@ $collection_dss = [
 
 if ($can_view_financials) {
     try {
+        // Receivables are a current portfolio position, not a count of POs
+        // created within the dashboard's historical reporting period.
+        $collection_today = new DateTimeImmutable('today', new DateTimeZone('Asia/Manila'));
+        $collection_today_date = $collection_today->format('Y-m-d');
+        $collection_due_soon_end = $collection_today->modify('+3 days')->format('Y-m-d');
         $collection_position_sql = "SELECT
                 COALESCE(SUM(
                     CASE
@@ -246,7 +251,7 @@ if ($can_view_financials) {
                     CASE
                         WHEN position.collection_status IN ('Unpaid', 'Partially Paid')
                          AND position.balance > 0
-                         AND position.due_date < CURDATE()
+                         AND position.due_date < ?
                         THEN position.balance
                         ELSE 0
                     END
@@ -255,7 +260,7 @@ if ($can_view_financials) {
                     CASE
                         WHEN position.collection_status IN ('Unpaid', 'Partially Paid')
                          AND position.balance > 0
-                         AND position.due_date < CURDATE()
+                         AND position.due_date < ?
                         THEN 1
                         ELSE 0
                     END
@@ -264,8 +269,7 @@ if ($can_view_financials) {
                     CASE
                         WHEN position.collection_status IN ('Unpaid', 'Partially Paid')
                          AND position.balance > 0
-                         AND position.due_date BETWEEN CURDATE()
-                             AND DATE_ADD(CURDATE(), INTERVAL 3 DAY)
+                         AND position.due_date BETWEEN ? AND ?
                         THEN position.balance
                         ELSE 0
                     END
@@ -274,8 +278,7 @@ if ($can_view_financials) {
                     CASE
                         WHEN position.collection_status IN ('Unpaid', 'Partially Paid')
                          AND position.balance > 0
-                         AND position.due_date BETWEEN CURDATE()
-                             AND DATE_ADD(CURDATE(), INTERVAL 3 DAY)
+                         AND position.due_date BETWEEN ? AND ?
                         THEN 1
                         ELSE 0
                     END
@@ -337,7 +340,6 @@ if ($can_view_financials) {
                     LEFT JOIN po_delivery_receipts receipt
                         ON receipt.delivery_receipt_id = latest_receipt.latest_delivery_receipt_id
                     WHERE po.status = 'Delivered'
-                      AND {$po_collection_date['sql']}
                     GROUP BY
                         po.po_id,
                         po.status,
@@ -351,8 +353,15 @@ if ($can_view_financials) {
         $collection_result = fetch_chart_data(
             $conn,
             $collection_position_sql,
-            $po_collection_date['types'],
-            $po_collection_date['params'],
+            'ssssss',
+            [
+                $collection_today_date,
+                $collection_today_date,
+                $collection_today_date,
+                $collection_due_soon_end,
+                $collection_today_date,
+                $collection_due_soon_end,
+            ],
             true
         );
 
@@ -613,16 +622,22 @@ $proc_stats = [
 $proc_charts = [];
 
 if ($role === 'Procurement') {
+    // Match the Procurement PR list's current handoff rule. Its queue is not
+    // limited by the dashboard's historical reporting period.
     $proc_stats['ready_prf'] = get_count(
         $conn,
         "SELECT COUNT(*)
          FROM purchase_requests
          WHERE status = 'Approved'
-           AND {$pr_date['sql']}",
-        $pr_date['types'],
-        $pr_date['params']
+           AND current_approval_stage = 'Official Approved'
+           AND final_approved_by IS NOT NULL
+           AND final_approved_at IS NOT NULL",
+        '',
+        []
     );
 
+    // Pending approval and funded-order cards show the current PO position;
+    // only the delivered-history card follows the selected reporting period.
     $q_proc_kpis = "SELECT
             COALESCE(SUM(
                 CASE
@@ -631,9 +646,8 @@ if ($role === 'Procurement') {
                 END
             ), 0) AS pending,
             COALESCE(SUM(CASE WHEN status = 'Funded' THEN 1 ELSE 0 END), 0) AS funded,
-            COALESCE(SUM(CASE WHEN status = 'Delivered' THEN 1 ELSE 0 END), 0) AS delivered
-        FROM purchase_orders
-        WHERE {$po_date['sql']}";
+            COALESCE(SUM(CASE WHEN status = 'Delivered' AND ({$po_date['sql']}) THEN 1 ELSE 0 END), 0) AS delivered
+        FROM purchase_orders";
     $proc_kpis = fetch_chart_data(
         $conn,
         $q_proc_kpis,
@@ -699,65 +713,70 @@ if ($role === 'Procurement') {
 // EXECUTIVE (GM/PRES) CHART ANALYTICS
 // ==========================================
 $exec_stats = ['active_docs' => 0, 'archived_docs' => 0, 'pending_pr' => 0, 'pending_po' => 0, 'pending_client_po_ack' => 0];
-$exec_lifecycle = ['active_docs' => 0, 'archived_docs' => 0, 'ready_disp' => 0];
+$exec_lifecycle = [
+    'active_docs' => 0,
+    'archived_docs' => 0,
+    'ready_disp' => 0,
+    'ready_active' => 0,
+    'ready_archived' => 0,
+];
 
 if (in_array($role, $executives)) {
+    // These cards link to Official Records, so count the current Official
+    // Record inventory rather than all uploaded working files in a date range.
     $q_exec_lifecycle = "
-        SELECT COALESCE(SUM(CASE WHEN status = 'Active' THEN 1 ELSE 0 END), 0) AS active_docs,
-               COALESCE(SUM(CASE WHEN status = 'Archived' THEN 1 ELSE 0 END), 0) AS archived_docs,
-               COALESCE(SUM(CASE WHEN disposition_status = 'Ready for Disposition' THEN 1 ELSE 0 END), 0) AS ready_disp
+        SELECT COALESCE(SUM(CASE WHEN status = 'Active' AND COALESCE(disposition_status, '') <> 'Destroyed' THEN 1 ELSE 0 END), 0) AS active_docs,
+               COALESCE(SUM(CASE WHEN status = 'Archived' AND COALESCE(disposition_status, '') <> 'Destroyed' THEN 1 ELSE 0 END), 0) AS archived_docs,
+               COALESCE(SUM(CASE WHEN status IN ('Active', 'Archived') AND disposition_status = 'Ready for Disposition' THEN 1 ELSE 0 END), 0) AS ready_disp,
+               COALESCE(SUM(CASE WHEN status = 'Active' AND disposition_status = 'Ready for Disposition' THEN 1 ELSE 0 END), 0) AS ready_active,
+               COALESCE(SUM(CASE WHEN status = 'Archived' AND disposition_status = 'Ready for Disposition' THEN 1 ELSE 0 END), 0) AS ready_archived
         FROM documents
-        WHERE {$doc_date['sql']}
+        WHERE record_phase = 'Official'
     ";
-    $exec_lifecycle = fetch_chart_data($conn, $q_exec_lifecycle, $doc_date['types'], $doc_date['params'], true) ?: $exec_lifecycle;
+    $exec_lifecycle = fetch_chart_data($conn, $q_exec_lifecycle, '', [], true) ?: $exec_lifecycle;
     $exec_lifecycle = [
         'active_docs' => (int) ($exec_lifecycle['active_docs'] ?? 0),
         'archived_docs' => (int) ($exec_lifecycle['archived_docs'] ?? 0),
         'ready_disp' => (int) ($exec_lifecycle['ready_disp'] ?? 0),
+        'ready_active' => (int) ($exec_lifecycle['ready_active'] ?? 0),
+        'ready_archived' => (int) ($exec_lifecycle['ready_archived'] ?? 0),
     ];
     $exec_stats['active_docs'] = $exec_lifecycle['active_docs'];
     $exec_stats['archived_docs'] = $exec_lifecycle['archived_docs'];
+    // Approval queues reflect work waiting now, regardless of when the
+    // document was created. The period filter still applies to history charts.
     if ($role === 'GM') {
         $q_exec_work_queue = "
             SELECT
                 (SELECT COUNT(*)
                  FROM purchase_requests
                  WHERE status = 'Pending'
-                   AND current_approval_stage = 'GM Review'
-                   AND {$pr_date['sql']}) AS pending_pr,
+                   AND current_approval_stage = 'GM Review') AS pending_pr,
                 (SELECT COUNT(*)
                  FROM quotations
-                 WHERE status = 'For GM Acknowledgement'
-                   AND {$q_date['sql']}) AS pending_client_po_ack,
+                 WHERE status = 'For GM Acknowledgement') AS pending_client_po_ack,
                 (SELECT COUNT(*)
                  FROM purchase_orders
-                 WHERE status = 'Pending'
-                   AND {$po_date['sql']}) AS pending_po
+                 WHERE status = 'Pending') AS pending_po
         ";
-        $exec_work_queue_types = $pr_date['types'] . $q_date['types'] . $po_date['types'];
-        $exec_work_queue_params = array_merge($pr_date['params'], $q_date['params'], $po_date['params']);
     } else {
         $q_exec_work_queue = "
             SELECT
                 (SELECT COUNT(*)
                  FROM purchase_requests
                  WHERE status = 'Pending'
-                   AND current_approval_stage = 'Owner Approval'
-                   AND {$pr_date['sql']}) AS pending_pr,
+                   AND current_approval_stage = 'Owner Approval') AS pending_pr,
                 0 AS pending_client_po_ack,
                 (SELECT COUNT(*)
                  FROM purchase_orders
-                 WHERE status = 'Finance-Approved'
-                   AND {$po_date['sql']}) AS pending_po
+                 WHERE status = 'Finance-Approved') AS pending_po
         ";
-        $exec_work_queue_types = $pr_date['types'] . $po_date['types'];
-        $exec_work_queue_params = array_merge($pr_date['params'], $po_date['params']);
     }
     $exec_work_queue = fetch_chart_data(
         $conn,
         $q_exec_work_queue,
-        $exec_work_queue_types,
-        $exec_work_queue_params,
+        '',
+        [],
         true
     ) ?: [];
     foreach (['pending_pr', 'pending_client_po_ack', 'pending_po'] as $metric) {
@@ -769,15 +788,22 @@ $sc_stats = ['ready_for_delivery' => 0, 'delivered' => 0, 'awaiting_collection' 
 $sc_charts = ['status_dist' => [], 'delivery_trend' => [], 'top_clients' => [], 'proof_coverage' => []];
 
 if ($role === 'Supply Chain') {
+    // Delivery and collection handoff queues are live work positions. Keep
+    // completed-delivery counts period-based for the historical dashboard.
     $q_sc_kpis = "
         SELECT COALESCE(SUM(CASE WHEN status IN ('Delivery Requested', 'For Pick-up/Delivery') THEN 1 ELSE 0 END), 0) AS ready_for_delivery,
-               COALESCE(SUM(CASE WHEN status = 'Delivered' THEN 1 ELSE 0 END), 0) AS delivered,
+               COALESCE(SUM(CASE WHEN status = 'Delivered' AND ({$po_date['sql']}) THEN 1 ELSE 0 END), 0) AS delivered,
                COALESCE(SUM(CASE WHEN status = 'Delivered' AND collection_status IN ('Unpaid', 'Partially Paid') THEN 1 ELSE 0 END), 0) AS awaiting_collection,
-               COALESCE(SUM(CASE WHEN status = 'Delivered' AND collection_status = 'Paid' THEN 1 ELSE 0 END), 0) AS completed_collections
+               COALESCE(SUM(CASE WHEN status = 'Delivered' AND collection_status = 'Paid' AND ({$po_date['sql']}) THEN 1 ELSE 0 END), 0) AS completed_collections
         FROM purchase_orders
-        WHERE {$po_date['sql']}
     ";
-    $sc_kpis = fetch_chart_data($conn, $q_sc_kpis, $po_date['types'], $po_date['params'], true) ?: [];
+    $sc_kpis = fetch_chart_data(
+        $conn,
+        $q_sc_kpis,
+        $po_date['types'] . $po_date['types'],
+        array_merge($po_date['params'], $po_date['params']),
+        true
+    ) ?: [];
     foreach (['ready_for_delivery', 'delivered', 'awaiting_collection', 'completed_collections'] as $metric) {
         $sc_stats[$metric] = (int) ($sc_kpis[$metric] ?? 0);
     }
@@ -868,7 +894,13 @@ if ($uses_fallback_dashboard && !empty($user_categories)) {
 }
 
 if (in_array($role, $executives)) {
-    $gm_charts['lifecycle'] = $exec_lifecycle;
+    // The pie is mutually exclusive: a Ready record is not also plotted in
+    // its Active or Archived segment. The cards above still show full counts.
+    $gm_charts['lifecycle'] = [
+        'active_docs' => max(0, $exec_lifecycle['active_docs'] - $exec_lifecycle['ready_active']),
+        'archived_docs' => max(0, $exec_lifecycle['archived_docs'] - $exec_lifecycle['ready_archived']),
+        'ready_disp' => $exec_lifecycle['ready_disp'],
+    ];
 
     $q_vol = "SELECT dc.parent_category as category, COUNT(d.doc_id) as count FROM document_categories dc LEFT JOIN documents d ON LOWER(d.category) = LOWER(dc.sub_category) AND d.status = 'Active' AND {$doc_date['sql']} GROUP BY dc.parent_category ORDER BY count DESC";
     $gm_charts['volume'] = fetch_chart_data($conn, $q_vol, $doc_date['types'], $doc_date['params'], false);
@@ -1007,25 +1039,23 @@ $finance_stats = [
 ];
 
 if ($role === 'Finance') {
+    // An action-required count must not disappear when a historical dashboard
+    // period excludes the date on which the still-pending item was created.
     $q_finance_work_queue = "
         SELECT
             (SELECT COUNT(*)
              FROM purchase_requests
              WHERE status = 'Pending'
-               AND current_approval_stage = 'Finance Review'
-               AND {$pr_date['sql']}) AS pending_prf,
+               AND current_approval_stage = 'Finance Review') AS pending_prf,
             (SELECT COUNT(*)
              FROM purchase_orders
-             WHERE status = 'GM-Approved'
-               AND {$po_date['sql']}) AS pending_po
+             WHERE status = 'GM-Approved') AS pending_po
     ";
-    $finance_work_queue_types = $pr_date['types'] . $po_date['types'];
-    $finance_work_queue_params = array_merge($pr_date['params'], $po_date['params']);
     $finance_work_queue = fetch_chart_data(
         $conn,
         $q_finance_work_queue,
-        $finance_work_queue_types,
-        $finance_work_queue_params,
+        '',
+        [],
         true
     ) ?: [];
     $finance_stats['pending_prf'] = (int) ($finance_work_queue['pending_prf'] ?? 0);
@@ -1140,6 +1170,16 @@ if ($role === 'Finance') {
     $finance_charts['future_sum'] = $future_sum;
     $finance_charts['forecast_ready'] = $forecast_ready;
 
+    // Bound the scan to six actual calendar months, including the current
+    // month. A month with no transactions must remain a zero on the chart.
+    $cash_current_month = new DateTimeImmutable(
+        'first day of this month 00:00:00',
+        new DateTimeZone('Asia/Manila')
+    );
+    $cash_first_month = $cash_current_month->modify('-5 months');
+    $cash_next_month = $cash_current_month->modify('+1 month');
+    $cash_first_date = $cash_first_month->format('Y-m-d');
+    $cash_end_date = $cash_next_month->format('Y-m-d');
     $q_finance_cash_flow = "
         SELECT month_str,
                SUM(inflow) AS inflow,
@@ -1149,6 +1189,7 @@ if ($role === 'Finance') {
                    SUM(amount_paid) AS inflow,
                    0 AS outflow
             FROM payments
+            WHERE payment_date >= ? AND payment_date < ?
             GROUP BY month_str
 
             UNION ALL
@@ -1158,16 +1199,38 @@ if ($role === 'Finance') {
                    SUM(released_amount) AS outflow
             FROM po_supplier_fund_releases
             WHERE record_status = 'Active'
+              AND released_at >= ? AND released_at < ?
             GROUP BY month_str
         ) combined_cash_flow
         GROUP BY month_str
-        ORDER BY month_str DESC
-        LIMIT 6
     ";
-    $cf_sliced = array_reverse(fetch_chart_data($conn, $q_finance_cash_flow, '', [], false));
-    
-    $cf_labels = []; $cf_in = []; $cf_out = [];
-    foreach($cf_sliced as $row) { $cf_labels[] = date('M Y', strtotime($row['month_str'].'-01')); $cf_in[] = $row['inflow']; $cf_out[] = $row['outflow']; }
+    $cash_rows = fetch_chart_data(
+        $conn,
+        $q_finance_cash_flow,
+        'ssss',
+        [$cash_first_date, $cash_end_date, $cash_first_date, $cash_end_date],
+        false
+    );
+    $cash_by_month = [];
+    foreach ($cash_rows as $row) {
+        $cash_by_month[(string) $row['month_str']] = [
+            'inflow' => (float) $row['inflow'],
+            'outflow' => (float) $row['outflow'],
+        ];
+    }
+    $cf_labels = [];
+    $cf_in = [];
+    $cf_out = [];
+    for ($month_index = 0; $month_index < 6; $month_index++) {
+        $cash_month = $cash_first_month->modify('+' . $month_index . ' months');
+        $cash_value = $cash_by_month[$cash_month->format('Y-m')] ?? [
+            'inflow' => 0.0,
+            'outflow' => 0.0,
+        ];
+        $cf_labels[] = $cash_month->format('M Y');
+        $cf_in[] = $cash_value['inflow'];
+        $cf_out[] = $cash_value['outflow'];
+    }
     $finance_charts['cf_labels'] = $cf_labels; $finance_charts['cf_in'] = $cf_in; $finance_charts['cf_out'] = $cf_out;
 
     $mom_labels = []; $mom_pct = []; $prev_sales = null;

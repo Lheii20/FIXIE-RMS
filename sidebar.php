@@ -160,6 +160,7 @@ $can_access_collections = drms_rbac_role_can_access_module($role, 'collections')
             </div>
             <?php endif; ?>
 
+            <?php if($role !== 'Admin'): ?>
             <div class="saas-nav-item has-dropdown">
                 <a href="#" class="saas-nav-link <?php echo (in_array($current_page, ['documents.php', 'general_docs.php', 'virtual_cabinet.php'])) ? 'active' : ''; ?>">
                     <i class="fas fa-folder-open"></i> Records <i class="fas fa-chevron-down ms-1 fs-xs"></i>
@@ -170,6 +171,7 @@ $can_access_collections = drms_rbac_role_can_access_module($role, 'collections')
                     <a href="virtual_cabinet.php"><i class="fas fa-boxes"></i> Virtual Cabinet</a>
                 </div>
             </div>
+            <?php endif; ?>
 
             <?php if($role == 'Admin' || $can_view_audit): ?>
             <div class="saas-nav-item has-dropdown">
@@ -274,12 +276,14 @@ $can_access_collections = drms_rbac_role_can_access_module($role, 'collections')
     </div>
     <?php endif; ?>
     
+    <?php if($role !== 'Admin'): ?>
     <div class="mobile-side-nav__section">
         <span class="mobile-side-nav__label">Records</span>
         <a href="documents.php" class="mobile-side-nav__link <?php echo ($current_page == 'documents.php') ? 'active' : ''; ?>"><i class="fas fa-archive"></i>Official Records</a>
         <a href="general_docs.php" class="mobile-side-nav__link <?php echo ($current_page == 'general_docs.php') ? 'active' : ''; ?>"><i class="fas fa-building"></i>Company Files</a>
         <a href="virtual_cabinet.php" class="mobile-side-nav__link <?php echo ($current_page == 'virtual_cabinet.php') ? 'active' : ''; ?>"><i class="fas fa-boxes"></i>Virtual Cabinet</a>
     </div>
+    <?php endif; ?>
     
     <?php if($role == 'Admin' || $can_view_audit): ?>
     <div class="mobile-side-nav__section">
@@ -327,6 +331,7 @@ $can_access_collections = drms_rbac_role_can_access_module($role, 'collections')
                         <div><div class="cp-item-title">Dashboard</div><small class="cp-item-desc">Go to main overview</small></div>
                     </a>
                 </li>
+                <?php if($role !== 'Admin'): ?>
                 <li data-keywords="files documents records official retention">
                     <a href="documents.php">
                         <div class="cp-item-icon cp-icon-secondary"><i class="fas fa-archive"></i></div> 
@@ -345,6 +350,7 @@ $can_access_collections = drms_rbac_role_can_access_module($role, 'collections')
                         <div><div class="cp-item-title">Virtual Cabinet</div><small class="cp-item-desc">Track physical record storage locations</small></div>
                     </a>
                 </li>
+                <?php endif; ?>
                 <li data-keywords="settings account password profile">
                     <a href="settings.php">
                         <div class="cp-item-icon cp-icon-secondary"><i class="fas fa-cog"></i></div> 
@@ -669,3 +675,4 @@ setInterval(function() {
     .catch(error => {});
 }, 30000);
 </script>
+
