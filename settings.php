@@ -3,6 +3,9 @@ require 'config/db_connect.php';
 require 'config/functions.php';
 require_once 'config/workflow_access.php';
 require_once 'config/user_preferences.php';
+require_once 'config/profile_edit_policy.php';
+require_once 'config/e_signature.php';
+require_once 'config/signature_image_preview.php';
 
 drms_require_login();
 
@@ -19,6 +22,13 @@ if ($user_result->num_rows == 0) {
     exit();
 }
 $user = $user_result->fetch_assoc();
+$is_signatory = drms_esign_profile_role_allowed((string) $user['role']);
+$signature_profile = $is_signatory ? drms_esign_profile($conn, (int) $user_id) : null;
+$signature_active = $signature_profile && $signature_profile['profile_status'] === 'Active';
+$signature_image = $signature_active ? drms_signature_image_preview_state($signature_profile) : ['status' => 'none'];
+$profile_edit_state = drms_profile_edit_state($conn, (int) $user_id);
+$profile_can_edit = $profile_edit_state['installed'] && $profile_edit_state['can_edit'] && empty($user['pending_email']);
+$profile_next_edit = $profile_edit_state['next_edit_at'] ? date('M j, Y, g:i A', strtotime($profile_edit_state['next_edit_at'])) : '';
 $drms_preferences = drms_load_user_preferences($conn, (int) $user_id);
 $approval_email_ready = empty($user['pending_email']) &&
     filter_var((string) ($user['email'] ?? ''), FILTER_VALIDATE_EMAIL) !== false;
@@ -86,6 +96,7 @@ $is_security_error = in_array($security_error_code, $security_error_codes, true)
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/mobile-settings-admin.css?v=<?php echo filemtime(__DIR__ . '/assets/css/mobile-settings-admin.css'); ?>" rel="stylesheet">
     <link href="assets/css/account-security.css?v=<?php echo filemtime(__DIR__ . '/assets/css/account-security.css'); ?>" rel="stylesheet">
+    <link href="assets/css/profile-edit.css?v=<?php echo filemtime(__DIR__ . '/assets/css/profile-edit.css'); ?>" rel="stylesheet">
     <link href="assets/css/e-signature.css?v=<?php echo file_exists(__DIR__ . '/assets/css/e-signature.css') ? filemtime(__DIR__ . '/assets/css/e-signature.css') : '1'; ?>" rel="stylesheet">
 </head>
 <body class="page-settings">
@@ -107,7 +118,8 @@ $is_security_error = in_array($security_error_code, $security_error_codes, true)
                 <?php 
                 if($_GET['success'] == 'ThemeUpdated') echo "Your appearance preference has been saved.";
                 elseif($_GET['success'] == 'ApprovalEmailPreferenceUpdated') echo "Your approval email preference has been saved.";
-                elseif($_GET['success'] == 'CodeSent') echo "A 6-digit verification code has been sent to your new email.";
+                elseif($_GET['success'] == 'CodeSent') echo "A verification code has been sent. Your profile changes will be applied after verification.";
+                elseif($_GET['success'] == 'ProfileUnchanged') echo "No changes were made. Your editing allowance is still available.";
                 elseif($_GET['success'] == 'EmailVerified') echo "Email successfully verified and updated!";
                 elseif($_GET['success'] == 'PasswordUpdated') echo "Your password has been successfully updated!";
                 elseif($_GET['success'] == 'ProfileUpdated') echo "Your profile information has been updated.";
@@ -137,6 +149,10 @@ $is_security_error = in_array($security_error_code, $security_error_codes, true)
                 elseif($_GET['error'] == 'EmailCodeCooldown') echo "Please wait 60 seconds before requesting another email code.";
                 elseif($_GET['error'] == 'TooManyEmailCodeAttempts') echo "Too many incorrect codes. Save your information again to request a new code.";
                 elseif($_GET['error'] == 'VerificationEmailFailed') echo "The verification email could not be sent. Your existing email was not changed.";
+                elseif($_GET['error'] == 'ProfileEditCooldown') echo "You can edit your basic information again on " . htmlspecialchars($profile_next_edit ?: 'the date shown below') . ".";
+                elseif($_GET['error'] == 'ProfileChangePending') echo "Verify or cancel your pending profile change before editing again.";
+                elseif($_GET['error'] == 'NoPendingEmailChange') echo "There is no pending email change to verify.";
+                elseif($_GET['error'] == 'ProfilePolicyUnavailable') echo "Profile editing is temporarily unavailable. Contact the administrator.";
                 elseif($_GET['error'] == 'AvatarTooLarge') echo "The profile photo must not exceed 5 MB.";
                 elseif($_GET['error'] == 'InvalidAvatarType') echo "Use a valid JPG, PNG, or WebP profile photo.";
                 elseif($_GET['error'] == 'AvatarUploadFailed') echo "The profile photo could not be uploaded.";
@@ -219,76 +235,135 @@ $is_security_error = in_array($security_error_code, $security_error_codes, true)
                     </div>
                 </div>
 
-                <?php if(in_array($role, ['GM', 'Finance', 'President', 'Supply Chain'], true)): ?>
-                <section class="drms-esign-card mb-4">
+                <?php if($is_signatory): ?>
+                <section class="drms-esign-card mb-4" aria-labelledby="settingsSignatureHeading">
                     <div class="drms-esign-card__head">
                         <span class="drms-esign-card__icon"><i class="fas fa-signature"></i></span>
                         <div>
                             <span class="drms-esign-card__eyebrow">Approval security</span>
-                            <h1>Electronic signature</h1>
+                            <h1 id="settingsSignatureHeading">Electronic signature</h1>
                         </div>
+                        <span class="drms-esign-status <?php echo $signature_active ? 'is-ready' : 'is-pending'; ?>">
+                            <i class="fas fa-<?php echo $signature_active ? 'check-circle' : 'info-circle'; ?>" aria-hidden="true"></i>
+                            <?php echo $signature_active ? 'Profile active' : 'Setup required'; ?>
+                        </span>
                     </div>
                     <div class="drms-esign-card__body">
-                        <p class="drms-esign-help mb-3">Set the protected name, title, and optional signature image recorded with your assigned approvals. Each signature uses your active signed-in account and explicit consent.</p>
-                        <a href="signature_profile.php" class="btn btn-outline-primary btn-sm fw-bold"><i class="fas fa-pen-nib me-1"></i> Set up electronic signature</a>
+                        <?php if($signature_active): ?>
+                            <p class="drms-esign-help mb-3">Your signing identity is ready for assigned approvals. Each approval still requires your explicit consent.</p>
+                            <div class="drms-esign-summary">
+                                <div class="drms-esign-summary__details">
+                                    <span class="drms-esign-summary__label">Signing as</span>
+                                    <strong><?php echo htmlspecialchars((string) $signature_profile['display_name'], ENT_QUOTES, 'UTF-8'); ?></strong>
+                                    <span><?php echo htmlspecialchars((string) $signature_profile['signatory_title'], ENT_QUOTES, 'UTF-8'); ?></span>
+                                </div>
+                                <div class="drms-esign-summary__preview">
+                                    <span class="drms-esign-summary__label">Visual signature</span>
+                                    <div class="drms-esign-image" data-esign-preview>
+                                        <?php if($signature_image['status'] === 'ready'): ?>
+                                            <img src="signature_image.php?v=<?php echo rawurlencode((string) $signature_profile['updated_at']); ?>" alt="Your current visual signature" data-esign-current-image>
+                                        <?php elseif($signature_image['status'] === 'unavailable'): ?>
+                                            <span class="drms-esign-image__empty">Saved image unavailable. Upload a replacement.</span>
+                                        <?php else: ?>
+                                            <span class="drms-esign-image__empty">No visual image uploaded</span>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                            </div>
+                            <a href="signature_profile.php" class="btn btn-outline-primary btn-sm fw-bold mt-3"><i class="fas fa-pen-nib me-1"></i> Manage signature</a>
+                        <?php else: ?>
+                            <p class="drms-esign-help mb-3">Create your protected signing name and title for assigned approval stages. A visual image is optional.</p>
+                            <a href="signature_profile.php" class="btn btn-outline-primary btn-sm fw-bold"><i class="fas fa-pen-nib me-1"></i> Set up electronic signature</a>
+                        <?php endif; ?>
                     </div>
                 </section>
                 <?php endif; ?>
 
-                <div class="card border-0 shadow-sm mb-4">
-                    <div class="card-header bg-white pt-4 border-0">
-                        <h5 class="fw-bold text-info"><i class="fas fa-address-card me-2"></i> Basic Information</h5>
+                <section class="card drms-profile-info mb-4" aria-labelledby="profileInfoHeading">
+                    <div class="drms-profile-info__heading">
+                        <h5 id="profileInfoHeading"><i class="fas fa-address-card" aria-hidden="true"></i> Basic Information</h5>
+                        <button type="button" class="btn btn-outline-primary btn-sm" id="profileEditButton"
+                            aria-controls="profileInfoForm" aria-expanded="false" <?php echo $profile_can_edit ? '' : 'disabled'; ?>>
+                            <i class="fas fa-pen" aria-hidden="true"></i> <span>Edit information</span>
+                        </button>
                     </div>
-                    <div class="card-body p-4 pt-0">
-                        
-                        <?php if(!empty($user['pending_email'])): ?>
-                            <div class="alert alert-warning p-3 mb-4">
-                                <h6 class="fw-bold mb-1"><i class="fas fa-envelope-open-text me-1"></i> Verify Your Email</h6>
-                                <p class="small mb-2">We sent a 6-digit code to <strong><?php echo htmlspecialchars($user['pending_email']); ?></strong>.</p>
+                    <div class="drms-profile-info__body">
+                        <p id="profileEditPolicy" class="drms-profile-info__policy">
+                            <?php if (!$profile_edit_state['installed']): ?>
+                                Profile editing is temporarily unavailable. Contact the administrator.
+                            <?php elseif (!$profile_edit_state['can_edit']): ?>
+                                <i class="fas fa-lock" aria-hidden="true"></i> Next edit: <strong><?php echo htmlspecialchars($profile_next_edit); ?></strong>.
+                                Name and email can be changed once every 30 days.
+                            <?php elseif (!empty($user['pending_email'])): ?>
+                                Verify or cancel the pending change below. Your current information remains active.
+                            <?php else: ?>
+                                You can edit your name and email once every 30 days. Email changes require verification.
+                            <?php endif; ?>
+                        </p>
+                        <?php if (!empty($user['pending_email'])): ?>
+                            <div class="drms-profile-info__pending">
+                                <h6>Verify your profile changes</h6>
+                                <p>Enter the code sent to <strong><?php echo htmlspecialchars($user['pending_email']); ?></strong>.
+                                Your 30-day limit starts after successful verification.</p>
+                                <?php if (!empty($user['pending_profile_full_name']) && $user['pending_profile_full_name'] !== $user['full_name']): ?>
+                                    <p>Pending name: <strong><?php echo htmlspecialchars($user['pending_profile_full_name']); ?></strong></p>
+                                <?php endif; ?>
                                 <form action="actions/user_handler.php" method="POST" class="d-flex gap-2">
-                                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                                     <input type="hidden" name="action" value="verify_email_code">
                                     <label class="visually-hidden" for="settingsVerificationCode">Email verification code</label>
-                                    <input type="text" name="verification_code" id="settingsVerificationCode" class="form-control form-control-sm text-center fw-bold" placeholder="000000" minlength="6" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" required style="letter-spacing: 5px;">
-                                    <button type="submit" class="btn btn-sm btn-success fw-bold px-3">Verify</button>
+                                    <input type="text" name="verification_code" id="settingsVerificationCode" class="form-control text-center"
+                                        placeholder="6-digit code" minlength="6" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" required>
+                                    <button type="submit" class="btn btn-primary btn-sm">Verify</button>
                                 </form>
-                                <form action="actions/user_handler.php" method="POST" class="mt-2">
-                                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                                    <input type="hidden" name="action" value="cancel_email_change">
-                                    <button type="submit" class="btn btn-link text-danger p-0 small" style="font-size: 0.8rem; text-decoration: none;">Cancel email change</button>
-                                </form>
+                                <div class="drms-profile-info__pending-actions">
+                                    <form action="actions/user_handler.php" method="POST">
+                                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
+                                        <input type="hidden" name="action" value="resend_profile_email">
+                                        <button type="submit" class="btn btn-link btn-sm">Resend code</button>
+                                    </form>
+                                    <form action="actions/user_handler.php" method="POST">
+                                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
+                                        <input type="hidden" name="action" value="cancel_email_change">
+                                        <button type="submit" class="btn btn-link btn-sm text-danger">Cancel pending change</button>
+                                    </form>
+                                </div>
                             </div>
                         <?php endif; ?>
-
-                        <form action="actions/user_handler.php" method="POST">
-                            <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                        <form action="actions/user_handler.php" method="POST" id="profileInfoForm" novalidate
+                            data-can-edit="<?php echo $profile_can_edit ? '1' : '0'; ?>" aria-describedby="profileEditPolicy">
+                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
                             <input type="hidden" name="action" value="update_basic_info">
-                            
                             <div class="mb-3">
                                 <label class="form-label small fw-bold" for="profileFullName">Full Name</label>
                                 <div class="input-group">
-                                    <span class="input-group-text bg-light"><i class="fas fa-user text-muted"></i></span>
-                                    <input type="text" name="full_name" id="profileFullName" class="form-control" value="<?php echo htmlspecialchars($user['full_name']); ?>" maxlength="100" autocomplete="name" required>
+                                    <span class="input-group-text"><i class="fas fa-user" aria-hidden="true"></i></span>
+                                    <input type="text" name="full_name" id="profileFullName" class="form-control"
+                                        value="<?php echo htmlspecialchars($user['full_name']); ?>" minlength="2" maxlength="100" autocomplete="name" readonly required>
                                 </div>
                             </div>
-
-                            <div class="mb-4">
+                            <div class="mb-3">
                                 <label class="form-label small fw-bold" for="profileEmail">Email Address</label>
                                 <div class="input-group">
-                                    <span class="input-group-text bg-light"><i class="fas fa-envelope text-muted"></i></span>
-                                    <input type="email" name="email" id="profileEmail" class="form-control" value="<?php echo htmlspecialchars($user['email'] ?? ''); ?>" placeholder="Enter email to enable recovery" maxlength="100" autocomplete="email" inputmode="email" spellcheck="false" required>
+                                    <span class="input-group-text"><i class="fas fa-envelope" aria-hidden="true"></i></span>
+                                    <input type="email" name="email" id="profileEmail" class="form-control"
+                                        value="<?php echo htmlspecialchars($user['email'] ?? ''); ?>" placeholder="No recovery email set"
+                                        maxlength="100" autocomplete="email" inputmode="email" spellcheck="false" readonly>
                                 </div>
-                                <?php if(empty($user['email'])): ?>
-                                    <small class="text-danger mt-1 d-block"><i class="fas fa-exclamation-triangle"></i> Set and verify your email to enable password recovery.</small>
-                                <?php elseif(empty($user['pending_email'])): ?>
-                                    <small class="text-success mt-1 d-block"><i class="fas fa-check-circle"></i> Recovery email active</small>
+                                <?php if (empty($user['email'])): ?>
+                                    <small class="text-muted d-block mt-1">Add and verify an email to enable password recovery.</small>
+                                <?php else: ?>
+                                    <small class="text-success d-block mt-1"><i class="fas fa-check-circle" aria-hidden="true"></i> Current recovery email active</small>
                                 <?php endif; ?>
                             </div>
-
-                            <button type="submit" class="btn btn-info text-white w-100 fw-bold">Save Information</button>
+                            <p id="profileEditError" class="drms-profile-info__error" role="alert" hidden></p>
+                            <div id="profileEditActions" class="drms-profile-info__actions" hidden>
+                                <button type="button" id="profileEditCancel" class="btn btn-outline-secondary btn-sm">Cancel</button>
+                                <button type="submit" id="profileEditSave" class="btn btn-primary btn-sm">Save changes</button>
+                            </div>
                         </form>
                     </div>
-                </div>
+                </section>
 
             <section class="drms-email-notification-card" aria-labelledby="approvalEmailHeading">
                 <div class="drms-email-notification-card__copy">
@@ -527,6 +602,7 @@ $is_security_error = in_array($security_error_code, $security_error_codes, true)
 
     <script src="assets/vendor/jquery/3.7.0/jquery.min.js"></script>
     <script src="assets/vendor/bootstrap/5.3.0/bootstrap.bundle.min.js"></script>
+    <script src="assets/js/profile-edit.js?v=<?php echo filemtime(__DIR__ . '/assets/js/profile-edit.js'); ?>"></script>
     <script>
         function togglePass(inputId, iconId, toggleButton) {
             const input = document.getElementById(inputId);
@@ -587,6 +663,7 @@ $is_security_error = in_array($security_error_code, $security_error_codes, true)
             $('#newPass, #confirmNewPass').on('input', validateSettingsPassword);
         });
     </script>
+    <script src="assets/js/signature-profile-preview.js?v=<?php echo filemtime(__DIR__ . '/assets/js/signature-profile-preview.js'); ?>"></script>
 </body>
 </html>
 

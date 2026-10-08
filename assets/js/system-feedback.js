@@ -790,8 +790,6 @@
             '[data-prf-review-alert].is-success',
             '[data-prf-review-alert].is-error'
         ].join(',');
-        let converted = false;
-
         document.querySelectorAll(selector).forEach(function (element) {
             if (element.dataset.drmsToastConverted === '1' || element.hidden || element.classList.contains('d-none')) {
                 return;
@@ -809,14 +807,19 @@
             element.setAttribute('aria-hidden', 'true');
             window.setTimeout(function () { element.remove(); }, 250);
             toast(message, tone, 3000);
-            converted = true;
         });
 
-        if (converted && window.history && typeof window.history.replaceState === 'function') {
+        // A redirect's feedback belongs to this page load only. Some pages
+        // show it with their own toast instead of an inline alert, so clear
+        // the URL even when no alert was converted. Keep filters and anchors.
+        if (window.history && typeof window.history.replaceState === 'function') {
             const cleanUrl = new URL(window.location.href);
-            cleanUrl.searchParams.delete('success');
-            cleanUrl.searchParams.delete('error');
-            window.history.replaceState(null, '', cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
+            const feedbackKeys = ['success', 'error', 'notice'];
+            const hasFeedback = feedbackKeys.some(function (key) { return cleanUrl.searchParams.has(key); });
+            if (hasFeedback) {
+                feedbackKeys.forEach(function (key) { cleanUrl.searchParams.delete(key); });
+                window.history.replaceState(window.history.state, '', cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
+            }
         }
     }
 

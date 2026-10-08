@@ -253,7 +253,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                 <div class="col-lg-4">
                     <div class="corp-widget h-100">
                         <div class="corp-widget-header">
-                            <h6 class="corp-widget-title"><i class="fas fa-tasks text-warning"></i> Ready Records by Policy Action</h6>
+                            <h6 class="corp-widget-title"><i class="fas fa-tasks text-warning"></i> Current Disposition Queue by Policy Action</h6>
                         </div>
                         <div class="chart-box"><canvas id="adminDisposalActionChart"></canvas></div>
                     </div>
@@ -261,7 +261,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                 <div class="col-lg-8">
                     <div class="corp-widget h-100">
                         <div class="corp-widget-header">
-                            <h6 class="corp-widget-title"><i class="fas fa-history text-danger"></i> Archive & Delete Events</h6>
+                            <h6 class="corp-widget-title"><i class="fas fa-history text-danger"></i> Executed Dispositions</h6>
                         </div>
                         <div class="chart-box"><canvas id="adminDisposalHistoryChart"></canvas></div>
                     </div>
@@ -272,22 +272,6 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
         <!-- EXECUTIVE DASHBOARD SECTION -->
         <!-- ============================================== -->
         <?php elseif (in_array($_SESSION['role'], ['GM', 'President'])): ?>
-            <?php if ($_SESSION['role'] === 'GM'): ?>
-                <a href="quotations_list.php?filter=For%20GM%20Acknowledgement" class="po-ack-dashboard-queue">
-                    <span class="po-ack-dashboard-copy">
-                        <span class="po-ack-dashboard-icon"><i class="fas fa-file-signature"></i></span>
-                        <span>
-                            <strong>Official Client PO review queue</strong>
-                            <small>Client POs waiting for your authenticated acknowledgment before PRF preparation</small>
-                        </span>
-                    </span>
-                    <span class="po-ack-dashboard-count">
-                        <span><?php echo (int) $exec_stats['pending_client_po_ack']; ?></span>
-                        Review queue <i class="fas fa-arrow-right"></i>
-                    </span>
-                </a>
-            <?php endif; ?>
-
             <div class="row g-3 mb-3 dashboard-kpi-grid">
                 <div class="col-xl-3 col-md-6"><a href="documents.php" class="text-decoration-none"><div class="kpi-corp-card accent-blue"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Active Records</p><h3 class="kpi-corp-value mt-1"><?php echo $exec_stats['active_docs']; ?></h3></div><div class="kpi-corp-icon bg-primary bg-opacity-10 text-primary"><i class="fas fa-folder-open"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-primary box-12" style="font-size: 5px;"></i> Filed Official Records</div></div></a></div>
                 <div class="col-xl-3 col-md-6"><a href="documents.php?view_archives=1" class="text-decoration-none"><div class="kpi-corp-card accent-slate"><div class="kpi-corp-header"><div><p class="kpi-corp-title">Archived Docs</p><h3 class="kpi-corp-value mt-1"><?php echo $exec_stats['archived_docs']; ?></h3></div><div class="kpi-corp-icon bg-secondary bg-opacity-10 text-secondary"><i class="fas fa-archive"></i></div></div><div class="kpi-corp-badge"><i class="fas fa-circle text-secondary box-12" style="font-size: 5px;"></i> Archived Official Records</div></div></a></div>
@@ -439,14 +423,14 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                     'action' => 'View client POs'
                 ];
 
-                $disp_count = $gm_charts['lifecycle']['ready_disp'] ?? 0;
+                $disp_count = (int) ($exec_lifecycle['ready_disp'] ?? 0);
                 $insights[] = [
                     'status' => ($disp_count > 0) ? 'warning' : 'info', 
                     'icon' => ($disp_count > 0) ? 'fa-archive' : 'fa-shield-alt', 
                     'title' => ($disp_count > 0) ? 'Records Ready for Disposition' : 'No Disposition Queue', 
                     'desc' => ($disp_count > 0)
-                        ? "<strong>{$disp_count}</strong> Official Record(s) are marked Ready for Disposition. Review each record and its retention basis before deciding."
-                        : "No record is currently marked Ready for Disposition. This alone does not establish full retention compliance.",
+                        ? "<strong>{$disp_count}</strong> Official Record(s) are marked Ready or have reached their retention deadline. Review each record and its retention basis before deciding."
+                        : "No Official Record is currently marked Ready or due under its assigned retention policy. This alone does not establish full retention compliance.",
                     'href' => $disp_count > 0 ? 'documents.php?disposition=1' : null,
                     'action' => 'Review records'
                 ];
@@ -481,7 +465,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
             </div>
 
             <div class="row g-3 mb-3 align-items-stretch">
-                <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-folder-open text-info"></i> Record Volume Distribution</h6></div><div class="chart-box"><canvas id="gmVolumeChart"></canvas></div></div></div>
+                <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-folder-open text-info"></i> Current Official Records by Category</h6></div><div class="chart-box"><canvas id="gmVolumeChart"></canvas></div></div></div>
                 <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-project-diagram text-rose"></i> PO Milestone Elapsed Time</h6></div><div class="chart-box"><canvas id="gmTurnaroundChart"></canvas></div></div></div>
                 <div class="col-lg-4"><div class="corp-widget h-100"><div class="corp-widget-header"><h6 class="corp-widget-title"><i class="fas fa-chart-pie text-emerald"></i> Official Record Lifecycle</h6></div><div class="chart-box"><canvas id="gmLifecycleChart"></canvas></div></div></div>
             </div>
@@ -490,7 +474,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                 <div class="col-12">
                     <div class="corp-widget h-100">
                         <div class="corp-widget-header">
-                            <h6 class="corp-widget-title"><i class="fas fa-search-location text-warning"></i> Retrieval Frequency Report (DSS)</h6>
+                            <h6 class="corp-widget-title"><i class="fas fa-search-location text-warning"></i> Managed File Opens (DSS)</h6>
                         </div>
                         <div class="chart-box"><canvas id="gmRetrievalChart"></canvas></div>
                     </div>
@@ -502,7 +486,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                 <div class="col-lg-4">
                     <div class="corp-widget h-100">
                         <div class="corp-widget-header">
-                            <h6 class="corp-widget-title"><i class="fas fa-tasks text-warning"></i> Ready Records by Policy Action</h6>
+                            <h6 class="corp-widget-title"><i class="fas fa-tasks text-warning"></i> Current Disposition Queue by Policy Action</h6>
                         </div>
                         <div class="chart-box"><canvas id="gmDisposalActionChart"></canvas></div>
                     </div>
@@ -510,7 +494,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                 <div class="col-lg-8">
                     <div class="corp-widget h-100">
                         <div class="corp-widget-header">
-                            <h6 class="corp-widget-title"><i class="fas fa-history text-danger"></i> Archive & Delete Events</h6>
+                            <h6 class="corp-widget-title"><i class="fas fa-history text-danger"></i> Executed Dispositions</h6>
                         </div>
                         <div class="chart-box"><canvas id="gmDisposalHistoryChart"></canvas></div>
                     </div>
@@ -572,7 +556,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                         'icon' => 'fa-triangle-exclamation',
                         'title' => 'Immediate Collection Required',
                         'desc' => "<strong>₱ " . number_format($overdue_amount, 2) . "</strong> across <strong>{$overdue_count}</strong> delivered PO(s) is overdue as of today. Contact the clients and record the next follow-up.",
-                        'href' => 'collection_aging.php',
+                        'href' => 'collection_monitoring.php?filter=overdue',
                         'action' => 'Review overdue POs'
                     ];
                 }
@@ -582,7 +566,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                         'icon' => 'fa-calendar-xmark',
                         'title' => 'Due-Date Review Required',
                         'desc' => "<strong>{$missing_due_count}</strong> open PO(s), totaling <strong>₱ " . number_format($missing_due_amount, 2) . "</strong>, have no reliable due date. Verify the delivery record before relying on aging.",
-                        'href' => 'collection_aging.php',
+                        'href' => 'collection_monitoring.php?filter=missing_due',
                         'action' => 'Review missing dates'
                     ];
                 }
@@ -592,7 +576,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                         'icon' => 'fa-clock',
                         'title' => 'Collections Due Within 3 Days',
                         'desc' => "<strong>₱ " . number_format($due_soon_amount, 2) . "</strong> across <strong>{$due_soon_count}</strong> PO(s) is due within 3 days. Schedule client follow-up now.",
-                        'href' => 'collection_aging.php',
+                        'href' => 'collection_monitoring.php?filter=due_soon',
                         'action' => 'Review upcoming dues'
                     ];
                 }
@@ -1043,7 +1027,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
     <!-- CHART DATA INJECTION -->
     <!-- ============================================== -->
     <?php if (isset($admin_charts) && !empty($admin_charts)): ?><script>const adminData = <?php echo json_encode($admin_charts); ?>;</script><?php endif; ?>
-    <?php if (isset($gm_charts) && !empty($gm_charts)): ?><script>const gmData = <?php echo json_encode($gm_charts); ?>;</script><?php endif; ?>
+    <?php if (isset($gm_charts) && !empty($gm_charts)): ?><script>const gmData = <?php echo json_encode($gm_charts, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE); ?>;</script><?php endif; ?>
     <?php if (isset($finance_charts) && !empty($finance_charts)): ?><script>const finData = <?php echo json_encode($finance_charts); ?>;</script><?php endif; ?>
     <?php if (isset($proc_charts) && !empty($proc_charts)): ?><script>const procData = <?php echo json_encode($proc_charts); ?>;</script><?php endif; ?>
     <?php if (isset($sc_charts) && !empty($sc_charts)): ?><script>const scData = <?php echo json_encode($sc_charts); ?>;</script><?php endif; ?>
@@ -1256,7 +1240,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                 if(document.getElementById('adminDisposalHistoryChart')) {
                     const ctxHist = document.getElementById('adminDisposalHistoryChart').getContext('2d');
                     const dHist = adminData.disposal.history;
-                    const hLabels = dHist.map(h => { let d = new Date(h.disp_date); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); });
+                    const hLabels = dHist.map(h => { let d = new Date(`${h.disp_date}T00:00:00`); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); });
                     const archData = dHist.map(h => h.archived_count);
                     const destData = dHist.map(h => h.destroyed_count);
 
@@ -1265,8 +1249,8 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                         data: {
                             labels: hLabels.length ? hLabels : ['No Record'],
                             datasets: [
-                                { label: 'Archived Documents', data: archData, backgroundColor: 'rgba(99, 102, 241, 0.8)', borderRadius: 4 },
-                                { label: 'Destroyed / Deleted', data: destData, backgroundColor: 'rgba(239, 68, 68, 0.8)', borderRadius: 4 }
+                                { label: 'Permanently Archived', data: archData, backgroundColor: 'rgba(99, 102, 241, 0.8)', borderRadius: 4 },
+                                { label: 'Destroyed', data: destData, backgroundColor: 'rgba(239, 68, 68, 0.8)', borderRadius: 4 }
                             ]
                         },
                         options: {
@@ -1286,7 +1270,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                     const aLabels = dAction.map(a => a.action_type);
                     const aData = dAction.map(a => a.cnt);
 
-                    const colorMap = { 'Archive': 'rgba(99, 102, 241, 0.8)', 'Destroy': 'rgba(239, 68, 68, 0.8)', 'Review Required': 'rgba(245, 158, 11, 0.8)' };
+                    const colorMap = { 'Permanent Archive': 'rgba(99, 102, 241, 0.8)', 'Destroy': 'rgba(239, 68, 68, 0.8)' };
                     const bgColors = aLabels.map(l => colorMap[l] || 'rgba(100, 116, 139, 0.8)');
 
                     new Chart(ctxAction, {
@@ -1353,14 +1337,14 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                 const ctxRet = document.getElementById('gmRetrievalChart').getContext('2d');
                 const retLabels = gmData.retrieval_freq.map(r => r.label);
                 const retData = gmData.retrieval_freq.map(r => r.count);
-                const retBgColors = gmData.retrieval_freq.map(r => r.type === 'DOWNLOAD_DOC' ? 'rgba(16, 185, 129, 0.8)' : 'rgba(59, 130, 246, 0.8)');
+                const retBgColors = gmData.retrieval_freq.map(r => r.phase === 'Official Record' ? 'rgba(59, 130, 246, 0.8)' : 'rgba(16, 185, 129, 0.8)');
 
                 new Chart(ctxRet, {
                     type: 'bar',
                     data: {
                         labels: retLabels.length ? retLabels : ['No Record'],
                         datasets: [{
-                            label: 'Access Frequency',
+                            label: 'File Opens',
                             data: retData,
                             backgroundColor: retBgColors,
                             borderRadius: 4,
@@ -1374,7 +1358,12 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                             legend: { display: false },
                             tooltip: {
                                 callbacks: {
-                                    label: function(ctx) { return ctx.raw + ' Accesses'; }
+                                    title: function(items) {
+                                        if (!items.length) return '';
+                                        const record = gmData.retrieval_freq[items[0].dataIndex];
+                                        return `${record.phase}: ${record.full_name} (#${record.doc_id})`;
+                                    },
+                                    label: function(ctx) { return ctx.raw + ' file opens'; }
                                 }
                             }
                         },
@@ -1400,7 +1389,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                 if(document.getElementById('gmDisposalHistoryChart')) {
                     const ctxHist = document.getElementById('gmDisposalHistoryChart').getContext('2d');
                     const dHist = gmData.disposal.history;
-                    const hLabels = dHist.map(h => { let d = new Date(h.disp_date); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); });
+                    const hLabels = dHist.map(h => { let d = new Date(`${h.disp_date}T00:00:00`); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); });
                     const archData = dHist.map(h => h.archived_count);
                     const destData = dHist.map(h => h.destroyed_count);
 
@@ -1409,8 +1398,8 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                         data: {
                             labels: hLabels.length ? hLabels : ['No Record'],
                             datasets: [
-                                { label: 'Archived Documents', data: archData, backgroundColor: 'rgba(99, 102, 241, 0.8)', borderRadius: 4 },
-                                { label: 'Destroyed / Deleted', data: destData, backgroundColor: 'rgba(239, 68, 68, 0.8)', borderRadius: 4 }
+                                { label: 'Permanently Archived', data: archData, backgroundColor: 'rgba(99, 102, 241, 0.8)', borderRadius: 4 },
+                                { label: 'Destroyed', data: destData, backgroundColor: 'rgba(239, 68, 68, 0.8)', borderRadius: 4 }
                             ]
                         },
                         options: {
@@ -1430,7 +1419,7 @@ if (!function_exists('drms_dashboard_prioritize_insights')) {
                     const aLabels = dAction.map(a => a.action_type);
                     const aData = dAction.map(a => a.cnt);
 
-                    const colorMap = { 'Archive': 'rgba(99, 102, 241, 0.8)', 'Destroy': 'rgba(239, 68, 68, 0.8)', 'Review Required': 'rgba(245, 158, 11, 0.8)' };
+                    const colorMap = { 'Permanent Archive': 'rgba(99, 102, 241, 0.8)', 'Destroy': 'rgba(239, 68, 68, 0.8)' };
                     const bgColors = aLabels.map(l => colorMap[l] || 'rgba(100, 116, 139, 0.8)');
 
                     new Chart(ctxAction, {

@@ -61,9 +61,17 @@ if (!function_exists('drms_payment_signature_hash_snapshot')) {
             'client_name',
             'po_amount',
         ] as $key) {
-            $record[$key] = $key === 'proof_file_hash'
-                ? $proofHash
-                : ($snapshot[$key] ?? null);
+            // Prepared SELECTs return these IDs as integers, while an ordinary
+            // list query may return their identical values as numeric strings.
+            // Canonicalize only the ID types so both paths hash the same signed
+            // payment without weakening any field or proof-hash comparison.
+            if (in_array($key, ['payment_id', 'po_id', 'recorded_by'], true)) {
+                $record[$key] = (int) ($snapshot[$key] ?? 0);
+            } elseif ($key === 'proof_file_hash') {
+                $record[$key] = $proofHash;
+            } else {
+                $record[$key] = $snapshot[$key] ?? null;
+            }
         }
 
         $encoded = json_encode(

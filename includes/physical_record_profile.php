@@ -23,7 +23,7 @@ $vc3IsCabinet = basename($_SERVER['SCRIPT_NAME'] ?? '') === 'virtual_cabinet.php
                 <div class="vcp-heading">
                     <span class="vcp-eyebrow">Physical record control</span>
                     <h5 id="vcpHeading">Record profile</h5>
-                    <p>Track the paper copy without changing the digital record.</p>
+                    <p><?= $vc3IsCabinet ? 'Manage the paper copy without changing the digital record.' : 'View paper-copy status here. Use Virtual Cabinet for physical actions.' ?></p>
                 </div>
                 <button
                     type="button"
@@ -119,7 +119,7 @@ $vc3IsCabinet = basename($_SERVER['SCRIPT_NAME'] ?? '') === 'virtual_cabinet.php
                         </section>
                     </div>
 
-                    <section id="vcpActionPanel" class="vcp-action-panel">
+                    <section id="vcpActionPanel" class="vcp-action-panel" hidden>
                         <div class="vcp-section-heading">
                             <div>
                                 <span class="vcp-section-label">Available actions</span>
@@ -154,11 +154,6 @@ $vc3IsCabinet = basename($_SERVER['SCRIPT_NAME'] ?? '') === 'virtual_cabinet.php
                                 <span class="vcp-action-copy"><strong class="vcp-action-title">Dispose copy</strong><small>Record completed physical destruction.</small></span>
                                 <i class="fas fa-chevron-right vcp-action-arrow" aria-hidden="true"></i>
                             </button>
-                            <a class="vcp-action-card" id="vcpCabinet" href="#" hidden>
-                                <span class="vcp-action-icon"><i class="fas fa-table-cells-large"></i></span>
-                                <span class="vcp-action-copy"><strong class="vcp-action-title">Virtual Cabinet</strong><small>Open full physical filing controls.</small></span>
-                                <i class="fas fa-arrow-up-right-from-square vcp-action-arrow" aria-hidden="true"></i>
-                            </a>
                         </div>
                     </section>
 
@@ -270,6 +265,10 @@ $vc3IsCabinet = basename($_SERVER['SCRIPT_NAME'] ?? '') === 'virtual_cabinet.php
                             <span><strong>Confirm this action</strong><small id="vcpConfirmation"></small></span>
                         </label>
                         <p id="vcpConfirmedError" class="vcp-field-error vcp-confirm-error" role="alert" hidden></p>
+                        <div class="vcp-form-actions">
+                            <button type="button" class="btn btn-outline-secondary" id="vcpCancel"><i class="fas fa-arrow-left" aria-hidden="true"></i><span>Cancel action</span></button>
+                            <button type="submit" class="btn btn-primary" id="vcpSave"><i class="fas fa-check" aria-hidden="true"></i><span>Record physical action</span></button>
+                        </div>
                     </form>
 
                     <details id="vcpHistory" class="vcp-history">
@@ -310,16 +309,30 @@ $vc3IsCabinet = basename($_SERVER['SCRIPT_NAME'] ?? '') === 'virtual_cabinet.php
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" id="vcpClose">
                     Close
                 </button>
-                <a class="btn btn-outline-primary" href="#" id="vcpDigital" hidden>
-                    <i class="fas fa-file-arrow-up"></i><span>View digital file</span>
-                </a>
-                <button type="button" class="btn btn-outline-secondary" id="vcpCancel" hidden>
-                    <i class="fas fa-arrow-left"></i><span>Back to profile</span>
-                </button>
-                <button type="submit" class="btn btn-primary" form="vcpForm" id="vcpSave" hidden>
-                    <i class="fas fa-check"></i><span>Save confirmation</span>
-                </button>
+                <button type="button" class="btn btn-outline-primary" id="vcpPreview" hidden><i class="fas fa-eye" aria-hidden="true"></i><span>Preview digital file</span></button>
+                <a class="btn btn-outline-primary" href="#" id="vcpCabinet" hidden><i class="fas fa-table-cells-large" aria-hidden="true"></i><span>Go to Virtual Cabinet</span></a>
+                <a class="btn btn-outline-primary" href="#" id="vcpDigital" hidden><i class="fas fa-file-arrow-up" aria-hidden="true"></i><span>Go to digital file</span></a>
+                <button type="button" class="btn btn-primary" id="vcpManage" hidden><i class="fas fa-pen-to-square" aria-hidden="true"></i><span>Manage physical copy</span></button>
             </footer>
         </div>
     </div>
+</div>
+<div class="modal fade vcp vcp-action-modal" id="vcpActionModal" tabindex="-1" aria-labelledby="vcpActionModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg"><div class="modal-content">
+        <header class="modal-header vcp-modal-header"><div class="vcp-header-icon" aria-hidden="true"><i class="fas fa-box-archive"></i></div><div class="vcp-heading"><span class="vcp-eyebrow">Physical record control</span><h5 id="vcpActionModalTitle">Choose a physical-copy action</h5><p id="vcpActionFileName"></p></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close physical-copy actions"></button></header>
+        <div class="modal-body"><div id="vcpActionMessage" role="status" aria-live="polite" hidden></div><div id="vcpActionMount"></div></div>
+        <footer class="modal-footer vcp-modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Back to record</button></footer>
+    </div></div>
+</div>
+<div class="modal fade vcp-preview" id="vcpPreviewModal" tabindex="-1" aria-labelledby="vcpPreviewTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-xl"><div class="modal-content">
+        <header class="modal-header"><div class="vcp-preview-heading"><span class="vcp-section-label">Digital file preview</span><h5 id="vcpPreviewTitle">Document</h5></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close preview"></button></header>
+        <div class="modal-body">
+            <p id="vcpPreviewLoading" role="status">Opening the file…</p>
+            <img id="vcpPreviewImage" alt="" hidden>
+            <div id="vcpPreviewPdf" hidden><div class="vcp-preview-controls"><button type="button" id="vcpPreviewPrev" aria-label="Previous page"><i class="fas fa-chevron-left"></i></button><span id="vcpPreviewPage">Page 1 of 1</span><button type="button" id="vcpPreviewNext" aria-label="Next page"><i class="fas fa-chevron-right"></i></button><button type="button" id="vcpPreviewZoomOut" aria-label="Zoom out"><i class="fas fa-minus"></i></button><button type="button" id="vcpPreviewZoomIn" aria-label="Zoom in"><i class="fas fa-plus"></i></button></div><div class="vcp-preview-canvas-wrap"><canvas id="vcpPreviewCanvas" aria-label="PDF page preview"></canvas></div></div>
+            <p id="vcpPreviewFallback" role="status" hidden>This file cannot be previewed here. Download it to view the contents.</p>
+        </div>
+        <footer class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Back to physical record</button><a class="btn btn-primary" id="vcpPreviewDownload" href="#" download><i class="fas fa-download" aria-hidden="true"></i> Download file</a></footer>
+    </div></div>
 </div>

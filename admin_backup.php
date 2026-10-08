@@ -297,7 +297,7 @@ async function confirmSystemRestore() {
 
     if (!approved) return;
     confirmation.value = 'RESTORE';
-    window.DRMSFeedback.toast('Restoring system state. Do not close this tab or stop Apache and MySQL.', 'warning', 6000);
+    window.DRMSFeedback.toast('Restoring the selected backup. Keep this tab open until the result appears.', 'info', 6000);
     form.submit();
 }
 </script>

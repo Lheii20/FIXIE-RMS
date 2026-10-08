@@ -10,13 +10,19 @@ function drms_copy_response(int $status,array $body): void {
 try {
     if(($_SERVER['REQUEST_METHOD']??'')!=='GET')throw new DrmsStorageError('Use GET to read physical records.',405);
     $actor=drms_copy_actor($conn,(int)($_SESSION['user_id']??0));
+    // Authentication and account checks have completed. Release the PHP
+    // session lock before the read-only queries so parallel cabinet requests
+    // do not wait for each other's database work.
+    if(session_status()===PHP_SESSION_ACTIVE)session_write_close();
     $action=drms_storage_text($_GET,'action',30);
     if($action==='directory')$result=drms_copy_directory($conn,$actor);
     elseif($action==='get_documents' || $action==='smart_search')$result=drms_copy_list($conn,$actor,$_GET);
-    elseif($action==='get_document_profile') {
-        drms_copy_ready($conn);
+    elseif($action==='get_document_profile' || $action==='get_profile_options') {
+        drms_copy_read_ready($conn);
         $id=drms_storage_text($_GET,'doc_id',10);if(!ctype_digit($id) || (int)$id<1 || (int)$id>2147483647)throw new DrmsStorageError('Invalid record.',422);
-        $result=drms_copy_profile($conn,$actor,(int)$id);
+        $result=$action==='get_document_profile'
+            ?drms_copy_profile($conn,$actor,(int)$id)
+            :drms_copy_profile_options($conn,$actor,(int)$id);
     }else throw new DrmsStorageError('Refresh the Virtual Cabinet to use its current interface.',422);
     drms_copy_response(200,['ok'=>true,'status'=>'success']+$result);
 }catch(DrmsStorageError $error){drms_copy_response($error->getCode()?:400,['ok'=>false,'status'=>'error','message'=>$error->getMessage()]);}

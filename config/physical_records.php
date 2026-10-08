@@ -8,18 +8,22 @@ function drms_copy_schema(mysqli $conn): array
 {
     drms_storage_ready($conn);
     $steps=[];
-    foreach (['documents','virt_document_locations','physical_borrowing_logs','physical_movement_logs'] as $table) {
-        $engine=drms_vc1_select($conn,'SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?',[$table]);
-        if (!$engine || $engine[0]['ENGINE']!=='InnoDB') { throw new DrmsStorageError('Required transactional table is unavailable: '.$table,503); }
+    $requiredTables=['documents','virt_document_locations','physical_borrowing_logs','physical_movement_logs'];
+    $engines=drms_vc1_select($conn,"SELECT TABLE_NAME,ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('documents','virt_document_locations','physical_borrowing_logs','physical_movement_logs')");
+    $engineByTable=array_column($engines,'ENGINE','TABLE_NAME');
+    foreach ($requiredTables as $table) {
+        if (($engineByTable[$table]??null)!=='InnoDB') { throw new DrmsStorageError('Required transactional table is unavailable: '.$table,503); }
     }
-    $duplicates=$conn->query('SELECT document_id FROM virt_document_locations GROUP BY document_id HAVING COUNT(*)>1 LIMIT 1')->fetch_assoc();
-    if ($duplicates) { throw new DrmsStorageError('Multiple physical-copy rows exist for document '.$duplicates['document_id'].'. Resolve this explicitly before VC3; nothing was merged or deleted.',503); }
     $indexes=$conn->query('SHOW INDEX FROM virt_document_locations')->fetch_all(MYSQLI_ASSOC);
     $groups=[];
     foreach ($indexes as $index) { $groups[$index['Key_name']][]=$index; }
     $unique=false;
     foreach ($groups as $index) { if(count($index)===1 && (int)$index[0]['Non_unique']===0 && $index[0]['Column_name']==='document_id') $unique=true; }
     if (!$unique) {
+        // An installed unique index makes duplicate rows impossible. Scan only
+        // when the index is absent and the installer may need intervention.
+        $duplicates=$conn->query('SELECT document_id FROM virt_document_locations GROUP BY document_id HAVING COUNT(*)>1 LIMIT 1')->fetch_assoc();
+        if ($duplicates) { throw new DrmsStorageError('Multiple physical-copy rows exist for document '.$duplicates['document_id'].'. Resolve this explicitly before VC3; nothing was merged or deleted.',503); }
         if (isset($groups['uq_vc3_document_copy'])) throw new DrmsStorageError('Conflicting uq_vc3_document_copy index; no automatic replacement.',503);
         $steps[]='ALTER TABLE virt_document_locations ADD UNIQUE KEY uq_vc3_document_copy (document_id)';
     }
@@ -128,8 +132,7 @@ function drms_copy_disposal_hash(array $evidence): string
 function drms_copy_custody_schema(mysqli $conn): array
 {
     drms_copy_ready($conn);
-    $engine=drms_vc1_select($conn,"SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='physical_borrowing_logs'");
-    if(!$engine || $engine[0]['ENGINE']!=='InnoDB') throw new DrmsStorageError('The physical borrowing history must use InnoDB before custody monitoring can be enabled.',503);
+    // drms_copy_ready already verifies that physical_borrowing_logs is InnoDB.
     $groups=[];
     foreach($conn->query('SHOW INDEX FROM physical_borrowing_logs')->fetch_all(MYSQLI_ASSOC) as $index)$groups[$index['Key_name']][]=$index;
     if(isset($groups['idx_vc4c_borrow_document'])) {
@@ -144,6 +147,37 @@ function drms_copy_custody_schema(mysqli $conn): array
 function drms_copy_custody_ready(mysqli $conn): void
 {
     if(drms_copy_custody_schema($conn)) throw new DrmsStorageError('Install and verify the VC4C custody-monitoring index before using this list.',503);
+}
+
+/**
+ * Read requests need the physical tables and lookup indexes, but they do not
+ * need the full migration/audit inspection reserved for write operations.
+ * Keep the check cheap so opening the cabinet does not repeat the installer.
+ */
+function drms_copy_read_ready(mysqli $conn): void
+{
+    $required=['documents','virt_document_locations','physical_borrowing_logs','physical_movement_logs',
+        'virt_buildings','virt_rooms','virt_cabinets','virt_drawers','virt_storage_boxes','virt_physical_folders'];
+    $names="'".implode("','",$required)."'";
+    $rows=drms_vc1_select($conn,"SELECT TABLE_NAME,ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ($names)");
+    $engines=array_column($rows,'ENGINE','TABLE_NAME');
+    foreach($required as $table) {
+        if(($engines[$table]??null)!=='InnoDB') throw new DrmsStorageError('Physical records are temporarily unavailable. Ask the administrator to verify the storage schema.',503);
+    }
+    $locationIndex=false;
+    $locationGroups=[];
+    foreach($conn->query('SHOW INDEX FROM virt_document_locations')->fetch_all(MYSQLI_ASSOC) as $index) $locationGroups[$index['Key_name']][]=$index;
+    foreach($locationGroups as $group) {
+        if(count($group)===1 && $group[0]['Column_name']==='document_id' && (int)$group[0]['Non_unique']===0) {$locationIndex=true;break;}
+    }
+    if(!$locationIndex) throw new DrmsStorageError('The physical-copy unique index is unavailable.',503);
+    $borrowIndex=false;
+    $groups=[];
+    foreach($conn->query('SHOW INDEX FROM physical_borrowing_logs')->fetch_all(MYSQLI_ASSOC) as $index) $groups[$index['Key_name']][]=$index;
+    foreach($groups as $group) {
+        if(array_slice(array_column($group,'Column_name'),0,2)===['document_id','id']) {$borrowIndex=true;break;}
+    }
+    if(!$borrowIndex) throw new DrmsStorageError('The physical-custody lookup index is unavailable.',503);
 }
 
 function drms_copy_actor(mysqli $conn,int $id,bool $lock=false): array
@@ -195,6 +229,40 @@ function drms_copy_folder_revision(array $folder): string
     return hash('sha256',json_encode([$folder['key'],$folder['revision'],$folder['path'],$folder['available']],JSON_THROW_ON_ERROR));
 }
 
+/** Resolve one folder with the same revision and availability rules as the directory. */
+function drms_copy_folder_lookup(mysqli $conn,int $id): ?array
+{
+    $rows=drms_vc1_select($conn,'SELECT pf.id,pf.name,pf.code,pf.is_active,pf.drawer_id,pf.box_id,
+        bx.id AS box_found,bx.name AS box_name,bx.is_active AS box_active,bx.drawer_id AS box_drawer_id,bx.room_id AS box_room_id,
+        pd.id AS drawer_found,pd.name AS drawer_name,pd.cabinet_id,
+        pc.id AS cabinet_found,pc.name AS cabinet_name,pc.room_id AS cabinet_room_id,
+        pr.id AS room_found,pr.name AS room_name,pr.building_id,
+        pb.id AS building_found,pb.name AS building_name
+        FROM virt_physical_folders pf LEFT JOIN virt_storage_boxes bx ON bx.id=pf.box_id
+        LEFT JOIN virt_drawers pd ON pd.id=COALESCE(pf.drawer_id,bx.drawer_id)
+        LEFT JOIN virt_cabinets pc ON pc.id=pd.cabinet_id
+        LEFT JOIN virt_rooms pr ON pr.id=COALESCE(bx.room_id,pc.room_id)
+        LEFT JOIN virt_buildings pb ON pb.id=pr.building_id WHERE pf.id=? LIMIT 1',[(string)$id]);
+    if(!$rows)return null;
+    $row=$rows[0];
+    $data=['key'=>'folder:'.$id,'type'=>'folder','id'=>$id,'name'=>$row['name'],'code'=>$row['code'],
+        'parent'=>$row['drawer_id']!==null?'drawer:'.$row['drawer_id']:'box:'.$row['box_id'],
+        'active'=>(int)$row['is_active']===1];
+    $revision=hash('sha256',json_encode($data,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR));
+    $required=[$row['building_found'],$row['room_found']];
+    if($row['box_id']!==null)$required[]=$row['box_found'];
+    if($row['drawer_id']!==null || $row['box_drawer_id']!==null){$required[]=$row['drawer_found'];$required[]=$row['cabinet_found'];}
+    $available=$data['active'] && !in_array(null,$required,true);
+    foreach(['box_active'] as $field) {
+        if($row[$field]!==null && (int)$row[$field]!==1)$available=false;
+    }
+    $parts=[];
+    foreach(['building_name','room_name','cabinet_name','drawer_name','box_name','name'] as $field)if($row[$field]!==null)$parts[]=$row[$field];
+    $path=implode(' / ',$parts);
+    if(in_array(null,$required,true))$path='[Missing parent] / '.$path;
+    return $data+['revision'=>$revision,'path'=>$path,'available'=>$available];
+}
+
 function drms_copy_profile(mysqli $conn,array $actor,int $id): array
 {
     [$access,$params]=drms_copy_access($actor);
@@ -209,8 +277,7 @@ function drms_copy_profile(mysqli $conn,array $actor,int $id): array
     $doc=$rows[0];
     $doc['digital_destroyed']=$doc['disposition_status']==='Destroyed';
     $doc['revision']=drms_copy_revision($doc);
-    $nodes=drms_storage_snapshot($conn);
-    $folder=$doc['physical_folder_id'] ? ($nodes['folder:'.$doc['physical_folder_id']] ?? null) : null;
+    $folder=$doc['physical_folder_id'] ? drms_copy_folder_lookup($conn,(int)$doc['physical_folder_id']) : null;
     $doc['full_physical_path']=$folder['path'] ?? '';
     $doc['folder_revision']=$folder?drms_copy_folder_revision($folder):'';
     $doc['filing_state']=!$doc['location_id']?'No registered physical copy':($folder?'Assigned':'Unassigned');
@@ -221,10 +288,21 @@ function drms_copy_profile(mysqli $conn,array $actor,int $id): array
     // VC5B: insertion order matches list/export and cannot revive an older holder after clock corrections.
     $borrow=drms_vc1_select($conn,'SELECT l.action_type,l.current_holder_name,l.expected_return_date,l.remarks,l.action_date,u.full_name AS recorded_by FROM physical_borrowing_logs l LEFT JOIN users u ON u.user_id=l.user_id WHERE l.document_id=? ORDER BY l.id DESC LIMIT 20',[(string)$id]);
     $moves=drms_vc1_select($conn,'SELECT l.previous_path,l.new_path,l.reason,l.moved_at,u.full_name AS moved_by_name FROM physical_movement_logs l LEFT JOIN users u ON u.user_id=l.moved_by WHERE l.document_id=? ORDER BY l.moved_at DESC,l.id DESC LIMIT 20',[(string)$id]);
+    return ['document'=>$doc,'can_manage'=>$actor['manage'],'folders'=>[],'borrow_history'=>$borrow,'movement_history'=>$moves,'holders'=>[]];
+}
+
+/** Load management choices only when the user opens an action form. */
+function drms_copy_profile_options(mysqli $conn,array $actor,int $id): array
+{
+    if(!$actor['manage'])throw new DrmsStorageError('You do not have permission to manage physical records.',403);
+    [$access,$params]=drms_copy_access($actor);
+    $rows=drms_vc1_select($conn,"SELECT d.doc_id FROM documents d WHERE d.doc_id=? AND $access LIMIT 1",array_merge([(string)$id],$params));
+    if(!$rows)throw new DrmsStorageError('Record not found or access is not permitted.',404);
+    $nodes=drms_storage_snapshot($conn);
     $folders=[];
-    if ($actor['manage']) foreach($nodes as $node) if($node['type']==='folder' && $node['available']) $folders[]=['id'=>$node['id'],'code'=>$node['code'],'path'=>$node['path'],'revision'=>drms_copy_folder_revision($node)];
-    $users=$actor['manage']?drms_vc1_select($conn,"SELECT user_id,full_name FROM users WHERE status='Active' ORDER BY full_name,user_id"):[];
-    return ['document'=>$doc,'can_manage'=>$actor['manage'],'folders'=>$folders,'borrow_history'=>$borrow,'movement_history'=>$moves,'holders'=>$users];
+    foreach($nodes as $node)if($node['type']==='folder' && $node['available'])$folders[]=['id'=>$node['id'],'code'=>$node['code'],'path'=>$node['path'],'revision'=>drms_copy_folder_revision($node)];
+    $users=drms_vc1_select($conn,"SELECT user_id,full_name FROM users WHERE status='Active' ORDER BY full_name,user_id");
+    return ['folders'=>$folders,'holders'=>$users];
 }
 
 /**
@@ -266,7 +344,7 @@ function drms_copy_filter_query(array $actor,array $input): array
 
 function drms_copy_list(mysqli $conn,array $actor,array $input): array
 {
-    drms_copy_custody_ready($conn);
+    drms_copy_read_ready($conn);
     $filter=drms_copy_filter_query($actor,$input);
     $pageRaw=$input['page'] ?? '1';
     if(!is_string($pageRaw) || !preg_match('/^[1-9][0-9]{0,6}$/D',$pageRaw)) throw new DrmsStorageError('Invalid page.',422);
@@ -274,11 +352,18 @@ function drms_copy_list(mysqli $conn,array $actor,array $input): array
     $from=$filter['from'];$params=$filter['params'];
     $total=(int)drms_vc1_select($conn,'SELECT COUNT(*) AS n'.$from,$params)[0]['n'];
     $page=min($page,max(1,(int)ceil($total/15)));$offset=($page-1)*15;
+    $pathSql="(SELECT CONCAT_WS(' / ',pb.name,pr.name,pc.name,pd.name,bx.name,pf.name)
+        FROM virt_physical_folders pf
+        LEFT JOIN virt_storage_boxes bx ON bx.id=pf.box_id
+        LEFT JOIN virt_drawers pd ON pd.id=COALESCE(pf.drawer_id,bx.drawer_id)
+        LEFT JOIN virt_cabinets pc ON pc.id=pd.cabinet_id
+        LEFT JOIN virt_rooms pr ON pr.id=COALESCE(bx.room_id,pc.room_id)
+        LEFT JOIN virt_buildings pb ON pb.id=pr.building_id
+        WHERE pf.id=l.physical_folder_id LIMIT 1)";
     $rows=drms_vc1_select($conn,'SELECT d.doc_id,d.file_name,d.record_number,d.category,d.record_phase,d.status AS lifecycle_status,d.disposition_status,l.physical_folder_id,l.status AS physical_status,l.last_updated,
-        bl.current_holder_name,bl.expected_return_date,bl.action_date AS custody_action_date'.$from.' ORDER BY '.$filter['order'].' LIMIT 15 OFFSET '.$offset,$params);
-    $nodes=drms_storage_snapshot($conn);
+        bl.current_holder_name,bl.expected_return_date,bl.action_date AS custody_action_date,'.$pathSql.' AS full_physical_path'.$from.' ORDER BY '.$filter['order'].' LIMIT 15 OFFSET '.$offset,$params);
     foreach($rows as &$row) {
-        $row['full_physical_path']=$nodes['folder:'.$row['physical_folder_id']]['path'] ?? '';
+        $row['full_physical_path']=$row['full_physical_path'] ?? '';
         $row['filing_state']=$row['physical_folder_id']?'Assigned':'Unassigned';
         $row['is_overdue']=$row['physical_status']==='Borrowed' && $row['expected_return_date']!==null && $row['expected_return_date']<date('Y-m-d');
         $row['is_due_soon']=$row['physical_status']==='Borrowed' && $row['expected_return_date']!==null && !$row['is_overdue'] && $row['expected_return_date']<=date('Y-m-d',strtotime('+3 days'));
@@ -318,7 +403,7 @@ function drms_copy_csv_cell(mixed $value): string
 
 function drms_copy_directory(mysqli $conn,array $actor): array
 {
-    drms_copy_custody_ready($conn);
+    drms_copy_read_ready($conn);
     [$where,$params]=drms_copy_access($actor);
     $counts=drms_vc1_select($conn,"SELECT l.physical_folder_id,COUNT(*) AS total,
         SUM(d.status<>'Archived' AND COALESCE(d.record_phase,'')<>'Official') AS working,

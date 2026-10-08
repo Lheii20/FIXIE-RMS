@@ -11,7 +11,7 @@ $toastError = '';
 $toastSuccess = '';
 
 if(isset($_GET['error'])) {
-    if($_GET['error'] == 'ForceLoggedOutByAdmin') $toastError = "Your session was terminated by an Administrator.";
+    if($_GET['error'] == 'ForceLoggedOutByAdmin') $toastError = "Your session ended because this account signed in again or its access changed.";
     else if($_GET['error'] == 'AccountLockedWaitAdmin') $toastError = "This account is currently locked or suspended.";
     else if($_GET['error'] == 'TooManyAttemptsWait5Mins') $toastError = "Security threshold reached. Please try again after 5 minutes.";
     else if($_GET['error'] == 'LoginSessionExpired') $toastError = "Your login session expired. Refresh the page and try again.";

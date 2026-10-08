@@ -1,0 +1,56 @@
+body.page-settings .drms-profile-info {
+    border: 1px solid var(--border-color, #c4cfdd);
+    border-radius: 12px !important;
+    background: var(--card-bg, #fff);
+    color: var(--text-main, #17263e);
+    overflow: hidden;
+}
+body.page-settings .drms-profile-info__heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border-color, #c4cfdd);
+}
+body.page-settings .drms-profile-info__heading h5 { margin: 0; font-size: 15px; font-weight: 700; }
+body.page-settings .drms-profile-info__heading h5 i { margin-right: 7px; }
+body.page-settings .drms-profile-info__heading .btn { min-height: 36px; white-space: nowrap; }
+body.page-settings .drms-profile-info__body { padding: 16px 18px; }
+body.page-settings .drms-profile-info__policy { color: var(--text-muted, #607086); font-size: 12px; line-height: 1.55; margin: 0 0 16px; }
+body.page-settings .drms-profile-info .input-group { flex-wrap: nowrap; }
+body.page-settings .drms-profile-info .input-group .form-control { min-width: 0; width: 1%; flex: 1 1 auto; }
+body.page-settings .drms-profile-info .form-control[readonly] { background: var(--bg-body, #f5f7fa); color: inherit; cursor: default; box-shadow: none; }
+body.page-settings .drms-profile-info__actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+body.page-settings .drms-profile-info [hidden] { display: none !important; }
+body.page-settings .drms-profile-info__pending { padding: 14px; margin-bottom: 18px; border: 1px solid var(--border-color, #c4cfdd); border-radius: 9px; background: var(--bg-body, #f5f7fa); }
+body.page-settings .drms-profile-info__pending h6 { font-size: 14px; font-weight: 700; }
+body.page-settings .drms-profile-info__pending p { font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+body.page-settings .drms-profile-info__pending .form-control { min-width: 0; }
+body.page-settings .drms-profile-info__pending-actions { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; }
+body.page-settings .drms-profile-info__pending-actions .btn { padding: 4px 0; text-decoration: none; }
+body.page-settings .drms-profile-info__error { color: var(--danger, #c93447); font-size: 13px; margin: 8px 0; }
+body.page-settings .drms-profile-info .btn { font-size: 13px; padding: 8px 12px; text-transform: none; }
+body.page-settings .drms-profile-info__pending-actions .btn { padding: 4px 0; }
+html[data-drms-theme="dark"] body.page-settings .drms-profile-info,
+html[data-drms-theme="dark"] body.page-settings .drms-profile-info__heading,
+html[data-drms-theme="dark"] body.page-settings .drms-profile-info__body {
+    background: #202730 !important; color: #d0d6de !important; border-color: #46515f !important;
+}
+html[data-drms-theme="dark"] body.page-settings .drms-profile-info :is(h5,h6,label) { color: #d0d6de !important; }
+html[data-drms-theme="dark"] body.page-settings .drms-profile-info :is(.form-control,.input-group-text),
+html[data-drms-theme="dark"] body.page-settings .drms-profile-info__pending {
+    background: #29323d !important; color: #d0d6de !important; border-color: #46515f !important;
+}
+html[data-drms-theme="dark"] body.page-settings .drms-profile-info .form-control:not([readonly]):focus {
+    border-color: #87a9e2 !important; box-shadow: 0 0 0 3px rgb(135 169 226 / 15%) !important;
+}
+html[data-drms-theme="dark"] body.page-settings .drms-profile-info :is(.drms-profile-info__policy,.text-muted) { color: #b1bbc9 !important; }
+html[data-drms-theme="dark"] body.page-settings .drms-profile-info .text-success { color: #86c9a9 !important; }
+html[data-drms-theme="dark"] body.page-settings .drms-profile-info :is(.text-danger,.drms-profile-info__error) { color: #f4a3ad !important; }
+@media (max-width: 575.98px) {
+    body.page-settings .drms-profile-info__heading, body.page-settings .drms-profile-info__body { padding: 14px; }
+    body.page-settings .drms-profile-info__heading .btn { font-size: 12px; }
+    body.page-settings .drms-profile-info__actions .btn { min-height: 40px; flex: 1; }
+}

@@ -145,7 +145,7 @@ if ($action === 'create_detailed_quotation') {
 | Official Client PO:
 | - Requires actual Client PO number
 | - Requires Client PO date
-| - Requires final approval date
+| - Uses the signed PO date as the effective client approval date
 | - Requires signed proof
 | - Routes the quotation to the General Manager for acknowledgement
 |
@@ -165,9 +165,7 @@ if ($action === 'receive_po') {
         (string) ($_POST['client_po_date'] ?? '')
     );
 
-    $final_approval_date_input = trim(
-        (string) ($_POST['final_approval_date'] ?? '')
-    );
+    $final_approval_date_input = null;
 
     $remarks = trim(
         (string) ($_POST['remarks'] ?? '')
@@ -242,7 +240,6 @@ if ($action === 'receive_po') {
     */
 
     $client_po_date = null;
-    $final_approval_date = null;
 
     if ($is_official_client_po) {
         if (
@@ -278,11 +275,6 @@ if ($action === 'receive_po') {
             $client_po_date_input
         );
 
-        $final_approval_date = DateTimeImmutable::createFromFormat(
-            '!Y-m-d',
-            $final_approval_date_input
-        );
-
         if (
             !$client_po_date ||
             $client_po_date->format('Y-m-d') !== $client_po_date_input
@@ -296,30 +288,13 @@ if ($action === 'receive_po') {
             exit();
         }
 
-        if (
-            !$final_approval_date ||
-            $final_approval_date->format('Y-m-d') !==
-                $final_approval_date_input
-        ) {
-            header(
-                "Location: ../quotations_list.php?error=" .
-                rawurlencode(
-                    "Enter a valid final client approval date."
-                )
-            );
-            exit();
-        }
-
         $today = new DateTimeImmutable('today');
 
-        if (
-            $client_po_date > $today ||
-            $final_approval_date > $today
-        ) {
+        if ($client_po_date > $today) {
             header(
                 "Location: ../quotations_list.php?error=" .
                 rawurlencode(
-                    "Client PO and final approval dates cannot be in the future."
+                    "The date on the signed Client PO cannot be in the future."
                 )
             );
             exit();
@@ -329,8 +304,9 @@ if ($action === 'receive_po') {
             'Y-m-d'
         );
 
-        $final_approval_date_input =
-            $final_approval_date->format('Y-m-d');
+        // Keep the existing database/workflow field in sync without asking
+        // staff to enter or guess a second date.
+        $final_approval_date_input = $client_po_date_input;
     } else {
         /*
          * Supporting confirmation records must not accidentally

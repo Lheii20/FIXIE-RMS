@@ -118,25 +118,19 @@ if (isset($_POST['login'])) {
     }
     session_regenerate_id(true);
     unset($_SESSION['drms_device_key'], $_SESSION['drms_presence_synced_at']);
-    $proposed_token = bin2hex(random_bytes(32));
+    // A fresh token on every successful login invalidates older devices.
+    $session_token = bin2hex(random_bytes(32));
 
     $session_stmt = $conn->prepare(
-        "UPDATE users SET session_token = COALESCE(NULLIF(session_token, ''), ?),
+        "UPDATE users SET session_token = ?,
                           last_active = NOW()
          WHERE user_id = ? AND status = 'Active'"
     );
-    $session_stmt->bind_param('si', $proposed_token, $user['user_id']);
+    $session_stmt->bind_param('si', $session_token, $user['user_id']);
     $session_stmt->execute();
+    $login_updated = $session_stmt->affected_rows === 1;
     $session_stmt->close();
-    $token_stmt = $conn->prepare(
-        "SELECT session_token FROM users WHERE user_id = ? AND status = 'Active' LIMIT 1"
-    );
-    $token_stmt->bind_param('i', $user['user_id']);
-    $token_stmt->execute();
-    $token_row = $token_stmt->get_result()->fetch_assoc();
-    $token_stmt->close();
-    $session_token = (string) ($token_row['session_token'] ?? '');
-    if ($session_token === '') {
+    if (!$login_updated) {
         header('Location: ../index.php?error=AccountLockedWaitAdmin');
         exit();
     }

@@ -249,8 +249,7 @@ try {
         }
 
         $requiresPasswordChange = (int) ($user['require_pass_change'] ?? 0) === 1;
-        $sessionToken = '';
-        $proposedToken = $requiresPasswordChange ? '' : bin2hex(random_bytes(32));
+        $sessionToken = $requiresPasswordChange ? '' : bin2hex(random_bytes(32));
 
         $conn->begin_transaction();
         try {
@@ -263,22 +262,15 @@ try {
 
             if (!$requiresPasswordChange) {
                 $sessionStmt = $conn->prepare(
-                    "UPDATE users SET session_token = COALESCE(NULLIF(session_token, ''), ?),
+                    "UPDATE users SET session_token = ?,
                                       last_active = NOW()
                      WHERE user_id = ? AND status = 'Active'"
                 );
-                $sessionStmt->bind_param('si', $proposedToken, $userId);
+                $sessionStmt->bind_param('si', $sessionToken, $userId);
                 $sessionStmt->execute();
+                $loginUpdated = $sessionStmt->affected_rows === 1;
                 $sessionStmt->close();
-                $tokenStmt = $conn->prepare(
-                    "SELECT session_token FROM users WHERE user_id = ? AND status = 'Active' LIMIT 1"
-                );
-                $tokenStmt->bind_param('i', $userId);
-                $tokenStmt->execute();
-                $tokenRow = $tokenStmt->get_result()->fetch_assoc();
-                $tokenStmt->close();
-                $sessionToken = (string) ($tokenRow['session_token'] ?? '');
-                if ($sessionToken === '') {
+                if (!$loginUpdated) {
                     throw new RuntimeException('ACCOUNT_UNAVAILABLE');
                 }
             }

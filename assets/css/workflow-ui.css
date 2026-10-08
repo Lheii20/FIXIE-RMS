@@ -8600,6 +8600,19 @@ body.statement-page.workflow-ui {
         border-radius: 0 8px 8px 0 !important;
     }
 
+    /* The payment page's older absolute prefix must participate in this grid. */
+    body.workflow-ui.payment-page .payment-money-control > span {
+        position: static;
+        transform: none;
+        z-index: auto;
+    }
+
+    body.workflow-ui.payment-page .payment-money-control > .form-control {
+        grid-column: 2;
+        min-width: 0;
+        padding-left: 10px !important;
+    }
+
     body.workflow-ui.followup-page .followup-notes-meta,
     body.workflow-ui.payment-page .payment-remarks-meta {
         display: flex;
@@ -8648,9 +8661,13 @@ body.statement-page.workflow-ui {
     }
 
     body.workflow-ui.payment-page .payment-type-option > input {
+        position: static;
         width: 15px;
         height: 15px;
         margin: 0;
+        overflow: visible;
+        opacity: 1;
+        justify-self: center;
         accent-color: var(--wf-primary);
     }
 

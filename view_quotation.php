@@ -378,19 +378,22 @@ if ($status === 'Pending Approval' && $latest_supporting_record !== null) {
                                     <?php echo htmlspecialchars($official_approval_record['actual_client_po_number']); ?>
                                 </div>
 
+                                <?php $has_separate_client_approval_date = !empty($official_approval_record['final_approval_date']) && $official_approval_record['final_approval_date'] !== $official_approval_record['client_po_date']; ?>
                                 <div class="row g-2 mb-3">
-                                    <div class="col-6">
-                                        <small class="text-muted d-block">PO Date</small>
+                                    <div class="<?php echo $has_separate_client_approval_date ? 'col-6' : 'col-12'; ?>">
+                                        <small class="text-muted d-block">Date on Client PO</small>
                                         <span class="small fw-semibold">
                                             <?php echo date('M d, Y', strtotime($official_approval_record['client_po_date'])); ?>
                                         </span>
                                     </div>
+                                    <?php if ($has_separate_client_approval_date): ?>
                                     <div class="col-6">
-                                        <small class="text-muted d-block">Final Approval</small>
+                                        <small class="text-muted d-block">Separate client approval date</small>
                                         <span class="small fw-semibold">
                                             <?php echo date('M d, Y', strtotime($official_approval_record['final_approval_date'])); ?>
                                         </span>
                                     </div>
+                                    <?php endif; ?>
                                 </div>
 
                                 <small class="text-muted d-block mb-1">Internal Reference</small>
@@ -501,7 +504,7 @@ if ($status === 'Pending Approval' && $latest_supporting_record !== null) {
                                 <strong><?php echo htmlspecialchars($official_approval_record['actual_client_po_number']); ?></strong>
                             </div>
                             <div class="po-ack-summary-item">
-                                <span>PO date</span>
+                                <span>Date on Client PO</span>
                                 <strong><?php echo date('M d, Y', strtotime($official_approval_record['client_po_date'])); ?></strong>
                             </div>
                             <div class="po-ack-summary-item">

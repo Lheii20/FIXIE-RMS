@@ -72,6 +72,9 @@ function drms_declaration_notify(mysqli $conn, array $request, string $role, ?in
 
 function drms_declaration_submit(mysqli $conn, array $doc, array $user, array $input): int
 {
+    if ($user['role'] === 'GM') {
+        throw new DomainException('The General Manager declares reviewed files directly. Open the file and choose Declare as Official Record.');
+    }
     if (!drms_declaration_can_submit($doc, $user)) {
         throw new DomainException('Only the owner, an assigned editor, or management can submit this file.');
     }
@@ -85,17 +88,10 @@ function drms_declaration_submit(mysqli $conn, array $doc, array $user, array $i
     $s = $conn->prepare("SELECT user_id FROM users WHERE role = ? AND status = 'Active' AND account_status = 'Active' LIMIT 1");
     $s->bind_param('s', $role); $s->execute();
     if (!$s->get_result()->fetch_row()) throw new DomainException('No active reviewer is available for that role.');
-    if (($input['signed_copy_confirmed'] ?? '') !== '1') throw new DomainException('Confirm that the uploaded document already contains its required signatures.');
-    $name = drms_declaration_text($input['external_name'] ?? '', 150, true);
-    $title = drms_declaration_text($input['external_role'] ?? '', 100);
-    $date = drms_declaration_text($input['external_date'] ?? '', 10);
-    if ($date !== '') {
-        $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
-        if (!$parsed || $parsed->format('Y-m-d') !== $date || $date > date('Y-m-d')) {
-            throw new DomainException('Enter a valid signature date that is not in the future.');
-        }
+    if (($input['file_review_confirmed'] ?? '') !== '1') {
+        throw new DomainException('Review the exact file and confirm that it is ready for GM review.');
     }
-    $date = $date ?: null;
+    drms_declaration_reject_manual_signatory($input);
     $remarks = drms_declaration_text($input['remarks'] ?? '', 2000);
     $id = (int) $doc['doc_id'];
     $s = $conn->prepare("SELECT request_id FROM official_declaration_requests WHERE document_id = ? AND request_status = 'Pending' FOR UPDATE");
@@ -107,14 +103,50 @@ function drms_declaration_submit(mysqli $conn, array $doc, array $user, array $i
     $uid = (int) $user['user_id'];
     $s = $conn->prepare("INSERT INTO official_declaration_requests
         (request_reference, document_id, source_file_hash, source_version, declaration_basis,
-        requested_signer_role, external_signatory_name, external_signatory_role, external_signature_date,
-        request_remarks, requested_by) VALUES (?, ?, ?, ?, 'External Signed Copy', ?, ?, ?, ?, ?, ?)");
-    $s->bind_param('sisssssssi', $ref, $id, $hash, $version, $role, $name, $title, $date, $remarks, $uid);
+        requested_signer_role, request_remarks, requested_by)
+        VALUES (?, ?, ?, ?, 'Internal E-Signature', ?, ?, ?)");
+    $s->bind_param('sissssi', $ref, $id, $hash, $version, $role, $remarks, $uid);
     $s->execute(); $requestId = (int) $conn->insert_id;
     drms_declaration_notify($conn, ['request_id' => $requestId], $role, null,
-        $user['full_name'] . ' submitted ' . $ref . ' for signed-copy verification.', 'submitted');
+        $user['full_name'] . ' submitted ' . $ref . ' for GM file review.', 'submitted');
     log_audit_action($conn, $uid, 'REQUEST_OFFICIAL_DECLARATION', 'Submitted ' . $ref . ' for document ' . $id);
     return $requestId;
+}
+
+/**
+ * Preserve the existing declaration/signature evidence relationship without
+ * routing a GM submission back to the GM queue. Called only inside the final
+ * filing transaction; the row moves from Pending to Approved before commit.
+ */
+function drms_declaration_prepare_gm_direct(mysqli $conn, array $doc, array $user, array $input): array
+{
+    if ($user['role'] !== 'GM' || !drms_declaration_can_submit($doc, $user)) {
+        throw new DomainException('Only the General Manager can directly declare an Official Record.');
+    }
+    $folder = drms_get_official_folder_profile($conn, (string) ($doc['category'] ?: $doc['doc_type']));
+    drms_declaration_working($doc, $folder);
+    if (($input['gm_review_confirmed'] ?? '') !== '1') {
+        throw new DomainException('Open and review the exact file before declaring it.');
+    }
+    drms_declaration_reject_manual_signatory($input);
+    $remarks = drms_declaration_text($input['remarks'] ?? '', 2000);
+    $id = (int) $doc['doc_id'];
+    $s = $conn->prepare("SELECT request_id FROM official_declaration_requests WHERE document_id = ? AND request_status = 'Pending' FOR UPDATE");
+    $s->bind_param('i', $id); $s->execute();
+    if ($s->get_result()->fetch_row()) {
+        throw new DomainException('This file already has a pending declaration request. Review it in the GM declaration queue.');
+    }
+    $hash = drms_declaration_fingerprint($doc);
+    $version = drms_declaration_text((string) $doc['current_version'], 20, true);
+    $ref = 'DEC-' . date('Ymd') . '-' . strtoupper(bin2hex(random_bytes(8)));
+    $uid = (int) $user['user_id'];
+    $s = $conn->prepare("INSERT INTO official_declaration_requests
+        (request_reference, document_id, source_file_hash, source_version, declaration_basis,
+        requested_signer_role, request_remarks, requested_by)
+        VALUES (?, ?, ?, ?, 'Internal E-Signature', 'GM', ?, ?)");
+    $s->bind_param('sisssi', $ref, $id, $hash, $version, $remarks, $uid);
+    $s->execute();
+    return drms_declaration_locked_request($conn, (int) $conn->insert_id, $id);
 }
 
 function drms_declaration_locked_request(mysqli $conn, int $requestId, int $docId): array
@@ -124,6 +156,15 @@ function drms_declaration_locked_request(mysqli $conn, int $requestId, int $docI
     $request = $s->get_result()->fetch_assoc();
     if (!$request || $request['request_status'] !== 'Pending') throw new DomainException('This request is unavailable or has already been processed.');
     return $request;
+}
+
+function drms_declaration_reject_manual_signatory(array $input): void
+{
+    foreach (['external_name', 'external_role', 'external_date'] as $field) {
+        if (array_key_exists($field, $input) && (!is_string($input[$field]) || trim($input[$field]) !== '')) {
+            throw new DomainException('Manual signatory details are no longer accepted. Refresh the declaration page and review the file.');
+        }
+    }
 }
 
 function drms_declaration_assert_reviewer(array $request, array $user): void
@@ -140,7 +181,7 @@ function drms_declaration_assert_unchanged(array $doc, array $request): string
 {
     $hash = drms_declaration_fingerprint($doc);
     if (!hash_equals($request['source_file_hash'], $hash) || (string) $doc['current_version'] !== $request['source_version']) {
-        throw new DomainException('The document changed after submission. Return or cancel this request, then submit the latest signed copy.');
+        throw new DomainException('The document changed after submission. Return or cancel this request, then submit the latest copy.');
     }
     return $hash;
 }
@@ -207,7 +248,7 @@ function drms_declaration_finish(mysqli $conn, array $request, array $signature,
         throw new DomainException('The electronic-signature account is invalid.');
     }
     $version = (string) $request['source_version'];
-    $consent = 'I reviewed this exact document version and verified that it contains the required signatures. I authorize filing it as an Official Record.';
+    $consent = 'I reviewed this exact document version and confirm that it is complete and appropriate for Official Record filing. I authorize filing it as an Official Record.';
     drms_esign_record_event(
         $conn,
         $signature,
@@ -228,6 +269,8 @@ function drms_declaration_finish(mysqli $conn, array $request, array $signature,
     $s->bind_param('isii', $uid, $remarks, $officialId, $rid); $s->execute();
     if ($s->affected_rows !== 1) throw new DomainException('This request has already been processed.');
     $recipient = drms_declaration_requester($conn, $request);
-    drms_declaration_notify($conn, $request, $recipient['role'], (int) $recipient['user_id'],
-        $request['request_reference'] . ' was verified and filed as an Official Record.', 'approved');
+    if ((int) $recipient['user_id'] !== $uid) {
+        drms_declaration_notify($conn, $request, $recipient['role'], (int) $recipient['user_id'],
+            $request['request_reference'] . ' was verified and filed as an Official Record.', 'approved');
+    }
 }

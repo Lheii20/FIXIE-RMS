@@ -187,10 +187,18 @@
   document.addEventListener('physical-copy-updated',async()=>{if(await directory())await load();});
   applyLocationDefault();
   (async()=>{
-    if(!await directory()){tableMessage('Unable to load the cabinet','Use Refresh to try again.','exclamation-circle');setInlineLoading(el('Count'),false,'Not loaded');setInlineLoading(el('Page'),false,'—');return;}
     const params=new URLSearchParams(window.location.search),folder=params.get('physical_folder'),custodyParam=params.get('custody');
-    if(folder && /^\d+$/.test(folder) && nodes.some(n=>n.key==='folder:'+folder))scope='folder:'+folder;
     if(['borrowed','overdue','due_soon','no_due_date'].includes(custodyParam)){custody=custodyParam;el('Custody').value=custody;}
-    tree();await load();const doc=params.get('doc');if(doc && /^\d+$/.test(doc))window.openPhysicalRecordProfile(doc);
+    if(folder && /^\d+$/.test(folder)){
+      // A deep link needs the directory first to validate its target folder.
+      if(!await directory()){tableMessage('Unable to load the cabinet','Use Refresh to try again.','exclamation-circle');setInlineLoading(el('Count'),false,'Not loaded');setInlineLoading(el('Page'),false,'—');return;}
+      if(nodes.some(n=>n.key==='folder:'+folder))scope='folder:'+folder;
+      tree();await load();
+    }else{
+      // The default list and location tree are independent. Their PHP
+      // endpoints release the session lock, so neither waits for the other.
+      await Promise.all([directory(),load()]);
+    }
+    const doc=params.get('doc');if(doc && /^\d+$/.test(doc))window.openPhysicalRecordProfile(doc);
   })();
 })();

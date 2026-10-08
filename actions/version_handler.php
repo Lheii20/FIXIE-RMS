@@ -527,7 +527,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'get_history') {
 
     $append_legacy_history($lineage['rename_history'] ?? '[]');
 
-    if (($lineage['record_phase'] ?? '') === 'Official' && !empty($lineage['declared_at'])) {
+    if (($lineage['record_phase'] ?? '') === 'Official') {
+        // The business event may predate creation of the protected copy, while
+        // a directly declared file may have been uploaded before approval.
+        // Use whichever occurred later for the actual filing event.
+        $official_filed_at = (string) ($lineage['uploaded_at'] ?? '');
+        $declared_at = (string) ($lineage['declared_at'] ?? '');
+        if ($declared_at !== '' && strtotime($declared_at) > strtotime($official_filed_at)) {
+            $official_filed_at = $declared_at;
+        }
         $record_number = trim((string) ($lineage['record_number'] ?? ''));
         $append_activity(
             'official',
@@ -536,7 +544,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'get_history') {
                 ? 'Filed under record number ' . $record_number . '.'
                 : 'The signed file was declared and protected as an Official Record.',
             (string) ($lineage['declarer_name'] ?? 'Authorized signatory'),
-            (string) $lineage['declared_at']
+            $official_filed_at
         );
     }
 

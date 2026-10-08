@@ -311,40 +311,48 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     // START: Rule-Based Automatic Document Classification (PRODUCTION VERSION)
     if ($action === 'analyze_document') {
         header('Content-Type: application/json');
+        // This read-only suggestion must not lock the user's PHP session while
+        // another tab or the actual upload is waiting to save a record.
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
         
-        if (!isset($_FILES['document'])) {
+        $has_file = isset($_FILES['document']) && (int) ($_FILES['document']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
+        $client_filename = trim((string) ($_POST['document_name'] ?? ''));
+        if (!$has_file && ($client_filename === '' || strlen($client_filename) > 255)) {
             echo json_encode(['status' => 'none']);
             exit();
         }
-
-        $file = $_FILES['document'];
-        try {
-            $validated_upload = drms_upload_validate(
-                $conn,
-                $file,
-                'document'
-            );
-        } catch (DrmsUploadValidationException $upload_error) {
-            echo json_encode([
-                'status' => 'error',
-                'message' => $upload_error->getMessage(),
-            ]);
-            exit();
+        $file = $has_file ? $_FILES['document'] : null;
+        $tmpPath = '';
+        if ($has_file) {
+            try {
+                $validated_upload = drms_upload_validate($conn, $file, 'document');
+            } catch (DrmsUploadValidationException $upload_error) {
+                echo json_encode(['status' => 'error', 'message' => $upload_error->getMessage()]);
+                exit();
+            }
+            $ext = $validated_upload['extension'];
+            $tmpPath = $validated_upload['tmp_name'];
+        } else {
+            // Analysis is advisory only. The actual upload still validates the real file.
+            $ext = strtolower(pathinfo($client_filename, PATHINFO_EXTENSION));
+            if (!in_array($ext, ['pdf', 'jpg', 'jpeg', 'png', 'docx', 'txt', 'csv'], true)) {
+                echo json_encode(['status' => 'none']);
+                exit();
+            }
         }
-
-        $ext = $validated_upload['extension'];
-        $tmpPath = $validated_upload['tmp_name'];
         
         // SMART FALLBACK: Palaging isama ang filename para sa mga encoded PDFs at Images
-        $extractedText = $file['name'] . " "; 
+        $extractedText = ($has_file ? (string) $file['name'] : $client_filename) . " ";
         
         // DAGDAG: Tanggapin ang text mula sa Client-Side OCR (para sa images)
-        if (!empty($_POST['ocr_text'])) {
-            $extractedText .= " " . $_POST['ocr_text'];
+        if (!empty($_POST['ocr_text']) && is_string($_POST['ocr_text'])) {
+            $extractedText .= " " . substr($_POST['ocr_text'], 0, 20000);
         }
 
         // 1. Native Text Extraction Base
-        if ($ext === 'docx') {
+        if ($has_file && $ext === 'docx') {
             if (class_exists('ZipArchive')) {
                 $zip = new ZipArchive;
                 if ($zip->open($tmpPath) === TRUE) {
@@ -356,9 +364,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     $zip->close();
                 }
             }
-        } elseif (in_array($ext, ['txt', 'csv'])) {
+        } elseif ($has_file && in_array($ext, ['txt', 'csv'], true)) {
             $extractedText .= " " . file_get_contents($tmpPath);
-        } elseif ($ext === 'pdf') {
+        } elseif ($has_file && $ext === 'pdf') {
             // CRASH FIX: Patakbuhin lang ang lumang PHP extractor kung WALANG naipasang text ang PDF.js mula sa frontend
             if (empty(trim($_POST['ocr_text'] ?? ''))) {
                 require_once '../config/PdfToText.php';

@@ -22,6 +22,7 @@ function notifyDispositionApprovers(mysqli $conn, int $requestId, int $requester
            FROM users u
            JOIN user_permissions up ON up.user_id = u.user_id
           WHERE up.permission_name = 'can_approve_disposition'
+            AND u.role = 'GM'
             AND u.status = 'Active'
             AND u.user_id <> ?"
     );
@@ -114,6 +115,7 @@ if (!is_string($sessionToken) || !is_string($requestToken) || $sessionToken === 
 }
 
 $userId = (int) $_SESSION['user_id'];
+$userRole = (string) ($_SESSION['role'] ?? '');
 $action = is_string($_POST['action'] ?? null) ? trim($_POST['action']) : '';
 $executionOriginalPath = null;
 $executionQuarantinePath = null;
@@ -143,7 +145,7 @@ try {
 
         $docStmt = $conn->prepare(
             "SELECT d.doc_id, d.file_name, d.record_phase, d.status,
-                    d.disposition_status, d.is_legal_hold,
+                    d.disposition_status, d.disposition_review_due_at, d.is_legal_hold,
                     p.policy_id, p.policy_name, p.active_years, p.active_months,
                     p.archive_years, p.archive_months, p.action_after_retention,
                     DATE_ADD(
@@ -152,6 +154,15 @@ try {
                             INTERVAL (COALESCE(p.active_years, 0) + COALESCE(p.archive_years, 0)) YEAR
                         ),
                         INTERVAL (COALESCE(p.active_months, 0) + COALESCE(p.archive_months, 0)) MONTH
+                    ) AS policy_retention_due_at,
+                    COALESCE(d.disposition_review_due_at,
+                        DATE_ADD(
+                            DATE_ADD(
+                                COALESCE(d.declared_at, d.uploaded_at),
+                                INTERVAL (COALESCE(p.active_years, 0) + COALESCE(p.archive_years, 0)) YEAR
+                            ),
+                            INTERVAL (COALESCE(p.active_months, 0) + COALESCE(p.archive_months, 0)) MONTH
+                        )
                     ) AS retention_due_at
                FROM documents d
                LEFT JOIN document_categories dc ON dc.sub_category = d.category
@@ -180,10 +191,18 @@ try {
             throw new RuntimeException('This record has not completed its retention period.');
         }
 
-        if ($document['status'] !== 'Archived' || $document['disposition_status'] !== 'Ready for Disposition') {
+        $isReady = $document['disposition_status'] === 'Ready for Disposition';
+        $isDeferredAndDue = $document['disposition_status'] === 'Deferred'
+            && !empty($document['disposition_review_due_at'])
+            && strtotime((string) $document['disposition_review_due_at']) <= time();
+        if (!$isReady && !$isDeferredAndDue) {
+            throw new RuntimeException('This record is not currently ready for disposition or due for its deferred review.');
+        }
+        if ($isDeferredAndDue || $document['status'] !== 'Archived' || !$isReady) {
             $readyStmt = $conn->prepare(
                 "UPDATE documents
-                    SET status = 'Archived', disposition_status = 'Ready for Disposition'
+                    SET status = 'Archived', disposition_status = 'Ready for Disposition',
+                        disposition_review_due_at = NULL
                   WHERE doc_id = ?"
             );
             $readyStmt->bind_param('i', $docId);
@@ -252,21 +271,32 @@ try {
         dispositionRedirect('success', "Disposition request #$requestId was submitted for independent review.");
     }
 
-    if (in_array($action, ['approve_disposition', 'reject_disposition'], true)) {
-        if (!has_permission($conn, $userId, 'can_approve_disposition')) {
+    if (in_array($action, ['approve_disposition', 'retain_disposition'], true)) {
+        if ($userRole !== 'GM' || !has_permission($conn, $userId, 'can_approve_disposition')) {
             dispositionRedirect('error', 'You do not have permission to review disposition requests.');
         }
 
         $requestId = (int) ($_POST['request_id'] ?? 0);
         $reviewNotes = trim($_POST['review_notes'] ?? '');
+        $deferUntil = trim((string) ($_POST['defer_until'] ?? ''));
+        $isRetainDecision = $action === 'retain_disposition';
         if ($requestId < 1) {
             dispositionRedirect('error', 'Select a valid disposition request.');
         }
         if (dispositionTextLength($reviewNotes) > 1000) {
             dispositionRedirect('error', 'Review notes cannot exceed 1000 characters.');
         }
-        if ($action === 'reject_disposition' && dispositionTextLength($reviewNotes) < 10) {
-            dispositionRedirect('error', 'Provide at least 10 characters explaining the rejection.');
+        if ($isRetainDecision && dispositionTextLength($reviewNotes) < 10) {
+            dispositionRedirect('error', 'Provide at least 10 characters explaining the retain/defer decision.');
+        }
+        if ($isRetainDecision) {
+            $deferDate = DateTimeImmutable::createFromFormat('!Y-m-d', $deferUntil);
+            $dateErrors = DateTimeImmutable::getLastErrors();
+            if (!$deferDate || ($dateErrors !== false && ($dateErrors['warning_count'] > 0 || $dateErrors['error_count'] > 0))
+                || $deferDate->format('Y-m-d') !== $deferUntil
+                || $deferDate <= new DateTimeImmutable('today')) {
+                dispositionRedirect('error', 'Choose a valid next review date after today.');
+            }
         }
 
         $conn->begin_transaction();
@@ -299,7 +329,36 @@ try {
             throw new RuntimeException('The linked record is under Legal Hold.');
         }
 
-        $decision = $action === 'approve_disposition' ? 'Approved' : 'Rejected';
+        if ($isRetainDecision) {
+            $deferDateSql = $deferDate->format('Y-m-d 00:00:00');
+            $documentDecisionStmt = $conn->prepare(
+                "UPDATE documents
+                    SET disposition_status = 'Deferred',
+                        disposition_review_due_at = ?,
+                        dss_recommendation = ?
+                  WHERE doc_id = ?
+                    AND record_phase = 'Official'
+                    AND disposition_status = 'Ready for Disposition'
+                    AND is_legal_hold = 0"
+            );
+            $retentionNote = 'GM deferred disposition; review again on ' . $deferDate->format('M d, Y') . '.';
+            $documentId = (int) $request['doc_id'];
+            $documentDecisionStmt->bind_param('ssi', $deferDateSql, $retentionNote, $documentId);
+            $documentDecisionStmt->execute();
+            if ($documentDecisionStmt->affected_rows !== 1) {
+                throw new RuntimeException('The Official Record changed before the retain decision was saved. Refresh and try again.');
+            }
+            // A deferred request is closed as no longer pending. The Official
+            // Record itself remains intact and is queued again
+            // when disposition_review_due_at arrives.
+            $decision = 'Cancelled';
+            $reviewNotes = '[RETAINED UNTIL ' . $deferDate->format('Y-m-d') . '] ' . $reviewNotes;
+            if (dispositionTextLength($reviewNotes) > 1000) {
+                throw new RuntimeException('Shorten the review notes so the retain decision fits the audit field.');
+            }
+        } else {
+            $decision = 'Approved';
+        }
         $updateStmt = $conn->prepare(
             "UPDATE disposition_requests
                 SET status = ?, reviewed_by = ?, reviewed_at = NOW(), review_notes = ?
@@ -314,21 +373,32 @@ try {
         $conn->commit();
 
         try {
-            $auditAction = $decision === 'Approved' ? 'APPROVE_DISPOSITION' : 'REJECT_DISPOSITION';
+            $auditAction = $isRetainDecision ? 'RETAIN_DISPOSITION' : 'APPROVE_DISPOSITION';
             log_document_action(
                 $conn,
                 $userId,
                 $auditAction,
                 (int) $request['doc_id'],
-                "$decision disposition request #$requestId.",
+                $isRetainDecision
+                    ? "Retained Official Record until " . $deferDate->format('Y-m-d') . "; disposition request #$requestId was deferred."
+                    : "Approved disposition request #$requestId for the separate guarded execution step.",
                 'documents.php?disposition=1'
             );
-            notifyDispositionRequester($conn, $request, strtolower($decision));
+            notifyDispositionRequester(
+                $conn,
+                $request,
+                $isRetainDecision ? 'deferred until ' . $deferDate->format('Y-m-d') : 'approved for disposition execution'
+            );
         } catch (Throwable $sideEffectError) {
             error_log('Disposition review audit/notification warning: ' . $sideEffectError->getMessage());
         }
 
-        dispositionRedirect('success', "Disposition request #$requestId was " . strtolower($decision) . '.');
+        dispositionRedirect(
+            'success',
+            $isRetainDecision
+                ? "Disposition request #$requestId was deferred until " . $deferDate->format('Y-m-d') . '.'
+                : "Disposition request #$requestId was approved. Complete the separate guarded execution step to delete the digital file."
+        );
     }
 
     if ($action === 'cancel_disposition') {
@@ -390,7 +460,7 @@ try {
     }
 
     if ($action === 'execute_disposition') {
-        if (!has_permission($conn, $userId, 'can_execute_disposition')) {
+        if ($userRole !== 'GM' || !has_permission($conn, $userId, 'can_execute_disposition')) {
             dispositionRedirect('error', 'You do not have permission to execute approved disposition requests.');
         }
 

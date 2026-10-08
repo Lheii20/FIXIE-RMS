@@ -192,9 +192,15 @@ $official_po_file_url = $has_complete_official_po
                             <strong><?php echo htmlspecialchars($official_client_po['actual_client_po_number']); ?></strong>
                         </div>
                         <div class="prf-source-item">
-                            <span>Final client approval</span>
+                            <span>Date on signed Client PO</span>
+                            <strong><?php echo date('M d, Y', strtotime($official_client_po['client_po_date'])); ?></strong>
+                        </div>
+                        <?php if ($official_client_po['final_approval_date'] !== $official_client_po['client_po_date']): ?>
+                        <div class="prf-source-item">
+                            <span>Separate client approval date</span>
                             <strong><?php echo date('M d, Y', strtotime($official_client_po['final_approval_date'])); ?></strong>
                         </div>
+                        <?php endif; ?>
                         <div class="prf-source-action">
                             <a
                                 href="<?php echo htmlspecialchars($official_po_file_url); ?>"

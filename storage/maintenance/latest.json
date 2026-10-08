@@ -1,15 +1,15 @@
 {
-    "run_id": "20261003_074519_7bc977cb",
+    "run_id": "20261004_074750_b4965763",
     "status": "success",
     "dry_run": false,
     "requested_task": "all",
-    "started_at": "2026-10-03T07:45:19+08:00",
+    "started_at": "2026-10-04T07:47:50+08:00",
     "php_sapi": "cli",
     "php_version": "8.2.12",
     "tasks": {
         "archive_due_records": {
             "status": "success",
-            "duration_ms": 131,
+            "duration_ms": 223,
             "evaluated": 0,
             "affected": 0,
             "message": "0 Official Record(s) moved to Archived."
@@ -23,7 +23,7 @@
         },
         "send_retention_alerts": {
             "status": "success",
-            "duration_ms": 107,
+            "duration_ms": 282,
             "evaluated": 0,
             "affected": 0,
             "message": "0 new retention alert(s) created; existing keyed alerts were not duplicated."
@@ -37,14 +37,14 @@
         },
         "sync_collection_reminders": {
             "status": "success",
-            "duration_ms": 145,
+            "duration_ms": 125,
             "evaluated": 0,
             "affected": 1,
             "message": "1 new collection reminder(s) created for 2 active Finance user(s)."
         },
         "cleanup_security_data": {
             "status": "success",
-            "duration_ms": 36,
+            "duration_ms": 62,
             "evaluated": 0,
             "affected": 0,
             "details": {
@@ -57,7 +57,7 @@
             "message": "0 expired security row(s) or token(s) cleaned."
         }
     },
-    "finished_at": "2026-10-03T07:45:20+08:00",
-    "duration_ms": 442,
+    "finished_at": "2026-10-04T07:47:50+08:00",
+    "duration_ms": 701,
     "exit_code": 0
 }

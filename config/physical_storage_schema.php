@@ -127,6 +127,59 @@ function drms_vc1_table_metadata(mysqli $conn, string $database, string $table):
     return ['engine' => $tables[0]['ENGINE'], 'collation' => $tables[0]['TABLE_COLLATION'], 'columns' => $columns, 'indexes' => $indexes, 'foreign_keys' => $foreignKeys, 'checks' => $checks];
 }
 
+/** Read the same schema metadata for all required tables in five round trips. */
+function drms_vc1_table_metadata_batch(mysqli $conn, string $database, array $tableNames): array
+{
+    $tableNames = array_values(array_unique($tableNames));
+    if (!$tableNames) {
+        return [];
+    }
+    $placeholders = implode(', ', array_fill(0, count($tableNames), '?'));
+    $parameters = array_merge([$database], $tableNames);
+    $metadata = [];
+
+    foreach (drms_vc1_select($conn, "SELECT TABLE_NAME, ENGINE, TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN ($placeholders)", $parameters) as $table) {
+        $metadata[$table['TABLE_NAME']] = [
+            'engine' => $table['ENGINE'],
+            'collation' => $table['TABLE_COLLATION'],
+            'columns' => [],
+            'indexes' => [],
+            'foreign_keys' => [],
+            'checks' => [],
+        ];
+    }
+    foreach (drms_vc1_select($conn, "SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, EXTRA, CHARACTER_MAXIMUM_LENGTH FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN ($placeholders)", $parameters) as $column) {
+        if (isset($metadata[$column['TABLE_NAME']])) {
+            $metadata[$column['TABLE_NAME']]['columns'][$column['COLUMN_NAME']] = $column;
+        }
+    }
+    foreach (drms_vc1_select($conn, "SELECT TABLE_NAME, INDEX_NAME, NON_UNIQUE, COLUMN_NAME, SUB_PART FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN ($placeholders) ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX", $parameters) as $index) {
+        $table = $index['TABLE_NAME'];
+        if (!isset($metadata[$table])) {
+            continue;
+        }
+        $name = $index['INDEX_NAME'];
+        $metadata[$table]['indexes'][$name]['unique'] = (int) $index['NON_UNIQUE'] === 0;
+        $metadata[$table]['indexes'][$name]['columns'][] = $index['COLUMN_NAME'];
+        $metadata[$table]['indexes'][$name]['prefix'] = ($metadata[$table]['indexes'][$name]['prefix'] ?? false) || $index['SUB_PART'] !== null;
+    }
+    $foreignKeySql = "SELECT k.TABLE_NAME, k.CONSTRAINT_NAME, k.COLUMN_NAME, k.REFERENCED_TABLE_SCHEMA, k.REFERENCED_TABLE_NAME, k.REFERENCED_COLUMN_NAME, r.DELETE_RULE, r.UPDATE_RULE
+        FROM information_schema.KEY_COLUMN_USAGE k
+        JOIN information_schema.REFERENTIAL_CONSTRAINTS r ON r.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA AND r.TABLE_NAME = k.TABLE_NAME AND r.CONSTRAINT_NAME = k.CONSTRAINT_NAME
+        WHERE k.TABLE_SCHEMA = ? AND k.TABLE_NAME IN ($placeholders) AND k.REFERENCED_TABLE_NAME IS NOT NULL ORDER BY k.TABLE_NAME, k.CONSTRAINT_NAME, k.ORDINAL_POSITION";
+    foreach (drms_vc1_select($conn, $foreignKeySql, $parameters) as $foreignKey) {
+        if (isset($metadata[$foreignKey['TABLE_NAME']])) {
+            $metadata[$foreignKey['TABLE_NAME']]['foreign_keys'][$foreignKey['CONSTRAINT_NAME']][] = $foreignKey;
+        }
+    }
+    foreach (drms_vc1_select($conn, "SELECT TABLE_NAME, CONSTRAINT_NAME, CHECK_CLAUSE FROM information_schema.CHECK_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME IN ($placeholders)", $parameters) as $check) {
+        if (isset($metadata[$check['TABLE_NAME']])) {
+            $metadata[$check['TABLE_NAME']]['checks'][$check['CONSTRAINT_NAME']] = $check['CHECK_CLAUSE'];
+        }
+    }
+    return $metadata;
+}
+
 function drms_vc1_index_matches(array $actual, array $expected): bool
 {
     return $actual['unique'] === $expected[0] && $actual['columns'] === $expected[1] && !$actual['prefix'];
@@ -193,10 +246,10 @@ function drms_vc1_inspect(mysqli $conn): array
         'virt_cabinets' => ['id', 'room_id'], 'virt_drawers' => ['id', 'cabinet_id'],
         'virt_document_locations' => ['id', 'document_id'],
     ];
-    $metadata = [];
+    $definitions = drms_vc1_definitions();
+    $metadata = drms_vc1_table_metadata_batch($conn, $database, array_merge(array_keys($baseline), array_keys($definitions)));
     foreach ($baseline as $table => $required) {
-        $metadata[$table] = drms_vc1_table_metadata($conn, $database, $table);
-        $actual = $metadata[$table];
+        $actual = $metadata[$table] ?? null;
         if (!$actual || $actual['engine'] !== 'InnoDB') {
             $issues[] = "Required InnoDB table missing or incompatible: $table. No baseline table will be recreated.";
             continue;
@@ -214,8 +267,8 @@ function drms_vc1_inspect(mysqli $conn): array
     if ($issues) {
         return compact('database', 'version', 'issues', 'steps');
     }
-    foreach (drms_vc1_definitions() as $table => $definition) {
-        $actual = drms_vc1_table_metadata($conn, $database, $table);
+    foreach ($definitions as $table => $definition) {
+        $actual = $metadata[$table] ?? null;
         if (!$actual) {
             $steps[] = ['label' => "Create $table", 'sql' => drms_vc1_create_table_sql($table, $definition)];
             continue;
@@ -265,7 +318,7 @@ function drms_vc1_inspect(mysqli $conn): array
     }
     // Refuse a partially/manual installation with orphan assignments before doing any DDL.
     if (!$issues && isset($locations['columns'][$column]) && !isset($locations['foreign_keys'][$fk])) {
-        $hasFolders = drms_vc1_table_metadata($conn, $database, 'virt_physical_folders') !== null;
+        $hasFolders = isset($metadata['virt_physical_folders']);
         $sql = $hasFolders
             ? 'SELECT COUNT(*) AS n FROM virt_document_locations l LEFT JOIN virt_physical_folders f ON f.id = l.physical_folder_id WHERE l.physical_folder_id IS NOT NULL AND f.id IS NULL'
             : 'SELECT COUNT(*) AS n FROM virt_document_locations WHERE physical_folder_id IS NOT NULL';

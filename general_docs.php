@@ -962,6 +962,8 @@ if (!function_exists('getParentFolderCount')) {
 // PARAMETERS & FILTERS & SORTING
 // ==========================================
 $search = trim((string) ($_GET['search'] ?? ''));
+// Keep '%' and '_' literal in record searches instead of SQL wildcards.
+$search_like = '%' . strtr($search, ['!' => '!!', '%' => '!%', '_' => '!_']) . '%';
 $type_filter = $_GET['type'] ?? '';
 $parent_filter = $_GET['parent'] ?? '';
 $doc_status = (string) ($_GET['doc_status'] ?? '');
@@ -1118,6 +1120,34 @@ if (empty($view_archives) && empty($view_disposition) && empty($view_shared) && 
 }
 
 $hide_upload_button = $view_archives || $view_disposition || $view_shared || $view_recycled;
+$current_upload_target_is_system = !empty($parent_filter) && !empty($parent_system_flags[$parent_filter]);
+if ($type_filter !== '') {
+    foreach ($folder_metadata as $subfolders) {
+        foreach ($subfolders as $folder_name => $folder_info) {
+            if (strcasecmp($folder_name, $type_filter) === 0 && !empty($folder_info['is_system_folder'])) {
+                $current_upload_target_is_system = true;
+                break 2;
+            }
+        }
+    }
+}
+if ($current_upload_target_is_system) {
+    $hide_upload_button = true;
+}
+$has_uploadable_folder = false;
+foreach ($parent_folders as $folder_parent => $subfolders) {
+    if ($parent_filter !== '' && strcasecmp($folder_parent, $parent_filter) !== 0) continue;
+    foreach ($subfolders as $folder_name) {
+        if (!empty($folder_metadata[$folder_parent][$folder_name]['is_system_folder'])) continue;
+        if ($is_top_mgmt || in_array($folder_name, $user_categories, true)) {
+            $has_uploadable_folder = true;
+            break 2;
+        }
+    }
+}
+if (!$has_uploadable_folder) {
+    $hide_upload_button = true;
+}
 if (!has_permission($conn, $_SESSION['user_id'], 'can_upload_documents') || $role === 'Admin') {
     $hide_upload_button = true;
 }
@@ -1134,9 +1164,9 @@ if ($view_disposition) {
     $disp_types = "";
     
     if (!empty($search)) {
-        $disp_where[] = "(d.file_name LIKE ? OR d.category LIKE ?)";
-        $disp_params[] = "%$search%";
-        $disp_params[] = "%$search%";
+        $disp_where[] = "(d.file_name LIKE ? ESCAPE '!' OR d.category LIKE ? ESCAPE '!')";
+        $disp_params[] = $search_like;
+        $disp_params[] = $search_like;
         $disp_types .= "ss";
     }
     
@@ -1196,12 +1226,13 @@ $params = [];
 $types = "";
 
 if ($search !== '') {
-    $where[] = "(d.file_name LIKE ? OR d.original_file_name LIKE ? OR d.business_reference LIKE ? OR d.category LIKE ?)";
-    $params[] = "%$search%";
-    $params[] = "%$search%";
-    $params[] = "%$search%";
-    $params[] = "%$search%";
-    $types .= "ssss";
+    $where[] = "(d.file_name LIKE ? ESCAPE '!' OR d.original_file_name LIKE ? ESCAPE '!' OR d.business_reference LIKE ? ESCAPE '!' OR d.category LIKE ? ESCAPE '!' OR EXISTS (SELECT 1 FROM purchase_orders search_po WHERE search_po.po_id = d.po_id AND search_po.po_number LIKE ? ESCAPE '!'))";
+    $params[] = $search_like;
+    $params[] = $search_like;
+    $params[] = $search_like;
+    $params[] = $search_like;
+    $params[] = $search_like;
+    $types .= "sssss";
 }
 
 if ($view_shared) {
@@ -1375,9 +1406,6 @@ if(isset($_GET['success'])) {
             
             <div class="d-flex gap-2 align-items-center">
                 
-                <?php if ($role === 'GM'): ?>
-                    <a class="btn btn-outline-primary d-inline-flex align-items-center gap-2" href="official_declarations.php"><i class="fas fa-file-signature" aria-hidden="true"></i> Declaration requests</a>
-                <?php endif; ?>
                 <!-- GLOBAL UPLOAD BUTTON (Sleek, Prominent, Pill-shaped) -->
                 <?php if (!$hide_upload_button): ?>
                     <button class="btn btn-primary fw-bold px-4 py-2 shadow-sm rounded-pill d-flex align-items-center transition-all" data-bs-toggle="modal" data-bs-target="#uploadModal">
@@ -1392,6 +1420,13 @@ if(isset($_GET['success'])) {
                     </button>
                     
                     <ul class="dropdown-menu dropdown-menu-end shadow-sm rounded-3 mt-2 border-0" style="min-width: 220px;">
+                        <?php if ($role === 'GM'): ?>
+                            <li>
+                                <a class="dropdown-item fw-medium py-2 text-dark record-declaration-menu-link" href="official_declarations.php">
+                                    <i class="fas fa-file-signature text-primary me-2 w-15px" aria-hidden="true"></i><span class="record-declaration-menu-label">Declaration Requests</span>
+                                </a>
+                            </li>
+                        <?php endif; ?>
                         
                         <!-- Folder Creation Buttons Moved Inside -->
                         <?php if ($can_manage && empty($parent_filter) && empty($type_filter) && !$view_archives && !$view_disposition && !$view_shared && !$view_recycled): ?>
@@ -2046,7 +2081,7 @@ if(isset($_GET['success'])) {
                                                         </li>
                                                         
                                                         <?php if (in_array($role, ['Sales Staff','Procurement','Finance','Supply Chain','GM','President'], true) && ($can_edit_file || in_array($role, ['GM','President'], true))): ?>
-                                                            <li><a class="dropdown-item fw-medium text-success" href="official_declarations.php?doc_id=<?php echo (int) $doc['doc_id']; ?>"><i class="fas fa-paper-plane me-2"></i> Request official declaration</a></li>
+                                                            <li><a class="dropdown-item fw-medium text-success" href="official_declarations.php?doc_id=<?php echo (int) $doc['doc_id']; ?>"><i class="fas <?php echo $role === 'GM' ? 'fa-file-signature' : 'fa-paper-plane'; ?> me-2"></i> <?php echo $role === 'GM' ? 'Declare as Official Record' : 'Request Official Declaration'; ?></a></li>
                                                         <?php endif; ?>
                                                         <?php if ($can_manage || $is_top_mgmt): ?>
                                                             <li>
@@ -2441,20 +2476,24 @@ if(isset($_GET['success'])) {
                             <ul class="dropdown-menu shadow-lg border-0 rounded-4 mt-1 w-100 p-2" style="max-height: 250px; overflow-y: auto;">
                                 <?php 
                                 if (!empty($parent_filter) && isset($parent_folders[$parent_filter])) {
-                                    echo '<li><h6 class="dropdown-header fw-bold text-primary px-3">'.htmlspecialchars($parent_filter).'</h6></li>';
-                                    foreach($parent_folders[$parent_filter] as $s) {
+                                    foreach ($parent_folders[$parent_filter] as $s) {
+                                        if (!empty($folder_metadata[$parent_filter][$s]['is_system_folder'])) continue;
                                         if ($is_top_mgmt || in_array($s, $user_categories)) {
-                                            $selected_js = ($type_filter === $s) ? "setUploadCategory('".htmlspecialchars(addslashes($s))."');" : "setUploadCategory('".htmlspecialchars(addslashes($s))."');";
+                                            $selected_js = "setUploadCategory('".htmlspecialchars(addslashes($s))."');";
                                             echo '<li><button type="button" class="dropdown-item rounded-3 fs-sm fw-medium py-2 text-dark" onclick="'.$selected_js.'"><i class="fas fa-folder text-secondary me-2 opacity-50"></i>'.htmlspecialchars($s).'</button></li>';
                                         }
                                     }
                                 } else {
                                     foreach($parent_folders as $p => $subs) {
+                                        $uploadable_subs = [];
+                                        foreach ($subs as $s) {
+                                            if (!empty($folder_metadata[$p][$s]['is_system_folder'])) continue;
+                                            if ($is_top_mgmt || in_array($s, $user_categories)) $uploadable_subs[] = $s;
+                                        }
+                                        if (!$uploadable_subs) continue;
                                         echo '<li><h6 class="dropdown-header fw-bold text-primary px-3 mt-2 border-bottom pb-1">'.htmlspecialchars($p).'</h6></li>';
-                                        foreach($subs as $s) {
-                                            if ($is_top_mgmt || in_array($s, $user_categories)) {
-                                                echo '<li><button type="button" class="dropdown-item rounded-3 fs-sm fw-medium py-2 text-dark" onclick="setUploadCategory(\''.htmlspecialchars(addslashes($s)).'\')"><i class="fas fa-folder text-secondary me-2 opacity-50"></i>'.htmlspecialchars($s).'</button></li>';
-                                            }
+                                        foreach($uploadable_subs as $s) {
+                                            echo '<li><button type="button" class="dropdown-item rounded-3 fs-sm fw-medium py-2 text-dark" onclick="setUploadCategory(\''.htmlspecialchars(addslashes($s)).'\')"><i class="fas fa-folder text-secondary me-2 opacity-50"></i>'.htmlspecialchars($s).'</button></li>';
                                         }
                                     }
                                 }
@@ -3485,21 +3524,16 @@ if(isset($_GET['success'])) {
     }
 
     // DOCUMENT CLASSIFICATION AJAX ENGINE
+    let uploadAnalysisGeneration = 0;
     async function analyzeDocument(file) {
+        const analysisGeneration = ++uploadAnalysisGeneration;
         const suggestionBox = document.getElementById('classificationSuggestion');
         const loader = document.getElementById('classificationLoader');
         const icon = document.getElementById('classificationIcon');
         const nameDisplay = document.getElementById('suggestedFolderName');
         const actions = document.getElementById('classificationActions');
-        const submitBtn = document.getElementById('uploadSubmitBtn'); // Kinuha ang Submit Button
-        
-        // DAGDAG: I-disable ang Submit Button para iwas spam-click habang nag-s-scan
-        if (submitBtn) {
-            submitBtn.disabled = true;
-            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i> Scanning document...';
-            submitBtn.classList.replace('btn-primary', 'btn-secondary');
-            submitBtn.style.cursor = 'not-allowed';
-        }
+        // Classification is optional; users can upload after choosing a folder.
+        // Never hold the primary upload button while OCR is running.
         
         suggestionBox.classList.remove('d-none', 'bg-success', 'border-success');
         suggestionBox.classList.add('bg-primary', 'border-primary');
@@ -3520,9 +3554,11 @@ if(isset($_GET['success'])) {
                     const img = new Image();
                     img.onload = () => {
                         const canvas = document.createElement('canvas');
-                        canvas.width = img.width; canvas.height = img.height;
+                        const scale = Math.min(1, 1800 / Math.max(img.width, img.height));
+                        canvas.width = Math.max(1, Math.round(img.width * scale));
+                        canvas.height = Math.max(1, Math.round(img.height * scale));
                         canvas.getContext('2d').drawImage(img, 0, 0);
-                        resolve(canvas.toDataURL('image/png'));
+                        resolve(canvas);
                         URL.revokeObjectURL(img.src);
                     };
                     img.onerror = () => reject("UNSUPPORTED_FORMAT");
@@ -3535,6 +3571,7 @@ if(isset($_GET['success'])) {
 
                 clientSideText = await window.FixieLocalOCR.recognize(safeImage, {
                     onProgress: function(m) {
+                        if (analysisGeneration !== uploadAnalysisGeneration) return;
                         if (m.status === 'recognizing text') nameDisplay.innerText = "Scanning Image: " + Math.round(m.progress * 100) + "%";
                         else nameDisplay.innerText = "OCR: " + m.status + "...";
                     }
@@ -3553,21 +3590,29 @@ if(isset($_GET['success'])) {
                 const pdfjsLib = await window.FixiePDF.load();
 
                 const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-                const maxPages = Math.min(pdf.numPages, 3);
+                const maxPages = Math.min(pdf.numPages, 2);
                 for (let i = 1; i <= maxPages; i++) {
                     const page = await pdf.getPage(i);
                     const textContent = await page.getTextContent();
                     clientSideText += textContent.items.map(item => item.str).join(' ') + " ";
                 }
+                await pdf.destroy();
             } catch (error) { }
         }
 
+        if (analysisGeneration !== uploadAnalysisGeneration) return;
         nameDisplay.innerText = "Analyzing extracted content...";
 
         let formData = new FormData();
         formData.append('action', 'analyze_document');
-        formData.append('document', file);
-        formData.append('ocr_text', clientSideText); 
+        // The original file is uploaded once by the real form, not again for
+        // this advisory suggestion. Keep the file for formats needing PHP text extraction.
+        if (!clientSideText && /\.(pdf|docx|txt|csv)$/i.test(file.name)) {
+            formData.append('document', file);
+        } else {
+            formData.append('document_name', file.name);
+        }
+        formData.append('ocr_text', clientSideText.slice(0, 20000));
         formData.append('csrf_token', document.querySelector('input[name="csrf_token"]').value);
 
         $.ajax({
@@ -3577,6 +3622,7 @@ if(isset($_GET['success'])) {
             processData: false,
             contentType: false,
             success: function(response) {
+                if (analysisGeneration !== uploadAnalysisGeneration) return;
                 loader.classList.add('d-none');
                 icon.classList.remove('d-none');
                 
@@ -3601,16 +3647,8 @@ if(isset($_GET['success'])) {
                     suggestionBox.classList.add('d-none'); 
                 }
             },
-            error: function() { suggestionBox.classList.add('d-none'); },
-            complete: function() {
-                // DAGDAG: I-enable ulit ang Submit Button kapag tapos na ang scanning (success man o error)
-                if (submitBtn) {
-                    submitBtn.disabled = false;
-                    submitBtn.innerHTML = '<i class="fas fa-check-circle me-2"></i> Upload and Index File';
-                    submitBtn.classList.replace('btn-secondary', 'btn-primary');
-                    submitBtn.style.cursor = 'pointer';
-                }
-            }
+            error: function() { if (analysisGeneration === uploadAnalysisGeneration) suggestionBox.classList.add('d-none'); },
+            complete: function() {}
         });
     }
 

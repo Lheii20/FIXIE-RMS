@@ -3,9 +3,12 @@
   'use strict';
   const modal=document.getElementById('physicalRecordProfile'); if(!modal) return;
   const el=id=>document.getElementById('vcp'+id), isCabinet=modal.dataset.cabinet==='1';
-  let profile=null, currentId=null, action='', busy=false, dirty=false, changed=false, requestId=0, allowModalClose=false, folderBrowseAll=false, folderResultLimit=6;
+  const actionElement=el('ActionModal'),actionModal=bootstrap.Modal.getOrCreateInstance(actionElement);
+  const actionMount=el('ActionMount');
+  actionMount.append(el('ActionPanel'),el('Form'),el('ConfirmDialog'));
+  let profile=null, currentId=null, action='', busy=false, dirty=false, changed=false, requestId=0, allowModalClose=false, allowActionClose=false, folderBrowseAll=false, folderResultLimit=6, optionsLoaded=false, optionsLoading=false, switchingToPreview=false, switchingToAction=false;
   const node=(tag,text,cls='')=>{const n=document.createElement(tag);n.textContent=text;n.className=cls;return n;};
-  const message=(text='',kind='error')=>{el('Message').textContent=text;el('Message').dataset.kind=kind;el('Message').hidden=!text;};
+  const message=(text='',kind='error')=>{const target=actionElement.classList.contains('show')?el('ActionMessage'):el('Message');target.textContent=text;target.dataset.kind=kind;target.hidden=!text;};
   async function api(url,options={}) {
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);
     try {
@@ -36,7 +39,7 @@
     const overdue=d.physical_status==='Borrowed' && latest?.expected_return_date && latest.expected_return_date<today;
     el('HolderSummary').classList.toggle('vcp-overdue',Boolean(overdue));
     el('HolderSummary').textContent=d.physical_status==='Borrowed'?(latest?latest.current_holder_name+' · Expected return: '+(latest.expected_return_date||'Not set')+(overdue?' · OVERDUE':''):'Borrowed; historical holder information is unavailable.'):(d.physical_folder_id?'Not checked out.':'Location confirmation pending.');
-    el('Assign').hidden=!profile.can_manage || Boolean(d.physical_folder_id) || d.physical_status==='Borrowed';
+    el('Assign').hidden=!profile.can_manage || !isCabinet || Boolean(d.physical_folder_id) || d.physical_status==='Borrowed';
     el('Transfer').hidden=!profile.can_manage || !isCabinet || !d.physical_folder_id || !d.folder_revision || !['Stored','Returned'].includes(d.physical_status);
     el('Checkout').hidden=!profile.can_manage || !isCabinet || (!d.physical_folder_id && d.physical_status!=='Borrowed');
     const checkoutTitle=el('Checkout').querySelector('.vcp-action-title');
@@ -46,16 +49,18 @@
     el('Replace').hidden=!profile.can_manage || !isCabinet || d.digital_destroyed || d.sync_status!=='Replacement Required';
     el('Dispose').hidden=!isCabinet || !d.physical_disposal_eligible;
     el('Checkout').disabled=d.sync_status==='Replacement Required';
+    el('Manage').hidden=!isCabinet || !profile.can_manage || !['Assign','Transfer','Checkout','Replace','Dispose'].some(id=>!el(id).hidden);
     el('Cabinet').hidden=isCabinet;el('Cabinet').href='virtual_cabinet.php?doc='+encodeURIComponent(d.doc_id);
     const query=new URLSearchParams({parent:d.parent_category||'',type:d.category||'',doc:String(d.doc_id)});
     if(d.lifecycle_status==='Archived')query.set('view_archives','1');
     el('Digital').href=(d.record_phase==='Official'?'documents.php':'general_docs.php')+'?'+query;
     el('Digital').hidden=!isCabinet || d.digital_destroyed;
+    el('Preview').hidden=Boolean(d.digital_destroyed);
     if(d.digital_destroyed)el('Digital').removeAttribute('href');
     history(el('BorrowHistory'),profile.borrow_history,'borrow');history(el('MoveHistory'),profile.movement_history,'move');
     el('Content').hidden=false;listMode();
   }
-  function listMode(){action='';dirty=false;el('Form').hidden=true;el('ActionPanel').hidden=false;el('Actions').hidden=false;el('History').hidden=false;el('Cancel').hidden=true;el('Save').hidden=true;el('Digital').hidden=!isCabinet || !profile || profile.document.digital_destroyed;}
+  function listMode(){action='';dirty=false;el('Form').hidden=true;el('ActionPanel').hidden=!isCabinet;el('Actions').hidden=!isCabinet;el('History').hidden=false;el('Cancel').hidden=true;el('Save').hidden=true;el('Digital').hidden=!isCabinet || !profile || profile.document.digital_destroyed;el('Cabinet').hidden=isCabinet || !profile;el('Preview').hidden=!profile || profile.document.digital_destroyed;el('ActionModalTitle').textContent='Choose a physical-copy action';}
   const usesFolder=()=>action==='assign_copy' || action==='transfer_copy';
   const selectedFolder=()=>profile?.folders.find(f=>'folder:'+f.id===el('Folder').value);
   function saveState(){el('Save').disabled=busy;}
@@ -159,7 +164,8 @@
     folderPreview();
   }
   function edit(next) {
-    message();clearValidation();action=next;el('Form').reset();el('Form').hidden=false;el('ActionPanel').hidden=true;el('Actions').hidden=true;el('History').hidden=true;el('Cancel').hidden=false;el('Save').hidden=false;el('Digital').hidden=true;
+    if(!isCabinet)return;
+    message();clearValidation();action=next;el('Form').reset();el('Form').hidden=false;el('ActionPanel').hidden=true;el('Actions').hidden=true;el('History').hidden=true;el('Cancel').hidden=false;el('Save').hidden=false;el('Digital').hidden=true;el('Cabinet').hidden=true;el('Preview').hidden=true;
     el('FolderFields').hidden=!usesFolder();el('Folder').required=usesFolder();el('Folder').disabled=!usesFolder();
     el('BorrowFields').hidden=next!=='borrow_copy';el('Holder').required=next==='borrow_copy';el('Save').disabled=false;
     el('DisposalFields').hidden=next!=='dispose_physical_copy';el('DisposalMethod').required=next==='dispose_physical_copy';el('TypedConfirmation').required=next==='dispose_physical_copy';
@@ -171,11 +177,25 @@
       replace_physical_copy:['Replace physical copy','Confirm that the stored paper copy now matches the latest digital version.','I printed/verified the current version, replaced the stored copy and segregated the old copy as superseded.'],
       dispose_physical_copy:['Dispose physical copy','Document the completed destruction of the real paper copy.','I confirm that the real paper copy has been physically destroyed using the selected method. Remove its active cabinet registration and preserve the disposal evidence.']
     };
-    el('FormTitle').textContent=texts[next][0];el('FormDescription').textContent=texts[next][1];el('Confirmation').textContent=texts[next][2];
+    el('FormTitle').textContent=texts[next][0];el('ActionModalTitle').textContent=texts[next][0];el('FormDescription').textContent=texts[next][1];el('Confirmation').textContent=texts[next][2];
     if(next==='assign_copy' && profile.document.digital_destroyed)el('Confirmation').textContent='I verified the existing registered paper copy and placed it in the selected physical folder. The digital file remains destroyed and this does not replace the recorded paper version.';
     if(usesFolder()){folderBrowseAll=false;folderResultLimit=6;folderOptions();}
     if(next==='borrow_copy'){el('Holder').replaceChildren(new Option('Select current holder',''));for(const holder of profile.holders)el('Holder').add(new Option(holder.full_name,String(holder.user_id)));}
     dirty=false;el(usesFolder()?'FolderSearch':next==='borrow_copy'?'Holder':next==='dispose_physical_copy'?'DisposalMethod':'Reason').focus();
+  }
+  async function openEdit(next){
+    if(!profile || busy || optionsLoading)return;
+    if((next==='assign_copy' || next==='transfer_copy' || next==='borrow_copy') && !optionsLoaded){
+      const serial=requestId;
+      optionsLoading=true;message('Loading available locations and account holders…','info');
+      try{
+        const result=await api('actions/cabinet_fetcher.php?'+new URLSearchParams({action:'get_profile_options',doc_id:String(currentId)}));
+        if(serial!==requestId || !actionElement.classList.contains('show'))return;
+        profile.folders=result.folders;profile.holders=result.holders;optionsLoaded=true;message();
+      }catch(error){if(serial===requestId)message(error.message);return;}
+      finally{optionsLoading=false;}
+    }
+    edit(next);
   }
   const validationMap={
     vcpFolder:'FolderError',
@@ -247,14 +267,21 @@
       danger:destructive
     });
   }
-  async function load(id){const serial=++requestId;profile=null;currentId=id;message();el('Content').hidden=true;el('Loading').hidden=false;el('Digital').hidden=true;el('Save').hidden=true;el('Cancel').hidden=true;el('Heading').textContent='Loading record…';
+  async function load(id){const serial=++requestId;profile=null;optionsLoaded=false;currentId=id;message();el('Content').hidden=true;el('Loading').hidden=false;el('Digital').hidden=true;el('Cabinet').hidden=true;el('Preview').hidden=true;el('Manage').hidden=true;el('Save').hidden=true;el('Cancel').hidden=true;el('Heading').textContent='Loading record…';
     try{const result=await api('actions/cabinet_fetcher.php?'+new URLSearchParams({action:'get_document_profile',doc_id:String(id)}));if(serial!==requestId)return;profile=result;render();}
     catch(error){if(serial!==requestId)return;el('Loading').hidden=true;el('Heading').textContent='Physical record';message(error.message);}
   }
   window.openPhysicalRecordProfile=id=>{if(busy)return;changed=false;dirty=false;bootstrap.Modal.getOrCreateInstance(modal).show();load(id);};
-  el('Assign').addEventListener('click',()=>edit('assign_copy'));el('Checkout').addEventListener('click',()=>edit(profile.document.physical_status==='Borrowed'?'return_copy':'borrow_copy'));el('Replace').addEventListener('click',()=>edit('replace_physical_copy'));
-  el('Transfer').addEventListener('click',()=>edit('transfer_copy'));
-  el('Dispose').addEventListener('click',()=>edit('dispose_physical_copy'));
+  el('Manage').addEventListener('click',()=>{
+    if(!isCabinet||!profile||busy||el('Manage').hidden)return;
+    message();el('ActionMessage').hidden=true;el('ActionFileName').textContent=profile.document.file_name;
+    listMode();switchingToAction=true;
+    modal.addEventListener('hidden.bs.modal',()=>actionModal.show(),{once:true});
+    bootstrap.Modal.getOrCreateInstance(modal).hide();
+  });
+  el('Assign').addEventListener('click',()=>openEdit('assign_copy'));el('Checkout').addEventListener('click',()=>openEdit(profile.document.physical_status==='Borrowed'?'return_copy':'borrow_copy'));el('Replace').addEventListener('click',()=>openEdit('replace_physical_copy'));
+  el('Transfer').addEventListener('click',()=>openEdit('transfer_copy'));
+  el('Dispose').addEventListener('click',()=>openEdit('dispose_physical_copy'));
   el('FolderSearch').addEventListener('input',()=>{folderBrowseAll=false;folderResultLimit=6;folderOptions();});
   el('FolderSearchClear').addEventListener('click',()=>{el('FolderSearch').value='';folderBrowseAll=false;folderResultLimit=6;folderOptions();el('FolderSearch').focus();});
   el('FolderBrowse').addEventListener('click',()=>{folderBrowseAll=!folderBrowseAll;folderResultLimit=6;folderOptions();});
@@ -275,13 +302,106 @@
     if(action==='dispose_physical_copy')data.set('source_revision',profile.document.folder_revision);
     try{
       const result=await api('actions/physical_location_handler.php',{method:'POST',body:data});changed=true;dirty=false;
-      if(result.removed){requestId++;profile=null;action='';el('Heading').textContent='Physical copy disposed';el('Loading').hidden=true;el('Content').hidden=true;el('Save').hidden=true;el('Cancel').hidden=true;el('Digital').hidden=true;message();}
+      if(result.removed){requestId++;profile=null;action='';el('Heading').textContent='Physical copy disposed';el('Loading').hidden=true;el('Content').hidden=true;el('Save').hidden=true;el('Cancel').hidden=true;el('Digital').hidden=true;el('Manage').hidden=true;el('Message').textContent='The physical copy disposal was recorded.';el('Message').dataset.kind='success';el('Message').hidden=false;}
       else{await load(currentId);message();}
       if(window.DRMSFeedback)window.DRMSFeedback.toast(result.message||'Physical record action completed.','success',3000);
       document.dispatchEvent(new CustomEvent('physical-copy-updated'));
+      allowActionClose=true;actionModal.hide();
     }
     catch(error){message(error.message);}
     finally{busy=false;saveState();}
+  });
+  const previewElement=document.getElementById('vcpPreviewModal');
+  const previewModal=previewElement?bootstrap.Modal.getOrCreateInstance(previewElement):null;
+  const preview=id=>document.getElementById('vcpPreview'+id);
+  let previewToken=0,pdfDocument=null,pdfRender=null,pdfPage=1,pdfZoom=1,pdfEnginePromise=null;
+  function clearPreview(){
+    previewToken++;
+    if(pdfRender){try{pdfRender.cancel();}catch(_){}pdfRender=null;}
+    if(pdfDocument){pdfDocument.destroy().catch(()=>{});pdfDocument=null;}
+    preview('Image').removeAttribute('src');preview('Image').hidden=true;
+    preview('Pdf').hidden=true;preview('Fallback').hidden=true;preview('Loading').hidden=false;
+  }
+  function previewFallback(text){preview('Loading').hidden=true;preview('Image').hidden=true;preview('Pdf').hidden=true;preview('Fallback').textContent=text;preview('Fallback').hidden=false;}
+  function previewControls(){
+    preview('Page').textContent='Page '+pdfPage+' of '+(pdfDocument?.numPages||1);
+    preview('Prev').disabled=pdfPage<=1;preview('Next').disabled=pdfPage>=(pdfDocument?.numPages||1);
+    preview('ZoomOut').disabled=pdfZoom<=0.75;preview('ZoomIn').disabled=pdfZoom>=1.5;
+  }
+  function loadPdfEngine(){
+    if(window.FixiePDF?.load)return window.FixiePDF.load();
+    if(!pdfEnginePromise)pdfEnginePromise=new Promise((resolve,reject)=>{
+      const script=document.createElement('script');script.src='assets/js/local-pdf-loader.js';
+      script.onload=()=>window.FixiePDF?.load?resolve(window.FixiePDF.load()):reject(new Error('Local PDF preview unavailable.'));
+      script.onerror=()=>reject(new Error('Local PDF preview unavailable.'));document.head.appendChild(script);
+    }).catch(error=>{pdfEnginePromise=null;throw error;});
+    return pdfEnginePromise;
+  }
+  async function renderPreviewPage(){
+    if(!pdfDocument)return;
+    if(pdfRender){try{pdfRender.cancel();}catch(_){}pdfRender=null;}
+    const token=previewToken;preview('Loading').hidden=false;previewControls();
+    try{
+      const page=await pdfDocument.getPage(pdfPage);if(token!==previewToken)return;
+      const wrap=preview('Canvas').parentElement,base=page.getViewport({scale:1});
+      const fit=Math.min(1.5,Math.max(280,wrap.clientWidth-24)/base.width),viewport=page.getViewport({scale:fit*pdfZoom});
+      const ratio=Math.min(window.devicePixelRatio||1,2),canvas=preview('Canvas');
+      canvas.width=Math.ceil(viewport.width*ratio);canvas.height=Math.ceil(viewport.height*ratio);
+      canvas.style.width=viewport.width+'px';canvas.style.height=viewport.height+'px';
+      pdfRender=page.render({canvasContext:canvas.getContext('2d'),viewport,transform:[ratio,0,0,ratio,0,0]});
+      await pdfRender.promise;if(token!==previewToken)return;
+      pdfRender=null;wrap.scrollTop=0;preview('Loading').hidden=true;
+    }catch(error){if(token===previewToken&&error?.name!=='RenderingCancelledException')previewFallback('This PDF could not be previewed. Download it to review the contents.');}
+  }
+  async function showDigitalPreview(documentRecord){
+    clearPreview();const token=previewToken,name=documentRecord.file_name||'Digital file';
+    const url='download.php?type=document&record_id='+encodeURIComponent(documentRecord.doc_id);
+    preview('Title').textContent=name;preview('Download').href=url;preview('Download').download=name;
+    previewModal.show();
+    const extension=name.split('.').pop().toLowerCase();
+    if(['png','jpg','jpeg','gif','webp'].includes(extension)){
+      const image=preview('Image');image.alt='Preview of '+name;
+      image.onload=()=>{if(token===previewToken){image.hidden=false;preview('Loading').hidden=true;}};
+      image.onerror=()=>{if(token===previewToken)previewFallback('This image could not be previewed. Download it to review the contents.');};
+      image.src=url;return;
+    }
+    if(extension!=='pdf'){previewFallback('Preview is unavailable for this file type. Download it to view the contents.');return;}
+    try{
+      const [engine,response]=await Promise.all([loadPdfEngine(),fetch(url,{credentials:'same-origin'})]);
+      if(token!==previewToken)return;if(!response.ok)throw new Error('Protected file unavailable.');
+      const bytes=new Uint8Array(await response.arrayBuffer());if(token!==previewToken)return;
+      const task=engine.getDocument({data:bytes});const document=await task.promise;
+      if(token!==previewToken){await document.destroy();return;}
+      pdfDocument=document;pdfPage=1;pdfZoom=1;preview('Pdf').hidden=false;await renderPreviewPage();
+    }catch(_){if(token===previewToken)previewFallback('This PDF could not be previewed. Download it to review the contents.');}
+  }
+  el('Preview').addEventListener('click',()=>{
+    if(!profile||profile.document.digital_destroyed||busy||action||!previewModal)return;
+    const documentRecord=profile.document;switchingToPreview=true;
+    modal.addEventListener('hidden.bs.modal',()=>showDigitalPreview(documentRecord),{once:true});
+    bootstrap.Modal.getOrCreateInstance(modal).hide();
+  });
+  preview('Prev').addEventListener('click',()=>{if(pdfDocument&&pdfPage>1){pdfPage--;renderPreviewPage();}});
+  preview('Next').addEventListener('click',()=>{if(pdfDocument&&pdfPage<pdfDocument.numPages){pdfPage++;renderPreviewPage();}});
+  preview('ZoomOut').addEventListener('click',()=>{if(pdfDocument&&pdfZoom>0.75){pdfZoom=Math.max(0.75,pdfZoom-0.25);renderPreviewPage();}});
+  preview('ZoomIn').addEventListener('click',()=>{if(pdfDocument&&pdfZoom<1.5){pdfZoom=Math.min(1.5,pdfZoom+0.25);renderPreviewPage();}});
+  previewElement.addEventListener('hidden.bs.modal',()=>{
+    clearPreview();switchingToPreview=false;
+    if(profile)bootstrap.Modal.getOrCreateInstance(modal).show();
+  });
+  actionElement.addEventListener('hide.bs.modal',event=>{
+    if(allowActionClose){allowActionClose=false;return;}
+    if(busy){event.preventDefault();message('Please wait for the current action to finish.');return;}
+    if(dirty){
+      event.preventDefault();
+      askConfirmation({title:'Close without saving?',text:'The physical-copy action details will be discarded.',confirmLabel:'Discard and close'}).then(discard=>{
+        if(!discard)return;dirty=false;listMode();allowActionClose=true;actionModal.hide();
+      });
+    }
+  });
+  actionElement.addEventListener('hidden.bs.modal',()=>{
+    switchingToAction=false;listMode();el('ActionMessage').hidden=true;
+    if(profile||changed)bootstrap.Modal.getOrCreateInstance(modal).show();
   });
   modal.addEventListener('hide.bs.modal',event=>{
     if(allowModalClose){allowModalClose=false;return;}
@@ -293,5 +413,5 @@
       });
     }
   });
-  modal.addEventListener('hidden.bs.modal',()=>{requestId++;profile=null;listMode();if(changed && !isCabinet)window.location.reload();});
+  modal.addEventListener('hidden.bs.modal',()=>{if(switchingToPreview||switchingToAction)return;requestId++;profile=null;listMode();if(changed && !isCabinet)window.location.reload();});
 })();

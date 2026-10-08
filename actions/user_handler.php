@@ -237,6 +237,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         'update_basic_info',
         'verify_email_code',
         'cancel_email_change',
+        'resend_profile_email',
         'change_password_direct'
     ];
 
@@ -300,198 +301,39 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             drms_user_settings_redirect('success', 'PasswordUpdated');
         }
 
-        if ($action === 'cancel_email_change') {
-            $cancel_stmt = $conn->prepare(
-                "UPDATE users
-                 SET pending_email = NULL, email_verification_code = NULL,
-                     email_code_expire = NULL, email_verification_attempts = 0,
-                     email_verification_last_sent_at = NULL
-                 WHERE user_id = ?"
-            );
-            $cancel_stmt->bind_param('i', $current_user_id);
-            $cancel_stmt->execute();
-            log_audit_action($conn, $current_user_id, 'EMAIL_CHANGE_CANCELLED', 'User cancelled the pending recovery-email change.');
-            drms_user_settings_redirect('success', 'EmailChangeCancelled');
-        }
-
-        if ($action === 'verify_email_code') {
-            $verification_code = preg_replace('/\D/', '', (string) ($_POST['verification_code'] ?? ''));
-            if (!preg_match('/^\d{6}$/', $verification_code)) {
-                drms_user_settings_redirect('error', 'InvalidCode');
-            }
-
-            $verify_stmt = $conn->prepare(
-                "SELECT pending_email, email_verification_code,
-                        email_verification_attempts,
-                        (email_code_expire > NOW()) AS code_is_current
-                 FROM users WHERE user_id = ? LIMIT 1"
-            );
-            $verify_stmt->bind_param('i', $current_user_id);
-            $verify_stmt->execute();
-            $verification = $verify_stmt->get_result()->fetch_assoc();
-
-            $pending_email = drms_normalize_account_email($verification['pending_email'] ?? '');
-            $stored_code_hash = (string) ($verification['email_verification_code'] ?? '');
-            $attempts = (int) ($verification['email_verification_attempts'] ?? 0);
-            $not_expired = (int) ($verification['code_is_current'] ?? 0) === 1;
-
-            if ($pending_email === '' || !$not_expired || $attempts >= 5 || !password_verify($verification_code, $stored_code_hash)) {
-                $new_attempts = min(5, $attempts + 1);
-                $failed_status = $new_attempts >= 5 ? 'Expired' : 'Pending';
-                if ($failed_status === 'Expired' || !$not_expired) {
-                    $failed_stmt = $conn->prepare(
-                        "UPDATE users
-                         SET email_verification_attempts = ?, email_verification_code = NULL,
-                             email_code_expire = NULL
-                         WHERE user_id = ?"
-                    );
-                } else {
-                    $failed_stmt = $conn->prepare(
-                        "UPDATE users SET email_verification_attempts = ? WHERE user_id = ?"
-                    );
+        if (in_array($action, ['update_basic_info','verify_email_code','cancel_email_change','resend_profile_email'], true)) {
+            require_once __DIR__ . '/../config/profile_edit_policy.php';
+            $result = drms_profile_process(
+                $conn, $current_user_id, $action, $_POST,
+                static function (string $email, string $name, string $code): void {
+                    $mail = new PHPMailer(true);
+                    drms_configure_mailer($mail, ['from_name' => 'Fixie DRMS Security']);
+                    $mail->addAddress($email, $name);
+                    $mail->Subject = 'Fixie DRMS - Verify Your Profile Email';
+                    $mail->isHTML(false);
+                    $mail->Body = "Hello " . $name . ",\n\nYour verification code is:\n\n" . $code
+                        . "\n\nThis code expires in 10 minutes and allows up to 5 attempts."
+                        . "\nYour profile changes will be applied after verification. You can edit again after 30 days."
+                        . "\nIf you did not request this, cancel the pending change in Account Settings.";
+                    $mail->send();
+                },
+                static function (string $event, string $description) use ($conn, $current_user_id): void {
+                    if (!log_audit_action($conn, $current_user_id, $event, $description)) {
+                        throw new RuntimeException('Unable to save the profile audit event.');
+                    }
+                },
+                static function () use ($conn, $current_user_id): void {
+                    drms_expire_user_access_tokens($conn, $current_user_id);
                 }
-                $failed_stmt->bind_param('ii', $new_attempts, $current_user_id);
-                $failed_stmt->execute();
-                drms_user_settings_redirect('error', $new_attempts >= 5 ? 'TooManyEmailCodeAttempts' : 'InvalidCode');
-            }
-
-            $duplicate_stmt = $conn->prepare(
-                "SELECT user_id FROM users WHERE email = ? AND user_id <> ? LIMIT 1"
             );
-            $duplicate_stmt->bind_param('si', $pending_email, $current_user_id);
-            $duplicate_stmt->execute();
-            if ($duplicate_stmt->get_result()->num_rows > 0) {
-                drms_user_settings_redirect('error', 'EmailAlreadyInUse');
+            if (isset($result['full_name'])) $_SESSION['fullname'] = $result['full_name'];
+            if (isset($result['session_token'])) {
+                session_regenerate_id(true);
+                $_SESSION['session_token'] = $result['session_token'];
+                $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+                $_SESSION['last_activity'] = time();
             }
-
-            $new_session_token = bin2hex(random_bytes(32));
-            $apply_email_stmt = $conn->prepare(
-                "UPDATE users
-                 SET email = ?, pending_email = NULL, email_verification_code = NULL,
-                      email_code_expire = NULL, email_verification_attempts = 0,
-                      email_verification_last_sent_at = NULL,
-                      session_token = ?, last_active = NOW()
-                 WHERE user_id = ? AND pending_email = ?
-                   AND email_verification_code = ?
-                   AND email_code_expire > NOW()
-                   AND email_verification_attempts < 5"
-            );
-            $apply_email_stmt->bind_param('ssiss', $pending_email, $new_session_token, $current_user_id, $pending_email, $stored_code_hash);
-            try {
-                $apply_email_stmt->execute();
-            } catch (mysqli_sql_exception $email_error) {
-                if ((int) $email_error->getCode() === 1062) {
-                    drms_user_settings_redirect('error', 'EmailAlreadyInUse');
-                }
-                throw $email_error;
-            }
-
-            if ($apply_email_stmt->affected_rows !== 1) {
-                drms_user_settings_redirect('error', 'InvalidCode');
-            }
-
-            drms_expire_user_access_tokens($conn, $current_user_id);
-            session_regenerate_id(true);
-            $_SESSION['session_token'] = $new_session_token;
-            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-            $_SESSION['last_activity'] = time();
-            log_audit_action($conn, $current_user_id, 'EMAIL_CHANGED', 'User verified and changed the account recovery email.');
-            drms_user_settings_redirect('success', 'EmailVerified');
-        }
-
-        if ($action === 'update_basic_info') {
-            $full_name = trim((string) ($_POST['full_name'] ?? ''));
-            $requested_email = drms_normalize_account_email($_POST['email'] ?? '');
-
-            if ($full_name === '' || strlen($full_name) > 100) {
-                drms_user_settings_redirect('error', 'InvalidFullName');
-            }
-            if (!drms_valid_account_email($requested_email)) {
-                drms_user_settings_redirect('error', 'InvalidEmail');
-            }
-
-            $account_stmt = $conn->prepare(
-                "SELECT email, pending_email,
-                        TIMESTAMPDIFF(SECOND, email_verification_last_sent_at, NOW()) AS seconds_since_last
-                 FROM users WHERE user_id = ? LIMIT 1"
-            );
-            $account_stmt->bind_param('i', $current_user_id);
-            $account_stmt->execute();
-            $account = $account_stmt->get_result()->fetch_assoc();
-            if (!$account) {
-                drms_user_settings_redirect('error', 'AccountUpdateFailed');
-            }
-
-            $current_email = drms_normalize_account_email($account['email'] ?? '');
-            if ($requested_email === $current_email) {
-                $name_stmt = $conn->prepare(
-                    "UPDATE users
-                     SET full_name = ?, pending_email = NULL,
-                         email_verification_code = NULL, email_code_expire = NULL,
-                         email_verification_attempts = 0,
-                         email_verification_last_sent_at = NULL
-                     WHERE user_id = ?"
-                );
-                $name_stmt->bind_param('si', $full_name, $current_user_id);
-                $name_stmt->execute();
-                $_SESSION['fullname'] = $full_name;
-                log_audit_action($conn, $current_user_id, 'PROFILE_UPDATED', 'User updated the account full name.');
-                drms_user_settings_redirect('success', 'ProfileUpdated');
-            }
-
-            $seconds_since_last = $account['seconds_since_last'] !== null
-                ? max(0, (int) $account['seconds_since_last'])
-                : null;
-            if ($seconds_since_last !== null && $seconds_since_last < 60) {
-                drms_user_settings_redirect('error', 'EmailCodeCooldown');
-            }
-
-            $duplicate_email_stmt = $conn->prepare(
-                "SELECT user_id FROM users
-                 WHERE user_id <> ? AND (email = ? OR pending_email = ?) LIMIT 1"
-            );
-            $duplicate_email_stmt->bind_param('iss', $current_user_id, $requested_email, $requested_email);
-            $duplicate_email_stmt->execute();
-            if ($duplicate_email_stmt->get_result()->num_rows > 0) {
-                drms_user_settings_redirect('error', 'EmailAlreadyInUse');
-            }
-
-            $email_code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-            $email_code_hash = password_hash($email_code, PASSWORD_DEFAULT);
-            $conn->begin_transaction();
-            try {
-                $pending_stmt = $conn->prepare(
-                    "UPDATE users
-                     SET full_name = ?, pending_email = ?, email_verification_code = ?,
-                         email_code_expire = DATE_ADD(NOW(), INTERVAL 10 MINUTE), email_verification_attempts = 0,
-                         email_verification_last_sent_at = NOW()
-                     WHERE user_id = ?"
-                );
-                $pending_stmt->bind_param('sssi', $full_name, $requested_email, $email_code_hash, $current_user_id);
-                $pending_stmt->execute();
-
-                $mail = new PHPMailer(true);
-                drms_configure_mailer($mail, ['from_name' => 'Fixie DRMS Security']);
-                $mail->addAddress($requested_email, $full_name);
-                $mail->Subject = 'Fixie DRMS - Verify Your New Recovery Email';
-                $mail->isHTML(false);
-                $mail->Body = "Hello " . $full_name . ",\n\n"
-                    . "Your Fixie DRMS recovery-email verification code is:\n\n"
-                    . $email_code . "\n\n"
-                    . "This code expires in 10 minutes and allows up to 5 attempts.\n"
-                    . "If you did not request this change, ignore this email and cancel the pending change in Account Settings.";
-                $mail->send();
-
-                $conn->commit();
-            } catch (Throwable $email_change_error) {
-                $conn->rollback();
-                error_log('Account recovery-email change failed: ' . $email_change_error->getMessage());
-                drms_user_settings_redirect('error', 'VerificationEmailFailed');
-            }
-
-            $_SESSION['fullname'] = $full_name;
-            log_audit_action($conn, $current_user_id, 'EMAIL_CHANGE_REQUESTED', 'User requested verification of a new recovery email.');
-            drms_user_settings_redirect('success', 'CodeSent');
+            drms_user_settings_redirect($result['type'], $result['code']);
         }
 
         if ($action === 'upload_avatar') {
@@ -684,12 +526,26 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             drms_admin_users_redirect('error', 'DuplicateEmail');
         }
 
+        // Build invitation links only from the configured application URL, not
+        // from the request Host header (which can be controlled by a client).
+        $app_url = rtrim((string) (drms_runtime_section('app')['url'] ?? ''), '/');
+        $url_scheme = strtolower((string) parse_url($app_url, PHP_URL_SCHEME));
+        $url_host = strtolower((string) parse_url($app_url, PHP_URL_HOST));
+        $is_local_url = in_array($url_host, ['localhost', '127.0.0.1', '::1'], true);
+        if ($app_url === '' || $url_host === '' || ($url_scheme !== 'https' && !($is_local_url && $url_scheme === 'http'))) {
+            drms_admin_users_redirect('error', 'InviteUrlNotConfigured');
+        }
+
+        $setup_token = bin2hex(random_bytes(32));
+        $setup_token_hash = hash('sha256', $setup_token);
+        $setup_url = $app_url . '/setup_password.php?token=' . rawurlencode($setup_token)
+            . '&email=' . rawurlencode($email);
         $dummy_hash = password_hash(bin2hex(random_bytes(20)), PASSWORD_DEFAULT);
 
         $conn->begin_transaction();
         try {
-            $stmt = $conn->prepare("INSERT INTO users (full_name, username, email, password_hash, role, status, require_pass_change, setup_token, setup_token_purpose, setup_token_sent_at, setup_token_expire) VALUES (?, ?, ?, ?, ?, 'Active', 1, NULL, NULL, NULL, NULL)");
-            $stmt->bind_param("sssss", $fullname, $username, $email, $dummy_hash, $role);
+            $stmt = $conn->prepare("INSERT INTO users (full_name, username, email, password_hash, role, status, require_pass_change, setup_token, setup_token_purpose, setup_token_sent_at, setup_token_expire) VALUES (?, ?, ?, ?, ?, 'Active', 1, ?, 'Account Setup', NOW(), DATE_ADD(NOW(), INTERVAL 24 HOUR))");
+            $stmt->bind_param("ssssss", $fullname, $username, $email, $dummy_hash, $role, $setup_token_hash);
             $stmt->execute();
             $new_user_id = $stmt->insert_id;
             
@@ -712,12 +568,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
             $email_fullname = htmlspecialchars($fullname, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             $email_username = htmlspecialchars($username, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+            $email_setup_url = htmlspecialchars($setup_url, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
             
             $mail = new PHPMailer(true);
             try {
                 drms_configure_mailer($mail, ['from_name' => 'Fixie DRMS Security']);
                 $mail->addAddress($email, $fullname);
-                $mail->Subject = 'Welcome to Fixie DRMS - Activate Through Email OTP';
+                $mail->Subject = 'Fixie DRMS - Set up your account password';
                 $mail->isHTML(true);
                 $mail->Body = "
                 <div style='font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;'>
@@ -726,22 +583,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     </div>
                     <div style='padding: 25px; line-height: 1.6;'>
                         <p>An administrator has provisioned an enterprise account for you with the username: <b>{$email_username}</b>.</p>
-                        <p>To activate your account and create your password:</p>
-                        <ol style='padding-left: 20px;'>
-                            <li>Open the Fixie DRMS login page.</li>
-                            <li>Select <strong>Log in via Email OTP</strong>.</li>
-                            <li>Enter this registered email address and request a six-digit code.</li>
-                            <li>Verify the code, then create your permanent password.</li>
-                        </ol>
-                        <p style='color: #475569; font-size: 13px;'><strong>Security Notice:</strong> Fixie DRMS will never ask you to send your password or verification code to another person.</p>
+                        <p>Use the button below to open the password setup page and create your password.</p>
+                        <p style='margin: 24px 0;'><a href='{$email_setup_url}' style='display: inline-block; background: #176c90; color: #ffffff; text-decoration: none; padding: 12px 20px; border-radius: 8px; font-weight: bold;'>Set up my password</a></p>
+                        <p style='color: #475569; font-size: 13px;'>This private link expires in 24 hours and works only once. If the button does not open, copy this address into your browser:<br><a href='{$email_setup_url}' style='color: #176c90; word-break: break-all;'>{$email_setup_url}</a></p>
+                        <p style='color: #475569; font-size: 13px;'>If the link expires, open the Fixie DRMS login page and select <strong>Log in via Email OTP</strong> to finish setup.</p>
+                        <p style='color: #475569; font-size: 13px;'><strong>Security Notice:</strong> Do not forward this invitation or share your password or verification code.</p>
                     </div>
                     <div style='background-color: #f4f4f4; padding: 15px; text-align: center; font-size: 12px; color: #777;'>
                         &copy; " . date('Y') . " Fixie DRMS. All rights reserved.
                     </div>
                 </div>";
+                $mail->AltBody = "Welcome to Fixie DRMS, {$fullname}. Username: {$username}. Set up your password using this private, single-use link (valid for 24 hours): {$setup_url}\n\nIf it expires, use Log in via Email OTP on the Fixie DRMS login page. Do not forward this invitation or share your password or code.";
                 
                 $mail->send();
-                if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'CREATE_USER', "Created new user: $username and sent email-OTP activation instructions.");
+                if (function_exists('log_audit_action')) log_audit_action($conn, $_SESSION['user_id'], 'CREATE_USER', "Created new user: $username and sent a password-setup invitation.");
                 drms_admin_users_redirect('success', 'UserCreated');
             } catch (Throwable $e) {
                 error_log('New-user activation email failed: ' . $e->getMessage());

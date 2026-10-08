@@ -57,8 +57,8 @@ body.dashboard-page .drms-chart-info-toggle:focus-visible {
 body.dashboard-page .drms-chart-info-popover {
     position: fixed;
     z-index: 1080;
-    width: min(320px, calc(100vw - 24px));
-    max-height: min(280px, calc(100vh - 24px));
+    width: min(390px, calc(100vw - 24px));
+    max-height: min(380px, calc(100vh - 24px));
     overflow-y: auto;
     padding: 0.85rem 0.95rem;
     border: 1px solid #b8c7dc;
@@ -93,6 +93,39 @@ body.dashboard-page .drms-chart-info-popover p {
     margin: 0;
     font-size: 0.81rem;
     line-height: 1.48;
+}
+
+body.dashboard-page .drms-chart-decision-label {
+    display: block;
+    margin-top: 0.75rem;
+    padding-top: 0.7rem;
+    border-top: 1px solid #dbe4f0;
+    color: #24589f;
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+body.dashboard-page .drms-chart-info-popover .drms-chart-decision-text {
+    margin-top: 0.25rem;
+    color: #203b5d;
+}
+
+html[data-drms-theme="dark"] body.dashboard-page .drms-chart-info-popover {
+    border-color: #4d5b6d;
+    background: #242d39;
+    color: #d9e3ee;
+}
+
+html[data-drms-theme="dark"] body.dashboard-page .drms-chart-info-popover strong,
+html[data-drms-theme="dark"] body.dashboard-page .drms-chart-info-popover .drms-chart-decision-text {
+    color: #e8eef6;
+}
+
+html[data-drms-theme="dark"] body.dashboard-page .drms-chart-decision-label {
+    border-color: #4d5b6d;
+    color: #9bc1ff;
 }
 
 @media (max-width: 575.98px) {

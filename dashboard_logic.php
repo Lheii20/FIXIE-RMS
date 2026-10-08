@@ -399,21 +399,68 @@ $shared_disposal_dss = [
     'history' => [],
 ];
 
+// A current queue is independent of the selected historical dashboard period.
+// Use the same policy resolution and due rule for its charts and GM/President
+// insight. An ambiguous folder name cannot supply a fallback policy.
+$disposition_from_sql = "
+    FROM documents d
+    LEFT JOIN (
+        SELECT sub_category,
+               CASE
+                   WHEN COUNT(*) = COUNT(policy_id)
+                        AND COUNT(DISTINCT policy_id) = 1
+                   THEN MAX(policy_id)
+                   ELSE NULL
+               END AS policy_id
+        FROM document_categories
+        GROUP BY sub_category
+    ) dc ON d.policy_id IS NULL AND d.category = dc.sub_category
+    LEFT JOIN retention_policies p ON p.policy_id = COALESCE(d.policy_id, dc.policy_id)
+";
+$disposition_where_sql = "
+    d.record_phase = 'Official'
+    AND p.policy_id IS NOT NULL
+    AND COALESCE(d.disposition_status, 'Pending') NOT IN ('Destroyed', 'Permanently Archived')
+    AND (
+        d.disposition_status = 'Ready for Disposition'
+        OR (
+            COALESCE(d.disposition_status, 'Pending') = 'Pending'
+            AND DATE_ADD(
+                DATE_ADD(COALESCE(d.declared_at, d.uploaded_at),
+                    INTERVAL (COALESCE(p.active_years, 0) + COALESCE(p.archive_years, 0)) YEAR),
+                INTERVAL (COALESCE(p.active_months, 0) + COALESCE(p.archive_months, 0)) MONTH
+            ) <= NOW()
+        )
+    )
+    AND d.is_legal_hold = 0
+";
+
 // These charts are rendered only by the Admin and executive dashboards.
 if ($role === 'Admin' || in_array($role, $executives, true)) {
-    $q_disp_cat = "SELECT d.category, COUNT(*) as cnt FROM documents d WHERE d.disposition_status = 'Ready for Disposition' AND {$doc_date['sql']} GROUP BY d.category ORDER BY cnt DESC LIMIT 5";
-    $disp_cat_data = fetch_chart_data($conn, $q_disp_cat, $doc_date['types'], $doc_date['params'], false);
+    $q_disp_cat = "SELECT d.category, COUNT(DISTINCT d.doc_id) AS cnt
+                   $disposition_from_sql WHERE $disposition_where_sql
+                   GROUP BY d.category ORDER BY cnt DESC, d.category ASC LIMIT 5";
+    $disp_cat_data = fetch_chart_data($conn, $q_disp_cat, '', [], false);
 
-    $q_disp_action = "SELECT COALESCE(p.action_after_retention, 'Review Required') as action_type, COUNT(d.doc_id) as cnt FROM documents d LEFT JOIN document_categories dc ON d.category = dc.sub_category LEFT JOIN retention_policies p ON dc.policy_id = p.policy_id WHERE d.disposition_status = 'Ready for Disposition' AND {$doc_date['sql']} GROUP BY p.action_after_retention";
-    $disp_action_data = fetch_chart_data($conn, $q_disp_action, $doc_date['types'], $doc_date['params'], false);
+    $q_disp_action = "SELECT p.action_after_retention AS action_type,
+                            COUNT(DISTINCT d.doc_id) AS cnt
+                      $disposition_from_sql WHERE $disposition_where_sql
+                      GROUP BY p.action_after_retention ORDER BY cnt DESC, action_type ASC";
+    $disp_action_data = fetch_chart_data($conn, $q_disp_action, '', [], false);
 
-    $q_disp_hist = "SELECT DATE(timestamp) as disp_date,
-                    SUM(CASE WHEN action_type = 'ARCHIVE_FILE' THEN 1 ELSE 0 END) as archived_count,
-                    SUM(CASE WHEN action_type IN ('DELETE', 'DELETE_DOC', 'DELETE_FILE', 'DESTROY_FILE') THEN 1 ELSE 0 END) as destroyed_count
-                    FROM audit_logs
-                    WHERE action_type IN ('ARCHIVE_FILE', 'DELETE', 'DELETE_DOC', 'DELETE_FILE', 'DESTROY_FILE') AND {$audit_date['sql']}
-                    GROUP BY disp_date ORDER BY disp_date DESC LIMIT 14";
-    $disp_hist_data = array_reverse(fetch_chart_data($conn, $q_disp_hist, $audit_date['types'], $audit_date['params'], false));
+    // Generic file archive/delete audit events are not disposition decisions.
+    // Count only executed requests, on their actual execution date.
+    $disp_exec_date = getDateFilter('executed_at', $period);
+    $q_disp_hist = "SELECT DATE(executed_at) AS disp_date,
+                    SUM(CASE WHEN requested_action = 'Permanent Archive' THEN 1 ELSE 0 END) AS archived_count,
+                    SUM(CASE WHEN requested_action = 'Destroy' THEN 1 ELSE 0 END) AS destroyed_count
+                    FROM disposition_requests
+                    WHERE status = 'Executed'
+                      AND executed_at IS NOT NULL
+                      AND {$disp_exec_date['sql']}
+                    GROUP BY DATE(executed_at)
+                    ORDER BY disp_date DESC LIMIT 14";
+    $disp_hist_data = array_reverse(fetch_chart_data($conn, $q_disp_hist, $disp_exec_date['types'], $disp_exec_date['params'], false));
 
     $shared_disposal_dss = [
         'by_category' => $disp_cat_data,
@@ -726,20 +773,27 @@ if (in_array($role, $executives)) {
     // Record inventory rather than all uploaded working files in a date range.
     $q_exec_lifecycle = "
         SELECT COALESCE(SUM(CASE WHEN status = 'Active' AND COALESCE(disposition_status, '') <> 'Destroyed' THEN 1 ELSE 0 END), 0) AS active_docs,
-               COALESCE(SUM(CASE WHEN status = 'Archived' AND COALESCE(disposition_status, '') <> 'Destroyed' THEN 1 ELSE 0 END), 0) AS archived_docs,
-               COALESCE(SUM(CASE WHEN status IN ('Active', 'Archived') AND disposition_status = 'Ready for Disposition' THEN 1 ELSE 0 END), 0) AS ready_disp,
-               COALESCE(SUM(CASE WHEN status = 'Active' AND disposition_status = 'Ready for Disposition' THEN 1 ELSE 0 END), 0) AS ready_active,
-               COALESCE(SUM(CASE WHEN status = 'Archived' AND disposition_status = 'Ready for Disposition' THEN 1 ELSE 0 END), 0) AS ready_archived
+               COALESCE(SUM(CASE WHEN status = 'Archived' AND COALESCE(disposition_status, '') <> 'Destroyed' THEN 1 ELSE 0 END), 0) AS archived_docs
         FROM documents
         WHERE record_phase = 'Official'
     ";
-    $exec_lifecycle = fetch_chart_data($conn, $q_exec_lifecycle, '', [], true) ?: $exec_lifecycle;
+    $exec_inventory = fetch_chart_data($conn, $q_exec_lifecycle, '', [], true) ?: [];
+
+    // The chart and insight share the exact current-queue eligibility rule.
+    $q_exec_disposition = "
+        SELECT COUNT(DISTINCT d.doc_id) AS ready_disp,
+               COUNT(DISTINCT CASE WHEN d.status = 'Active' THEN d.doc_id END) AS ready_active,
+               COUNT(DISTINCT CASE WHEN d.status = 'Archived' THEN d.doc_id END) AS ready_archived
+        $disposition_from_sql
+        WHERE $disposition_where_sql
+    ";
+    $exec_disposition = fetch_chart_data($conn, $q_exec_disposition, '', [], true) ?: [];
     $exec_lifecycle = [
-        'active_docs' => (int) ($exec_lifecycle['active_docs'] ?? 0),
-        'archived_docs' => (int) ($exec_lifecycle['archived_docs'] ?? 0),
-        'ready_disp' => (int) ($exec_lifecycle['ready_disp'] ?? 0),
-        'ready_active' => (int) ($exec_lifecycle['ready_active'] ?? 0),
-        'ready_archived' => (int) ($exec_lifecycle['ready_archived'] ?? 0),
+        'active_docs' => (int) ($exec_inventory['active_docs'] ?? 0),
+        'archived_docs' => (int) ($exec_inventory['archived_docs'] ?? 0),
+        'ready_disp' => (int) ($exec_disposition['ready_disp'] ?? 0),
+        'ready_active' => (int) ($exec_disposition['ready_active'] ?? 0),
+        'ready_archived' => (int) ($exec_disposition['ready_archived'] ?? 0),
     ];
     $exec_stats['active_docs'] = $exec_lifecycle['active_docs'];
     $exec_stats['archived_docs'] = $exec_lifecycle['archived_docs'];
@@ -899,11 +953,35 @@ if (in_array($role, $executives)) {
     $gm_charts['lifecycle'] = [
         'active_docs' => max(0, $exec_lifecycle['active_docs'] - $exec_lifecycle['ready_active']),
         'archived_docs' => max(0, $exec_lifecycle['archived_docs'] - $exec_lifecycle['ready_archived']),
-        'ready_disp' => $exec_lifecycle['ready_disp'],
+        'ready_disp' => $exec_lifecycle['ready_active'] + $exec_lifecycle['ready_archived'],
     ];
 
-    $q_vol = "SELECT dc.parent_category as category, COUNT(d.doc_id) as count FROM document_categories dc LEFT JOIN documents d ON LOWER(d.category) = LOWER(dc.sub_category) AND d.status = 'Active' AND {$doc_date['sql']} GROUP BY dc.parent_category ORDER BY count DESC";
-    $gm_charts['volume'] = fetch_chart_data($conn, $q_vol, $doc_date['types'], $doc_date['params'], false);
+    // Current inventory, not uploads in the selected historical period. Start
+    // from Official Records so empty folders never become chart slices. If a
+    // subfolder name belongs to multiple parent categories, avoid attributing
+    // the same record to several groups.
+    $q_vol = "
+        SELECT CASE
+                   WHEN dc.sub_category IS NULL THEN 'Uncategorized'
+                   WHEN dc.parent_count <> 1 THEN 'Ambiguous Category'
+                   ELSE dc.parent_category
+               END AS category,
+               COUNT(DISTINCT d.doc_id) AS count
+        FROM documents d
+        LEFT JOIN (
+            SELECT sub_category,
+                   COUNT(DISTINCT parent_category) AS parent_count,
+                   MAX(parent_category) AS parent_category
+            FROM document_categories
+            GROUP BY sub_category
+        ) dc ON d.category = dc.sub_category
+        WHERE d.record_phase = 'Official'
+          AND d.status IN ('Active', 'Archived')
+          AND COALESCE(d.disposition_status, '') <> 'Destroyed'
+        GROUP BY category
+        ORDER BY count DESC, category ASC
+    ";
+    $gm_charts['volume'] = fetch_chart_data($conn, $q_vol, '', [], false);
 
     $q_activity_trend = "
         SELECT a_date, SUM(is_req_quote) as req_quote_count, SUM(is_po) as po_count, SUM(is_fin_fulfill) as fin_fulfill_count, SUM(is_doc) as doc_count, SUM(is_approval) as approval_count
@@ -978,46 +1056,52 @@ if (in_array($role, $executives)) {
     $q_top_client = "SELECT client_name, COUNT(*) as tx_count FROM purchase_orders WHERE {$po_date['sql']} GROUP BY client_name ORDER BY tx_count DESC LIMIT 1";
     $gm_charts['top_client'] = fetch_chart_data($conn, $q_top_client, $po_date['types'], $po_date['params'], true);
 
-    $q_retrieval = "SELECT description, COUNT(*) as freq, action_type
-                    FROM audit_logs
-                    WHERE action_type IN ('DOWNLOAD_DOC', 'VIEW_RECORD')
-                    AND {$audit_date['sql']}
-                    GROUP BY description, action_type
-                    ORDER BY freq DESC LIMIT 7";
-    $retrieval_data = fetch_chart_data($conn, $q_retrieval, $audit_date['types'], $audit_date['params'], false);
-
-    $clean_retrieval = [];
-    foreach($retrieval_data as $row) {
-        $label = $row['description'];
-        if ($row['action_type'] == 'DOWNLOAD_DOC') {
-            $label = str_replace('Downloaded document: ', '', $label);
-            $label = preg_replace('/^\d+_[a-z0-9]+_/', '', $label);
-        } else if ($row['action_type'] == 'VIEW_RECORD') {
-            $label = str_replace('Viewed details of ', '', $label);
-            $label = str_replace('Viewed record details in ', '', $label);
-            $label = preg_replace('/ \| Parameters.*/', '', $label);
+    // VIEW_RECORD includes PR/PO/quotation page views, not necessarily file
+    // retrieval. Count document-linked opens by doc_id instead of parsing or
+    // merging free-text audit descriptions. The audit index supplies the period.
+    $retrieval_date = getDateFilter('a.timestamp', $period);
+    $q_retrieval = "
+        SELECT d.doc_id, d.record_phase, d.record_number, d.file_name,
+               COUNT(DISTINCT a.log_id) AS open_count
+        FROM audit_logs a
+        INNER JOIN document_audit_trail t
+            ON t.audit_log_id = a.log_id AND t.action_type = 'DOWNLOAD_DOC'
+        INNER JOIN documents d ON d.doc_id = t.doc_id
+        WHERE a.action_type = 'DOWNLOAD_DOC'
+          AND {$retrieval_date['sql']}
+          AND COALESCE(d.disposition_status, '') <> 'Destroyed'
+          AND (
+              (d.record_phase = 'Official' AND d.status IN ('Active', 'Archived'))
+              OR ((d.record_phase IN ('Working', 'For Review') OR d.record_phase IS NULL)
+                  AND d.status = 'Active')
+          )
+        GROUP BY d.doc_id, d.record_phase, d.record_number, d.file_name
+        ORDER BY open_count DESC, d.doc_id DESC
+        LIMIT 7
+    ";
+    $retrieval_data = fetch_chart_data($conn, $q_retrieval, $retrieval_date['types'], $retrieval_date['params'], false);
+    $gm_charts['retrieval_freq'] = [];
+    foreach ($retrieval_data as $row) {
+        $documentId = (int) $row['doc_id'];
+        $isOfficial = ($row['record_phase'] ?? '') === 'Official';
+        $fullName = trim((string) ($row['record_number'] ?? ''));
+        if ($fullName === '') {
+            $fullName = trim((string) ($row['file_name'] ?? ''));
         }
-        
-        if (strlen($label) > 35) $label = substr($label, 0, 32) . '...';
-
-        $found = false;
-        foreach($clean_retrieval as &$existing) {
-            if($existing['label'] === $label) {
-                $existing['count'] += $row['freq'];
-                $found = true;
-                break;
-            }
+        if ($fullName === '') {
+            $fullName = 'Document';
         }
-        if(!$found) {
-            $clean_retrieval[] = [
-                'label' => $label,
-                'count' => $row['freq'],
-                'type'  => $row['action_type']
-            ];
-        }
+        $shortName = function_exists('mb_strimwidth')
+            ? mb_strimwidth($fullName, 0, 32, '...', 'UTF-8')
+            : (strlen($fullName) > 32 ? substr($fullName, 0, 29) . '...' : $fullName);
+        $gm_charts['retrieval_freq'][] = [
+            'doc_id' => $documentId,
+            'label' => ($isOfficial ? 'Official' : 'Company') . ' · ' . $shortName . ' (#' . $documentId . ')',
+            'full_name' => $fullName,
+            'phase' => $isOfficial ? 'Official Record' : 'Company File',
+            'count' => (int) $row['open_count'],
+        ];
     }
-    usort($clean_retrieval, function($a, $b) { return $b['count'] <=> $a['count']; });
-    $gm_charts['retrieval_freq'] = array_slice($clean_retrieval, 0, 7);
 
     $gm_charts['disposal'] = $shared_disposal_dss;
 }

@@ -251,8 +251,11 @@ for ($page_number = 1; $page_number <= $total_pages; $page_number++) {
                                         <?php while ($row = $result->fetch_assoc()):
                                             $status = (string) $row['status'];
                                             $badge = 'bg-soft-primary';
-                                            $icon = 'fa-spinner fa-spin';
+                                            $icon = 'fa-file-invoice';
                                             if ($status === 'Pending') { $badge = 'bg-soft-warning'; $icon = 'fa-clock'; }
+                                            elseif ($status === 'Funded') { $icon = 'fa-coins'; }
+                                            elseif ($status === 'Delivery Requested') { $icon = 'fa-clipboard-check'; }
+                                            elseif (in_array($status, ['For Pick-up/Delivery', 'For Pickup/Delivery'], true)) { $icon = 'fa-truck'; }
                                             elseif (in_array($status, ['Collected', 'Delivered'], true)) { $badge = 'bg-soft-success'; $icon = 'fa-check-circle'; }
                                             elseif (strpos($status, 'Rejected') !== false) { $badge = 'bg-soft-danger'; $icon = 'fa-times-circle'; }
                                         ?>

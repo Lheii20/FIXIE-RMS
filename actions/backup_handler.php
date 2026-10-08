@@ -80,22 +80,83 @@ function drms_backup_render_restore_success(string $safety_filename): void
     http_response_code(200);
     header('Content-Type: text/html; charset=UTF-8');
     header('Cache-Control: no-store, max-age=0');
+    header('X-Content-Type-Options: nosniff');
     $safe_backup = htmlspecialchars($safety_filename, ENT_QUOTES, 'UTF-8');
-    echo '<!doctype html><html lang="en"><head><meta charset="utf-8">';
-    echo '<meta name="viewport" content="width=device-width,initial-scale=1">';
-    echo '<title>Restore completed - Fixie DRMS</title></head>';
-    echo '<body style="margin:0;background:#f8fafc;color:#0f172a;';
-    echo 'font:14px/1.5 Arial,sans-serif;display:grid;min-height:100vh;place-items:center">';
-    echo '<main style="width:min(520px,calc(100% - 32px));background:#fff;';
-    echo 'border:1px solid #cbd5e1;border-radius:14px;padding:28px;box-sizing:border-box">';
-    echo '<div style="width:44px;height:44px;border-radius:10px;background:#dcfce7;';
-    echo 'color:#047857;display:grid;place-items:center;font-size:22px;margin-bottom:16px">&#10003;</div>';
-    echo '<h1 style="font-size:20px;margin:0 0 8px">System restore completed</h1>';
-    echo '<p style="margin:0 0 12px;color:#475569">The database and uploaded-record repository were restored as one verified package.</p>';
-    echo '<p style="margin:0 0 20px;color:#475569">A rollback copy was retained as <strong>' . $safe_backup . '</strong>.</p>';
-    echo '<a href="../index.php" style="display:inline-flex;min-height:40px;align-items:center;';
-    echo 'padding:0 16px;border-radius:8px;background:#2563eb;color:#fff;text-decoration:none;';
-    echo 'font-weight:700">Return to sign in</a></main></body></html>';
+    ?>
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>System restored · Fixie DRMS</title>
+    <style>
+        :root { font-family: Inter, "Segoe UI", Arial, sans-serif; color: #152947; background: #f5f7fb; }
+        * { box-sizing: border-box; }
+        body { margin: 0; min-height: 100vh; }
+        .topbar { min-height: 68px; display: flex; align-items: center; border-bottom: 1px solid #dce4ef; background: #fff; }
+        .topbar-inner { width: min(100% - 40px, 1160px); margin: auto; display: flex; align-items: center; gap: 10px; }
+        .topbar img { width: 34px; height: 34px; object-fit: contain; }
+        .brand { color: #10264b; font-size: 17px; font-weight: 800; letter-spacing: -.025em; }
+        .page { width: min(100% - 36px, 760px); margin: auto; padding: clamp(44px, 10vh, 100px) 0 56px; }
+        .eyebrow { margin: 0 0 14px; color: #315a9e; font-size: 12px; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; }
+        .panel { overflow: hidden; border: 1px solid #d4e0ef; border-radius: 18px; background: #fff; box-shadow: 0 18px 45px rgba(24, 50, 84, .06); }
+        .panel-main { padding: clamp(24px, 5vw, 40px); }
+        .success-icon { width: 56px; height: 56px; display: grid; place-items: center; border-radius: 16px; background: #e4f8ec; color: #087347; }
+        .success-icon svg { width: 29px; height: 29px; }
+        h1 { margin: 22px 0 8px; color: #10264b; font-size: clamp(23px, 4vw, 30px); line-height: 1.2; letter-spacing: -.035em; }
+        .lead { margin: 0; max-width: 580px; color: #53667f; font-size: 15px; line-height: 1.65; }
+        .steps { display: flex; flex-wrap: wrap; gap: 9px; margin: 26px 0; padding: 0; list-style: none; }
+        .steps li { display: inline-flex; align-items: center; gap: 7px; padding: 8px 11px; border: 1px solid #cdebd9; border-radius: 999px; background: #f2fbf5; color: #176642; font-size: 12px; font-weight: 650; }
+        .steps svg { width: 14px; height: 14px; flex: none; }
+        .backup-note { padding: 16px 18px; border: 1px solid #dbe5f2; border-radius: 12px; background: #f8fafe; }
+        .backup-note strong { display: block; margin-bottom: 5px; color: #223e69; font-size: 13px; }
+        .backup-note code { color: #465b77; font: 12px/1.6 Consolas, "Courier New", monospace; overflow-wrap: anywhere; }
+        .panel-footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px clamp(24px, 5vw, 40px); border-top: 1px solid #e4eaf3; background: #fbfcfe; }
+        .panel-footer p { margin: 0; color: #63758d; font-size: 12px; line-height: 1.5; }
+        .signin { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 42px; padding: 0 16px; border-radius: 9px; background: #2358da; color: #fff; font-size: 13px; font-weight: 700; text-decoration: none; white-space: nowrap; transition: background .18s ease, transform .18s ease; }
+        .signin:hover { background: #1648bb; transform: translateY(-1px); }
+        .signin:focus-visible { outline: 3px solid #9bb8ff; outline-offset: 3px; }
+        .signin svg { width: 16px; height: 16px; }
+        @media (max-width: 520px) { .topbar { min-height: 60px; } .page { padding-top: 34px; } .panel-footer { align-items: stretch; flex-direction: column; } .signin { width: 100%; } }
+        @media (prefers-reduced-motion: reduce) { .signin { transition: none; } .signin:hover { transform: none; } }
+    </style>
+</head>
+<body>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <img src="../assets/images/fixie_logo.png" alt="Fixie Computer Ventures logo" width="34" height="34">
+            <span class="brand">FIXIE DRMS</span>
+        </div>
+    </header>
+    <main class="page">
+        <p class="eyebrow">Backup &amp; Restore</p>
+        <section class="panel" aria-labelledby="restore-title">
+            <div class="panel-main">
+                <div class="success-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="m4 12 5 5L20 6"/></svg>
+                </div>
+                <h1 id="restore-title">System restore completed</h1>
+                <p class="lead">Your database and uploaded records have been restored from the verified backup package.</p>
+                <ul class="steps" aria-label="Restore results">
+                    <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 12 5 5L20 6"/></svg>Package verified</li>
+                    <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 12 5 5L20 6"/></svg>Database restored</li>
+                    <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 12 5 5L20 6"/></svg>Uploaded files restored</li>
+                </ul>
+                <div class="backup-note">
+                    <strong>Pre-restore safety copy retained</strong>
+                    <code><?php echo $safe_backup; ?></code>
+                </div>
+            </div>
+            <div class="panel-footer">
+                <p>Your previous session has ended. Sign in again to continue.</p>
+                <a class="signin" href="../index.php">Return to sign in <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></a>
+            </div>
+        </section>
+    </main>
+</body>
+</html>
+    <?php
     exit;
 }
 

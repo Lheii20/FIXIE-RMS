@@ -23,7 +23,6 @@ $client_approval_today = date('Y-m-d');
 $mode_id = $client_approval_modal_id . 'Mode';
 $po_number_id = $client_approval_modal_id . 'PoNumber';
 $po_date_id = $client_approval_modal_id . 'PoDate';
-$approval_date_id = $client_approval_modal_id . 'ApprovalDate';
 $file_id = $client_approval_modal_id . 'File';
 $remarks_id = $client_approval_modal_id . 'Remarks';
 ?>
@@ -140,38 +139,20 @@ $remarks_id = $client_approval_modal_id . 'Remarks';
                             >
                         </div>
 
-                        <div class="row g-3">
-                            <div class="col-sm-6">
-                                <div class="client-approval-field mb-0">
-                                    <label for="<?php echo htmlspecialchars($po_date_id); ?>">
-                                        Client PO date <span class="required-mark">*</span>
-                                    </label>
-                                    <input
-                                        type="date"
-                                        name="client_po_date"
-                                        id="<?php echo htmlspecialchars($po_date_id); ?>"
-                                        class="form-control"
-                                        max="<?php echo htmlspecialchars($client_approval_today); ?>"
-                                        data-official-required
-                                    >
-                                </div>
-                            </div>
-
-                            <div class="col-sm-6">
-                                <div class="client-approval-field mb-0">
-                                    <label for="<?php echo htmlspecialchars($approval_date_id); ?>">
-                                        Final approval date <span class="required-mark">*</span>
-                                    </label>
-                                    <input
-                                        type="date"
-                                        name="final_approval_date"
-                                        id="<?php echo htmlspecialchars($approval_date_id); ?>"
-                                        class="form-control"
-                                        max="<?php echo htmlspecialchars($client_approval_today); ?>"
-                                        data-official-required
-                                    >
-                                </div>
-                            </div>
+                        <div class="client-approval-field mb-0">
+                            <label for="<?php echo htmlspecialchars($po_date_id); ?>">
+                                Date on the signed Client PO <span class="required-mark">*</span>
+                            </label>
+                            <input
+                                type="date"
+                                name="client_po_date"
+                                id="<?php echo htmlspecialchars($po_date_id); ?>"
+                                class="form-control"
+                                max="<?php echo htmlspecialchars($client_approval_today); ?>"
+                                aria-describedby="<?php echo htmlspecialchars($po_date_id); ?>Help"
+                                data-official-required
+                            >
+                            <small id="<?php echo htmlspecialchars($po_date_id); ?>Help" class="form-text">Enter the date printed on the signed PO.</small>
                         </div>
                     </div>
 

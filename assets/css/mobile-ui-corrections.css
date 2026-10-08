@@ -166,8 +166,10 @@
         margin: 0 !important;
         padding: 0 !important;
     }
+    /* Icon-only sizing applies only to a direct header action, never to the
+       Declaration Requests entry inside the three-dot dropdown menu. */
     html body:is(.page-documents, .page-general-docs)
-        .main-content > .header-section a[href="official_declarations.php"] {
+        .main-content > .header-section > .d-flex:first-child > .d-flex:last-child > a[href="official_declarations.php"] {
         display: inline-flex !important;
         flex: 0 0 36px !important;
         align-items: center !important;
@@ -184,7 +186,7 @@
         white-space: nowrap !important;
     }
     html body:is(.page-documents, .page-general-docs)
-        .main-content > .header-section a[href="official_declarations.php"] i {
+        .main-content > .header-section > .d-flex:first-child > .d-flex:last-child > a[href="official_declarations.php"] i {
         margin: 0 !important;
         font-size: 14px !important;
     }

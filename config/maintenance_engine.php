@@ -230,15 +230,24 @@ function drms_maintenance_task_flag_disposition(mysqli $conn, bool $dryRun): arr
 {
     $where = "d.record_phase = 'Official'
         AND d.status = 'Archived'
-        AND d.disposition_status = 'Pending'
-        AND d.is_legal_hold = 0
-        AND DATE_ADD(
-            DATE_ADD(
-                COALESCE(d.declared_at, d.uploaded_at),
-                INTERVAL (COALESCE(p.active_years, 0) + COALESCE(p.archive_years, 0)) YEAR
-            ),
-            INTERVAL (COALESCE(p.active_months, 0) + COALESCE(p.archive_months, 0)) MONTH
-        ) <= NOW()";
+        AND (
+            (
+                d.disposition_status = 'Pending'
+                AND DATE_ADD(
+                    DATE_ADD(
+                        COALESCE(d.declared_at, d.uploaded_at),
+                        INTERVAL (COALESCE(p.active_years, 0) + COALESCE(p.archive_years, 0)) YEAR
+                    ),
+                    INTERVAL (COALESCE(p.active_months, 0) + COALESCE(p.archive_months, 0)) MONTH
+                ) <= NOW()
+            )
+            OR (
+                d.disposition_status = 'Deferred'
+                AND d.disposition_review_due_at IS NOT NULL
+                AND d.disposition_review_due_at <= NOW()
+            )
+        )
+        AND d.is_legal_hold = 0";
 
     $eligible = drms_maintenance_count($conn, "
         SELECT COUNT(*) AS total
@@ -255,6 +264,7 @@ function drms_maintenance_task_flag_disposition(mysqli $conn, bool $dryRun): arr
             LEFT JOIN document_categories dc ON d.category = dc.sub_category
             INNER JOIN retention_policies p ON p.policy_id = COALESCE(d.policy_id, dc.policy_id)
             SET d.disposition_status = 'Ready for Disposition',
+                d.disposition_review_due_at = NULL,
                 d.dss_recommendation = CASE
                     WHEN p.action_after_retention = 'Permanent Archive'
                         THEN 'Retention complete: decide whether to retain this record permanently.'
