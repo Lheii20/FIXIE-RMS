@@ -11,6 +11,11 @@ if (empty($_SESSION['user_id'])) {
 
 $user_id = (int) $_SESSION['user_id'];
 $role = (string) ($_SESSION['role'] ?? '');
+// Authentication and session activity were checked by db_connect.php. A PDF
+// stream must not hold the PHP session lock and delay the user's next request.
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
 $type = trim((string) ($_GET['type'] ?? 'document'));
 $record_id_input = (string) ($_GET['record_id'] ?? $_GET['doc_id'] ?? '');
 $record_id = ctype_digit($record_id_input) ? (int) $record_id_input : 0;
@@ -492,6 +497,18 @@ try {
 }
 
 $absolute_path = drms_resolve_upload_path($stored_path);
+// File-details dialogs only request the size. After the same authorization
+// checks above, answer HEAD without hashing or streaming the entire file.
+// A real GET preview/download still performs the protected integrity check.
+if (strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')) === 'HEAD') {
+    if (!is_file($absolute_path) || !is_readable($absolute_path)) {
+        drms_download_error(404, 'The file could not be found.');
+    }
+    header('Content-Length: ' . filesize($absolute_path));
+    header('X-Content-Type-Options: nosniff');
+    header('Cache-Control: private, no-store, max-age=0, must-revalidate');
+    exit();
+}
 $is_integrity_protected_file = in_array(
     $type,
     [

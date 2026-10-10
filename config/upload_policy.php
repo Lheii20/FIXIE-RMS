@@ -144,11 +144,11 @@ function drms_upload_policy_extensions(string $policy): array
 {
     switch ($policy) {
         case 'document':
-            return ['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx', 'xls', 'xlsx'];
+            return ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'avif', 'docx', 'xls', 'xlsx'];
         case 'proof':
             return ['pdf', 'jpg', 'jpeg', 'png'];
         case 'workflow_document':
-            return ['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx', 'xls', 'xlsx'];
+            return ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'avif', 'docx', 'xls', 'xlsx'];
         case 'profile':
             return ['jpg', 'jpeg', 'png', 'webp'];
         default:
@@ -158,6 +158,9 @@ function drms_upload_policy_extensions(string $policy): array
 
 function drms_upload_policy_type_label(string $policy): string
 {
+    if ($policy === 'document' || $policy === 'workflow_document') {
+        return 'supported image, PDF, DOCX, XLS, or XLSX file';
+    }
     if ($policy === 'profile') {
         return 'JPG, PNG, or WEBP image';
     }
@@ -208,14 +211,23 @@ function drms_upload_read_prefix(string $path, int $length): string
 function drms_upload_validate_image(string $path, string $extension, string $mime): void
 {
     $image = @getimagesize($path);
-    $expected = in_array($extension, ['jpg', 'jpeg'], true)
-        ? 'image/jpeg'
-        : ($extension === 'png' ? 'image/png' : 'image/webp');
+    $expectedMimes = [
+        'jpg' => ['image/jpeg'],
+        'jpeg' => ['image/jpeg'],
+        'png' => ['image/png'],
+        'gif' => ['image/gif'],
+        'webp' => ['image/webp'],
+        'bmp' => ['image/bmp', 'image/x-ms-bmp'],
+        'tif' => ['image/tiff'],
+        'tiff' => ['image/tiff'],
+        'avif' => ['image/avif'],
+    ];
+    $allowedMimes = $expectedMimes[$extension] ?? [];
 
     if (
         $image === false ||
-        ($image['mime'] ?? '') !== $expected ||
-        $mime !== $expected ||
+        !in_array((string) ($image['mime'] ?? ''), $allowedMimes, true) ||
+        !in_array($mime, $allowedMimes, true) ||
         (int) ($image[0] ?? 0) < 1 ||
         (int) ($image[1] ?? 0) < 1
     ) {
@@ -311,7 +323,7 @@ function drms_upload_validate_openxml(string $path, string $extension, string $m
 
 function drms_upload_validate_content(string $path, string $extension, string $mime): void
 {
-    if (in_array($extension, ['jpg', 'jpeg', 'png', 'webp'], true)) {
+    if (in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'avif'], true)) {
         drms_upload_validate_image($path, $extension, $mime);
         return;
     }

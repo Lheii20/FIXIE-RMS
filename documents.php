@@ -1,6 +1,7 @@
   <?php 
   require 'config/db_connect.php'; 
   require 'config/functions.php';
+require_once __DIR__ . '/config/record_action_security.php';
 require_once __DIR__ . '/config/physical_records.php';
 $vc3PhysicalPathSql = drms_copy_path_sql(); 
 
@@ -213,27 +214,32 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
           if ($role === 'Admin') redirectDocumentsWithMessage("error", "System Administrators cannot share documents.");
         
           $doc_id = intval($_POST['doc_id']);
-          $access_type = ($_POST['access_type'] === 'Restricted') ? 'Restricted' : 'Folder Default';
-          $return_url = $_POST['return_url'] ?? 'documents.php';
+          $access_type = (string) ($_POST['access_type'] ?? '');
+          $return_url = drms_record_action_safe_return($_POST['return_url'] ?? null, 'documents.php');
+          if (!in_array($access_type, ['Folder Default', 'Restricted'], true)) {
+              drms_record_action_feedback($return_url, 'error', 'Choose who can open this file.');
+          }
+
+          try {
+              $d_chk = drms_record_action_require_owner($conn, $doc_id, (int) $_SESSION['user_id'], (string) $role);
+          } catch (DomainException $error) {
+              drms_record_action_feedback($return_url, 'error', $error->getMessage());
+          }
+          if (($d_chk['record_phase'] ?? '') !== 'Official') {
+              drms_record_action_feedback($return_url, 'error', 'Choose an Official Record to manage its access.');
+          }
         
           $perms = [];
+          $shareable_user_ids = array_fill_keys(array_map('intval', array_column($all_users, 'user_id')), true);
           if (isset($_POST['user_roles']) && is_array($_POST['user_roles'])) {
               foreach ($_POST['user_roles'] as $uid => $urole) {
-                  if (in_array($urole, ['Viewer', 'Editor'])) {
-                      $perms["user_" . intval($uid)] = $urole;
+                  $share_user_id = (int) $uid;
+                  if (isset($shareable_user_ids[$share_user_id]) && $urole === 'Viewer') {
+                      $perms['user_' . $share_user_id] = $urole;
                   }
               }
           }
-          $perms_json = json_encode($perms);
-
-          $stmt_chk = $conn->prepare("SELECT uploaded_by, file_name FROM documents WHERE doc_id = ?");
-          $stmt_chk->bind_param("i", $doc_id);
-          $stmt_chk->execute();
-          $d_chk = $stmt_chk->get_result()->fetch_assoc();
-        
-          if ($d_chk['uploaded_by'] != $_SESSION['user_id'] && !$is_top_mgmt) {
-              redirectDocumentsWithMessage("error", "Only the Owner or Management can change sharing settings.");
-          }
+          $perms_json = json_encode($perms, JSON_THROW_ON_ERROR);
 
           $stmt_upd = $conn->prepare("UPDATE documents SET access_type = ?, file_permissions = ? WHERE doc_id = ?");
           $stmt_upd->bind_param("ssi", $access_type, $perms_json, $doc_id);
@@ -243,9 +249,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
               log_audit_action($conn, $_SESSION['user_id'], 'UPDATE_DOCUMENT', "Updated sharing settings for Document: " . $d_chk['file_name']);
           }
         
-          $sep = strpos($return_url, '?') !== false ? '&' : '?';
-          header("Location: " . $return_url . $sep . "success=" . urlencode("Share settings updated successfully."));
-          exit();
+          drms_record_action_feedback($return_url, 'success', 'Access updated. The selected people can now open this record.');
       }
 
       if ($_POST['action'] === 'rename_file') {
@@ -788,9 +792,11 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
           MAX(dc.system_folder_key) as system_folder_key,
           MAX(dc.is_system_folder) as is_system_folder,
           MAX(dc.system_sort_order) as system_sort_order,
+          MAX(rp.policy_name) as policy_name,
           GROUP_CONCAT(cra.role_name) as roles
       FROM document_categories dc
       LEFT JOIN category_role_access cra ON dc.id = cra.category_id
+      LEFT JOIN retention_policies rp ON dc.policy_id = rp.policy_id
       GROUP BY dc.id
       ORDER BY
           MAX(dc.is_system_folder) DESC,
@@ -833,6 +839,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                   'system_folder_key' => trim((string) $row['system_folder_key']),
                   'is_system_folder' => (int) $row['is_system_folder'] === 1,
                   'system_sort_order' => $row['system_sort_order'],
+                  'policy_name' => trim((string) ($row['policy_name'] ?? '')),
               ];
           }
 
@@ -859,9 +866,6 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
           }
       }
   }
-
-  $current_parent_is_system = !empty($parent_filter) &&
-      !empty($parent_system_flags[$parent_filter]);
 
   if ($is_top_mgmt) {
       $user_categories = [];
@@ -938,6 +942,16 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
   $view_archives = isset($_GET['view_archives']) && $_GET['view_archives'] == '1';
   $view_shared = isset($_GET['shared']) && $_GET['shared'] == '1';
   $sort = (string) ($_GET['sort'] ?? 'date_desc');
+  $requested_records_page = filter_var($_GET['page'] ?? null, FILTER_VALIDATE_INT);
+  $records_page = is_int($requested_records_page) && $requested_records_page > 0
+      ? $requested_records_page : 1;
+  $requested_records_per_page = filter_var($_GET['per_page'] ?? null, FILTER_VALIDATE_INT);
+  $records_per_page = is_int($requested_records_per_page)
+      && in_array($requested_records_per_page, [10, 15, 25, 50, 100], true)
+      ? $requested_records_per_page : 15;
+  $requested_focus_doc = filter_var($_GET['doc'] ?? null, FILTER_VALIDATE_INT);
+  $focus_doc_id = is_int($requested_focus_doc) && $requested_focus_doc > 0
+      ? $requested_focus_doc : 0;
 
   $allowed_record_statuses = ['Archived'];
   $allowed_record_sorts = ['date_desc', 'date_asc', 'name_asc', 'name_desc'];
@@ -947,12 +961,12 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
       $view_archives = true;
   }
   if ($view_archives || $view_disposition_section || $view_shared) $doc_status = '';
-  $records_query_active = $search !== '' || $doc_status !== '' || $sort !== 'date_desc';
+  $records_query_active = $search !== '' || $doc_status !== '' || $sort !== 'date_desc' || $focus_doc_id > 0;
 
-  $order_by = "COALESCE(d.declared_at, d.uploaded_at) DESC";
-  if ($sort === 'date_asc') $order_by = "COALESCE(d.declared_at, d.uploaded_at) ASC";
-  elseif ($sort === 'name_asc') $order_by = "d.file_name ASC";
-  elseif ($sort === 'name_desc') $order_by = "d.file_name DESC";
+  $order_by = "COALESCE(d.declared_at, d.uploaded_at) DESC, d.doc_id DESC";
+  if ($sort === 'date_asc') $order_by = "COALESCE(d.declared_at, d.uploaded_at) ASC, d.doc_id ASC";
+  elseif ($sort === 'name_asc') $order_by = "d.file_name ASC, d.doc_id ASC";
+  elseif ($sort === 'name_desc') $order_by = "d.file_name DESC, d.doc_id DESC";
 
   // ----------------------------------------------------
   // SYSTEM ADMINISTRATOR HARD REDIRECT
@@ -987,6 +1001,18 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
   if(!empty($search)) $return_params[] = "search=".urlencode($search);
   if(!empty($doc_status)) $return_params[] = "doc_status=".urlencode($doc_status);
   if($sort !== 'date_desc') $return_params[] = "sort=".urlencode($sort);
+  if($records_per_page !== 15) $return_params[] = "per_page=".$records_per_page;
+
+  $record_page_url = static function (int $page) use ($return_params): string {
+      return 'documents.php?' . implode('&', array_merge($return_params, ['page=' . max(1, $page)]));
+  };
+  $record_size_url = static function (int $size) use ($return_params): string {
+      $params = array_values(array_filter($return_params, static function ($part): bool {
+          return strpos($part, 'per_page=') !== 0;
+      }));
+      if ($size !== 15) $params[] = 'per_page=' . $size;
+      return 'documents.php' . ($params ? '?' . implode('&', $params) : '');
+  };
 
   $exact_return_url = "documents.php" . (!empty($return_params) ? "?" . implode("&", $return_params) : "");
 
@@ -1054,25 +1080,6 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
 
   if (empty($view_archives) && empty($view_disposition_section) && empty($view_shared) && empty($parent_filter) && empty($type_filter)) {
       $breadcrumbs[0]['active'] = true;
-  }
-
-  $hide_upload_button = $view_archives || $view_disposition_section || $view_shared;
-  $current_type_is_system = false;
-  if ($type_filter !== '') {
-      foreach ($folder_metadata as $subfolders) {
-          foreach ($subfolders as $folder_name => $folder_info) {
-              if (strcasecmp($folder_name, $type_filter) === 0 && !empty($folder_info['is_system_folder'])) {
-                  $current_type_is_system = true;
-                  break 2;
-              }
-          }
-      }
-  }
-  if ($current_parent_is_system || $current_type_is_system) {
-      $hide_upload_button = true;
-  }
-  if (!has_permission($conn, $_SESSION['user_id'], 'can_upload_documents') || $role === 'Admin') {
-      $hide_upload_button = true;
   }
 
   // ==========================================
@@ -1212,6 +1219,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
   }
 
   if ($view_shared) {
+      $where[] = "d.record_phase = 'Official'";
       $where[] = "d.file_permissions LIKE ?";
       $params[] = '%"user_' . $_SESSION['user_id'] . '"%';
       $types .= "s";
@@ -1260,12 +1268,82 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
             ORDER BY $order_by";
 
   $documents = null;
-  // SECURITY: Do not fetch actual documents if Admin
-  if ($role !== 'Admin') {
-      $stmt = $conn->prepare($query);
-      if(!empty($params)) $stmt->bind_param($types, ...$params);
+  $record_total = 0;
+  $record_total_pages = 1;
+  $record_first = 0;
+  $record_last = 0;
+  $visible_record_pages = [];
+  // Folder overviews and disposition use separate views; do not fetch their file list.
+  $show_normal_record_list = $role !== 'Admin'
+      && !$view_disposition_section
+      && (!empty($type_filter) || $view_archives || $view_shared || $records_query_active);
+  if ($show_normal_record_list) {
+      $count_stmt = $conn->prepare("SELECT COUNT(*) AS total FROM documents d WHERE $whereClause");
+      if (!empty($params)) $count_stmt->bind_param($types, ...$params);
+      $count_stmt->execute();
+      $record_total = (int) ($count_stmt->get_result()->fetch_assoc()['total'] ?? 0);
+      $count_stmt->close();
+      $record_total_pages = max(1, (int) ceil($record_total / $records_per_page));
+
+      // Preserve direct links to a particular file after switching to SQL paging.
+      if ($focus_doc_id > 0 && !is_int($requested_records_page)) {
+          $focus_stmt = $conn->prepare(
+              "SELECT COALESCE(d.declared_at, d.uploaded_at) AS sort_date, d.file_name
+               FROM documents d WHERE $whereClause AND d.doc_id = ? LIMIT 1"
+          );
+          $focus_params = array_merge($params, [$focus_doc_id]);
+          $focus_stmt->bind_param($types . 'i', ...$focus_params);
+          $focus_stmt->execute();
+          $focus_record = $focus_stmt->get_result()->fetch_assoc();
+          $focus_stmt->close();
+
+          if ($focus_record) {
+              $sort_is_date = in_array($sort, ['date_desc', 'date_asc'], true);
+              $sort_column = $sort_is_date
+                  ? 'COALESCE(d.declared_at, d.uploaded_at)' : 'd.file_name';
+              $sort_value = (string) ($sort_is_date
+                  ? $focus_record['sort_date'] : $focus_record['file_name']);
+              $ascending = in_array($sort, ['date_asc', 'name_asc'], true);
+              $comparison = $ascending ? '<' : '>';
+              $rank_stmt = $conn->prepare(
+                  "SELECT COUNT(*) AS before_count FROM documents d
+                   WHERE $whereClause AND
+                   ($sort_column $comparison ? OR
+                    ($sort_column = ? AND d.doc_id $comparison ?))"
+              );
+              $rank_params = array_merge($params, [$sort_value, $sort_value, $focus_doc_id]);
+              $rank_stmt->bind_param($types . 'ssi', ...$rank_params);
+              $rank_stmt->execute();
+              $before_count = (int) ($rank_stmt->get_result()->fetch_assoc()['before_count'] ?? 0);
+              $rank_stmt->close();
+              $records_page = (int) floor($before_count / $records_per_page) + 1;
+          }
+      }
+
+      $records_page = min($records_page, $record_total_pages);
+      $record_offset = ($records_page - 1) * $records_per_page;
+      $record_first = $record_total ? $record_offset + 1 : 0;
+      $record_last = $record_total ? min($record_offset + $records_per_page, $record_total) : 0;
+      if ($record_total_pages <= 7) {
+          $visible_record_pages = range(1, $record_total_pages);
+      } else {
+          $visible_record_pages = array_values(array_unique(array_filter(
+              [1, $records_page - 1, $records_page, $records_page + 1, $record_total_pages],
+              static function (int $page) use ($record_total_pages): bool {
+                  return $page >= 1 && $page <= $record_total_pages;
+              }
+          )));
+          sort($visible_record_pages, SORT_NUMERIC);
+      }
+
+      $page_params = array_merge($params, [$records_per_page, $record_offset]);
+      $stmt = $conn->prepare($query . ' LIMIT ? OFFSET ?');
+      $stmt->bind_param($types . 'ii', ...$page_params);
       $stmt->execute();
       $documents = $stmt->get_result();
+      $stmt->close();
+      $exact_return_url = $record_page_url($records_page)
+          . ($focus_doc_id > 0 ? '&doc=' . $focus_doc_id : '');
   }
 
   $toastMsg = '';
@@ -1287,8 +1365,9 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
       <link href="assets/css/style.css" rel="stylesheet">
       <link rel="stylesheet" href="assets/css/all.min.css">
       <link href="assets/css/mobile-drive-lists.css" rel="stylesheet">
-      <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
-      <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+      <link href="assets/css/record-sharing.css?v=<?php echo filemtime(__DIR__ . '/assets/css/record-sharing.css'); ?>" rel="stylesheet">
+      <link rel="stylesheet" href="assets/vendor/sweetalert2/11.26.25/sweetalert2.min.css">
+      <link rel="stylesheet" href="assets/vendor/datatables/1.13.6/dataTables.bootstrap5.min.css">
     
     
   <link rel="stylesheet" href="assets/css/physical-records.css?v=<?php echo filemtime(__DIR__ . '/assets/css/physical-records.css'); ?>">
@@ -1347,6 +1426,11 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                         
                           <?php if ($role !== 'Admin'): ?>
                               <li>
+                                  <a class="dropdown-item fw-medium py-2 <?php echo $view_shared ? 'active text-white bg-info' : 'text-dark'; ?>" href="documents.php?shared=1">
+                                      <i class="fas fa-user-friends <?php echo $view_shared ? 'text-white' : 'text-info'; ?> me-2 w-15px"></i> Shared with Me
+                                  </a>
+                              </li>
+                              <li>
                                   <a class="dropdown-item fw-medium py-2 <?php echo $view_archives ? 'active text-white bg-secondary' : 'text-dark'; ?>" href="documents.php?view_archives=1">
                                       <i class="fas fa-archive <?php echo $view_archives ? 'text-white' : 'text-secondary'; ?> me-2 w-15px"></i> Archived Records
                                   </a>
@@ -1403,6 +1487,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                   if ($view_shared) $records_context_params['shared'] = '1';
                   if (!empty($parent_filter)) $records_context_params['parent'] = $parent_filter;
                   if (!empty($type_filter)) $records_context_params['type'] = $type_filter;
+                  if ($records_per_page !== 15) $records_context_params['per_page'] = (string) $records_per_page;
 
                   $records_filter_reset_params = $records_context_params;
                   if ($search !== '') $records_filter_reset_params['search'] = $search;
@@ -1565,13 +1650,8 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                           $is_system_subfolder = !empty($folder_meta['is_system_folder']);
                           $folder_record_prefix = trim((string) ($folder_meta['record_prefix'] ?? ''));
                         
-                          // Kukunin natin ang kasalukuyang policy ng folder na ito
-                          $current_pol_name = "No Policy Assigned";
-                          $q_pol = $conn->prepare("SELECT p.policy_name FROM document_categories dc LEFT JOIN retention_policies p ON dc.policy_id = p.policy_id WHERE dc.parent_category = ? AND dc.sub_category = ? LIMIT 1");
-                          $q_pol->bind_param("ss", $parent_filter, $s);
-                          $q_pol->execute();
-                          $r_pol = $q_pol->get_result()->fetch_assoc();
-                          if($r_pol && $r_pol['policy_name']) { $current_pol_name = $r_pol['policy_name']; }
+                          $current_pol_name = ($folder_meta['policy_name'] ?? '') !== ''
+                              ? $folder_meta['policy_name'] : 'No Policy Assigned';
                       ?>
                       <div class="col-md-3 col-sm-6">
                           <div class="folder-card p-3 h-100 position-relative" onclick="window.location='documents.php?parent=<?php echo urlencode($parent_filter); ?>&type=<?php echo urlencode($s); ?>'">
@@ -1857,6 +1937,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
 
               <?php else: ?>
                   <div class="file-list-container shadow-sm">
+                      <div class="table-scroll-container">
                       <table id="documentsTable" class="table table-hover align-middle mb-0 w-100">
                           <thead>
                               <tr>
@@ -1976,9 +2057,21 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                                                           <i class="fas fa-download text-success me-2"></i> Download Record
                                                       </a>
                                                   </li>
+                                                  <?php if ($is_mine || $is_top_mgmt): ?>
+                                                  <li>
+                                                      <button type="button" class="dropdown-item fw-medium text-dark" data-record-share-open
+                                                              data-share-doc-id="<?php echo (int) $doc['doc_id']; ?>"
+                                                              data-share-file-name="<?php echo htmlspecialchars((string) $doc['file_name'], ENT_QUOTES, 'UTF-8'); ?>"
+                                                              data-share-owner="<?php echo htmlspecialchars((string) ($doc['full_name'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
+                                                              data-share-access-type="<?php echo htmlspecialchars((string) $access_type, ENT_QUOTES, 'UTF-8'); ?>"
+                                                              data-share-permissions="<?php echo htmlspecialchars((string) ($doc['file_permissions'] ?? '{}'), ENT_QUOTES, 'UTF-8'); ?>">
+                                                          <i class="fas fa-user-shield text-primary me-2"></i> Manage access
+                                                      </button>
+                                                  </li>
+                                                  <?php endif; ?>
                                                   <li>
                                                       <!-- Forced 'false' sa dulo para i-disable ang "Upload New Version" button sa UI -->
-                                                      <button type="button" class="dropdown-item fw-medium text-dark" onclick="openVersionModal(<?php echo $doc['doc_id']; ?>, '<?php echo htmlspecialchars(addslashes($doc['file_name'])); ?>', false)">
+                                                      <button type="button" class="dropdown-item fw-medium text-dark" onclick="openVersionModal(<?php echo $doc['doc_id']; ?>, '<?php echo htmlspecialchars(addslashes($doc['file_name'])); ?>')">
                                                           <i class="fas fa-history text-info me-2"></i> View Version History
                                                       </button>
                                                   </li>
@@ -2021,6 +2114,46 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                               <?php endwhile; endif; ?>
                           </tbody>
                       </table>
+                      </div>
+                  <div class="bottom-pagination-bar">
+                      <div class="dataTables_info" role="status" aria-live="polite">
+                          Showing <?php echo $record_first; ?> to <?php echo $record_last; ?> of <?php echo $record_total; ?> items
+                      </div>
+                      <div class="dataTables_length">
+                          <label>Items per page
+                              <select aria-label="Items per page" onchange="window.location.assign(this.value)">
+                                  <?php foreach ([10, 15, 25, 50, 100] as $page_size): ?>
+                                      <option value="<?php echo htmlspecialchars($record_size_url($page_size), ENT_QUOTES, 'UTF-8'); ?>" <?php echo $records_per_page === $page_size ? 'selected' : ''; ?>><?php echo $page_size; ?></option>
+                                  <?php endforeach; ?>
+                              </select>
+                          </label>
+                      </div>
+                      <nav class="dataTables_paginate" aria-label="Official record pages">
+                          <ul class="pagination">
+                              <?php if ($records_page > 1): ?>
+                                  <li class="paginate_button page-item previous"><a class="page-link" href="<?php echo htmlspecialchars($record_page_url($records_page - 1), ENT_QUOTES, 'UTF-8'); ?>" aria-label="Previous page"><i class="fas fa-chevron-left" aria-hidden="true"></i></a></li>
+                              <?php else: ?>
+                                  <li class="paginate_button page-item previous disabled"><span class="page-link" aria-disabled="true"><i class="fas fa-chevron-left" aria-hidden="true"></i></span></li>
+                              <?php endif; ?>
+                              <?php $previous_record_page = 0; foreach ($visible_record_pages as $page_number): ?>
+                                  <?php if ($previous_record_page > 0 && $page_number > $previous_record_page + 1): ?>
+                                      <li class="page-item disabled"><span class="page-link" aria-hidden="true">…</span></li>
+                                  <?php endif; ?>
+                                  <?php if ($page_number === $records_page): ?>
+                                      <li class="paginate_button page-item active"><span class="page-link" aria-current="page"><?php echo $page_number; ?></span></li>
+                                  <?php else: ?>
+                                      <li class="paginate_button page-item"><a class="page-link" href="<?php echo htmlspecialchars($record_page_url($page_number), ENT_QUOTES, 'UTF-8'); ?>" aria-label="Page <?php echo $page_number; ?>"><?php echo $page_number; ?></a></li>
+                                  <?php endif; ?>
+                                  <?php $previous_record_page = $page_number; ?>
+                              <?php endforeach; ?>
+                              <?php if ($records_page < $record_total_pages): ?>
+                                  <li class="paginate_button page-item next"><a class="page-link" href="<?php echo htmlspecialchars($record_page_url($records_page + 1), ENT_QUOTES, 'UTF-8'); ?>" aria-label="Next page"><i class="fas fa-chevron-right" aria-hidden="true"></i></a></li>
+                              <?php else: ?>
+                                  <li class="paginate_button page-item next disabled"><span class="page-link" aria-disabled="true"><i class="fas fa-chevron-right" aria-hidden="true"></i></span></li>
+                              <?php endif; ?>
+                          </ul>
+                      </nav>
+                  </div>
                   </div>
               <?php endif; ?>
           <?php endif; ?>
@@ -2041,36 +2174,10 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
               </div>
               <div class="modal-body p-4 bg-f8f9fa rounded-bottom-4">
                   <div class="row g-4">
-                      <div class="col-md-7" id="vcTimelineCol">
+                      <div class="col-12" id="vcTimelineCol">
                           <h6 class="fw-bold text-muted mb-3 text-uppercase fs-xs letter-spacing-tight">File History</h6>
                           <div id="versionHistoryTimeline" class="pe-2" style="max-height: 300px; overflow-y: auto;">
                               <div class="text-center text-muted small py-4"><i class="fas fa-spinner fa-spin me-2"></i>Loading history...</div>
-                          </div>
-                      </div>
-                      <div class="col-md-5" id="vcUploadSection">
-                          <div class="bg-white p-3 rounded-4 shadow-sm border border-light h-100">
-                              <h6 class="fw-bold text-muted mb-3 text-uppercase fs-xs letter-spacing-tight">Upload New Version</h6>
-                              <form action="actions/version_handler.php" method="POST" enctype="multipart/form-data">
-                                  <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                                  <input type="hidden" name="action" value="upload_version">
-                                  <input type="hidden" name="doc_id" id="vcDocId">
-                                  <input type="hidden" name="source_page" value="<?php echo htmlspecialchars($_SERVER['REQUEST_URI']); ?>">
-                                
-                                  <div class="mb-3">
-                                      <div class="border border-dashed p-3 text-center rounded-3 bg-light position-relative" style="border-color: #cbd5e1 !important; border-style: dashed !important; border-width: 2px !important;">
-                                          <i class="fas fa-cloud-upload-alt text-primary fs-3 mb-1 opacity-75"></i>
-                                          <div class="fs-xs text-muted mb-2">Drag file or click below</div>
-                                          <input type="file" name="new_document" class="form-control form-control-sm border-0 shadow-none bg-white fs-xs w-100" required>
-                                      </div>
-                                  </div>
-                                  <div class="mb-3">
-                                      <label class="form-label text-muted fs-xs fw-bold text-uppercase">Version Remarks</label>
-                                      <textarea name="remarks" class="form-control shadow-none border-light bg-light fs-sm" rows="2" placeholder="e.g. Updated signatures, revised terms..." required style="resize: none;"></textarea>
-                                  </div>
-                                  <button type="submit" class="btn btn-primary btn-sm w-100 fw-bold shadow-sm rounded-3">
-                                      <i class="fas fa-upload me-1"></i> Upload Version
-                                  </button>
-                              </form>
                           </div>
                       </div>
                   </div>
@@ -2137,118 +2244,7 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
       </div>
   </div>
 
-  <!-- SHARE MODAL -->
-  <div class="modal fade sleek-modal" id="shareDocumentModal" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog modal-dialog-centered">
-          <div class="modal-content shadow-lg border-0" style="border-radius: 12px; overflow: hidden;">
-            
-              <!-- Minimalist Header -->
-              <div class="modal-header border-bottom border-light pb-3 pt-4 px-4 bg-white">
-                  <div class="w-100">
-                      <div class="d-flex justify-content-between align-items-center mb-3">
-                          <h5 class="modal-title fw-bold text-dark fs-5 letter-spacing-tight">Share Document</h5>
-                          <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal"></button>
-                      </div>
-                      <!-- Inline Document Info -->
-                      <div class="d-flex align-items-center bg-f8f9fa rounded-3 p-2 px-3 border border-light">
-                          <i class="fas fa-file-alt text-primary fs-5 me-3"></i>
-                          <div class="overflow-hidden w-100">
-                              <h6 class="mb-0 fw-bold text-dark text-truncate fs-sm" id="shareDocName" title="Document Name">Document Name</h6>
-                              <div class="text-muted fs-xs fw-medium mt-1" id="shareDocOwner">Owner: User</div>
-                          </div>
-                      </div>
-                  </div>
-              </div>
-            
-              <div class="modal-body p-0 bg-white">
-                  <form action="documents.php" method="POST" id="shareForm">
-                      <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                      <input type="hidden" name="action" value="share_document">
-                      <input type="hidden" name="doc_id" id="shareDocId">
-                      <input type="hidden" name="return_url" value="<?php echo htmlspecialchars($_SERVER['REQUEST_URI']); ?>">
-                    
-                      <!-- General Access -->
-                      <div class="p-4 border-bottom border-light">
-                          <h6 class="fw-bold fs-xs text-muted text-uppercase letter-spacing-tight mb-3">General Access</h6>
-                          <div class="d-flex align-items-start">
-                              <div class="bg-light text-secondary rounded-circle d-flex justify-content-center align-items-center me-3 mt-1 flex-shrink-0 border shadow-sm" style="width: 42px; height: 42px;">
-                                  <i class="fas fa-link"></i>
-                              </div>
-                              <div class="w-100">
-                                  <!-- CUSTOM MODERN DROPDOWN FOR GENERAL ACCESS -->
-                                  <div class="dropdown custom-general-access-dropdown w-100">
-                                      <!-- Hidden input na nagpapasa sa Database at binabasa ng JS -->
-                                      <input type="hidden" name="access_type" id="shareAccessType" value="Folder Default">
-                                    
-                                      <button class="btn btn-light bg-f8f9fa text-dark fs-sm fw-bold text-start rounded-3 shadow-none d-flex justify-content-between align-items-center w-100 border border-light py-2" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="transition: all 0.2s;">
-                                          <span id="generalAccessSelectedText">Folder Default (Inherit Permissions)</span>
-                                          <i class="fas fa-chevron-down text-secondary" style="font-size: 12px;"></i>
-                                      </button>
-                                    
-                                      <!-- Ang Floating Modern Dropdown Menu -->
-                                      <ul class="dropdown-menu dropdown-menu-start shadow-lg border-0 rounded-4 mt-1 p-2 w-100">
-                                          <li><button type="button" class="dropdown-item rounded-3 fs-sm fw-medium py-2 mb-1" onclick="updateGeneralAccessSelection('Folder Default', 'Folder Default (Inherit Permissions)')"><i class="fas fa-folder-open text-primary me-2 w-15px"></i> Folder Default (Inherit Permissions)</button></li>
-                                          <li><button type="button" class="dropdown-item rounded-3 fs-sm fw-medium py-2" onclick="updateGeneralAccessSelection('Restricted', 'Restricted (Only selected people)')"><i class="fas fa-user-shield text-danger me-2 w-15px"></i> Restricted (Only selected people)</button></li>
-                                      </ul>
-                                  </div>
-                                  <div class="form-text fs-xs mt-2 text-muted fw-medium" id="shareAccessHelpText">
-                                      Inherits permissions based on the parent folder's department assignment.
-                                  </div>
-                              </div>
-                          </div>
-                      </div>
-
-                      <!-- Restricted Users Section -->
-                      <div id="restrictedUsersSection" class="d-none">
-                          <div class="px-4 pt-3 pb-2 border-bottom border-light bg-light">
-                              <h6 class="fw-bold fs-xs text-muted text-uppercase letter-spacing-tight mb-0">People with Access</h6>
-                          </div>
-                          <div class="px-2" style="max-height: 260px; overflow-y: auto;">
-                              <?php foreach ($all_users as $u): ?>
-                              <div class="d-flex justify-content-between align-items-center p-3 border-bottom border-light hover-bg-light transition-all rounded-2 my-1 mx-1">
-                                  <div class="d-flex align-items-center">
-                                      <div class="rounded-circle d-flex justify-content-center align-items-center me-3 fw-bold text-white shadow-sm" style="width: 36px; height: 36px; font-size: 13px; background-color: #64748b;">
-                                          <?php echo strtoupper(substr($u['full_name'], 0, 1)); ?>
-                                      </div>
-                                      <div class="lh-sm">
-                                          <div class="fw-bold fs-sm text-dark mb-1"><?php echo htmlspecialchars($u['full_name']); ?></div>
-                                          <div class="fs-xs text-muted fw-medium"><?php echo htmlspecialchars($u['role']); ?></div>
-                                      </div>
-                                  </div>
-                                  <!-- CUSTOM MODERN DROPDOWN -->
-                                  <div class="dropdown custom-role-dropdown" data-user-id="<?php echo $u['user_id']; ?>">
-                                      <!-- Hidden input na nagpapasa sa Database -->
-                                      <input type="hidden" name="user_roles[<?php echo $u['user_id']; ?>]" id="role_input_<?php echo $u['user_id']; ?>" value="None">
-                                    
-                                      <!-- Ang sleek pill button na mukhang Select Box -->
-                                      <button class="btn btn-sm btn-white bg-white text-dark fs-xs fw-bold text-start rounded-pill shadow-none d-flex justify-content-between align-items-center" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="border: 1px solid #cbd5e1; width: 140px; padding: 6px 16px; transition: all 0.2s;">
-                                          <span class="selected-role-text">No Access</span>
-                                          <i class="fas fa-chevron-down text-secondary" style="font-size: 10px;"></i>
-                                      </button>
-                                    
-                                      <!-- Ang Floating Modern Dropdown Menu -->
-                                      <ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 rounded-4 mt-1 p-2" style="min-width: 140px;">
-                                          <li><button type="button" class="dropdown-item rounded-3 fs-xs fw-medium py-2 mb-1" onclick="updateRoleSelection(<?php echo $u['user_id']; ?>, 'None', 'No Access')">No Access</button></li>
-                                          <li><button type="button" class="dropdown-item rounded-3 fs-xs fw-medium py-2 mb-1" onclick="updateRoleSelection(<?php echo $u['user_id']; ?>, 'Viewer', 'Viewer')">Viewer</button></li>
-                                          <li><button type="button" class="dropdown-item rounded-3 fs-xs fw-medium py-2" onclick="updateRoleSelection(<?php echo $u['user_id']; ?>, 'Editor', 'Editor')">Editor</button></li>
-                                      </ul>
-                                  </div>
-                              </div>
-                              <?php endforeach; ?>
-                          </div>
-                      </div>
-
-                      <!-- Footer Buttons -->
-                      <div class="d-flex justify-content-end gap-2 p-3 bg-light border-top border-light">
-                          <button type="button" class="btn btn-light fw-bold px-4 py-2 rounded-pill border bg-white text-dark shadow-sm fs-sm" data-bs-dismiss="modal">Cancel</button>
-                          <button type="submit" class="btn btn-primary fw-bold px-4 py-2 rounded-pill shadow-sm fs-sm">Save Settings</button>
-                      </div>
-                  </form>
-              </div>
-          </div>
-      </div>
-  </div>
-
+<?php $shareActionPage = 'documents.php'; require __DIR__ . '/includes/record_share_modal.php'; ?>
   <!-- LEGAL HOLD MODAL -->
   <div class="modal fade sleek-modal" id="legalHoldModal" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-dialog-centered">
@@ -2290,215 +2286,6 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
   </div>
 
   <?php require __DIR__ . '/includes/physical_record_profile.php'; ?>
-
-  <!-- DECLARE OFFICIAL MODAL -->
-  <!-- UPLOAD MODAL -->
-  <?php if (!$hide_upload_button): ?>
-  <div class="modal fade sleek-modal" id="uploadModal" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog modal-dialog-centered" style="max-width: 550px;">
-          <div class="modal-content shadow-lg border-0 rounded-4">
-              <div class="modal-header bg-white border-bottom pb-3 pt-4 px-4 rounded-top-4">
-                  <div>
-                      <h5 class="modal-title fw-bold text-dark fs-5 letter-spacing-tight"><i class="fas fa-cloud-upload-alt text-primary me-2"></i>Upload Record</h5>
-                      <p class="text-muted mb-0 fs-xs mt-1">Select a target folder or scan the document.</p>
-                  </div>
-                  <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal" style="margin-top: -15px;"></button>
-              </div>
-              <div class="modal-body p-4 bg-f8f9fa rounded-bottom-4">
-                  <form action="actions/document_handler.php" method="POST" enctype="multipart/form-data">
-                      <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                      <input type="hidden" name="action" value="upload">
-                      <input type="hidden" name="record_intake" value="working">
-                      <input type="file" name="document" id="uploadDocumentInput" class="d-none" required>
-                    
-                      <div class="mb-4 position-relative">
-                          <label class="form-label text-muted fs-xs fw-bold text-uppercase letter-spacing-tight">Target Folder <span class="text-danger">*</span></label>
-                        
-                          <!-- CUSTOM DROPDOWN PARA SA FOLDERS -->
-                          <div class="dropdown w-100">
-                              <!-- Naka-hide na HTML5 input para gumana ang "required" pop-up ng browser nang hindi nasisira ang design -->
-                              <input type="text" name="category" id="uploadCategoryInput" required style="opacity: 0; position: absolute; bottom: 0; left: 50%; pointer-events: none; z-index: -1;">
-                            
-                              <button class="btn custom-select-btn d-flex justify-content-between align-items-center w-100 py-2 rounded-3 text-start shadow-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false" id="uploadCategoryBtn">
-                                  <span id="uploadCategoryText" class="text-muted fw-medium fs-sm">Select Target Folder</span>
-                                  <i class="fas fa-chevron-down text-secondary fs-xs"></i>
-                              </button>
-                              <ul class="dropdown-menu shadow-lg border-0 rounded-4 mt-1 w-100 p-2" style="max-height: 250px; overflow-y: auto;">
-                                  <?php 
-                                  if (!empty($parent_filter) && isset($parent_folders[$parent_filter])) {
-                                      foreach($parent_folders[$parent_filter] as $s) {
-                                          if (!empty($folder_metadata[$parent_filter][$s]['is_system_folder'])) continue;
-                                          if ($is_top_mgmt || in_array($s, $user_categories)) {
-                                              $selected_js = ($type_filter === $s) ? "setUploadCategory('".htmlspecialchars(addslashes($s))."');" : "setUploadCategory('".htmlspecialchars(addslashes($s))."');";
-                                              echo '<li><button type="button" class="dropdown-item rounded-3 fs-sm fw-medium py-2 text-dark" onclick="'.$selected_js.'"><i class="fas fa-folder text-secondary me-2 opacity-50"></i>'.htmlspecialchars($s).'</button></li>';
-                                          }
-                                      }
-                                  } else {
-                                      foreach($parent_folders as $p => $subs) {
-                                          $uploadable_subs = [];
-                                          foreach ($subs as $s) {
-                                              if (!empty($folder_metadata[$p][$s]['is_system_folder'])) continue;
-                                              if ($is_top_mgmt || in_array($s, $user_categories)) $uploadable_subs[] = $s;
-                                          }
-                                          if (!$uploadable_subs) continue;
-                                          echo '<li><h6 class="dropdown-header fw-bold text-primary px-3 mt-2 border-bottom pb-1">'.htmlspecialchars($p).'</h6></li>';
-                                          foreach($uploadable_subs as $s) {
-                                                  echo '<li><button type="button" class="dropdown-item rounded-3 fs-sm fw-medium py-2 text-dark" onclick="setUploadCategory(\''.htmlspecialchars(addslashes($s)).'\')"><i class="fas fa-folder text-secondary me-2 opacity-50"></i>'.htmlspecialchars($s).'</button></li>';
-                                          }
-                                      }
-                                  }
-                                  ?>
-                              </ul>
-                          </div>
-                      </div>
-                    
-                      <div class="mb-2">
-                          <label class="form-label text-muted fs-xs fw-bold text-uppercase letter-spacing-tight">Input Method <span class="text-danger">*</span></label>
-                        
-                          <!-- REFINED TILES MAY HOVER NA -->
-                          <div class="row g-3">
-                              <div class="col-6">
-                                  <button type="button" id="uploadBrowseBtn" class="btn btn-white bg-white border border-light w-100 py-3 rounded-4 shadow-sm text-dark d-flex flex-column align-items-center justify-content-center upload-tile-btn">
-                                      <div class="bg-primary bg-opacity-10 text-primary rounded-circle d-flex align-items-center justify-content-center mb-2" style="width: 45px; height: 45px;">
-                                          <i class="fas fa-folder-open fs-5"></i>
-                                      </div>
-                                      <span class="fw-bold fs-sm">Browse Files</span>
-                                  </button>
-                              </div>
-                              <div class="col-6">
-                                  <button type="button" id="uploadCameraBtn" class="btn btn-white bg-white border border-light w-100 py-3 rounded-4 shadow-sm text-dark d-flex flex-column align-items-center justify-content-center upload-tile-btn">
-                                      <div class="bg-primary bg-opacity-10 text-primary rounded-circle d-flex align-items-center justify-content-center mb-2" style="width: 45px; height: 45px;">
-                                          <i class="fas fa-camera fs-5"></i>
-                                      </div>
-                                      <span class="fw-bold fs-sm">Use Camera</span>
-                                  </button>
-                              </div>
-                          </div>
-                        
-                          <div class="d-flex justify-content-center mt-3 flex-column align-items-center">
-                              <span id="uploadChosenFileText" class="badge bg-secondary bg-opacity-10 text-secondary border px-3 py-1 fs-xs fw-medium text-truncate mb-2" style="max-width: 100%;">No file selected yet.</span>
-                              <!-- Document Preview inside Main Upload Modal -->
-                              <img id="mainUploadPreview" class="d-none rounded-3 shadow-sm border border-secondary border-opacity-25" style="max-height: 180px; max-width: 100%; object-fit: contain;" alt="Selected file preview">
-                          </div>
-
-                          <!-- START: Document Classification UI -->
-                          <div id="classificationSuggestion" class="d-none mt-3 p-3 rounded-4 bg-primary bg-opacity-10 border border-primary border-opacity-25 shadow-sm">
-                              <div class="d-flex justify-content-between align-items-center">
-                                  <div class="d-flex align-items-center gap-2">
-                                      <div class="spinner-border spinner-border-sm text-primary d-none" id="classificationLoader" role="status"></div>
-                                      <i class="fas fa-magic text-primary" id="classificationIcon"></i>
-                                      <div class="lh-1 text-start">
-                                          <span class="fs-xs fw-bold text-primary text-uppercase letter-spacing-tight d-block mb-1">Suggested Folder</span>
-                                          <span class="fs-sm fw-bold text-dark" id="suggestedFolderName">Scanning...</span>
-                                      </div>
-                                  </div>
-                                  <div id="classificationActions" class="d-none">
-                                      <button type="button" class="btn btn-sm btn-light border fw-bold fs-xs px-3 py-1 me-1 shadow-sm text-secondary rounded-pill modal-btn-hover" id="btnRejectSuggestion">Ignore</button>
-                                      <button type="button" class="btn btn-sm btn-primary fw-bold fs-xs px-3 py-1 shadow-sm rounded-pill modal-btn-hover" id="btnAcceptSuggestion">Apply</button>
-                                  </div>
-                              </div>
-                          </div>
-                          <!-- END: Document Classification UI -->
-                      </div>
-
-                      <!-- Camera UI migrated to standalone modal -->
-
-                      <div class="mb-4 mt-3">
-                          <label class="form-label text-muted fs-xs fw-bold text-uppercase letter-spacing-tight">Initial Sharing Access</label>
-                        
-                          <!-- CUSTOM DROPDOWN PARA SA INITIAL ACCESS -->
-                          <div class="dropdown w-100">
-                              <input type="hidden" name="initial_access" id="uploadAccessInput" value="Folder Default">
-                              <button class="btn custom-select-btn d-flex justify-content-between align-items-center w-100 py-2 rounded-3 text-start shadow-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                  <span id="uploadAccessText" class="text-dark fw-medium fs-sm"><i class="fas fa-folder-open text-primary me-2 opacity-75"></i> Folder Default (Inherit Permissions)</span>
-                                  <i class="fas fa-chevron-down text-secondary fs-xs"></i>
-                              </button>
-                              <ul class="dropdown-menu shadow-lg border-0 rounded-4 mt-1 w-100 p-2">
-                                  <li><button type="button" class="dropdown-item rounded-3 fs-sm fw-medium py-2 mb-1 text-dark" onclick="setUploadAccess('Folder Default', '<i class=\'fas fa-folder-open text-primary me-2 opacity-75\'></i> Folder Default (Inherit Permissions)')">Folder Default (Inherit Permissions)</button></li>
-                                  <li><button type="button" class="dropdown-item rounded-3 fs-sm fw-medium py-2 text-dark" onclick="setUploadAccess('Restricted', '<i class=\'fas fa-lock text-danger me-2 opacity-75\'></i> Restricted (Only me for now)')">Restricted (Only me for now)</button></li>
-                              </ul>
-                          </div>
-                      </div>
-
-                      <div class="form-check border rounded-3 bg-white px-3 py-3 mb-4 shadow-sm">
-                          <input class="form-check-input ms-0 me-2" type="checkbox" name="official_signature_confirmed" value="1" id="uploadSignatureConfirmed" required>
-                          <label class="form-check-label fs-sm text-dark" for="uploadSignatureConfirmed">
-                              This signed copy will be saved to Company Files. Submit a declaration request there for management verification.
-                          </label>
-                      </div>
-
-                      <!-- DAGDAG: Nilagyan ng id="uploadSubmitBtn" -->
-                      <button type="submit" id="uploadSubmitBtn" class="btn btn-primary w-100 fw-bold shadow-sm rounded-pill py-2 modal-btn-hover transition-all">
-                          <i class="fas fa-check-circle me-2"></i> Upload to Company Files
-                      </button>
-                  </form>
-              </div>
-          </div>
-      </div>
-  </div>
-  <?php endif; ?>
-
-  <!-- SEPARATE CAMERA MODAL -->
-  <div class="modal fade sleek-modal" id="cameraModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
-      <div class="modal-dialog modal-dialog-centered" style="max-width: 500px;">
-          <div class="modal-content shadow-lg border-0 rounded-4">
-              <div class="modal-header bg-white border-bottom pb-3 pt-4 px-4 rounded-top-4">
-                  <div>
-                      <h5 class="modal-title fw-bold text-dark fs-5 letter-spacing-tight"><i class="fas fa-camera text-primary me-2"></i>Document Scanner</h5>
-                      <p class="text-muted mb-0 fs-xs mt-1">Position your document within the frame.</p>
-                  </div>
-                  <button type="button" class="btn-close shadow-none" onclick="closeCameraModal()" style="margin-top: -15px;"></button>
-              </div>
-              <div class="modal-body p-4 bg-f8f9fa rounded-bottom-4">
-                  <div id="cameraPanel">
-                      <!-- Modern Enterprise Scanner Viewfinder (No Crosshair) -->
-                      <div class="p-2 bg-white border rounded-4 shadow-sm mx-auto" style="max-width: 100%;">
-                          <div class="position-relative rounded-3 overflow-hidden bg-black" style="border: 1px solid #e2e8f0;">
-                                  <!-- Pinalitan ng Portrait Aspect Ratio (3/4 or approx 8.5x11/13) para saktong document frame -->
-                                  <div class="position-relative w-100" style="aspect-ratio: 3/4.2;">
-                                      <video id="cameraVideo" class="position-absolute top-0 start-0 w-100 h-100 object-fit-cover" autoplay playsinline muted></video>
-                                      <!-- Pinalitan ng object-fit-contain para makita ng buo ang na-crop na document nang walang putol -->
-                                      <img id="cameraPreviewImage" class="position-absolute top-0 start-0 w-100 h-100 object-fit-contain d-none" style="background-color: #000;" alt="Captured photo preview">
-                                      <canvas id="cameraCanvas" class="d-none"></canvas>
-                                  </div>
-                                
-                                  <!-- Document Scanner Guides & Overlay -->
-                              <div class="position-absolute top-0 start-0 w-100 h-100 pointer-events-none d-flex flex-column justify-content-between p-3" style="background: rgba(0,0,0,0.05);">
-                                  <div class="d-flex justify-content-between">
-                                      <div style="width: 30px; height: 30px; border-top: 3px solid rgba(255,255,255,0.9); border-left: 3px solid rgba(255,255,255,0.9); border-top-left-radius: 8px;"></div>
-                                      <div style="width: 30px; height: 30px; border-top: 3px solid rgba(255,255,255,0.9); border-right: 3px solid rgba(255,255,255,0.9); border-top-right-radius: 8px;"></div>
-                                  </div>
-                                  <div class="d-flex justify-content-between">
-                                      <div style="width: 30px; height: 30px; border-bottom: 3px solid rgba(255,255,255,0.9); border-left: 3px solid rgba(255,255,255,0.9); border-bottom-left-radius: 8px;"></div>
-                                      <div style="width: 30px; height: 30px; border-bottom: 3px solid rgba(255,255,255,0.9); border-right: 3px solid rgba(255,255,255,0.9); border-bottom-right-radius: 8px;"></div>
-                                  </div>
-                              </div>
-                            
-                              <!-- Floating Status Pill inside Camera -->
-                              <div class="position-absolute bottom-0 start-50 translate-middle-x w-100 text-center mb-3 px-2 pointer-events-none">
-                                  <div id="cameraStatusMessage" class="d-inline-block bg-white px-3 py-2 fs-xs fw-bold shadow rounded-pill text-truncate" style="max-width: 90%; border: 1px solid rgba(0,0,0,0.1);"></div>
-                              </div>
-                          </div>
-                      </div>
-                    
-                      <!-- Sleek Camera Controls -->
-                      <div class="d-flex justify-content-center gap-2 mt-4">
-                          <button type="button" class="btn btn-light bg-white border fw-medium px-4 shadow-sm rounded-pill transition-all" onclick="closeCameraModal()">Cancel</button>
-                          <button type="button" id="capturePhotoBtn" class="btn btn-primary rounded-pill shadow-sm px-4 py-2 fw-bold d-flex align-items-center modal-btn-hover transition-all">
-                              <i class="fas fa-camera fs-5 me-2"></i> Capture
-                          </button>
-                          <button type="button" id="retakePhotoBtn" class="btn btn-light bg-white border border-secondary border-opacity-25 rounded-pill shadow-sm px-4 py-2 fw-bold text-dark d-none align-items-center modal-btn-hover transition-all">
-                              <i class="fas fa-redo-alt text-muted me-2"></i> Retake
-                          </button>
-                          <button type="button" id="usePhotoBtn" class="btn btn-success rounded-pill shadow-sm px-4 py-2 fw-bold d-none align-items-center modal-btn-hover transition-all">
-                              <i class="fas fa-check-circle me-2"></i> Confirm & Use
-                          </button>
-                      </div>
-                  </div>
-              </div>
-          </div>
-      </div>
-  </div>
 
   <?php endif; ?> <!-- End If Non-Admin For Restricted Modals -->
 
@@ -3009,48 +2796,26 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
   </div>
 
 
-  <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-  <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-  <script src="assets/js/local-ocr.js?v=<?= (int) @filemtime(__DIR__ . '/assets/js/local-ocr.js') ?>"></script>
-  <script src="assets/js/local-pdf-loader.js?v=<?= (int) @filemtime(__DIR__ . '/assets/js/local-pdf-loader.js') ?>"></script>
-  <!-- OpenCV.js for Smart Document Edge Detection & Auto-Crop -->
-  <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="console.log('OpenCV Engine Loaded');"></script>
+  <script src="assets/vendor/jquery/3.7.0/jquery.min.js"></script>
+  <script src="assets/vendor/bootstrap/5.3.0/bootstrap.bundle.min.js"></script>
+  <script src="assets/vendor/datatables/1.13.6/jquery.dataTables.min.js"></script>
+  <script src="assets/vendor/datatables/1.13.6/dataTables.bootstrap5.min.js"></script>
+  <script src="assets/vendor/sweetalert2/11.26.25/sweetalert2.all.min.js"></script>
   <script src="assets/js/mobile-document-viewer.js"></script>
 
   <script>
       $(document).ready(function() {
+          <?php if ($view_disposition_section): ?>
+          // Disposition is a separate list and retains its existing pagination.
           if (document.getElementById('documentsTable')) {
-              $('#documentsTable').DataTable({
-                  "order": [],
-                  "pageLength": 15,
-                  "lengthChange": true,
-                  "lengthMenu": [[10, 15, 25, 50, 100], [10, 15, 25, 50, 100]], 
-                  "searching": false, 
-                  "info": true,
-                  // DOM Structure: Table inside scroll container, Info/Length/Paginate in bottom fixed bar
-                  "dom": '<"table-scroll-container"t><"bottom-pagination-bar"ilp>',
-                  "language": {
-                      "emptyTable": "<div class='text-center p-5 text-muted'><i class='fas fa-folder-open fa-3x mb-3 opacity-50'></i><br><h5>No documents found</h5><p class='mb-0 fs-sm'>Upload a file to get started.</p></div>",
-                      "info": "Showing _START_ to _END_ of _TOTAL_ items",
-                      "lengthMenu": "Items per page _MENU_",
-                      "paginate": {
-                          "previous": "<i class='fas fa-chevron-left'></i>",
-                          "next": "<i class='fas fa-chevron-right'></i>"
-                      }
-                  },
-                  "drawCallback": function(settings) {
-                      // Ensure table wrapper always fills remaining height
-                      $('.dataTables_wrapper').css('height', '100%');
-                  }
+              const table = $('#documentsTable').DataTable({
+                  order: [], pageLength: 15, searching: false,
+                  lengthMenu: [[10, 15, 25, 50, 100], [10, 15, 25, 50, 100]],
+                  dom: '<"table-scroll-container"t><"bottom-pagination-bar"ilp>'
               });
-
-              // Trigger DataTables redraw on window resize to fix scrolling bounds
               $(window).on('resize', function() { table.columns.adjust(); });
           }
-
+          <?php endif; ?>
           const Toast = Swal.mixin({
               toast: true,
               position: 'bottom-end',
@@ -3088,556 +2853,6 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
       }
 
       <?php if ($role !== 'Admin'): ?>
-      let uploadCameraStream = null;
-      let capturedPhotoUrl = '';
-
-      function uploadModalElements() {
-          return {
-              modal: document.getElementById('uploadModal'),
-              fileInput: document.getElementById('uploadDocumentInput'),
-              browseBtn: document.getElementById('uploadBrowseBtn'),
-              cameraBtn: document.getElementById('uploadCameraBtn'),
-              chosenFileText: document.getElementById('uploadChosenFileText'),
-              cameraPanel: document.getElementById('cameraPanel'),
-              cameraVideo: document.getElementById('cameraVideo'),
-              cameraPreviewImage: document.getElementById('cameraPreviewImage'),
-              cameraCanvas: document.getElementById('cameraCanvas'),
-              cameraStatusMessage: document.getElementById('cameraStatusMessage'),
-              capturePhotoBtn: document.getElementById('capturePhotoBtn'),
-              retakePhotoBtn: document.getElementById('retakePhotoBtn'),
-              usePhotoBtn: document.getElementById('usePhotoBtn')
-          };
-      }
-
-      function setUploadStatus(message, isError = false) {
-          const { cameraStatusMessage } = uploadModalElements();
-          if (!cameraStatusMessage) return;
-          cameraStatusMessage.textContent = message;
-          cameraStatusMessage.classList.toggle('text-danger', isError);
-          cameraStatusMessage.classList.toggle('text-muted', !isError);
-      }
-
-      function setChosenFileText(text) {
-          const { chosenFileText } = uploadModalElements();
-          if (chosenFileText) {
-              chosenFileText.textContent = text;
-          }
-      }
-
-      function clearCapturedPhotoUrl() {
-          if (capturedPhotoUrl) {
-              URL.revokeObjectURL(capturedPhotoUrl);
-              capturedPhotoUrl = '';
-          }
-      }
-
-      function stopUploadCameraStream() {
-          if (uploadCameraStream) {
-              uploadCameraStream.getTracks().forEach(track => track.stop());
-              uploadCameraStream = null;
-          }
-          const { cameraVideo } = uploadModalElements();
-          if (cameraVideo) {
-              cameraVideo.srcObject = null;
-          }
-      }
-
-      function resetUploadCameraPanel() {
-          const { cameraVideo, cameraPreviewImage, capturePhotoBtn, retakePhotoBtn, usePhotoBtn } = uploadModalElements();
-
-          stopUploadCameraStream();
-          clearCapturedPhotoUrl();
-
-          if (cameraVideo) cameraVideo.classList.remove('d-none');
-          if (cameraPreviewImage) {
-              cameraPreviewImage.classList.add('d-none');
-              cameraPreviewImage.removeAttribute('src');
-          }
-          if (capturePhotoBtn) capturePhotoBtn.classList.remove('d-none');
-          if (retakePhotoBtn) retakePhotoBtn.classList.add('d-none');
-          if (usePhotoBtn) {
-              usePhotoBtn.classList.add('d-none');
-              usePhotoBtn.innerHTML = '<i class="fas fa-check-circle me-2"></i> Confirm & Use';
-              usePhotoBtn.className = 'btn btn-success rounded-pill shadow-sm px-4 py-2 fw-bold d-none align-items-center modal-btn-hover transition-all';
-              usePhotoBtn.style.pointerEvents = 'auto';
-          }
-          setUploadStatus('');
-      }
-
-      function closeCameraModal() {
-          stopUploadCameraStream();
-          const camModal = bootstrap.Modal.getInstance(document.getElementById('cameraModal'));
-          if(camModal) camModal.hide();
-          new bootstrap.Modal(document.getElementById('uploadModal')).show();
-      }
-
-      function getCapturedFileName() {
-          const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-          return `camera-capture-${stamp}.jpg`;
-      }
-
-      function setFileInputFromBlob(blob) {
-          const { fileInput } = uploadModalElements();
-          if (!fileInput) return null;
-
-          const file = new File([blob], getCapturedFileName(), { type: 'image/jpeg' });
-          const dataTransfer = new DataTransfer();
-          dataTransfer.items.add(file);
-          fileInput.files = dataTransfer.files;
-          fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-          return file;
-      }
-
-      async function startUploadCamera() {
-          const { fileInput, cameraVideo } = uploadModalElements();
-          if (!cameraVideo) return;
-
-          const camModalEl = document.getElementById('cameraModal');
-          if (!camModalEl.classList.contains('show')) {
-              const upModal = bootstrap.Modal.getInstance(document.getElementById('uploadModal'));
-              if(upModal) upModal.hide();
-              new bootstrap.Modal(camModalEl).show();
-          }
-
-          resetUploadCameraPanel();
-          if (fileInput) fileInput.value = '';
-          setChosenFileText('No file selected yet.');
-        
-          const mainPreview = document.getElementById('mainUploadPreview');
-          if (mainPreview) {
-              mainPreview.classList.add('d-none');
-              mainPreview.src = '';
-          }
-
-          setUploadStatus('Requesting camera access...');
-
-          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-              setUploadStatus('Camera is not supported in this browser. Use Browse Files instead.', true);
-              return;
-          }
-
-          // HD Constraints
-          const constraintsList = [
-              { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false },
-              { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
-              { video: { facingMode: { ideal: 'environment' } }, audio: false },
-              { video: true, audio: false }
-          ];
-
-          let lastError = null;
-          for (const constraints of constraintsList) {
-              try {
-                  uploadCameraStream = await navigator.mediaDevices.getUserMedia(constraints);
-                  break;
-              } catch (error) {
-                  lastError = error;
-                  uploadCameraStream = null;
-              }
-          }
-
-          if (!uploadCameraStream) {
-              setUploadStatus('Unable to open the camera. Please use Browse Files instead.', true);
-              return;
-          }
-
-          cameraVideo.srcObject = uploadCameraStream;
-          try { await cameraVideo.play(); } catch (error) { }
-
-          setUploadStatus('Live camera ready. Capture a photo when you are ready.');
-      }
-
-      function captureUploadPhoto() {
-          const { cameraVideo, cameraPreviewImage, cameraCanvas, capturePhotoBtn, retakePhotoBtn, usePhotoBtn } = uploadModalElements();
-          if (!cameraVideo || !cameraCanvas || !cameraPreviewImage) return;
-
-          if (!cameraVideo.videoWidth || !cameraVideo.videoHeight) {
-              setUploadStatus('Camera preview is not ready yet. Please try again.', true);
-              return;
-          }
-
-          const vWidth = cameraVideo.videoWidth;
-          const vHeight = cameraVideo.videoHeight;
-          const context = cameraCanvas.getContext('2d');
-          if (!context) return;
-
-          // SMART PORTRAIT CROPPER
-          const targetAspectRatio = 3 / 4.2; 
-          let cropWidth, cropHeight, sx, sy;
-
-          if ((vWidth / vHeight) > targetAspectRatio) {
-              cropHeight = vHeight;
-              cropWidth = vHeight * targetAspectRatio;
-              sx = (vWidth - cropWidth) / 2;
-              sy = 0;
-          } else {
-              cropWidth = vWidth;
-              cropHeight = vWidth / targetAspectRatio;
-              sx = 0;
-              sy = (vHeight - cropHeight) / 2;
-          }
-
-          // I-set ang canvas sa totoong portrait dimensions ng na-crop na image
-          cameraCanvas.width = Math.round(cropWidth);
-          cameraCanvas.height = Math.round(cropHeight);
-
-          // Kukunin lang ang saktong nakikita sa viewfinder (Ito ang magsisilbing Fallback natin)
-          context.drawImage(
-              cameraVideo, 
-              sx, sy, cropWidth, cropHeight, 
-              0, 0, cameraCanvas.width, cameraCanvas.height
-          );
-
-          // ========================================================
-          // SMART OPENCV DOCUMENT EDGE DETECTION & PERSPECTIVE WARP
-          // ========================================================
-          let src = null, dst = null, contours = null, hierarchy = null, maxContour = null;
-          let srcCoords = null, dstCoords = null, M = null, warped = null, approx = null;
-
-          try {
-              if (typeof cv !== 'undefined' && cv.Mat) {
-                  src = cv.imread(cameraCanvas);
-                  dst = new cv.Mat();
-                
-                  // 1. Grayscale and Blur for Edge Detection
-                  cv.cvtColor(src, dst, cv.COLOR_RGBA2GRAY, 0);
-                  cv.GaussianBlur(dst, dst, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
-                  cv.Canny(dst, dst, 75, 200, 3, false);
-                
-                  contours = new cv.MatVector();
-                  hierarchy = new cv.Mat();
-                  cv.findContours(dst, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
-                
-                  let maxArea = 0;
-                  maxContour = new cv.Mat();
-                  let found = false;
-                
-                  // 2. Hanapin ang pinakamalaking quadrilateral (Paper Edges)
-                  for (let i = 0; i < contours.size(); ++i) {
-                      let cnt = contours.get(i);
-                      let area = cv.contourArea(cnt);
-                    
-                      // Kailangang sakop ng papel ang at least 20% ng viewfinder
-                      if (area > maxArea && area > (cameraCanvas.width * cameraCanvas.height * 0.20)) { 
-                          let peri = cv.arcLength(cnt, true);
-                          approx = new cv.Mat();
-                          cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
-                        
-                          if (approx.rows === 4) {
-                              maxArea = area;
-                              approx.copyTo(maxContour);
-                              found = true;
-                          }
-                          approx.delete();
-                          approx = null; // Prevent double deletion sa finally block
-                      }
-                  }
-                
-                  if (found) {
-                      setUploadStatus('Document edges detected! Applying auto-crop...', false);
-                      let pts = [];
-                      for (let i = 0; i < 4; i++) {
-                          pts.push({ x: maxContour.data32S[i * 2], y: maxContour.data32S[i * 2 + 1] });
-                      }
-                    
-                      // 3. Ayusin ang corners: Top-Left, Top-Right, Bottom-Right, Bottom-Left
-                      pts.sort((a, b) => a.y - b.y);
-                      let top = pts.slice(0, 2).sort((a, b) => a.x - b.x);
-                      let bottom = pts.slice(2, 4).sort((a, b) => a.x - b.x);
-                      let orderedPts = [top[0], top[1], bottom[1], bottom[0]];
-                    
-                      // 4. Kalkulahin ang totoong width at height ng papel
-                      let widthA = Math.hypot(orderedPts[2].x - orderedPts[3].x, orderedPts[2].y - orderedPts[3].y);
-                      let widthB = Math.hypot(orderedPts[1].x - orderedPts[0].x, orderedPts[1].y - orderedPts[0].y);
-                      let maxWidth = Math.max(widthA, widthB);
-                    
-                      let heightA = Math.hypot(orderedPts[1].x - orderedPts[2].x, orderedPts[1].y - orderedPts[2].y);
-                      let heightB = Math.hypot(orderedPts[0].x - orderedPts[3].x, orderedPts[0].y - orderedPts[3].y);
-                      let maxHeight = Math.max(heightA, heightB);
-                    
-                      srcCoords = cv.matFromArray(4, 1, cv.CV_32FC2, [
-                          orderedPts[0].x, orderedPts[0].y,
-                          orderedPts[1].x, orderedPts[1].y,
-                          orderedPts[2].x, orderedPts[2].y,
-                          orderedPts[3].x, orderedPts[3].y
-                      ]);
-                    
-                      dstCoords = cv.matFromArray(4, 1, cv.CV_32FC2, [
-                          0, 0,
-                          maxWidth - 1, 0,
-                          maxWidth - 1, maxHeight - 1,
-                          0, maxHeight - 1
-                      ]);
-                    
-                      // 5. Flatten ang papel (Perspective Warp) at i-overwrite sa Canvas
-                      M = cv.getPerspectiveTransform(srcCoords, dstCoords);
-                      warped = new cv.Mat();
-                      cv.warpPerspective(src, warped, M, new cv.Size(maxWidth, maxHeight), cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar());
-                    
-                      cameraCanvas.width = maxWidth;
-                      cameraCanvas.height = maxHeight;
-                      cv.imshow(cameraCanvas, warped);
-                  }
-              }
-          } catch (e) {
-              console.warn("OpenCV Auto-Crop Error (Fallback to normal crop):", e);
-          } finally {
-              // SAFE MEMORY CLEANUP: Ito ay palaging tatakbo kahit magka-error ang OpenCV
-              if (src) src.delete();
-              if (dst) dst.delete();
-              if (contours) contours.delete();
-              if (hierarchy) hierarchy.delete();
-              if (maxContour) maxContour.delete();
-              if (srcCoords) srcCoords.delete();
-              if (dstCoords) dstCoords.delete();
-              if (M) M.delete();
-              if (warped) warped.delete();
-              if (approx) approx.delete(); 
-          }
-          // ========================================================
-
-          cameraCanvas.toBlob(function(blob) {
-              if (!blob) {
-                  setUploadStatus('Unable to capture the photo. Please try again.', true);
-                  return;
-              }
-
-              clearCapturedPhotoUrl();
-              const file = setFileInputFromBlob(blob);
-              if (!file) return;
-
-              if (usePhotoBtn) {
-                  usePhotoBtn.innerHTML = '<i class="fas fa-check-circle me-2"></i> Confirm & Use';
-                  usePhotoBtn.className = 'btn btn-success rounded-pill shadow-sm px-4 py-2 fw-bold align-items-center modal-btn-hover transition-all';
-                  usePhotoBtn.style.pointerEvents = 'auto';
-              }
-
-              capturedPhotoUrl = URL.createObjectURL(file);
-              cameraPreviewImage.src = capturedPhotoUrl;
-              cameraPreviewImage.classList.remove('d-none');
-              cameraVideo.classList.add('d-none');
-            
-              if (capturePhotoBtn) capturePhotoBtn.classList.add('d-none');
-              if (retakePhotoBtn) retakePhotoBtn.classList.remove('d-none');
-              if (usePhotoBtn) usePhotoBtn.classList.remove('d-none');
-            
-              setUploadStatus('Photo captured. Review it, then choose Use Photo or Retake.');
-          }, 'image/jpeg', 0.92);
-      }
-
-      function useCapturedUploadPhoto() {
-          const { fileInput } = uploadModalElements();
-          if (!fileInput || !fileInput.files || !fileInput.files.length) {
-              setUploadStatus('Capture a photo first before using it.', true);
-              return;
-          }
-
-          setChosenFileText(`Selected file: ${fileInput.files[0].name}`);
-          setUploadStatus('Captured photo confirmed and ready for upload.');
-        
-          const mainPreview = document.getElementById('mainUploadPreview');
-          if (mainPreview && capturedPhotoUrl) {
-              mainPreview.src = capturedPhotoUrl;
-              mainPreview.classList.remove('d-none');
-          }
-        
-          closeCameraModal();
-          analyzeDocument(fileInput.files[0]); 
-      }
-
-      function browseUploadFiles() {
-          const { fileInput } = uploadModalElements();
-          if (!fileInput) return;
-          fileInput.click();
-      }
-
-      function handleUploadFileSelection(event) {
-          const file = event.target.files && event.target.files[0];
-          const mainPreview = document.getElementById('mainUploadPreview');
-        
-          if (!file) {
-              setChosenFileText('No file selected yet.');
-              document.getElementById('classificationSuggestion').classList.add('d-none');
-              if (mainPreview) mainPreview.classList.add('d-none');
-              return;
-          }
-
-          setChosenFileText(`Selected file: ${file.name}`);
-        
-          if (file.type.startsWith('image/')) {
-              if (mainPreview) {
-                  mainPreview.src = URL.createObjectURL(file);
-                  mainPreview.classList.remove('d-none');
-              }
-          } else {
-              if (mainPreview) mainPreview.classList.add('d-none');
-          }
-        
-          analyzeDocument(file); 
-      }
-
-      // CUSTOM DROPDOWN HELPERS
-      function setUploadCategory(val, suggestedText = null) {
-          document.getElementById('uploadCategoryInput').value = val;
-          const textSpan = document.getElementById('uploadCategoryText');
-          textSpan.innerText = suggestedText ? suggestedText : val;
-          textSpan.classList.remove('text-muted');
-          textSpan.classList.add('text-dark', 'fw-bold');
-          if(suggestedText) textSpan.classList.add('text-success');
-          else textSpan.classList.remove('text-success');
-      }
-
-      function setUploadAccess(val, textHTML) {
-          document.getElementById('uploadAccessInput').value = val;
-          document.getElementById('uploadAccessText').innerHTML = textHTML;
-      }
-
-      function setPhysicalStatus(val, textHTML) {
-          document.getElementById('uploadPhysicalInput').value = val;
-          document.getElementById('uploadPhysicalText').innerHTML = textHTML;
-      }
-
-      // DOCUMENT CLASSIFICATION AJAX ENGINE
-      let uploadAnalysisGeneration = 0;
-      async function analyzeDocument(file) {
-          const analysisGeneration = ++uploadAnalysisGeneration;
-          const suggestionBox = document.getElementById('classificationSuggestion');
-          const loader = document.getElementById('classificationLoader');
-          const icon = document.getElementById('classificationIcon');
-          const nameDisplay = document.getElementById('suggestedFolderName');
-          const actions = document.getElementById('classificationActions');
-          // OCR supplies an optional suggestion; it must not block uploading.
-        
-          suggestionBox.classList.remove('d-none', 'bg-success', 'border-success');
-          suggestionBox.classList.add('bg-primary', 'border-primary');
-          icon.classList.replace('fa-check-circle', 'fa-magic');
-          icon.classList.replace('text-success', 'text-primary');
-          nameDisplay.classList.remove('text-success');
-        
-          loader.classList.remove('d-none');
-          icon.classList.add('d-none');
-          actions.classList.add('d-none');
-
-          let clientSideText = "";
-        
-          if (file.type.startsWith('image/')) {
-              nameDisplay.innerText = "Preprocessing Image...";
-              try {
-                  const safeImage = await new Promise((resolve, reject) => {
-                      const img = new Image();
-                      img.onload = () => {
-                          const canvas = document.createElement('canvas');
-                          const scale = Math.min(1, 1800 / Math.max(img.width, img.height));
-                          canvas.width = Math.max(1, Math.round(img.width * scale));
-                          canvas.height = Math.max(1, Math.round(img.height * scale));
-                          canvas.getContext('2d').drawImage(img, 0, 0);
-                          resolve(canvas);
-                          URL.revokeObjectURL(img.src);
-                      };
-                      img.onerror = () => reject("UNSUPPORTED_FORMAT");
-                      img.src = URL.createObjectURL(file);
-                  });
-
-                  clientSideText = await window.FixieLocalOCR.recognize(safeImage, {
-                      onProgress: function(m) {
-                          if (analysisGeneration !== uploadAnalysisGeneration) return;
-                          if (m.status === 'recognizing text') nameDisplay.innerText = "Scanning Image: " + Math.round(m.progress * 100) + "%";
-                          else nameDisplay.innerText = "OCR: " + m.status + "...";
-                      }
-                  });
-              } catch (error) {
-                  nameDisplay.innerText = error === "UNSUPPORTED_FORMAT" ? "Unsupported Format. Please use a real JPG or PNG." : "Image Scan Failed. (Check Console)";
-              }
-          }
-          else if (file.type === 'application/pdf') {
-              nameDisplay.innerText = "Reading PDF Content...";
-              try {
-                  const arrayBuffer = await file.arrayBuffer();
-                  const pdfjsLib = await window.FixiePDF.load();
-
-                  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-                  const maxPages = Math.min(pdf.numPages, 2);
-                  for (let i = 1; i <= maxPages; i++) {
-                      const page = await pdf.getPage(i);
-                      const textContent = await page.getTextContent();
-                      clientSideText += textContent.items.map(item => item.str).join(' ') + " ";
-                  }
-                  await pdf.destroy();
-              } catch (error) { }
-          }
-
-          if (analysisGeneration !== uploadAnalysisGeneration) return;
-          nameDisplay.innerText = "Analyzing extracted content...";
-
-          let formData = new FormData();
-          formData.append('action', 'analyze_document');
-          if (!clientSideText && /\.(pdf|docx|txt|csv)$/i.test(file.name)) {
-              formData.append('document', file);
-          } else {
-              formData.append('document_name', file.name);
-          }
-          formData.append('ocr_text', clientSideText.slice(0, 20000));
-          formData.append('csrf_token', document.querySelector('input[name="csrf_token"]').value);
-
-          $.ajax({
-              url: 'actions/document_handler.php', 
-              type: 'POST',
-              data: formData,
-              processData: false,
-              contentType: false,
-              success: function(response) {
-                  if (analysisGeneration !== uploadAnalysisGeneration) return;
-                  loader.classList.add('d-none');
-                  icon.classList.remove('d-none');
-                
-                  if (response.status === 'success' && response.suggested_category) {
-                      nameDisplay.innerText = response.suggested_category;
-                      actions.classList.remove('d-none');
-                    
-                      document.getElementById('btnAcceptSuggestion').onclick = function() {
-                          const catInput = document.getElementById('uploadCategoryInput');
-                          if (catInput) setUploadCategory(response.suggested_category, response.suggested_category + ' (Auto-Suggested)');
-                        
-                          suggestionBox.classList.replace('bg-primary', 'bg-success');
-                          suggestionBox.classList.replace('border-primary', 'border-success');
-                          icon.classList.replace('fa-magic', 'fa-check-circle');
-                          icon.classList.replace('text-primary', 'text-success');
-                          nameDisplay.classList.add('text-success');
-                          actions.classList.add('d-none');
-                      };
-                    
-                      document.getElementById('btnRejectSuggestion').onclick = function() { suggestionBox.classList.add('d-none'); };
-                  } else {
-                      suggestionBox.classList.add('d-none'); 
-                  }
-              },
-              error: function() { if (analysisGeneration === uploadAnalysisGeneration) suggestionBox.classList.add('d-none'); },
-              complete: function() {}
-          });
-      }
-
-      // MODAL EVENT LISTENERS
-      const uploadModal = document.getElementById('uploadModal');
-      if (uploadModal) {
-          const { fileInput, browseBtn, cameraBtn, capturePhotoBtn, retakePhotoBtn, usePhotoBtn } = uploadModalElements();
-          if (browseBtn) browseBtn.addEventListener('click', browseUploadFiles);
-          if (cameraBtn) cameraBtn.addEventListener('click', startUploadCamera);
-          if (capturePhotoBtn) capturePhotoBtn.addEventListener('click', captureUploadPhoto);
-          if (retakePhotoBtn) retakePhotoBtn.addEventListener('click', startUploadCamera);
-          if (usePhotoBtn) usePhotoBtn.addEventListener('click', useCapturedUploadPhoto);
-          if (fileInput) fileInput.addEventListener('change', handleUploadFileSelection);
-
-          uploadModal.addEventListener('hidden.bs.modal', function () {
-              if (fileInput) fileInput.value = '';
-              setChosenFileText('No file selected yet.');
-              const mainPreview = document.getElementById('mainUploadPreview');
-              if (mainPreview) {
-                  mainPreview.classList.add('d-none');
-                  mainPreview.src = '';
-              }
-              document.getElementById('classificationSuggestion').classList.add('d-none');
-          });
-      }
-
       let currentZoom = 1;
       let isDragging = false;
       let startX, startY, translateX = 0, translateY = 0;
@@ -3763,19 +2978,8 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
           if (unsupportedMsg) unsupportedMsg.style.display = 'none';
       });
 
-      function openVersionModal(docId, fileName, canEdit) {
+      function openVersionModal(docId, fileName) {
           document.getElementById('vcFileName').innerText = fileName;
-          document.getElementById('vcDocId').value = docId;
-        
-          if (canEdit) {
-              document.getElementById('vcUploadSection').style.display = 'block';
-              document.getElementById('vcTimelineCol').classList.remove('col-md-12');
-              document.getElementById('vcTimelineCol').classList.add('col-md-7');
-          } else {
-              document.getElementById('vcUploadSection').style.display = 'none';
-              document.getElementById('vcTimelineCol').classList.remove('col-md-7');
-              document.getElementById('vcTimelineCol').classList.add('col-md-12');
-          }
 
           document.getElementById('versionHistoryTimeline').innerHTML = '<div class="text-center text-muted small py-4"><i class="fas fa-spinner fa-spin me-2"></i>Loading history...</div>';
           new bootstrap.Modal(document.getElementById('versionControlModal')).show();
@@ -3826,76 +3030,6 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
                   document.getElementById('versionHistoryTimeline').innerHTML = '<div class="text-danger fs-sm text-center py-3">Failed to load history.</div>';
               }
           });
-      }
-
-      function openShareModal(docId, fileName, accessType, filePermissionsStr, ownerName) {
-          document.getElementById('shareDocId').value = docId;
-          document.getElementById('shareDocName').innerText = fileName;
-          document.getElementById('shareDocOwner').innerText = 'Owner: ' + ownerName;
-        
-          // I-update ang Hidden Input at Custom Text ng General Access
-          const accessInput = document.getElementById('shareAccessType');
-          accessInput.value = accessType;
-          const accessText = (accessType === 'Restricted') ? 'Restricted (Only selected people)' : 'Folder Default (Inherit Permissions)';
-          document.getElementById('generalAccessSelectedText').innerText = accessText;
-        
-          const perms = JSON.parse(filePermissionsStr || '{}');
-        
-          document.querySelectorAll('input[name^="user_roles"]').forEach(input => {
-              input.value = 'None'; 
-              const userId = input.name.match(/\[(\d+)\]/)[1];
-              let roleText = 'No Access';
-            
-              if (perms['user_' + userId]) {
-                  input.value = perms['user_' + userId];
-                  roleText = perms['user_' + userId];
-              }
-            
-              // I-update ang text ng pill button
-              const textSpan = document.querySelector('.custom-role-dropdown[data-user-id="'+userId+'"] .selected-role-text');
-              if(textSpan) textSpan.innerText = roleText;
-          });
-
-          toggleShareList();
-          new bootstrap.Modal(document.getElementById('shareDocumentModal')).show();
-      }
-
-      // Bagong function para sa custom General Access dropdown
-      function updateGeneralAccessSelection(value, text) {
-          document.getElementById('shareAccessType').value = value;
-          document.getElementById('generalAccessSelectedText').innerText = text;
-          toggleShareList(); // I-trigger ang pag-hide/show ng users list
-      }
-
-      function toggleShareList() {
-          const type = document.getElementById('shareAccessType').value;
-          const list = document.getElementById('restrictedUsersSection');
-          const help = document.getElementById('shareAccessHelpText');
-        
-          if (type === 'Restricted') {
-              list.classList.remove('d-none');
-              help.innerText = "Only explicitly added people can access this file.";
-              help.classList.add('text-danger');
-              help.classList.remove('text-muted');
-          } else {
-              list.classList.add('d-none');
-              help.innerText = "Inherits permissions based on the parent folder's department assignment.";
-              help.classList.add('text-muted');
-              help.classList.remove('text-danger');
-            
-              document.querySelectorAll('input[name^="user_roles"]').forEach(input => {
-                  input.value = 'None';
-                  const userId = input.name.match(/\[(\d+)\]/)[1];
-                  const textSpan = document.querySelector('.custom-role-dropdown[data-user-id="'+userId+'"] .selected-role-text');
-                  if(textSpan) textSpan.innerText = 'No Access';
-              });
-          }
-      }
-
-      // Function na nag-a-update ng text at value kapag pumili sa bagong custom dropdown
-      function updateRoleSelection(userId, value, text) {
-          document.getElementById('role_input_' + userId).value = value;
-          document.querySelector('.custom-role-dropdown[data-user-id="' + userId + '"] .selected-role-text').innerText = text;
       }
 
       function openLegalHoldModal(docId, fileName) {
@@ -4791,13 +3925,9 @@ $vc3PhysicalPathSql = drms_copy_path_sql();
               $('body').trigger('click'); 
           });
         
-          if ($.fn.DataTable.isDataTable('#documentsTable')) {
-              $('#documentsTable').on('draw.dt', function () {
-                  $('body').trigger('click');
-              });
-          }
       });
   </script>
   <script src="assets/js/physical-record-profile.js?v=<?php echo filemtime(__DIR__ . '/assets/js/physical-record-profile.js'); ?>"></script>
+  <script src="assets/js/record-sharing.js?v=<?php echo filemtime(__DIR__ . '/assets/js/record-sharing.js'); ?>"></script>
 </body>
   </html>

@@ -63,6 +63,7 @@ if ($is_token_flow) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Setup Password - Fixie DRMS</title>
+    <link rel="icon" type="image/png" href="assets/images/fixie_logo.png?v=<?php echo (string) (@filemtime(__DIR__ . '/assets/images/fixie_logo.png') ?: 1); ?>">
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
     <link href="assets/css/style.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">

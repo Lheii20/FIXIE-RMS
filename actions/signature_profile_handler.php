@@ -9,6 +9,44 @@ require_once __DIR__ . '/../config/upload_policy.php';
 require_once __DIR__ . '/../config/storage_security.php';
 require_once __DIR__ . '/../config/workflow_feedback.php';
 
+/**
+ * Keep an image while a signed event or another active profile still uses it.
+ * The filename narrows the SQL result; storage resolution confirms the same
+ * protected physical file despite supported path-format differences.
+ */
+function drms_signature_image_is_referenced(mysqli $conn, string $oldPath): bool
+{
+    $filename = basename($oldPath);
+    foreach (['document_signature_events', 'user_signature_profiles'] as $table) {
+        $statement = $conn->prepare(
+            "SELECT signature_image_path
+             FROM {$table}
+             WHERE RIGHT(TRIM(signature_image_path), CHAR_LENGTH(?)) = ?"
+        );
+        try {
+            $statement->bind_param('ss', $filename, $filename);
+            $statement->execute();
+            $result = $statement->get_result();
+            while ($row = $result->fetch_assoc()) {
+                try {
+                    $referencedPath = drms_storage_resolve_existing_file((string) $row['signature_image_path']);
+                } catch (Throwable $error) {
+                    // An uncertain reference must never authorize physical deletion.
+                    return true;
+                }
+                if ($referencedPath === $oldPath ||
+                    (DIRECTORY_SEPARATOR === '\\' && strcasecmp($referencedPath, $oldPath) === 0)) {
+                    return true;
+                }
+            }
+        } finally {
+            $statement->close();
+        }
+    }
+
+    return false;
+}
+
 if (empty($_SESSION['user_id'])) {
     header('Location: ../index.php');
     exit;
@@ -77,7 +115,10 @@ try {
     if (($hasNewImage || $removeImage) && is_string($oldStoredPath) && $oldStoredPath !== '') {
         try {
             $oldPath = drms_storage_resolve_existing_file($oldStoredPath);
-            if (preg_match('#[/\\\\]uploads[/\\\\]signatures[/\\\\]#i', $oldPath)) {
+            $signatureDirectory = realpath(drms_storage_root() . DIRECTORY_SEPARATOR . 'signatures');
+            if ($signatureDirectory !== false &&
+                drms_storage_path_is_within($oldPath, $signatureDirectory) &&
+                !drms_signature_image_is_referenced($conn, $oldPath)) {
                 @unlink($oldPath);
             }
         } catch (Throwable $ignored) {
@@ -97,3 +138,4 @@ try {
     error_log('Electronic-signature profile update: ' . $error->getMessage());
     drms_redirect_with_feedback($redirect, 'error', $error instanceof DomainException ? $error->getMessage() : 'The electronic-signature profile could not be saved. Please try again.');
 }
+

@@ -1,0 +1,78 @@
+.record-upload-modal .modal-dialog { max-width: 560px; }
+.record-upload-modal .modal-content { border: 1px solid #cfdaea !important; border-radius: 14px !important; overflow: hidden; }
+.record-upload-modal .modal-header { padding: 18px 20px 14px !important; }
+.record-upload-modal .modal-body { padding: 18px 20px 0 !important; background: #fff !important; max-height: calc(100dvh - 118px); overflow-y: auto; }
+.record-upload-modal .record-upload-step { margin-bottom: 16px; }
+.record-upload-modal .record-upload-step-label { display: block; margin-bottom: 7px; color: #142e56; font-size: .87rem; font-weight: 700; }
+.record-upload-modal .record-upload-step-label .step-number { display: inline-flex; align-items: center; justify-content: center; width: 21px; height: 21px; margin-right: 7px; border-radius: 5px; background: #ecf3ff; color: #1754b5; font-size: .72rem; }
+.record-upload-modal .record-upload-dropzone { border: 1.5px dashed #a8bddc; border-radius: 10px; background: #f8fbff; padding: 16px; text-align: center; cursor: pointer; transition: border-color .16s ease, background-color .16s ease; }
+.record-upload-modal .record-upload-dropzone:hover,
+.record-upload-modal .record-upload-dropzone:focus-visible,
+.record-upload-modal .record-upload-dropzone.is-dragging { border-color: #2458c6; background: #eef5ff; outline: none; }
+.record-upload-modal .record-upload-dropzone.is-dragging { box-shadow: inset 0 0 0 1px #2458c6; }
+.record-upload-modal .record-upload-dropzone .drop-title { margin: 0 0 3px; color: #18365d; font-size: .91rem; font-weight: 700; }
+.record-upload-modal .record-upload-dropzone .drop-hint,
+.record-upload-modal .record-upload-file-types { color: #5d6e86; font-size: .77rem; line-height: 1.4; }
+.record-upload-modal .record-upload-dropzone .drop-actions { display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 10px; }
+.record-upload-modal .record-upload-dropzone .drop-actions .btn { border-radius: 7px !important; padding: 6px 11px; font-size: .81rem; font-weight: 600; box-shadow: none !important; }
+.record-upload-modal .record-upload-file-types { margin-top: 7px; }
+.record-upload-modal .record-upload-inline-error { color: #ad2834; font-size: .79rem; margin-top: 6px; }
+.record-upload-modal .record-upload-selected { position: relative; margin-top: 10px; padding: 9px 42px 9px 10px; border: 1px solid #d6e0ed; border-radius: 8px; background: #fff; color: #2c4669; font-size: .81rem; }
+.record-upload-modal .record-upload-file-name { font-weight: 600; overflow-wrap: anywhere; }
+.record-upload-modal .record-upload-remove { position: absolute; top: 6px; right: 7px; width: 30px; height: 30px; border: 1px solid #cfd9e6; border-radius: 6px; background: #fff; color: #415879; font-size: 1.25rem; line-height: 1; }
+.record-upload-modal .record-upload-remove:hover,
+.record-upload-modal .record-upload-remove:focus-visible { background: #fff1f2; color: #a42736; border-color: #e5aeb6; }
+.record-upload-modal .record-upload-preview-btn { margin-top: 7px; padding: 4px 9px; border-radius: 6px; font-size: .78rem; }
+.record-upload-modal .record-upload-options { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; padding-top: 13px; border-top: 1px solid #e5ebf4; }
+.record-upload-modal .record-upload-options label { display: block; margin-bottom: 6px; color: #344c6d; font-size: .8rem; font-weight: 600; }
+.record-upload-modal .record-upload-options .custom-select-btn { min-height: 40px; padding: 7px 9px !important; border-color: #cdd9e9; box-shadow: none !important; }
+.record-upload-modal .record-upload-options .custom-select-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.record-upload-modal .record-upload-footer { display: flex; justify-content: flex-end; gap: 8px; margin: 18px -20px 0; padding: 13px 20px; border-top: 1px solid #e5ebf4; background: #f8fafc; }
+.record-upload-modal .record-upload-footer .btn { min-height: 39px; border-radius: 8px !important; padding: 7px 14px; font-size: .85rem; box-shadow: none !important; }
+.record-upload-modal #classificationSuggestion { padding: 10px 12px !important; border-radius: 8px !important; box-shadow: none !important; }
+.record-upload-modal .record-upload-preview-panel { position: fixed; inset: 0; z-index: 2; display: flex; align-items: center; justify-content: center; padding: 2.5vh 2.5vw; background: rgba(13, 27, 45, .72); }
+.record-upload-modal .record-upload-preview-shell { position: relative; display: flex; flex-direction: column; width: min(100%, 1540px); height: 95dvh; min-height: 0; overflow: hidden; border: 1px solid #d4deeb; border-radius: 10px; background: #fff; box-shadow: 0 20px 50px rgba(0, 0, 0, .2); }
+.record-upload-modal .record-upload-preview-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex: 0 0 auto; min-height: 58px; padding: 8px 14px; border-bottom: 1px solid #e3e9f2; background: #fff; color: #17365f; }
+.record-upload-modal .record-upload-preview-title { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.record-upload-modal .record-upload-preview-title span { color: #72839a; font-size: .64rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.record-upload-modal .record-upload-preview-title strong { max-width: min(40vw, 550px); color: #1c3658; font-size: .82rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.record-upload-modal .record-upload-preview-tools,
+.record-upload-modal .record-upload-zoom-controls { display: flex; align-items: center; gap: 5px; flex: 0 0 auto; }
+.record-upload-modal .record-upload-zoom-controls .btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 1px solid #d7e1ee !important; border-radius: 6px; background: #fff; color: #315276; font-size: .72rem; box-shadow: none !important; }
+.record-upload-modal .record-upload-zoom-controls .btn:hover { background: #eef4fc; }
+.record-upload-modal .record-upload-close-preview { display: inline-flex; align-items: center; justify-content: center; width: 33px; height: 33px; margin-left: 6px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #52647d; font-size: 1.5rem; line-height: 1; }
+.record-upload-modal .record-upload-close-preview:hover { background: #eef2f7; color: #163354; }
+.record-upload-modal #uploadZoomLevel { min-width: 42px; text-align: center; font-size: .76rem; font-weight: 600; color: #465e7b; }
+.record-upload-modal .record-upload-preview-content { flex: 1 1 auto; min-height: 0; overflow: auto; background: #edf1f6; }
+.record-upload-modal .record-upload-preview-content.is-pannable { cursor: grab; touch-action: none; }
+.record-upload-modal .record-upload-preview-content.is-panning { cursor: grabbing; user-select: none; }
+.record-upload-modal .record-upload-image-stage { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; min-height: 0; overflow: hidden; touch-action: none; }
+.record-upload-modal .record-upload-image-stage img { display: block; width: 100%; height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none; transform-origin: center center; }
+.record-upload-modal .record-upload-image-stage img.is-zoomed { cursor: grab; }
+.record-upload-modal .record-upload-image-stage.is-panning img { cursor: grabbing; }
+.record-upload-modal .record-upload-pan-hint { position: absolute; z-index: 3; bottom: 15px; left: 50%; transform: translateX(-50%); padding: 5px 9px; border-radius: 6px; background: rgba(18, 39, 65, .82); color: #fff; font-size: .73rem; pointer-events: none; white-space: nowrap; }
+.record-upload-modal .record-upload-document-surface { width: min(900px, calc(100% - 36px)); min-height: calc(100% - 36px); margin: 18px auto; background: #fff; box-shadow: 0 1px 9px rgba(22, 48, 78, .09); }
+.record-upload-modal .record-upload-pdf { display: flex; flex-direction: column; gap: 16px; width: 100%; min-height: 100%; margin: 0; padding: 18px; background: transparent; box-shadow: none; }
+.record-upload-modal .record-upload-pdf-page { flex: 0 0 auto; margin: 0 auto; background: #fff; box-shadow: 0 1px 9px rgba(22, 48, 78, .17); }
+.record-upload-modal .record-upload-pdf-page canvas { display: block; max-width: 100%; height: auto !important; }
+.record-upload-modal .record-upload-preview-content .preview-note { padding: 16px; color: #35506f; font-size: .85rem; line-height: 1.5; }
+.record-upload-modal .record-upload-preview-content .preview-table-wrap { overflow: auto; max-height: 100%; }
+.record-upload-modal .record-upload-preview-content table { border-collapse: collapse; width: max-content; min-width: 100%; background: #fff; font-size: .78rem; }
+.record-upload-modal .record-upload-preview-content td { border: 1px solid #dce5f0; padding: 5px 7px; max-width: 230px; overflow-wrap: anywhere; }
+.record-upload-modal .record-upload-preview-content .preview-text { padding: 14px; white-space: pre-wrap; overflow-wrap: anywhere; background: #fff; color: #1a2c43; font-size: .84rem; line-height: 1.5; }
+@media (max-width: 575px) {
+    .record-upload-modal .modal-dialog { margin: 10px; }
+    .record-upload-modal .modal-header { padding: 15px 16px 12px !important; }
+    .record-upload-modal .modal-body { padding: 15px 16px 0 !important; max-height: calc(100dvh - 85px); }
+    .record-upload-modal .record-upload-options { grid-template-columns: 1fr; gap: 10px; }
+    .record-upload-modal .record-upload-footer { margin-left: -16px; margin-right: -16px; padding: 12px 16px; }
+    .record-upload-modal .record-upload-footer .btn { flex: 1; }
+    .record-upload-modal .record-upload-preview-panel { padding: 1.5vh 2vw; }
+    .record-upload-modal .record-upload-preview-shell { height: 97dvh; }
+    .record-upload-modal .record-upload-preview-heading { gap: 8px; padding: 8px 10px; }
+    .record-upload-modal .record-upload-preview-title strong { max-width: 28vw; }
+    .record-upload-modal .record-upload-zoom-controls { gap: 3px; }
+    .record-upload-modal .record-upload-zoom-controls .btn { width: 29px; height: 29px; }
+    .record-upload-modal .record-upload-close-preview { margin-left: 2px; }
+    .record-upload-modal .record-upload-pdf { padding: 10px; }
+}

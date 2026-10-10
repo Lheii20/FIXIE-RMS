@@ -1,0 +1,71 @@
+/* Shared branding for standard login, email OTP login, and password recovery. */
+body.auth-page .brand-panel,
+body.page-forgot-password .brand-panel {
+    background: linear-gradient(135deg, #17346c 0%, #0d1933 100%) !important;
+    background-size: 100% 100% !important;
+    animation: none !important;
+}
+
+body.auth-page .brand-panel::before,
+body.page-forgot-password .brand-panel::before {
+    background-image: radial-gradient(rgba(255, 255, 255, 0.09) 1.2px, transparent 1.2px) !important;
+    background-size: 34px 34px !important;
+    opacity: 0.48 !important;
+    animation: none !important;
+}
+
+body.auth-page .brand-panel::after,
+body.page-forgot-password .brand-panel::after {
+    background: radial-gradient(circle, rgba(65, 112, 211, 0.2) 0%, transparent 62%) !important;
+    opacity: 0.8 !important;
+}
+
+body.auth-page .main-logo,
+body.page-forgot-password .main-logo {
+    width: 192px !important;
+    max-width: 192px !important;
+    max-height: 192px !important;
+    height: auto !important;
+    margin-bottom: 24px !important;
+}
+
+@media (min-width: 768px) and (max-width: 1099.98px) {
+    body.auth-page .main-logo,
+    body.page-forgot-password .main-logo {
+        width: 160px !important;
+        max-width: 160px !important;
+        max-height: 160px !important;
+    }
+}
+
+@media (min-width: 768px) and (max-height: 719.98px) {
+    body.auth-page .main-logo,
+    body.page-forgot-password .main-logo {
+        width: 142px !important;
+        max-width: 142px !important;
+        max-height: 142px !important;
+    }
+}
+
+@media (max-width: 767.98px) {
+    body.auth-page .brand-panel,
+    body.page-forgot-password .brand-panel {
+        background: #ffffff !important;
+    }
+
+    body.auth-page .brand-panel::before,
+    body.auth-page .brand-panel::after,
+    body.page-forgot-password .brand-panel::before,
+    body.page-forgot-password .brand-panel::after {
+        display: none !important;
+        content: none !important;
+    }
+
+    body.auth-page .main-logo,
+    body.page-forgot-password .main-logo {
+        width: 108px !important;
+        max-width: 108px !important;
+        max-height: 108px !important;
+        margin: 0 !important;
+    }
+}

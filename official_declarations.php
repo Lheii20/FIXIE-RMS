@@ -48,7 +48,9 @@ try {
         if (!$isGmReviewer) {
             throw new DomainException('Official Record declaration requests are available only to the General Manager.');
         }
-        $where = 'r.request_id > 0';
+        // Older GM direct filings were saved as approved requests. Keep them
+        // out of the request queue; the Official Records page owns those files.
+        $where = "r.request_id > 0 AND NOT (r.request_status = 'Approved' AND r.reviewed_by IS NOT NULL AND r.requested_by = r.reviewed_by)";
         $params = []; $types = '';
         if ($status !== 'All') { $where .= ' AND r.request_status = ?'; $params[] = $status; $types .= 's'; }
         if ($search !== '') {
@@ -194,17 +196,23 @@ $declarationFilterResetUrl = 'official_declarations.php?' . http_build_query(['q
             </div>
             <div class="modal-body">
                 <div class="dec-preview-loading" data-preview-loading role="status">Opening your file…</div>
-                <img class="dec-preview-image" data-preview-image alt="" hidden>
-                <div class="dec-pdf-viewer" data-preview-pdf hidden>
-                    <div class="dec-pdf-toolbar" aria-label="PDF page controls">
-                        <button type="button" data-preview-prev aria-label="Previous page" title="Previous page"><i class="fas fa-chevron-left" aria-hidden="true"></i></button>
-                        <span data-preview-page aria-live="polite">Page 1 of 1</span>
-                        <button type="button" data-preview-next aria-label="Next page" title="Next page"><i class="fas fa-chevron-right" aria-hidden="true"></i></button>
+                <div class="dec-preview-viewer" data-preview-viewer hidden>
+                    <div class="dec-pdf-toolbar" aria-label="File preview controls">
+                        <div class="dec-preview-page-controls" data-preview-page-controls>
+                            <button type="button" data-preview-prev aria-label="Previous page" title="Previous page"><i class="fas fa-chevron-left" aria-hidden="true"></i></button>
+                            <span data-preview-page aria-live="polite">Page 1 of 1</span>
+                            <button type="button" data-preview-next aria-label="Next page" title="Next page"><i class="fas fa-chevron-right" aria-hidden="true"></i></button>
+                        </div>
                         <span class="dec-pdf-toolbar-divider" aria-hidden="true"></span>
                         <button type="button" data-preview-zoom-out aria-label="Zoom out" title="Zoom out"><i class="fas fa-minus" aria-hidden="true"></i></button>
+                        <span class="dec-preview-zoom-level" data-preview-zoom-level aria-live="polite">100%</span>
                         <button type="button" data-preview-zoom-in aria-label="Zoom in" title="Zoom in"><i class="fas fa-plus" aria-hidden="true"></i></button>
+                        <span class="dec-preview-drag-hint">Drag to move</span>
                     </div>
-                    <div class="dec-pdf-page" data-preview-page-scroll><canvas data-preview-canvas aria-label="PDF page preview"></canvas></div>
+                    <div class="dec-image-page" data-preview-image-scroll hidden><img class="dec-preview-image" data-preview-image alt="" draggable="false"></div>
+                    <div class="dec-pdf-viewer" data-preview-pdf hidden>
+                        <div class="dec-pdf-page" data-preview-page-scroll><canvas data-preview-canvas aria-label="PDF page preview"></canvas></div>
+                    </div>
                 </div>
                 <div class="dec-preview-fallback" data-preview-fallback hidden><i class="fas fa-file-download" aria-hidden="true"></i><h3>Preview is not available for this file type</h3><p>Please download and open the file to review it before you continue.</p></div>
             </div>

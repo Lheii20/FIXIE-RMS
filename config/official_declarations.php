@@ -113,11 +113,7 @@ function drms_declaration_submit(mysqli $conn, array $doc, array $user, array $i
     return $requestId;
 }
 
-/**
- * Preserve the existing declaration/signature evidence relationship without
- * routing a GM submission back to the GM queue. Called only inside the final
- * filing transaction; the row moves from Pending to Approved before commit.
- */
+/** Validate a GM's direct filing without creating a declaration request. */
 function drms_declaration_prepare_gm_direct(mysqli $conn, array $doc, array $user, array $input): array
 {
     if ($user['role'] !== 'GM' || !drms_declaration_can_submit($doc, $user)) {
@@ -138,15 +134,14 @@ function drms_declaration_prepare_gm_direct(mysqli $conn, array $doc, array $use
     }
     $hash = drms_declaration_fingerprint($doc);
     $version = drms_declaration_text((string) $doc['current_version'], 20, true);
-    $ref = 'DEC-' . date('Ymd') . '-' . strtoupper(bin2hex(random_bytes(8)));
-    $uid = (int) $user['user_id'];
-    $s = $conn->prepare("INSERT INTO official_declaration_requests
-        (request_reference, document_id, source_file_hash, source_version, declaration_basis,
-        requested_signer_role, request_remarks, requested_by)
-        VALUES (?, ?, ?, ?, 'Internal E-Signature', 'GM', ?, ?)");
-    $s->bind_param('sisssi', $ref, $id, $hash, $version, $remarks, $uid);
-    $s->execute();
-    return drms_declaration_locked_request($conn, (int) $conn->insert_id, $id);
+    return [
+        'request_id' => null,
+        'document_id' => $id,
+        'source_file_hash' => $hash,
+        'source_version' => $version,
+        'declaration_basis' => 'Internal E-Signature',
+        'request_remarks' => $remarks,
+    ];
 }
 
 function drms_declaration_locked_request(mysqli $conn, int $requestId, int $docId): array
@@ -241,11 +236,14 @@ function drms_declaration_reauthenticate(mysqli $conn, int $uid, string $passwor
 
 function drms_declaration_finish(mysqli $conn, array $request, array $signature, int $officialId, string $hash, string $remarks): void
 {
-    $rid = (int) $request['request_id'];
+    $rid = (int) ($request['request_id'] ?? 0);
     $docId = (int) $request['document_id'];
     $uid = (int) ($signature['user']['user_id'] ?? 0);
     if ($uid < 1) {
         throw new DomainException('The electronic-signature account is invalid.');
+    }
+    if ($rid === 0 && ($signature['user']['role'] ?? '') !== 'GM') {
+        throw new DomainException('Only the General Manager can file an Official Record without a request.');
     }
     $version = (string) $request['source_version'];
     $consent = 'I reviewed this exact document version and confirm that it is complete and appropriate for Official Record filing. I authorize filing it as an Official Record.';
@@ -253,7 +251,7 @@ function drms_declaration_finish(mysqli $conn, array $request, array $signature,
         $conn,
         $signature,
         [
-            'request_id' => $rid,
+            'request_id' => $rid > 0 ? $rid : null,
             'record_module' => 'General Document',
             'record_id' => $docId,
             'document_id' => $docId,
@@ -265,6 +263,10 @@ function drms_declaration_finish(mysqli $conn, array $request, array $signature,
             'remarks' => $remarks,
         ]
     );
+    // A GM's direct filing has signature evidence, but no request to approve.
+    if ($rid === 0) {
+        return;
+    }
     $s = $conn->prepare("UPDATE official_declaration_requests SET request_status = 'Approved', reviewed_by = ?, reviewed_at = NOW(), review_remarks = ?, official_document_id = ?, closed_at = NOW() WHERE request_id = ? AND request_status = 'Pending'");
     $s->bind_param('isii', $uid, $remarks, $officialId, $rid); $s->execute();
     if ($s->affected_rows !== 1) throw new DomainException('This request has already been processed.');

@@ -1108,14 +1108,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     if ($action == 'declare_official') {
         $doc_id = intval($_POST['doc_id']);
         $request_id = (int) ($_POST['request_id'] ?? 0);
-        $redirectUrl = '../official_declarations.php' . ($request_id > 0 ? '?request_id=' . $request_id : '');
+        $is_gm_direct = $request_id < 1;
+        $redirectUrl = '../official_declarations.php' . ($request_id > 0 ? '?request_id=' . $request_id : '?doc_id=' . $doc_id);
 
         $official_copy_absolute = null;
         $transaction_committed = false;
 
         try {
-            if ($request_id < 1 || !drms_signature_tables_ready($conn)) {
-                throw new DomainException('Submit a declaration request before filing this document.');
+            if (!drms_signature_tables_ready($conn)) {
+                throw new DomainException('Official declaration is temporarily unavailable.');
             }
             $e_signature = drms_esign_prepare(
                 $conn,
@@ -1134,13 +1135,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $orig = $stmt->get_result()->fetch_assoc();
 
             if (!$orig) throw new Exception("Document not found.");
-            $declaration_request = drms_declaration_locked_request($conn, $request_id, $doc_id);
-            drms_declaration_assert_reviewer($declaration_request, drms_declaration_user($conn, (int) $user_id));
+            $declaration_actor = drms_declaration_user($conn, (int) $user_id);
+            if ($request_id > 0) {
+                $declaration_request = drms_declaration_locked_request($conn, $request_id, $doc_id);
+            } else {
+                $declaration_request = drms_declaration_prepare_gm_direct($conn, $orig, $declaration_actor, $_POST);
+            }
+            drms_declaration_assert_reviewer($declaration_request, $declaration_actor);
             if ((int) ($e_signature['user']['user_id'] ?? 0) !== (int) $user_id) {
                 throw new DomainException('The electronic-signature account does not match the active session.');
             }
-            if ($declaration_request['declaration_basis'] !== 'External Signed Copy') {
-                throw new DomainException('This action requires a document that already contains its required signatures.');
+            if (!in_array($declaration_request['declaration_basis'], ['Internal E-Signature', 'External Signed Copy'], true)) {
+                throw new DomainException('This declaration method is not supported.');
             }
             $verified_source_hash = drms_declaration_assert_unchanged($orig, $declaration_request);
             if (!in_array($orig['record_phase'], ['Working', 'For Review'], true)) {
@@ -1413,6 +1419,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             // ==========================================================
 
             drms_declaration_finish($conn, $declaration_request, $e_signature, $official_doc_id, $file_hash, $verification_remarks);
+            if ($is_gm_direct) {
+                $redirectUrl = '../documents.php?' . http_build_query([
+                    'parent' => (string) $folder_profile['parent_category'],
+                    'type' => (string) $folder_profile['sub_category'],
+                    'doc' => $official_doc_id,
+                ]);
+            }
             $conn->commit();
             $transaction_committed = true;
 

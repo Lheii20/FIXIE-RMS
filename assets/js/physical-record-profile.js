@@ -356,6 +356,13 @@
   async function showDigitalPreview(documentRecord){
     clearPreview();const token=previewToken,name=documentRecord.file_name||'Digital file';
     const url='download.php?type=document&record_id='+encodeURIComponent(documentRecord.doc_id);
+    if(window.DRMSFilePreview){
+      await window.DRMSFilePreview.open({url,name,onClose:()=>{
+        switchingToPreview=false;
+        if(profile)bootstrap.Modal.getOrCreateInstance(modal).show();
+      }});
+      return;
+    }
     preview('Title').textContent=name;preview('Download').href=url;preview('Download').download=name;
     previewModal.show();
     const extension=name.split('.').pop().toLowerCase();

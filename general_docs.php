@@ -231,11 +231,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         if ($role === 'Admin') redirectDocumentsWithMessage("error", "System Administrators cannot share documents.");
         
         $doc_id = intval($_POST['doc_id']);
-        $access_type = (($_POST['access_type'] ?? '') === 'Restricted') ? 'Restricted' : 'Folder Default';
+        $access_type = (string) ($_POST['access_type'] ?? '');
         $return_url = drms_record_action_safe_return(
             $_POST['return_url'] ?? null,
             'general_docs.php'
         );
+        if (!in_array($access_type, ['Folder Default', 'Restricted'], true)) {
+            drms_record_action_feedback($return_url, 'error', 'Choose who can open this file.');
+        }
         try {
             $d_chk = drms_record_action_require_owner(
                 $conn,
@@ -255,10 +258,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
         
         $perms = [];
+        $shareable_user_ids = array_fill_keys(array_map('intval', array_column($all_users, 'user_id')), true);
         if (isset($_POST['user_roles']) && is_array($_POST['user_roles'])) {
             foreach ($_POST['user_roles'] as $uid => $urole) {
-                if (in_array($urole, ['Viewer', 'Editor'])) {
-                    $perms["user_" . intval($uid)] = $urole;
+                $share_user_id = (int) $uid;
+                if (isset($shareable_user_ids[$share_user_id]) && in_array($urole, ['Viewer', 'Editor'], true)) {
+                    $perms['user_' . $share_user_id] = $urole;
                 }
             }
         }
@@ -827,9 +832,11 @@ $cat_query = $conn->query("
            MAX(dc.system_folder_key) as system_folder_key,
            MAX(dc.is_system_folder) as is_system_folder,
            MAX(dc.system_sort_order) as system_sort_order,
+           MAX(rp.policy_name) as policy_name,
            GROUP_CONCAT(cra.role_name) as roles
     FROM document_categories dc
     LEFT JOIN category_role_access cra ON dc.id = cra.category_id
+    LEFT JOIN retention_policies rp ON dc.policy_id = rp.policy_id
     GROUP BY dc.id
     ORDER BY MAX(dc.is_system_folder) DESC, dc.parent_category ASC,
              COALESCE(MAX(dc.system_sort_order), 32767) ASC, dc.id ASC
@@ -869,6 +876,7 @@ if ($cat_query) {
                 'system_folder_key' => trim((string) $row['system_folder_key']),
                 'is_system_folder' => (int) $row['is_system_folder'] === 1,
                 'system_sort_order' => $row['system_sort_order'],
+                'policy_name' => trim((string) ($row['policy_name'] ?? '')),
             ];
         }
 
@@ -1236,9 +1244,13 @@ if ($search !== '') {
 }
 
 if ($view_shared) {
-    $where[] = "d.file_permissions LIKE ?";
-    $params[] = '%"user_' . $_SESSION['user_id'] . '"%';
-    $types .= "s";
+    // Company Files is the working-file cabinet. Match an actual granted role,
+    // and exclude records already converted into the immutable Official cabinet.
+    $where[] = "(d.record_phase = 'Working' OR d.record_phase = 'For Review' OR d.record_phase IS NULL)";
+    $where[] = "(d.file_permissions LIKE ? OR d.file_permissions LIKE ?)";
+    $params[] = '%"user_' . (int) $_SESSION['user_id'] . '":"Viewer"%';
+    $params[] = '%"user_' . (int) $_SESSION['user_id'] . '":"Editor"%';
+    $types .= "ss";
 } else {
     if (!empty($type_filter)) {
         $where[] = "d.category = ?";
@@ -1374,6 +1386,8 @@ if(isset($_GET['success'])) {
     <link href="assets/css/style.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/mobile-drive-lists.css" rel="stylesheet">
+    <link href="assets/css/record-upload.css?v=<?php echo filemtime(__DIR__ . '/assets/css/record-upload.css'); ?>" rel="stylesheet">
+    <link href="assets/css/record-sharing.css?v=<?php echo filemtime(__DIR__ . '/assets/css/record-sharing.css'); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/vendor/sweetalert2/11.26.25/sweetalert2.min.css">
     <link rel="stylesheet" href="assets/vendor/datatables/1.13.6/dataTables.bootstrap5.min.css">
     
@@ -1646,13 +1660,8 @@ if(isset($_GET['success'])) {
                         $is_system_subfolder = !empty($folder_meta['is_system_folder']);
                         $folder_record_prefix = trim((string) ($folder_meta['record_prefix'] ?? ''));
                         
-                        // Kukunin natin ang kasalukuyang policy ng folder na ito
-                        $current_pol_name = "No Policy Assigned";
-                        $q_pol = $conn->prepare("SELECT p.policy_name FROM document_categories dc LEFT JOIN retention_policies p ON dc.policy_id = p.policy_id WHERE dc.parent_category = ? AND dc.sub_category = ? LIMIT 1");
-                        $q_pol->bind_param("ss", $parent_filter, $s);
-                        $q_pol->execute();
-                        $r_pol = $q_pol->get_result()->fetch_assoc();
-                        if($r_pol && $r_pol['policy_name']) { $current_pol_name = $r_pol['policy_name']; }
+                        $current_pol_name = ($folder_meta['policy_name'] ?? '') !== ''
+                            ? $folder_meta['policy_name'] : 'No Policy Assigned';
                     ?>
                     <div class="col-md-3 col-sm-6">
                         <div class="folder-card p-3 h-100 position-relative" onclick="window.location='general_docs.php?parent=<?php echo urlencode($parent_filter); ?>&type=<?php echo urlencode($s); ?>'">
@@ -2074,6 +2083,18 @@ if(isset($_GET['success'])) {
                                                                 <i class="fas fa-download text-success me-2"></i> Download
                                                             </a>
                                                         </li>
+                                                         <?php if ($is_mine || $is_top_mgmt): ?>
+                                                         <li>
+                                                             <button type="button" class="dropdown-item fw-medium text-dark" data-record-share-open
+                                                                     data-share-doc-id="<?php echo (int) $doc['doc_id']; ?>"
+                                                                     data-share-file-name="<?php echo htmlspecialchars((string) $doc['file_name'], ENT_QUOTES, 'UTF-8'); ?>"
+                                                                     data-share-owner="<?php echo htmlspecialchars((string) ($doc['full_name'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>"
+                                                                     data-share-access-type="<?php echo htmlspecialchars((string) $access_type, ENT_QUOTES, 'UTF-8'); ?>"
+                                                                     data-share-permissions="<?php echo htmlspecialchars((string) ($doc['file_permissions'] ?? '{}'), ENT_QUOTES, 'UTF-8'); ?>">
+                                                                 <i class="fas fa-user-shield text-primary me-2"></i> Manage access
+                                                             </button>
+                                                         </li>
+                                                         <?php endif; ?>
                                                         <li>
                                                             <button type="button" class="dropdown-item fw-medium text-dark" onclick="openVersionModal(<?php echo $doc['doc_id']; ?>, '<?php echo htmlspecialchars(addslashes($doc['file_name'])); ?>', <?php echo $can_edit_file ? 'true' : 'false'; ?>)">
                                                                 <i class="fas fa-code-branch text-info me-2"></i> Version History
@@ -2211,7 +2232,7 @@ if(isset($_GET['success'])) {
                                     <div class="border border-dashed p-3 text-center rounded-3 bg-light position-relative" style="border-color: #cbd5e1 !important; border-style: dashed !important; border-width: 2px !important;">
                                         <i class="fas fa-cloud-upload-alt text-primary fs-3 mb-1 opacity-75"></i>
                                         <div class="fs-xs text-muted mb-2">Drag file or click below</div>
-                                        <input type="file" name="new_document" class="form-control form-control-sm border-0 shadow-none bg-white fs-xs w-100" required>
+                                        <input type="file" name="new_document" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tif,.tiff,.avif,.pdf,.docx,.xls,.xlsx" class="form-control form-control-sm border-0 shadow-none bg-white fs-xs w-100" required>
                                     </div>
                                 </div>
                                 <div class="mb-3">
@@ -2288,118 +2309,7 @@ if(isset($_GET['success'])) {
     </div>
 </div>
 
-<!-- SHARE MODAL -->
-<div class="modal fade sleek-modal" id="shareDocumentModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content shadow-lg border-0" style="border-radius: 12px; overflow: hidden;">
-            
-            <!-- Minimalist Header -->
-            <div class="modal-header border-bottom border-light pb-3 pt-4 px-4 bg-white">
-                <div class="w-100">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h5 class="modal-title fw-bold text-dark fs-5 letter-spacing-tight">Share Document</h5>
-                        <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal"></button>
-                    </div>
-                    <!-- Inline Document Info -->
-                    <div class="d-flex align-items-center bg-f8f9fa rounded-3 p-2 px-3 border border-light">
-                        <i class="fas fa-file-alt text-primary fs-5 me-3"></i>
-                        <div class="overflow-hidden w-100">
-                            <h6 class="mb-0 fw-bold text-dark text-truncate fs-sm" id="shareDocName" title="Document Name">Document Name</h6>
-                            <div class="text-muted fs-xs fw-medium mt-1" id="shareDocOwner">Owner: User</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="modal-body p-0 bg-white">
-                <form action="general_docs.php" method="POST" id="shareForm">
-                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                    <input type="hidden" name="action" value="share_document">
-                    <input type="hidden" name="doc_id" id="shareDocId">
-                    <input type="hidden" name="return_url" value="<?php echo htmlspecialchars($_SERVER['REQUEST_URI']); ?>">
-                    
-                    <!-- General Access -->
-                    <div class="p-4 border-bottom border-light">
-                        <h6 class="fw-bold fs-xs text-muted text-uppercase letter-spacing-tight mb-3">General Access</h6>
-                        <div class="d-flex align-items-start">
-                            <div class="bg-light text-secondary rounded-circle d-flex justify-content-center align-items-center me-3 mt-1 flex-shrink-0 border shadow-sm" style="width: 42px; height: 42px;">
-                                <i class="fas fa-link"></i>
-                            </div>
-                            <div class="w-100">
-                                <!-- CUSTOM MODERN DROPDOWN FOR GENERAL ACCESS -->
-                                <div class="dropdown custom-general-access-dropdown w-100">
-                                    <!-- Hidden input na nagpapasa sa Database at binabasa ng JS -->
-                                    <input type="hidden" name="access_type" id="shareAccessType" value="Folder Default">
-                                    
-                                    <button class="btn btn-light bg-f8f9fa text-dark fs-sm fw-bold text-start rounded-3 shadow-none d-flex justify-content-between align-items-center w-100 border border-light py-2" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="transition: all 0.2s;">
-                                        <span id="generalAccessSelectedText">Folder Default (Inherit Permissions)</span>
-                                        <i class="fas fa-chevron-down text-secondary" style="font-size: 12px;"></i>
-                                    </button>
-                                    
-                                    <!-- Ang Floating Modern Dropdown Menu -->
-                                    <ul class="dropdown-menu dropdown-menu-start shadow-lg border-0 rounded-4 mt-1 p-2 w-100">
-                                        <li><button type="button" class="dropdown-item rounded-3 fs-sm fw-medium py-2 mb-1" onclick="updateGeneralAccessSelection('Folder Default', 'Folder Default (Inherit Permissions)')"><i class="fas fa-folder-open text-primary me-2 w-15px"></i> Folder Default (Inherit Permissions)</button></li>
-                                        <li><button type="button" class="dropdown-item rounded-3 fs-sm fw-medium py-2" onclick="updateGeneralAccessSelection('Restricted', 'Restricted (Only selected people)')"><i class="fas fa-user-shield text-danger me-2 w-15px"></i> Restricted (Only selected people)</button></li>
-                                    </ul>
-                                </div>
-                                <div class="form-text fs-xs mt-2 text-muted fw-medium" id="shareAccessHelpText">
-                                    Inherits permissions based on the parent folder's department assignment.
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Restricted Users Section -->
-                    <div id="restrictedUsersSection" class="d-none">
-                        <div class="px-4 pt-3 pb-2 border-bottom border-light bg-light">
-                            <h6 class="fw-bold fs-xs text-muted text-uppercase letter-spacing-tight mb-0">People with Access</h6>
-                        </div>
-                        <div class="px-2" style="max-height: 260px; overflow-y: auto;">
-                            <?php foreach ($all_users as $u): ?>
-                            <div class="d-flex justify-content-between align-items-center p-3 border-bottom border-light hover-bg-light transition-all rounded-2 my-1 mx-1">
-                                <div class="d-flex align-items-center">
-                                    <div class="rounded-circle d-flex justify-content-center align-items-center me-3 fw-bold text-white shadow-sm" style="width: 36px; height: 36px; font-size: 13px; background-color: #64748b;">
-                                        <?php echo strtoupper(substr($u['full_name'], 0, 1)); ?>
-                                    </div>
-                                    <div class="lh-sm">
-                                        <div class="fw-bold fs-sm text-dark mb-1"><?php echo htmlspecialchars($u['full_name']); ?></div>
-                                        <div class="fs-xs text-muted fw-medium"><?php echo htmlspecialchars($u['role']); ?></div>
-                                    </div>
-                                </div>
-                                <!-- CUSTOM MODERN DROPDOWN -->
-                                <div class="dropdown custom-role-dropdown" data-user-id="<?php echo $u['user_id']; ?>">
-                                    <!-- Hidden input na nagpapasa sa Database -->
-                                    <input type="hidden" name="user_roles[<?php echo $u['user_id']; ?>]" id="role_input_<?php echo $u['user_id']; ?>" value="None">
-                                    
-                                    <!-- Ang sleek pill button na mukhang Select Box -->
-                                    <button class="btn btn-sm btn-white bg-white text-dark fs-xs fw-bold text-start rounded-pill shadow-none d-flex justify-content-between align-items-center" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="border: 1px solid #cbd5e1; width: 140px; padding: 6px 16px; transition: all 0.2s;">
-                                        <span class="selected-role-text">No Access</span>
-                                        <i class="fas fa-chevron-down text-secondary" style="font-size: 10px;"></i>
-                                    </button>
-                                    
-                                    <!-- Ang Floating Modern Dropdown Menu -->
-                                    <ul class="dropdown-menu dropdown-menu-end shadow-lg border-0 rounded-4 mt-1 p-2" style="min-width: 140px;">
-                                        <li><button type="button" class="dropdown-item rounded-3 fs-xs fw-medium py-2 mb-1" onclick="updateRoleSelection(<?php echo $u['user_id']; ?>, 'None', 'No Access')">No Access</button></li>
-                                        <li><button type="button" class="dropdown-item rounded-3 fs-xs fw-medium py-2 mb-1" onclick="updateRoleSelection(<?php echo $u['user_id']; ?>, 'Viewer', 'Viewer')">Viewer</button></li>
-                                        <li><button type="button" class="dropdown-item rounded-3 fs-xs fw-medium py-2" onclick="updateRoleSelection(<?php echo $u['user_id']; ?>, 'Editor', 'Editor')">Editor</button></li>
-                                    </ul>
-                                </div>
-                            </div>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
-
-                    <!-- Footer Buttons -->
-                    <div class="d-flex justify-content-end gap-2 p-3 bg-light border-top border-light">
-                        <button type="button" class="btn btn-light fw-bold px-4 py-2 rounded-pill border bg-white text-dark shadow-sm fs-sm" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-primary fw-bold px-4 py-2 rounded-pill shadow-sm fs-sm">Save Settings</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
-
+<?php $shareActionPage = 'general_docs.php'; require __DIR__ . '/includes/record_share_modal.php'; ?>
 <!-- LEGAL HOLD MODAL -->
 <div class="modal fade sleek-modal" id="legalHoldModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
@@ -2445,29 +2355,29 @@ if(isset($_GET['success'])) {
   <!-- DECLARE OFFICIAL MODAL -->
 <!-- UPLOAD MODAL -->
 <?php if (!$hide_upload_button): ?>
-<div class="modal fade sleek-modal" id="uploadModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade sleek-modal record-upload-modal" id="uploadModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered" style="max-width: 550px;">
         <div class="modal-content shadow-lg border-0 rounded-4">
             <div class="modal-header bg-white border-bottom pb-3 pt-4 px-4 rounded-top-4">
                 <div>
                     <h5 class="modal-title fw-bold text-dark fs-5 letter-spacing-tight"><i class="fas fa-cloud-upload-alt text-primary me-2"></i>Upload Record</h5>
-                    <p class="text-muted mb-0 fs-xs mt-1">Select a target folder or scan the document.</p>
+                    <p class="text-muted mb-0 fs-xs mt-1">Choose a folder, then add the file you want to keep.</p>
                 </div>
                 <button type="button" class="btn-close shadow-none" data-bs-dismiss="modal" style="margin-top: -15px;"></button>
             </div>
             <div class="modal-body p-4 bg-f8f9fa rounded-bottom-4">
-                <form action="actions/document_handler.php" method="POST" enctype="multipart/form-data">
+                <form id="recordUploadForm" action="actions/document_handler.php" method="POST" enctype="multipart/form-data" novalidate>
                     <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                     <input type="hidden" name="action" value="upload">
-                    <input type="file" name="document" id="uploadDocumentInput" class="d-none" required>
+                    <input type="file" name="document" id="uploadDocumentInput" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tif,.tiff,.avif,.pdf,.docx,.xls,.xlsx" class="d-none">
                     
-                    <div class="mb-4 position-relative">
-                        <label class="form-label text-muted fs-xs fw-bold text-uppercase letter-spacing-tight">Target Folder <span class="text-danger">*</span></label>
+                    <div class="record-upload-step position-relative">
+                        <label class="record-upload-step-label"><span class="step-number">1</span>Save in folder <span class="text-danger">*</span></label>
                         
                         <!-- CUSTOM DROPDOWN PARA SA FOLDERS -->
                         <div class="dropdown w-100">
                             <!-- Naka-hide na HTML5 input para gumana ang "required" pop-up ng browser nang hindi nasisira ang design -->
-                            <input type="text" name="category" id="uploadCategoryInput" required style="opacity: 0; position: absolute; bottom: 0; left: 50%; pointer-events: none; z-index: -1;">
+                            <input type="text" name="category" id="uploadCategoryInput" style="opacity: 0; position: absolute; bottom: 0; left: 50%; pointer-events: none; z-index: -1;">
                             
                             <button class="btn custom-select-btn d-flex justify-content-between align-items-center w-100 py-2 rounded-3 text-start shadow-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false" id="uploadCategoryBtn">
                                 <span id="uploadCategoryText" class="text-muted fw-medium fs-sm">Select Target Folder</span>
@@ -2500,36 +2410,26 @@ if(isset($_GET['success'])) {
                                 ?>
                             </ul>
                         </div>
+                        <div id="uploadFolderError" class="record-upload-inline-error d-none" role="alert">Choose a folder before uploading.</div>
                     </div>
                     
-                    <div class="mb-2">
-                        <label class="form-label text-muted fs-xs fw-bold text-uppercase letter-spacing-tight">Input Method <span class="text-danger">*</span></label>
-                        
-                        <!-- REFINED TILES MAY HOVER NA -->
-                        <div class="row g-3">
-                            <div class="col-6">
-                                <button type="button" id="uploadBrowseBtn" class="btn btn-white bg-white border border-light w-100 py-3 rounded-4 shadow-sm text-dark d-flex flex-column align-items-center justify-content-center upload-tile-btn">
-                                    <div class="bg-primary bg-opacity-10 text-primary rounded-circle d-flex align-items-center justify-content-center mb-2" style="width: 45px; height: 45px;">
-                                        <i class="fas fa-folder-open fs-5"></i>
-                                    </div>
-                                    <span class="fw-bold fs-sm">Browse Files</span>
-                                </button>
-                            </div>
-                            <div class="col-6">
-                                <button type="button" id="uploadCameraBtn" class="btn btn-white bg-white border border-light w-100 py-3 rounded-4 shadow-sm text-dark d-flex flex-column align-items-center justify-content-center upload-tile-btn">
-                                    <div class="bg-primary bg-opacity-10 text-primary rounded-circle d-flex align-items-center justify-content-center mb-2" style="width: 45px; height: 45px;">
-                                        <i class="fas fa-camera fs-5"></i>
-                                    </div>
-                                    <span class="fw-bold fs-sm">Use Camera</span>
-                                </button>
+                    <div class="record-upload-step">
+                        <label class="record-upload-step-label"><span class="step-number">2</span>Add a file <span class="text-danger">*</span></label>
+                        <div id="uploadDropZone" class="record-upload-dropzone" role="region" aria-label="File drop area" aria-describedby="recordUploadFileTypes" tabindex="0">
+                            <div class="drop-title"><i class="fas fa-cloud-upload-alt text-primary me-2" aria-hidden="true"></i>Drop a file here</div>
+                            <div class="drop-hint">Or choose another way to add it.</div>
+                            <div class="drop-actions">
+                                <button type="button" id="uploadBrowseBtn" class="btn btn-primary"><i class="fas fa-folder-open me-1" aria-hidden="true"></i>Browse files</button>
+                                <button type="button" id="uploadCameraBtn" class="btn btn-outline-primary"><i class="fas fa-camera me-1" aria-hidden="true"></i>Use camera</button>
                             </div>
                         </div>
-                        
-                        <div class="d-flex justify-content-center mt-3 flex-column align-items-center">
-                            <span id="uploadChosenFileText" class="badge bg-secondary bg-opacity-10 text-secondary border px-3 py-1 fs-xs fw-medium text-truncate mb-2" style="max-width: 100%;">No file selected yet.</span>
-                            <!-- Document Preview inside Main Upload Modal -->
-                            <img id="mainUploadPreview" class="d-none rounded-3 shadow-sm border border-secondary border-opacity-25" style="max-height: 180px; max-width: 100%; object-fit: contain;" alt="Selected file preview">
+                        <div id="recordUploadFileTypes" class="record-upload-file-types">One file at a time: image, PDF, DOCX, or Excel (XLS/XLSX). No videos.</div>
+                        <div id="uploadSelectedFile" class="record-upload-selected d-none">
+                            <button type="button" id="uploadRemoveFileBtn" class="record-upload-remove" aria-label="Remove selected file" title="Remove file">&times;</button>
+                            <div id="uploadChosenFileText" class="record-upload-file-name" role="status" aria-live="polite">No file selected yet.</div>
+                            <button type="button" id="uploadPreviewFileBtn" class="btn btn-outline-primary btn-sm record-upload-preview-btn"><i class="fas fa-eye me-1" aria-hidden="true"></i>Preview file</button>
                         </div>
+                        <div id="uploadFileTypeError" class="alert alert-danger py-2 px-3 mt-2 mb-0 d-none fs-sm" role="alert"></div>
 
                         <!-- START: Document Classification UI -->
                         <div id="classificationSuggestion" class="d-none mt-3 p-3 rounded-4 bg-primary bg-opacity-10 border border-primary border-opacity-25 shadow-sm">
@@ -2551,50 +2451,65 @@ if(isset($_GET['success'])) {
                         <!-- END: Document Classification UI -->
                     </div>
 
-                    <!-- Camera UI migrated to standalone modal -->
-
-                    <div class="mb-4 mt-3">
-                        <label class="form-label text-muted fs-xs fw-bold text-uppercase letter-spacing-tight">Initial Sharing Access</label>
-
-                        <!-- DAGDAG NA PHYSICAL STATUS QUESTION -->
-                    <div class="mb-4 mt-3">
-                        <label class="form-label text-muted fs-xs fw-bold text-uppercase letter-spacing-tight">Physical File Status</label>
-                        <div class="dropdown w-100">
-                            <input type="hidden" name="physical_status" id="uploadPhysicalInput" value="Digital">
-                            <button class="btn custom-select-btn d-flex justify-content-between align-items-center w-100 py-2 rounded-3 text-start shadow-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                <span id="uploadPhysicalText" class="text-dark fw-medium fs-sm"><i class="fas fa-laptop text-primary me-2 opacity-75"></i> Digital Only (No physical copy yet)</span>
-                                <i class="fas fa-chevron-down text-secondary fs-xs"></i>
-                            </button>
-                            <ul class="dropdown-menu shadow-lg border-0 rounded-4 mt-1 w-100 p-2">
-                                <li><button type="button" class="dropdown-item rounded-3 fs-sm fw-medium py-2 mb-1 text-dark" onclick="setPhysicalStatus('Digital', '<i class=\'fas fa-laptop text-primary me-2 opacity-75\'></i> Digital Only (No physical copy yet)')">Digital Only (No physical copy yet)</button></li>
-                                <li><button type="button" class="dropdown-item rounded-3 fs-sm fw-medium py-2 text-dark" onclick="setPhysicalStatus('Stored', '<i class=\'fas fa-check-circle text-success me-2 opacity-75\'></i> Physical copy is stored in Cabinet')">Physical copy is stored in Cabinet</button></li>
-                            </ul>
+                    <div class="record-upload-options">
+                        <div>
+                            <label>Paper copy</label>
+                            <div class="dropdown w-100">
+                                <input type="hidden" name="physical_status" id="uploadPhysicalInput" value="Digital">
+                                <button class="btn custom-select-btn d-flex justify-content-between align-items-center w-100 text-start" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <span id="uploadPhysicalText" class="text-dark fs-sm">Digital only</span><i class="fas fa-chevron-down text-secondary fs-xs"></i>
+                                </button>
+                                <ul class="dropdown-menu shadow border rounded-3 w-100 p-1">
+                                    <li><button type="button" class="dropdown-item rounded-2 fs-sm" onclick="setPhysicalStatus('Digital', 'Digital only')">Digital only</button></li>
+                                    <li><button type="button" class="dropdown-item rounded-2 fs-sm" onclick="setPhysicalStatus('Stored', 'Paper copy stored')">Paper copy stored</button></li>
+                                </ul>
+                            </div>
+                            <div class="record-upload-file-types">Choose stored only if a paper copy exists.</div>
                         </div>
-                        <div class="form-text fs-xs mt-2 text-muted fw-medium"><i class="fas fa-info-circle text-primary me-1"></i> Cabinet location is automatically based on your selected Target Folder.</div>
-                    </div>
-                        
-                        <!-- CUSTOM DROPDOWN PARA SA INITIAL ACCESS -->
-                        <div class="dropdown w-100">
-                            <input type="hidden" name="initial_access" id="uploadAccessInput" value="Folder Default">
-                            <button class="btn custom-select-btn d-flex justify-content-between align-items-center w-100 py-2 rounded-3 text-start shadow-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                <span id="uploadAccessText" class="text-dark fw-medium fs-sm"><i class="fas fa-folder-open text-primary me-2 opacity-75"></i> Folder Default (Inherit Permissions)</span>
-                                <i class="fas fa-chevron-down text-secondary fs-xs"></i>
-                            </button>
-                            <ul class="dropdown-menu shadow-lg border-0 rounded-4 mt-1 w-100 p-2">
-                                <li><button type="button" class="dropdown-item rounded-3 fs-sm fw-medium py-2 mb-1 text-dark" onclick="setUploadAccess('Folder Default', '<i class=\'fas fa-folder-open text-primary me-2 opacity-75\'></i> Folder Default (Inherit Permissions)')">Folder Default (Inherit Permissions)</button></li>
-                                <li><button type="button" class="dropdown-item rounded-3 fs-sm fw-medium py-2 text-dark" onclick="setUploadAccess('Restricted', '<i class=\'fas fa-lock text-danger me-2 opacity-75\'></i> Restricted (Only me for now)')">Restricted (Only me for now)</button></li>
-                            </ul>
+                        <div>
+                            <label>Who can view it?</label>
+                            <div class="dropdown w-100">
+                                <input type="hidden" name="initial_access" id="uploadAccessInput" value="Folder Default">
+                                <button class="btn custom-select-btn d-flex justify-content-between align-items-center w-100 text-start" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <span id="uploadAccessText" class="text-dark fs-sm">People with folder access</span><i class="fas fa-chevron-down text-secondary fs-xs"></i>
+                                </button>
+                                <ul class="dropdown-menu shadow border rounded-3 w-100 p-1">
+                                    <li><button type="button" class="dropdown-item rounded-2 fs-sm" onclick="setUploadAccess('Folder Default', 'People with folder access')">People with folder access</button></li>
+                                    <li><button type="button" class="dropdown-item rounded-2 fs-sm" onclick="setUploadAccess('Restricted', 'Only me for now')">Only me for now</button></li>
+                                </ul>
+                            </div>
+                            <div class="record-upload-file-types">You can change access later.</div>
                         </div>
                     </div>
 
-                    <!-- DAGDAG: Nilagyan ng id="uploadSubmitBtn" -->
-                    <button type="submit" id="uploadSubmitBtn" class="btn btn-primary w-100 fw-bold shadow-sm rounded-pill py-2 modal-btn-hover transition-all">
-                        <i class="fas fa-check-circle me-2"></i> Upload and Index File
-                    </button>
+                    <div class="record-upload-footer">
+                        <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" id="uploadSubmitBtn" class="btn btn-primary"><i class="fas fa-upload me-1" aria-hidden="true"></i>Upload record</button>
+                    </div>
                 </form>
             </div>
         </div>
     </div>
+    <section id="recordUploadPreviewPanel" class="drms-file-preview record-upload-preview-panel d-none" role="dialog" aria-modal="true" aria-labelledby="recordUploadPreviewName">
+        <div class="drms-file-preview__panel record-upload-preview-shell">
+            <header class="drms-file-preview__header">
+                <div class="drms-file-preview__heading"><span>File preview</span><strong id="recordUploadPreviewName"></strong></div>
+                <div class="drms-file-preview__header-actions">
+                    <button type="button" id="uploadBackFromPreview" class="drms-file-preview__close" aria-label="Close preview" title="Close preview"><i class="fas fa-times" aria-hidden="true"></i></button>
+                </div>
+            </header>
+            <div class="drms-file-preview__toolbar" aria-label="Preview controls">
+                <div id="recordUploadZoomControls" class="drms-file-preview__zoom">
+                    <button type="button" id="uploadZoomOut" aria-label="Zoom out" title="Zoom out"><i class="fas fa-minus" aria-hidden="true"></i></button>
+                    <span id="uploadZoomLevel" aria-live="polite">100%</span>
+                    <button type="button" id="uploadZoomIn" aria-label="Zoom in" title="Zoom in"><i class="fas fa-plus" aria-hidden="true"></i></button>
+                    <button type="button" id="uploadZoomReset" aria-label="Fit to screen" title="Fit to screen"><i class="fas fa-expand" aria-hidden="true"></i></button>
+                </div>
+                <span class="drms-file-preview__hint">Drag to move · Scroll to browse</span>
+            </div>
+            <div id="recordUploadPreviewContent" class="record-upload-preview-content"></div>
+        </div>
+    </section>
 </div>
 <?php endif; ?>
 
@@ -3215,12 +3130,6 @@ if(isset($_GET['success'])) {
         resetUploadCameraPanel();
         if (fileInput) fileInput.value = '';
         setChosenFileText('No file selected yet.');
-        
-        const mainPreview = document.getElementById('mainUploadPreview');
-        if (mainPreview) {
-            mainPreview.classList.add('d-none');
-            mainPreview.src = '';
-        }
 
         setUploadStatus('Requesting camera access...');
 
@@ -3461,12 +3370,6 @@ if(isset($_GET['success'])) {
         setChosenFileText(`Selected file: ${fileInput.files[0].name}`);
         setUploadStatus('Captured photo confirmed and ready for upload.');
         
-        const mainPreview = document.getElementById('mainUploadPreview');
-        if (mainPreview && capturedPhotoUrl) {
-            mainPreview.src = capturedPhotoUrl;
-            mainPreview.classList.remove('d-none');
-        }
-        
         closeCameraModal();
         analyzeDocument(fileInput.files[0]); 
     }
@@ -3479,32 +3382,38 @@ if(isset($_GET['success'])) {
 
     function handleUploadFileSelection(event) {
         const file = event.target.files && event.target.files[0];
-        const mainPreview = document.getElementById('mainUploadPreview');
+        const errorBox = document.getElementById('uploadFileTypeError');
         
         if (!file) {
+            ++uploadAnalysisGeneration;
             setChosenFileText('No file selected yet.');
             document.getElementById('classificationSuggestion').classList.add('d-none');
-            if (mainPreview) mainPreview.classList.add('d-none');
             return;
         }
 
-        setChosenFileText(`Selected file: ${file.name}`);
-        
-        if (file.type.startsWith('image/')) {
-            if (mainPreview) {
-                mainPreview.src = URL.createObjectURL(file);
-                mainPreview.classList.remove('d-none');
+        const extension = file.name.split('.').pop().toLowerCase();
+        const allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'avif', 'pdf', 'docx', 'xls', 'xlsx'];
+        if (file.type.startsWith('video/') || !allowedExtensions.includes(extension)) {
+            ++uploadAnalysisGeneration;
+            event.target.value = '';
+            setChosenFileText('No file selected yet.');
+            document.getElementById('classificationSuggestion').classList.add('d-none');
+            if (errorBox) {
+                errorBox.textContent = 'This file cannot be uploaded. Choose an image, PDF, DOCX, or Excel file. Videos are not allowed.';
+                errorBox.classList.remove('d-none');
             }
-        } else {
-            if (mainPreview) mainPreview.classList.add('d-none');
+            return;
         }
-        
+        if (errorBox) errorBox.classList.add('d-none');
+
+        setChosenFileText(`Selected file: ${file.name}`);
         analyzeDocument(file); 
     }
 
     // CUSTOM DROPDOWN HELPERS
     function setUploadCategory(val, suggestedText = null) {
         document.getElementById('uploadCategoryInput').value = val;
+        document.getElementById('uploadFolderError')?.classList.add('d-none');
         const textSpan = document.getElementById('uploadCategoryText');
         textSpan.innerText = suggestedText ? suggestedText : val;
         textSpan.classList.remove('text-muted');
@@ -3666,11 +3575,8 @@ if(isset($_GET['success'])) {
         uploadModal.addEventListener('hidden.bs.modal', function () {
             if (fileInput) fileInput.value = '';
             setChosenFileText('No file selected yet.');
-            const mainPreview = document.getElementById('mainUploadPreview');
-            if (mainPreview) {
-                mainPreview.classList.add('d-none');
-                mainPreview.src = '';
-            }
+            const fileTypeError = document.getElementById('uploadFileTypeError');
+            if (fileTypeError) fileTypeError.classList.add('d-none');
             document.getElementById('classificationSuggestion').classList.add('d-none');
         });
     }
@@ -3864,76 +3770,6 @@ if(isset($_GET['success'])) {
                 document.getElementById('versionHistoryTimeline').innerHTML = '<div class="text-danger fs-sm text-center py-3">Failed to load history.</div>';
             }
         });
-    }
-
-    function openShareModal(docId, fileName, accessType, filePermissionsStr, ownerName) {
-        document.getElementById('shareDocId').value = docId;
-        document.getElementById('shareDocName').innerText = fileName;
-        document.getElementById('shareDocOwner').innerText = 'Owner: ' + ownerName;
-        
-        // I-update ang Hidden Input at Custom Text ng General Access
-        const accessInput = document.getElementById('shareAccessType');
-        accessInput.value = accessType;
-        const accessText = (accessType === 'Restricted') ? 'Restricted (Only selected people)' : 'Folder Default (Inherit Permissions)';
-        document.getElementById('generalAccessSelectedText').innerText = accessText;
-        
-        const perms = JSON.parse(filePermissionsStr || '{}');
-        
-        document.querySelectorAll('input[name^="user_roles"]').forEach(input => {
-            input.value = 'None'; 
-            const userId = input.name.match(/\[(\d+)\]/)[1];
-            let roleText = 'No Access';
-            
-            if (perms['user_' + userId]) {
-                input.value = perms['user_' + userId];
-                roleText = perms['user_' + userId];
-            }
-            
-            // I-update ang text ng pill button
-            const textSpan = document.querySelector('.custom-role-dropdown[data-user-id="'+userId+'"] .selected-role-text');
-            if(textSpan) textSpan.innerText = roleText;
-        });
-
-        toggleShareList();
-        new bootstrap.Modal(document.getElementById('shareDocumentModal')).show();
-    }
-
-    // Bagong function para sa custom General Access dropdown
-    function updateGeneralAccessSelection(value, text) {
-        document.getElementById('shareAccessType').value = value;
-        document.getElementById('generalAccessSelectedText').innerText = text;
-        toggleShareList(); // I-trigger ang pag-hide/show ng users list
-    }
-
-    function toggleShareList() {
-        const type = document.getElementById('shareAccessType').value;
-        const list = document.getElementById('restrictedUsersSection');
-        const help = document.getElementById('shareAccessHelpText');
-        
-        if (type === 'Restricted') {
-            list.classList.remove('d-none');
-            help.innerText = "Only explicitly added people can access this file.";
-            help.classList.add('text-danger');
-            help.classList.remove('text-muted');
-        } else {
-            list.classList.add('d-none');
-            help.innerText = "Inherits permissions based on the parent folder's department assignment.";
-            help.classList.add('text-muted');
-            help.classList.remove('text-danger');
-            
-            document.querySelectorAll('input[name^="user_roles"]').forEach(input => {
-                input.value = 'None';
-                const userId = input.name.match(/\[(\d+)\]/)[1];
-                const textSpan = document.querySelector('.custom-role-dropdown[data-user-id="'+userId+'"] .selected-role-text');
-                if(textSpan) textSpan.innerText = 'No Access';
-            });
-        }
-    }
-
-    // Function na nag-a-update ng text at value kapag pumili sa bagong custom dropdown
-    function updateRoleSelection(userId, value, text) {
-        document.getElementById('role_input_' + userId).value = value;
-        document.querySelector('.custom-role-dropdown[data-user-id="' + userId + '"] .selected-role-text').innerText = text;
     }
 
     function openLegalHoldModal(docId, fileName) {
@@ -4313,6 +4149,7 @@ if(isset($_GET['success'])) {
     // ==========================================
     // VIEW DETAILS & ACTIVITY TIMELINE
     // ==========================================
+    let currentFileDetailsRequest = 0;
     function viewFileDetails(fileName, category, filePath, uploadedAt, uploadedBy, renameHistoryBase64) {
         
         // Ligtas na ide-decode ang Base64 pabalik sa JSON string!
@@ -4321,16 +4158,23 @@ if(isset($_GET['success'])) {
             renameHistoryJson = atob(renameHistoryBase64); 
         } catch(e) { console.error("History Decode Error:", e); }
 
+        const requestId = ++currentFileDetailsRequest;
+        renderDetailsModal(fileName, category, 'Checking file size...', uploadedAt, uploadedBy, renameHistoryJson);
         fetch(filePath, { method: 'HEAD' }).then(response => {
+            if (!response.ok) throw new Error('File size unavailable.');
             let bytes = response.headers.get('content-length');
-            let sizeFormatted = 'Unknown Size';
+            let sizeFormatted = 'Not available';
             if (bytes) {
                 let kb = bytes / 1024;
                 sizeFormatted = kb >= 1024 ? (kb / 1024).toFixed(2) + ' MB' : kb.toFixed(2) + ' KB';
             }
-            renderDetailsModal(fileName, category, sizeFormatted, uploadedAt, uploadedBy, renameHistoryJson);
+            return sizeFormatted;
         }).catch(() => {
-            renderDetailsModal(fileName, category, 'Unknown Size', uploadedAt, uploadedBy, renameHistoryJson);
+            return 'Not available';
+        }).then(sizeFormatted => {
+            if (requestId !== currentFileDetailsRequest) return;
+            const sizeElement = document.getElementById('fileDetailsSizeValue');
+            if (sizeElement) sizeElement.textContent = sizeFormatted;
         });
     }
 
@@ -4515,7 +4359,7 @@ if(isset($_GET['success'])) {
                             </div>
                             <div class="d-flex mb-3">
                                 <div class="fs-sm" style="width: 90px; color: #5f6368;">Size</div>
-                                <div class="fs-sm text-dark fw-medium flex-grow-1">${sizeFormatted}</div>
+                                <div id="fileDetailsSizeValue" class="fs-sm text-dark fw-medium flex-grow-1">${sizeFormatted}</div>
                             </div>
                             <div class="d-flex mb-3">
                                 <div class="fs-sm" style="width: 90px; color: #5f6368;">Location</div>
@@ -4711,5 +4555,7 @@ if(isset($_GET['success'])) {
     });
 </script>
 <script src="assets/js/physical-record-profile.js?v=<?php echo filemtime(__DIR__ . '/assets/js/physical-record-profile.js'); ?>"></script>
+<script src="assets/js/record-upload-modal.js?v=<?php echo filemtime(__DIR__ . '/assets/js/record-upload-modal.js'); ?>"></script>
+<script src="assets/js/record-sharing.js?v=<?php echo filemtime(__DIR__ . '/assets/js/record-sharing.js'); ?>"></script>
 </body>
 </html>

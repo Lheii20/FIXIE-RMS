@@ -31,13 +31,38 @@ if(isset($_GET['success'])) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>System Login - Fixie DRMS</title>
+    <link rel="icon" type="image/png" href="assets/images/fixie_logo.png?v=<?php echo (string) (@filemtime(__DIR__ . '/assets/images/fixie_logo.png') ?: 1); ?>">
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
     <link href="assets/css/style.css" rel="stylesheet">
+    <link href="assets/css/auth-brand.css?v=<?php echo (string) (@filemtime(__DIR__ . '/assets/css/auth-brand.css') ?: 1); ?>" rel="stylesheet">
     <link href="assets/css/loading-skeleton.css?v=<?php echo filemtime(__DIR__ . '/assets/css/loading-skeleton.css'); ?>" rel="stylesheet">
     <script src="assets/js/loading-skeleton.js?v=<?php echo filemtime(__DIR__ . '/assets/js/loading-skeleton.js'); ?>" defer></script>
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link rel="stylesheet" href="assets/vendor/sweetalert2/11.26.25/sweetalert2.min.css">
     <link rel="stylesheet" href="assets/css/system-feedback.css?v=<?php echo file_exists(__DIR__ . '/assets/css/system-feedback.css') ? filemtime(__DIR__ . '/assets/css/system-feedback.css') : '1'; ?>">
+    <style>
+        body.auth-page .forgot-pass {
+            width: fit-content;
+            max-width: 100%;
+            margin-left: auto !important;
+        }
+
+        body.auth-page .forgot-pass:focus-visible {
+            outline: 2px solid currentColor;
+            outline-offset: 3px;
+            border-radius: 2px;
+        }
+
+        @media (min-width: 768px) {
+            body.auth-page .auth-wrapper .brand-panel {
+                background: linear-gradient(135deg, #17346c 0%, #0d1933 100%) !important;
+                background-size: 100% 100% !important;
+                animation: none !important;
+                will-change: auto;
+            }
+        }
+
+    </style>
     
 </head>
 <body class="auth-page">
@@ -85,7 +110,7 @@ if(isset($_GET['success'])) {
                             <i class="fas fa-eye position-absolute" id="togglePassword" style="right: 15px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #64748b; z-index: 10;"></i>
                         </div>
                         
-                        <a href="forgot_password.php" class="forgot-pass" tabindex="-1">Forgot Password?</a>
+                        <a href="forgot_password.php" class="forgot-pass">Forgot Password?</a>
 
                         <button type="submit" name="login" class="btn-corporate">Log in</button>
                     </form>

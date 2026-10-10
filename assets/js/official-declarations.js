@@ -15,20 +15,27 @@
     const previewElement = document.getElementById('declarationPreviewModal');
     if (previewElement) {
         const previewModal = window.bootstrap?.Modal.getOrCreateInstance(previewElement);
+        const viewer = previewElement.querySelector('[data-preview-viewer]');
         const image = previewElement.querySelector('[data-preview-image]');
+        const imageScroll = previewElement.querySelector('[data-preview-image-scroll]');
         const pdfViewer = previewElement.querySelector('[data-preview-pdf]');
         const pdfCanvas = previewElement.querySelector('[data-preview-canvas]');
         const pdfScroll = previewElement.querySelector('[data-preview-page-scroll]');
+        const pageControls = previewElement.querySelector('[data-preview-page-controls]');
         const pageLabel = previewElement.querySelector('[data-preview-page]');
         const previousPage = previewElement.querySelector('[data-preview-prev]');
         const nextPage = previewElement.querySelector('[data-preview-next]');
         const zoomOut = previewElement.querySelector('[data-preview-zoom-out]');
         const zoomIn = previewElement.querySelector('[data-preview-zoom-in]');
+        const zoomLevel = previewElement.querySelector('[data-preview-zoom-level]');
         const loading = previewElement.querySelector('[data-preview-loading]');
         const fallback = previewElement.querySelector('[data-preview-fallback]');
         const download = previewElement.querySelector('[data-preview-download]');
         const title = previewElement.querySelector('#declarationPreviewTitle');
         let previewToken = 0;
+        let fetchController = null;
+        let imageUrl = null;
+        let activeType = null;
         let pdfDocument = null;
         let loadingTask = null;
         let renderTask = null;
@@ -41,8 +48,30 @@
             pageLabel.textContent = `Page ${pageNumber} of ${count}`;
             previousPage.disabled = pageNumber <= 1;
             nextPage.disabled = pageNumber >= count;
-            zoomOut.disabled = zoom <= 0.75;
-            zoomIn.disabled = zoom >= 1.5;
+            zoomOut.disabled = !activeType || zoom <= 0.5;
+            zoomIn.disabled = !activeType || zoom >= 3;
+            zoomLevel.textContent = `${Math.round(zoom * 100)}%`;
+            pageControls.hidden = activeType !== 'pdf';
+        };
+
+        const viewCenter = area => ({
+            x: (area.scrollLeft + area.clientWidth / 2) / Math.max(area.scrollWidth, 1),
+            y: (area.scrollTop + area.clientHeight / 2) / Math.max(area.scrollHeight, 1)
+        });
+
+        const restoreCenter = (area, center) => {
+            area.scrollLeft = center.x * area.scrollWidth - area.clientWidth / 2;
+            area.scrollTop = center.y * area.scrollHeight - area.clientHeight / 2;
+        };
+
+        const renderImage = (center = null) => {
+            if (activeType !== 'image' || !image.naturalWidth) return;
+            const fit = Math.min(1,
+                Math.max(1, imageScroll.clientWidth - 24) / image.naturalWidth,
+                Math.max(1, imageScroll.clientHeight - 24) / image.naturalHeight);
+            image.style.width = `${image.naturalWidth * fit * zoom}px`;
+            image.style.height = `${image.naturalHeight * fit * zoom}px`;
+            restoreCenter(imageScroll, center || { x: 0.5, y: 0.5 });
         };
 
         const clearPdf = () => {
@@ -57,11 +86,10 @@
             zoom = 1;
             pdfCanvas.width = 0;
             pdfCanvas.height = 0;
-            pdfViewer.hidden = true;
             updateControls();
         };
 
-        const renderPage = async () => {
+        const renderPage = async (center = null) => {
             if (!pdfDocument) return;
             const token = ++renderToken;
             if (renderTask) renderTask.cancel();
@@ -75,7 +103,8 @@
                 const availableWidth = Math.max(280, pdfScroll.clientWidth - 28);
                 const fit = Math.min(1.5, availableWidth / natural.width);
                 const viewport = page.getViewport({ scale: fit * zoom });
-                const ratio = Math.min(window.devicePixelRatio || 1, 2);
+                const ratio = Math.min(window.devicePixelRatio || 1, 2,
+                    Math.sqrt(16000000 / (viewport.width * viewport.height)));
                 pdfCanvas.width = Math.ceil(viewport.width * ratio);
                 pdfCanvas.height = Math.ceil(viewport.height * ratio);
                 pdfCanvas.style.width = `${viewport.width}px`;
@@ -86,7 +115,7 @@
                 await task.promise;
                 if (token !== renderToken) return;
                 renderTask = null;
-                pdfScroll.scrollTop = 0;
+                restoreCenter(pdfScroll, center || { x: 0.5, y: 0 });
                 loading.hidden = true;
             } catch (error) {
                 if (token !== renderToken || error?.name === 'RenderingCancelledException') return;
@@ -94,18 +123,10 @@
             }
         };
 
-        const openPdf = async (fileUrl, token) => {
+        const openPdf = async (data, token) => {
             try {
                 if (!window.FixiePDF?.load) throw new Error('PDF preview unavailable');
-                const [pdfjs, response] = await Promise.all([
-                    window.FixiePDF.load(),
-                    fetch(fileUrl, { credentials: 'same-origin' })
-                ]);
-                if (token !== previewToken) return;
-                if (!response.ok || !response.headers.get('content-type')?.toLowerCase().includes('pdf')) {
-                    throw new Error('Protected file could not be opened');
-                }
-                const data = new Uint8Array(await response.arrayBuffer());
+                const pdfjs = await window.FixiePDF.load();
                 if (token !== previewToken) return;
                 const task = pdfjs.getDocument({ data });
                 loadingTask = task;
@@ -116,6 +137,8 @@
                 }
                 loadingTask = null;
                 pdfDocument = document;
+                activeType = 'pdf';
+                viewer.hidden = false;
                 pdfViewer.hidden = false;
                 await renderPage();
             } catch (_) {
@@ -125,54 +148,126 @@
 
         const showFallback = message => {
             loading.hidden = true;
-            image.hidden = true;
+            viewer.hidden = true;
+            imageScroll.hidden = true;
             pdfViewer.hidden = true;
             fallback.querySelector('p').textContent = message;
             fallback.hidden = false;
         };
 
+        const openFile = async (fileUrl, hint, name, token) => {
+            fetchController = new AbortController();
+            try {
+                const response = await fetch(fileUrl, { credentials: 'same-origin', signal: fetchController.signal });
+                if (token !== previewToken) return;
+                if (!response.ok) throw new Error('Protected file could not be opened');
+                const mime = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+                const blob = await response.blob();
+                if (token !== previewToken) return;
+                const isPdf = mime === 'application/pdf' ||
+                    (hint === 'pdf' && mime === 'application/octet-stream');
+                const isImage = /^image\/(png|jpeg|gif|webp)$/.test(mime) ||
+                    (hint === 'image' && mime === 'application/octet-stream');
+                if (isPdf) {
+                    await openPdf(new Uint8Array(await blob.arrayBuffer()), token);
+                } else if (isImage) {
+                    activeType = 'image';
+                    image.alt = 'Preview of ' + name;
+                    image.onload = () => {
+                        if (token !== previewToken) return;
+                        viewer.hidden = false;
+                        imageScroll.hidden = false;
+                        loading.hidden = true;
+                        updateControls();
+                        renderImage();
+                    };
+                    image.onerror = () => { if (token === previewToken) showFallback('This image could not be previewed. Download the file to review it.'); };
+                    imageUrl = URL.createObjectURL(blob);
+                    image.src = imageUrl;
+                } else {
+                    showFallback('Please download and open this file to review it before you continue.');
+                }
+            } catch (error) {
+                if (token === previewToken && error?.name !== 'AbortError') {
+                    showFallback('This file could not be previewed. Download it to review the file.');
+                }
+            }
+        };
+
+        const resetPreview = () => {
+            if (fetchController) fetchController.abort();
+            fetchController = null;
+            clearPdf();
+            activeType = null;
+            zoom = 1;
+            image.onload = null;
+            image.onerror = null;
+            image.removeAttribute('src');
+            if (imageUrl) URL.revokeObjectURL(imageUrl);
+            imageUrl = null;
+            image.style.width = '';
+            image.style.height = '';
+            viewer.hidden = true;
+            imageScroll.hidden = true;
+            pdfViewer.hidden = true;
+            updateControls();
+        };
+
         document.querySelectorAll('[data-declaration-preview]').forEach(button => {
             button.addEventListener('click', () => {
-                if (!previewModal) {
-                    window.open(button.dataset.fileUrl, '_blank', 'noopener');
-                    return;
-                }
+                if (!previewModal) return;
                 const name = button.dataset.fileName || 'Document';
                 const type = button.dataset.previewType || 'other';
                 const fileUrl = button.dataset.fileUrl || '';
                 const token = ++previewToken;
-                clearPdf();
+                resetPreview();
                 title.textContent = name;
                 download.href = fileUrl;
                 download.download = name;
                 loading.hidden = false;
                 fallback.hidden = true;
-                image.hidden = true;
-                image.removeAttribute('src');
                 previewModal.show();
-
-                if (type === 'image') {
-                    image.alt = 'Preview of ' + name;
-                    image.onload = () => { if (token === previewToken) { loading.hidden = true; image.hidden = false; } };
-                    image.onerror = () => { if (token === previewToken) showFallback('This image could not be previewed. Download the file to review it.'); };
-                    image.src = fileUrl;
-                } else if (type === 'pdf') {
-                    void openPdf(fileUrl, token);
-                } else {
-                    showFallback('Please download and open this file to review it before you continue.');
-                }
+                void openFile(fileUrl, type, name, token);
             });
         });
         previousPage.addEventListener('click', () => { if (pdfDocument && pageNumber > 1) { pageNumber--; void renderPage(); } });
         nextPage.addEventListener('click', () => { if (pdfDocument && pageNumber < pdfDocument.numPages) { pageNumber++; void renderPage(); } });
-        zoomOut.addEventListener('click', () => { if (pdfDocument && zoom > 0.75) { zoom = Math.max(0.75, +(zoom - 0.25).toFixed(2)); void renderPage(); } });
-        zoomIn.addEventListener('click', () => { if (pdfDocument && zoom < 1.5) { zoom = Math.min(1.5, +(zoom + 0.25).toFixed(2)); void renderPage(); } });
+        const changeZoom = amount => {
+            if (!activeType) return;
+            const next = Math.max(0.5, Math.min(3, +(zoom + amount).toFixed(2)));
+            if (next === zoom) return;
+            const area = activeType === 'pdf' ? pdfScroll : imageScroll;
+            const center = viewCenter(area);
+            zoom = next;
+            updateControls();
+            if (activeType === 'pdf') void renderPage(center);
+            else renderImage(center);
+        };
+        zoomOut.addEventListener('click', () => changeZoom(-0.25));
+        zoomIn.addEventListener('click', () => changeZoom(0.25));
+
+        [imageScroll, pdfScroll].forEach(area => {
+            let drag = null;
+            area.addEventListener('pointerdown', event => {
+                if (event.pointerType === 'touch' || event.button !== 0) return;
+                drag = { x: event.clientX, y: event.clientY, left: area.scrollLeft, top: area.scrollTop };
+                area.setPointerCapture(event.pointerId);
+                area.classList.add('is-dragging');
+                event.preventDefault();
+            });
+            area.addEventListener('pointermove', event => {
+                if (!drag) return;
+                area.scrollLeft = drag.left - (event.clientX - drag.x);
+                area.scrollTop = drag.top - (event.clientY - drag.y);
+            });
+            const stopDrag = () => { drag = null; area.classList.remove('is-dragging'); };
+            area.addEventListener('pointerup', stopDrag);
+            area.addEventListener('pointercancel', stopDrag);
+            area.addEventListener('lostpointercapture', stopDrag);
+        });
         previewElement.addEventListener('hidden.bs.modal', () => {
             previewToken++;
-            clearPdf();
-            image.onload = null;
-            image.onerror = null;
-            image.removeAttribute('src');
+            resetPreview();
             download.removeAttribute('href');
         });
     }

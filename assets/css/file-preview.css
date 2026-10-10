@@ -1,0 +1,58 @@
+/* One compact, full-screen file preview across record and workflow pages. */
+.drms-file-preview-open{overflow:hidden!important}
+.drms-file-preview{position:fixed;inset:0;z-index:20000;background:#e9eef5;color:#183456;font-family:inherit}
+.drms-file-preview[hidden],.drms-file-preview [hidden]{display:none!important}
+.drms-file-preview__panel{display:flex;flex-direction:column;width:100%;height:100dvh;min-height:0;background:#e9eef5}
+.drms-file-preview__header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex:none;min-height:58px;padding:9px 16px;border-bottom:1px solid #d5dfeb;background:#fff}
+.drms-file-preview__heading{display:flex;flex-direction:column;min-width:0;gap:2px}
+.drms-file-preview__heading span{color:#627b99;font-size:10px;font-weight:750;letter-spacing:.08em;text-transform:uppercase}
+.drms-file-preview__heading strong{display:block;overflow:hidden;color:#183456;font-size:14px;font-weight:700;text-overflow:ellipsis;white-space:nowrap}
+.drms-file-preview__header-actions{display:flex;align-items:center;gap:8px;flex:none}
+.drms-file-preview__download,.drms-file-preview__close{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:35px;padding:0 12px;border:1px solid #c7d5e6;border-radius:7px;background:#fff;color:#264d79;font-size:12px;font-weight:650;text-decoration:none;cursor:pointer}
+.drms-file-preview__download:hover,.drms-file-preview__close:hover{border-color:#92b1d8;background:#eef4fc;color:#194d91}
+.drms-file-preview__close{width:35px;padding:0;color:#526b87}
+.drms-file-preview :is(button,a):focus-visible{outline:2px solid #3273d5;outline-offset:2px}
+.drms-file-preview__toolbar{display:flex;align-items:center;justify-content:center;gap:16px;flex:none;min-height:46px;padding:5px 12px;border-bottom:1px solid #d5dfeb;background:#f9fbfd}
+.drms-file-preview__pages,.drms-file-preview__zoom{display:flex;align-items:center;gap:5px}
+.drms-file-preview__toolbar button{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border:1px solid #c8d6e7;border-radius:7px;background:#fff;color:#315576;cursor:pointer}
+.drms-file-preview__toolbar button:hover:not(:disabled){border-color:#9ab9df;background:#eef4fc}
+.drms-file-preview__toolbar button:disabled{opacity:.42;cursor:not-allowed}
+.drms-file-preview__pages span,.drms-file-preview__zoom span{color:#35516f;font-size:12px;font-weight:650;text-align:center}
+.drms-file-preview__pages span{min-width:96px}
+.drms-file-preview__zoom span{min-width:44px}
+.drms-file-preview__hint{color:#667e99;font-size:11px;white-space:nowrap}
+.drms-file-preview__body{position:relative;display:flex;align-items:center;justify-content:center;flex:1;min-height:0;overflow:hidden;background:#e9eef5}
+.drms-file-preview__status{position:absolute;inset:0;z-index:2;display:flex;align-items:center;justify-content:center;background:rgba(233,238,245,.9);color:#4d6684;font-size:13px;font-weight:600}
+.drms-file-preview__area{width:100%;height:100%;padding:12px;overflow:auto;text-align:center;cursor:grab;touch-action:pan-x pan-y}
+.drms-file-preview__area.is-dragging{cursor:grabbing;user-select:none}
+.drms-file-preview__area img,.drms-file-preview__area canvas{display:block;max-width:none;max-height:none;margin:auto;background:#fff;box-shadow:0 2px 12px rgba(22,38,58,.14);user-select:none}
+.drms-file-preview__fallback{max-width:360px;margin:16px;padding:22px;border:1px solid #ccdaeb;border-radius:10px;background:#fff;text-align:center}
+.drms-file-preview__fallback i{display:block;margin-bottom:10px;color:#2a64c5;font-size:26px}
+.drms-file-preview__fallback strong{display:block;color:#183456;font-size:15px}
+.drms-file-preview__fallback p{margin:6px 0 0;color:#607790;font-size:12px;line-height:1.45}
+[data-esign-preview] img,[data-esign-current-image]{cursor:zoom-in}
+
+/* The upload preview retains its existing PDF, Office and image readers. */
+.record-upload-modal .record-upload-preview-panel{inset:0!important;z-index:20001!important;padding:0!important;background:#e9eef5!important}
+.record-upload-modal .record-upload-preview-shell{width:100%!important;height:100dvh!important;max-width:none!important;min-height:0!important;border:0!important;border-radius:0!important;box-shadow:none!important}
+.record-upload-modal .record-upload-preview-content{flex:1;min-height:0;background:#e9eef5!important}
+.record-upload-modal .record-upload-pan-hint{display:none!important}
+.record-upload-modal .drms-file-preview__toolbar #uploadZoomLevel{min-width:44px;color:#35516f;font-size:12px;font-weight:650}
+
+@media(max-width:575px){
+    .drms-file-preview__header{min-height:52px;padding:7px 10px}
+    .drms-file-preview__download{width:35px;padding:0}
+    .drms-file-preview__download span{display:none}
+    .drms-file-preview__toolbar{gap:10px;padding:5px 8px}
+    .drms-file-preview__hint{display:none}
+    .drms-file-preview__area{padding:7px}
+}
+html[data-drms-theme="dark"] .drms-file-preview,html[data-drms-theme="dark"] .drms-file-preview__panel,html[data-drms-theme="dark"] .drms-file-preview__body{background:#171e26;color:#e6edf5}
+html[data-drms-theme="dark"] .drms-file-preview__header,html[data-drms-theme="dark"] .drms-file-preview__toolbar{background:#252d38;border-color:#46515f}
+html[data-drms-theme="dark"] .drms-file-preview__heading strong,html[data-drms-theme="dark"] .drms-file-preview__fallback strong{color:#e6edf5}
+html[data-drms-theme="dark"] .drms-file-preview__heading span,html[data-drms-theme="dark"] .drms-file-preview__hint,html[data-drms-theme="dark"] .drms-file-preview__fallback p{color:#b4c2d0}
+html[data-drms-theme="dark"] .drms-file-preview__download,html[data-drms-theme="dark"] .drms-file-preview__close,html[data-drms-theme="dark"] .drms-file-preview__toolbar button,html[data-drms-theme="dark"] .drms-file-preview__fallback{background:#293542;border-color:#536578;color:#e3eaf3}
+html[data-drms-theme="dark"] .drms-file-preview__pages span,html[data-drms-theme="dark"] .drms-file-preview__zoom span{color:#e3eaf3}
+html[data-drms-theme="dark"] .drms-file-preview__status{background:rgba(23,30,38,.92);color:#b9c7d6}
+html[data-drms-theme="dark"] .record-upload-modal .record-upload-preview-panel,html[data-drms-theme="dark"] .record-upload-modal .record-upload-preview-content{background:#171e26!important}
+html[data-drms-theme="dark"] .record-upload-modal .drms-file-preview__toolbar #uploadZoomLevel{color:#e3eaf3}

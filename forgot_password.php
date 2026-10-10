@@ -19,9 +19,11 @@ $notice = trim($_GET['notice'] ?? '');
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Account Recovery - Fixie DRMS</title>
+    <link rel="icon" type="image/png" href="assets/images/fixie_logo.png?v=<?php echo (string) (@filemtime(__DIR__ . '/assets/images/fixie_logo.png') ?: 1); ?>">
     <link href="assets/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/all.min.css">
     <link href="assets/css/style.css" rel="stylesheet">
+    <link href="assets/css/auth-brand.css?v=<?php echo (string) (@filemtime(__DIR__ . '/assets/css/auth-brand.css') ?: 1); ?>" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/system-feedback.css?v=<?php echo file_exists(__DIR__ . '/assets/css/system-feedback.css') ? filemtime(__DIR__ . '/assets/css/system-feedback.css') : '1'; ?>">
     <link rel="stylesheet" href="assets/css/loading-skeleton.css?v=<?php echo filemtime(__DIR__ . '/assets/css/loading-skeleton.css'); ?>">
     <script src="assets/js/loading-skeleton.js?v=<?php echo filemtime(__DIR__ . '/assets/js/loading-skeleton.js'); ?>" defer></script>

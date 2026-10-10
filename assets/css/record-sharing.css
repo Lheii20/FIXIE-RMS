@@ -1,0 +1,43 @@
+.record-share-modal .modal-dialog{max-width:540px;margin:12px auto}
+.record-share-modal .modal-content{border:1px solid #cbd7e8;border-radius:12px;box-shadow:0 18px 48px rgba(17,36,65,.16);overflow:hidden;color:#152b4a}
+.record-share-modal form{display:flex;flex-direction:column;min-height:0;max-height:min(90dvh,720px)}
+.record-share-modal .modal-header{display:flex;align-items:flex-start;gap:16px;padding:18px 20px 14px;border-bottom:1px solid #e3eaf4;background:#fff}
+.record-share-modal .record-share-title-wrap{min-width:0;flex:1}
+.record-share-modal .modal-title{margin:0;color:#102749;font-size:1.18rem;line-height:1.3;font-weight:700}
+.record-share-modal .record-share-file-name{margin:5px 0 0;color:#234369;font-size:.88rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.record-share-modal .record-share-owner{display:block;margin-top:2px;color:#687b94;font-size:.74rem}
+.record-share-modal .btn-close{margin:2px 0 0;opacity:.7}
+.record-share-modal .modal-body{min-height:0;overflow:auto;padding:17px 20px 14px;background:#fff}
+.record-share-modal .record-share-scope{margin:0;padding:0;border:0}
+.record-share-modal .record-share-scope legend{float:none;width:auto;margin:0 0 9px;padding:0;color:#183558;font-size:.83rem;font-weight:700}
+.record-share-modal .record-share-choice{display:flex;align-items:flex-start;gap:10px;width:100%;margin:0 0 7px;padding:10px 11px;border:1px solid #d6e1ef;border-radius:8px;background:#fff;cursor:pointer;transition:border-color .15s,background-color .15s}
+.record-share-modal .record-share-choice:has(input:checked){border-color:#88a9e6;background:#f5f9ff}
+.record-share-modal .record-share-choice input{flex:0 0 auto;width:16px;height:16px;margin:2px 0 0;accent-color:#1e5bd4}
+.record-share-modal .record-share-choice span{display:block;min-width:0}
+.record-share-modal .record-share-choice strong{display:block;color:#19375d;font-size:.84rem;line-height:1.3}
+.record-share-modal .record-share-choice small{display:block;margin-top:2px;color:#64758d;font-size:.74rem;line-height:1.35}
+.record-share-modal .record-share-people-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin:14px 0 9px}
+.record-share-modal .record-share-people-heading h3{margin:0;color:#183558;font-size:.83rem;font-weight:700}
+.record-share-modal .record-share-people-heading p{margin:2px 0 0;color:#687b94;font-size:.74rem}
+.record-share-modal #shareSelectedCount{flex:0 0 auto;color:#416288;font-size:.73rem;font-weight:600}
+.record-share-modal .record-share-search{display:flex;align-items:center;gap:9px;height:37px;margin-bottom:8px;padding:0 10px;border:1px solid #cbd8e9;border-radius:7px;color:#71849c;background:#fff}
+.record-share-modal .record-share-search:focus-within{border-color:#4275d4;box-shadow:0 0 0 2px rgba(66,117,212,.1)}
+.record-share-modal .record-share-search input{width:100%;min-width:0;border:0;outline:0;background:transparent;color:#183558;font-size:.83rem}
+.record-share-modal .record-share-people-list{max-height:238px;overflow:auto;border:1px solid #e0e7f1;border-radius:8px;background:#fff}
+.record-share-modal .record-share-person{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:55px;padding:8px 11px;border-bottom:1px solid #edf1f6}
+.record-share-modal .record-share-person.is-selected{background:#f7faff}
+.record-share-modal .record-share-person:last-of-type{border-bottom:0}
+.record-share-modal .record-share-person-details{min-width:0}
+.record-share-modal .record-share-person-details strong{display:block;color:#1d3554;font-size:.8rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.record-share-modal .record-share-person-details small{display:block;color:#75869c;font-size:.7rem}
+.record-share-modal .record-share-person select{flex:0 0 auto;max-width:139px;height:34px;padding:0 24px 0 8px;border:1px solid #cbd8e9;border-radius:6px;background:#fff;color:#233e60;font-size:.76rem}
+.record-share-modal .record-share-person select:focus-visible,.record-share-modal .record-share-choice:focus-within{outline:2px solid #8bacf0;outline-offset:1px}
+.record-share-modal .record-share-empty{margin:0;padding:15px;color:#6c7f96;text-align:center;font-size:.78rem}
+.record-share-modal [hidden]{display:none!important}
+.record-share-modal .record-share-summary{margin:9px 0 0;color:#45607e;font-size:.74rem;line-height:1.4}
+.record-share-modal .modal-footer{display:flex;justify-content:flex-end;gap:8px;padding:11px 20px;border-top:1px solid #e3eaf4;background:#f8fafd}
+.record-share-modal .modal-footer .btn{min-height:36px;padding:7px 15px;border-radius:7px;font-size:.8rem;font-weight:600;box-shadow:none}
+.record-share-modal .record-share-cancel{border:1px solid #cbd8e9;background:#fff;color:#2e4665}
+.record-share-modal .record-share-save{border:1px solid #1f5bd0;background:#1f5bd0;color:#fff}
+.record-share-modal .record-share-save:hover{background:#174bb0;color:#fff}
+@media(max-width:575px){.record-share-modal .modal-dialog{margin:8px}.record-share-modal form{max-height:calc(100dvh - 16px)}.record-share-modal .modal-header{padding:14px 15px 12px}.record-share-modal .modal-body{padding:14px 15px}.record-share-modal .modal-footer{padding:10px 15px}.record-share-modal .record-share-people-list{max-height:30dvh}}

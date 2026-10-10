@@ -36,6 +36,15 @@ $can_access_collections = drms_rbac_role_can_access_module($role, 'collections')
 ?>
 
 <script>document.documentElement.dataset.drmsTheme = <?php echo json_encode($drms_preferences['theme'], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;</script>
+<script>
+    (function () {
+        var icon = document.querySelector('link[rel="icon"]') || document.createElement('link');
+        icon.rel = 'icon';
+        icon.type = 'image/png';
+        icon.href = 'assets/images/fixie_logo.png?v=<?php echo (string) (@filemtime(__DIR__ . '/assets/images/fixie_logo.png') ?: 1); ?>';
+        if (!icon.parentNode) document.head.appendChild(icon);
+    })();
+</script>
 
 <link
     href="assets/css/app-shell.css?v=<?php echo file_exists(__DIR__ . '/assets/css/app-shell.css') ? filemtime(__DIR__ . '/assets/css/app-shell.css') : '1'; ?>"
@@ -675,4 +684,6 @@ setInterval(function() {
     .catch(error => {});
 }, 30000);
 </script>
+<link rel="stylesheet" href="assets/css/file-preview.css?v=<?php echo (string) (@filemtime(__DIR__ . '/assets/css/file-preview.css') ?: 1); ?>">
+<script defer src="assets/js/file-preview.js?v=<?php echo (string) (@filemtime(__DIR__ . '/assets/js/file-preview.js') ?: 1); ?>"></script>
 

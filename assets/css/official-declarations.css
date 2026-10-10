@@ -204,16 +204,23 @@ html[data-drms-theme="dark"] .dec-workspace .dec-form-footer .dec-cancel:hover{b
 .dec-preview-close:hover{background:#edf4fc;color:#174f9d}
 .dec-preview-modal .modal-body{position:relative;display:flex;align-items:center;justify-content:center;min-height:280px;height:min(70dvh,700px);padding:0;overflow:hidden;background:#e9eef5}
 .dec-preview-loading{position:absolute;inset:0;z-index:2;display:flex;align-items:center;justify-content:center;background:rgba(233,238,245,.9);color:#4f6783;font-size:13px;font-weight:600}
-.dec-preview-image{display:block;max-width:100%;max-height:100%;object-fit:contain}
-.dec-preview-image[hidden],.dec-pdf-viewer[hidden],.dec-preview-loading[hidden],.dec-preview-fallback[hidden]{display:none}
-.dec-pdf-viewer{display:flex;flex-direction:column;width:100%;height:100%;min-height:0}
-.dec-pdf-toolbar{display:flex;align-items:center;justify-content:center;gap:5px;flex:0 0 42px;border-bottom:1px solid #cad6e5;background:#fff}
+.dec-preview-viewer{display:flex;flex-direction:column;width:100%;height:100%;min-height:0}
+.dec-preview-viewer[hidden],.dec-image-page[hidden],.dec-pdf-viewer[hidden],.dec-preview-loading[hidden],.dec-preview-fallback[hidden],.dec-preview-page-controls[hidden]{display:none}
+.dec-preview-image{display:block;max-width:none;max-height:none;object-fit:contain;user-select:none}
+.dec-image-page,.dec-pdf-page{flex:1;min-height:0;padding:12px;overflow:auto;cursor:grab;touch-action:pan-x pan-y}
+.dec-image-page.is-dragging,.dec-pdf-page.is-dragging{cursor:grabbing;user-select:none}
+.dec-image-page{display:flex;align-items:safe center;justify-content:safe center}
+.dec-pdf-viewer{display:flex;flex:1;min-height:0;width:100%}
+.dec-pdf-toolbar{display:flex;align-items:center;justify-content:center;gap:5px;flex:0 0 42px;padding:0 6px;border-bottom:1px solid #cad6e5;background:#fff}
+.dec-preview-page-controls{display:flex;align-items:center;gap:5px}
+.dec-preview-zoom-level{min-width:42px;color:#304a69;font-size:12px;font-weight:650;text-align:center}
+.dec-preview-drag-hint{margin-left:8px;color:#657b97;font-size:11px;white-space:nowrap}
 .dec-pdf-toolbar button{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border:1px solid #cad6e5;border-radius:7px;background:#fff;color:#274c7c;cursor:pointer}
 .dec-pdf-toolbar button:hover:not(:disabled){background:#eef4fd;border-color:#9db9db}
 .dec-pdf-toolbar button:disabled{opacity:.42;cursor:not-allowed}
 .dec-pdf-toolbar [data-preview-page]{min-width:100px;color:#304a69;font-size:12px;font-weight:650;text-align:center}
 .dec-pdf-toolbar-divider{height:19px;margin:0 4px;border-left:1px solid #cad6e5}
-.dec-pdf-page{flex:1;min-height:0;padding:12px;overflow:auto;text-align:center}
+.dec-pdf-page{text-align:center}
 .dec-pdf-page canvas{display:block;max-width:none;margin:0 auto;background:#fff;box-shadow:0 2px 12px rgba(22,38,58,.13)}
 .dec-preview-fallback{max-width:380px;padding:18px;border:1px solid #ccdaeb;border-radius:9px;background:#fff;color:#274364;text-align:center}
 .dec-preview-fallback>i{color:#2a64c5;font-size:27px}
@@ -230,7 +237,8 @@ html[data-drms-theme="dark"] .dec-workspace .dec-form-footer .dec-cancel:hover{b
     .dec-preview-modal .modal-dialog{max-width:none;margin:6px}
     .dec-preview-modal .modal-header,.dec-preview-modal .modal-footer{padding:8px}
     .dec-preview-modal .modal-body{min-height:220px;height:calc(100dvh - 148px)}
-    .dec-pdf-page{padding:7px}
+    .dec-pdf-page,.dec-image-page{padding:7px}
+    .dec-preview-drag-hint{display:none}
     .dec-preview-modal .modal-footer .dec-btn{flex:1;min-width:0}
 }
 html[data-drms-theme="dark"] .dec-preview-modal .modal-content{background:#1f252d;border-color:#46515f}
@@ -245,6 +253,8 @@ html[data-drms-theme="dark"] .dec-preview-loading{background:rgba(23,30,38,.92);
 html[data-drms-theme="dark"] .dec-pdf-toolbar{background:#252d38;border-color:#46515f}
 html[data-drms-theme="dark"] .dec-pdf-toolbar button{background:#303b48;border-color:#617185;color:#e3eaf3}
 html[data-drms-theme="dark"] .dec-pdf-toolbar [data-preview-page]{color:#e3eaf3}
+html[data-drms-theme="dark"] .dec-preview-zoom-level{color:#e3eaf3}
+html[data-drms-theme="dark"] .dec-preview-drag-hint{color:#b4c2d0}
 
 /* Focused declaration form: one reading path, no empty split pane. */
 .dec-workspace-editor{max-width:none;padding-top:14px}
